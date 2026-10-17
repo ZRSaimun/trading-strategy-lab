@@ -28,10 +28,10 @@ export async function localAPI(path:string,init?:RequestInit):Promise<any>{
  }
 
  if(url.pathname.startsWith('/research/')){
-  const kind=url.pathname.split('/')[2];if(!['backtests','journal'].includes(kind))throw Error('Unknown research record type');
+  const kind=url.pathname.split('/')[2];if(!['backtests','journal','alert-rules','alert-events'].includes(kind))throw Error('Unknown research record type');
   const key='research:'+kind;const records=(await read(key)||[]) as Array<{id:string}>;
   if(method==='GET')return records;
-  if(method==='PUT'){const b=body();if(!/^[a-zA-Z0-9-]{1,80}$/.test(b.id)||typeof b.title!=='string'||b.title.length>200||typeof b.payload!=='object'||JSON.stringify(b).length>6000000)throw Error('Invalid or oversized research record');await write(key,[b,...records.filter(r=>r.id!==b.id)].slice(0,kind==='journal'?500:20));await log('research.'+kind+'.save',{id:b.id,title:b.title});return b}
+  if(method==='PUT'){const b=body();if(kind==='alert-events'&&records.some(r=>r.id===b.id))return records.find(r=>r.id===b.id);if(!/^[a-zA-Z0-9-]{1,128}$/.test(b.id)||typeof b.title!=='string'||b.title.length>200||typeof b.payload!=='object'||JSON.stringify(b).length>6000000)throw Error('Invalid or oversized research record');await write(key,[b,...records.filter(r=>r.id!==b.id)].slice(0,kind==='alert-rules'?100:kind==='backtests'?20:500));await log('research.'+kind+'.save',{id:b.id,title:b.title});return b}
   throw Error('Unsupported research operation');
  }
  const parts=url.pathname.split('/').filter(Boolean),i=parts[1];valid(i);

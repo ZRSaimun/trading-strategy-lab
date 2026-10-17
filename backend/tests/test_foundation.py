@@ -86,3 +86,14 @@ def test_research_storage_authenticated_and_audited(client):
     assert client.get('/api/research/backtests').json()[0]['payload']['status']=='SIMULATED ONLY'
     assert client.put('/api/research/invalid',json=doc).status_code==422
     assert any(r['action']=='research.backtests.save' for r in client.get('/api/audit').json())
+
+
+def test_alert_event_is_authenticated_idempotent_and_audited_once(client):
+    doc={'id':'rule-v1-'+'a'*64+'-1700000000','title':'Historical level observation','created_at':1700000000,'payload':{'mode':'HISTORICAL REPLAY','execution':'NONE'}}
+    assert client.get('/api/research/alert-events').status_code==401
+    unlock(client)
+    assert client.put('/api/research/alert-events',json=doc).status_code==200
+    changed={**doc,'title':'Changed replay event'}
+    assert client.put('/api/research/alert-events',json=changed).json()['title']==doc['title']
+    assert len(client.get('/api/research/alert-events').json())==1
+    assert len([r for r in client.get('/api/audit').json() if r['action']=='research.alert-events.save'])==1

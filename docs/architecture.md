@@ -17,3 +17,7 @@ A conditional static export removes server rewrites and uses a separate IndexedD
 ## Historical simulator
 
 `frontend/lib/backtest.ts` is a deterministic research engine isolated from charts and transport. A forward-only candidate state machine feeds next-open execution. Configuration, raw candle snapshot, versions and modeled trades can be exported. The same UI computation works with Pages data or authenticated API chart data. Saved reports are client-supplied research records; server computation and verification are not claimed. See backtesting.md.
+
+## Replay alerts
+
+A pure conditional engine consumes only revealed completed-bar prefixes. The chart enqueues new-bar evaluations serially, including batched forward advances. Research rules and events use the same owner-authenticated database record interface or browser IndexedDB adapter; source/dataset/rule-scoped event identities support sequential idempotency. This is not a continuously running server alert worker. See alerts.md.

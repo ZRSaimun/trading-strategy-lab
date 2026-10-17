@@ -1,4 +1,6 @@
 'use client';
+import Alerts from './Alerts';
+import {evaluateAdvance,type AlertRule,type AlertEvent} from '../lib/alerts';
 import Backtesting from './Backtesting';
 import {localAPI} from '../lib/local-api';
 import {analyze,replayPrefix} from '../lib/research';
@@ -12,7 +14,7 @@ type Dataset={source:string;rows:number;start:number;end:number;gaps:number;volu
 type Payload={candles:Bar[];has_more?:boolean;dataset:Dataset|null;quality:{state:string;message?:string}};
 const FRAMES=['1m','3m','5m','15m','30m','1H','2H','4H','1D','1W','1M'];
 const PAGES=process.env.NEXT_PUBLIC_DEPLOYMENT==='pages';
-const NAV=['Charts','Backtesting','Trading Journal','Watchlist','Data Sources','Audit Log'];
+const NAV=['Charts','Backtesting','Trading Journal','Research Alerts','Watchlist','Data Sources','Audit Log'];
 async function api(path:string,init?:RequestInit){if(PAGES)return localAPI(path,init);const res=await fetch('/api'+path,init);if(!res.ok){let msg=await res.text();try{msg=JSON.parse(msg).detail}catch{}throw Error(typeof msg==='string'?msg:JSON.stringify(msg))}return res.json()}
 const json=(body:unknown)=>({headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
 const stamp=(t:number)=>new Date(t*1000).toLocaleString('en-GB',{timeZone:'Europe/London',timeZoneName:'short'});
@@ -26,6 +28,9 @@ export default function Terminal(){
  const [tool,setTool]=useState<Drawing['kind']|null>(null),[first,setFirst]=useState<Point|null>(null);
  const [watchlist,setWatchlist]=useState<string[]>([]),[logs,setLogs]=useState<Array<{id:number;time:number;action:string;detail:unknown}>>([]);
  const [replaying,setReplaying]=useState(false),[cursor,setCursor]=useState(1);
+ const [alertRules,setAlertRules]=useState<AlertRule[]>([]),[alertGeneration,setAlertGeneration]=useState(0),[alertsReady,setAlertsReady]=useState(false),[latestAlert,setLatestAlert]=useState<AlertEvent|null>(null);
+ const seenAlertIds=useRef(new Set<string>()),alertQueue=useRef(Promise.resolve());
+ const lastRevealed=useRef<{key:string;count:number}|null>(null);
  const [busy,setBusy]=useState(false),[light,setLight]=useState(false);
  const host=useRef<HTMLDivElement>(null),chart=useRef<IChartApi|null>(null),series=useRef<ISeriesApi<'Candlestick'>|null>(null);
  const [revision,setRevision]=useState(0);
@@ -43,6 +48,7 @@ export default function Terminal(){
  },[instrument,frame]);
  useEffect(()=>{if(authenticated){reload().catch(report);api('/watchlist').then(setWatchlist).catch(report)}},[authenticated,reload,report]);
  useEffect(()=>{if(authenticated&&page==='Audit Log')api('/audit').then(setLogs).catch(report)},[authenticated,page,report]);
+ useEffect(()=>{if(!authenticated)return;setAlertsReady(false);Promise.all([api('/research/alert-rules'),api('/research/alert-events')]).then(([rules,events])=>{setAlertRules(rules);seenAlertIds.current=new Set(events.map((e:AlertEvent)=>e.id));setAlertsReady(true)}).catch(report)},[authenticated,alertGeneration,report]);
  const persistRef=useRef<(d:Drawing)=>Promise<void>>(async()=>{});
  persistRef.current=async d=>{try{const saved=await api('/drawings/'+instrumentRef.current,{method:'PUT',...json(d)});setDrawings(old=>[...old.filter(x=>x.id!==saved.id),saved]);setSelected(saved);setNotice('Drawing saved to database')}catch(e){report(e)}};
  useEffect(()=>{
@@ -64,6 +70,18 @@ export default function Terminal(){
  },[authenticated,page,light]);
  const visibleCandles=replaying?replayPrefix(payload.candles,cursor):payload.candles;
  const detections=useMemo(()=>analyze(visibleCandles,2,frame),[payload,replaying,cursor,frame]);
+ useEffect(()=>{
+  if(!authenticated||!alertsReady||!replaying||page!=='Charts'||!payload.dataset){lastRevealed.current=null;return}
+  const key=instrument+':'+frame+':'+payload.dataset.sha256;
+  const previous=lastRevealed.current;lastRevealed.current={key,count:cursor};
+  if(!previous||previous.key!==key||cursor<=previous.count)return;
+  const snapshot=visibleCandles,fromCount=previous.count,context={instrument,timeframe:frame,source:payload.dataset.source,datasetHash:payload.dataset.sha256};
+  alertQueue.current=alertQueue.current.then(async()=>{
+   for(const event of evaluateAdvance(alertRules,snapshot,fromCount,snapshot.length,context,seenAlertIds.current)){
+    await api('/research/alert-events',{method:'PUT',...json(event)});seenAlertIds.current.add(event.id);setLatestAlert(event);
+   }
+  }).catch(report);
+ },[authenticated,alertsReady,replaying,page,payload,cursor,frame,instrument,alertRules,report]);
  useEffect(()=>{if(series.current){series.current.setData(visibleCandles.map(b=>({...b,time:b.time as UTCTimestamp})));chart.current?.timeScale().fitContent();setRevision(x=>x+1)}},[payload,replaying,cursor,authenticated,page,light]);
  useEffect(()=>{
   const s=series.current;if(!s)return;
@@ -81,9 +99,9 @@ export default function Terminal(){
  const geometry=(replaying?[]:drawings).filter(d=>d.kind!=='horizontal').map(d=>({d,p:d.points.map(p=>({x:chart.current?.timeScale().timeToCoordinate(p.time as Time),y:series.current?.priceToCoordinate(p.price)}))}));
  void revision;
  return <div className={'terminal '+(light?'light':'')}>
-  <aside className="rail"><div className="brand">◈</div><b>TSL<span>RESEARCH TERMINAL</span></b><nav>{NAV.map((name,i)=><button key={name} className={page===name?'active':''} onClick={()=>setPage(name)}><span>{['▥','◫','▤','☆','⇧','≡'][i]}</span>{name}</button>)}</nav><div className="rail-bottom"><span className="badge">RESEARCH BUILD · V0.3</span><p>Evidence before action.</p><button onClick={()=>setLight(!light)}>{light?'Dark':'Light'} theme</button><button disabled={PAGES} onClick={async()=>{try{await api('/logout',{method:'POST'});setAuthenticated(false)}catch(e){report(e)}}}>{PAGES?'Close tab to leave':'Lock workspace ↗'}</button></div></aside>
+  <aside className="rail"><div className="brand">◈</div><b>TSL<span>RESEARCH TERMINAL</span></b><nav>{NAV.map((name,i)=><button key={name} className={page===name?'active':''} onClick={()=>setPage(name)}><span>{['▥','◫','▤','♧','☆','⇧','≡'][i]}</span>{name}</button>)}</nav><div className="rail-bottom"><span className="badge">RESEARCH BUILD · V0.4</span><p>Evidence before action.</p><button onClick={()=>setLight(!light)}>{light?'Dark':'Light'} theme</button><button disabled={PAGES} onClick={async()=>{try{await api('/logout',{method:'POST'});setAuthenticated(false)}catch(e){report(e)}}}>{PAGES?'Close tab to leave':'Lock workspace ↗'}</button></div></aside>
   <main><header><div><span className="eyebrow">{PAGES?'BROWSER-LOCAL RESEARCH WORKSPACE':'YOUR PRIVATE MARKET WORKSPACE'}</span><h1>{page}</h1></div><div className="header-right"><span className="status"><i/>Research only</span><span>Europe/London</span></div></header>
-  {PAGES&&<div className="banner">Public app interface · Your imported data and drawings stay in this browser’s IndexedDB. No server login, cloud backup or AI connection. Export important drawings; use Docker for the private server.</div>}{error&&<div role="alert" className="banner error" onClick={()=>setError('')}>{error} · Dismiss</div>}{notice&&<div role="status" className="banner" onClick={()=>setNotice('')}>{notice} · Dismiss</div>}
+  {latestAlert&&<div className="banner" role="status">{latestAlert.title} · {latestAlert.payload.state} · {stamp(latestAlert.payload.observedAt)} · Historical replay only <button onClick={()=>{setPage('Research Alerts');setLatestAlert(null)}}>View event history</button><button onClick={()=>setLatestAlert(null)}>Dismiss</button></div>}{PAGES&&<div className="banner">Public app interface · Your imported data and drawings stay in this browser’s IndexedDB. No server login, cloud backup or AI connection. Export important drawings; use Docker for the private server.</div>}{error&&<div role="alert" className="banner error" onClick={()=>setError('')}>{error} · Dismiss</div>}{notice&&<div role="status" className="banner" onClick={()=>setNotice('')}>{notice} · Dismiss</div>}
   <div className="market-strip"><div><small>RESEARCH INSTRUMENT</small><strong>{instrument==='XAUUSD-IMPORT'?'XAU / USD':'NASDAQ 100'}</strong></div><div><small>LAST IMPORTED CLOSE</small><strong>{last?.close.toLocaleString('en-GB',{maximumFractionDigits:2})??'—'}</strong></div><div><small>DATA STATUS</small><strong className="amber">{payload.quality.state}</strong></div><div><small>EXECUTION</small><strong>Disabled</strong></div></div>
   {page==='Charts'&&<div className="chart-layout"><section className="chart-card"><div className="toolbar"><select aria-label="Instrument" value={instrument} onChange={e=>{setInstrument(e.target.value);setFirst(null);setTool(null)}}><option value="XAUUSD-IMPORT">Gold · XAUUSD · CSV</option><option value="NDX-IMPORT">Nasdaq-100 · cash index · CSV</option></select><div className="timeframes">{FRAMES.map(f=><button className={f===frame?'chosen':''} key={f} onClick={()=>setFrame(f)}>{f}</button>)}</div></div>
   <div className="drawing-tools">{(['horizontal','trendline','rectangle','note'] as const).map(t=><button key={t} className={tool===t?'chosen':''} onClick={()=>{setTool(tool===t?null:t);setFirst(null)}}>{t==='rectangle'?'▱ Zone':t==='horizontal'?'― Level':t==='trendline'?'╱ Trendline':'T Note'}</button>)}<button onClick={()=>{setTool(null);setFirst(null)}}>Pointer</button><button onClick={()=>chart.current?.timeScale().fitContent()}>Fit chart</button><button onClick={exportDrawings}>Export JSON</button></div>
@@ -91,6 +109,7 @@ export default function Terminal(){
   <footer>{tool?`${tool}: click ${first?'the second':'a'} chart coordinate`:'Pan · Zoom · Crosshair'}<span>{payload.dataset?`${payload.dataset.source} · ${stamp(last?.time??payload.dataset.end)}`:'No data provider connected'}</span></footer></section>
   <aside className="inspector"><section><span className="eyebrow">RESEARCH GUARDRAILS</span><h2>Wait for evidence<span className="accent">.</span></h2><span className="state">{payload.quality.state}</span><p>{payload.quality.message||'Import a dataset to begin. Import completed one-minute bars to inspect research patterns. Live feeds and demo signals are not connected.'}</p><dl><dt>Chart source</dt><dd>{payload.dataset?.source||'Not configured'}</dd><dt>Imported bars</dt><dd>{payload.dataset?.rows.toLocaleString()||'—'}</dd><dt>Volume</dt><dd>{payload.dataset?.volume_type||'Unavailable'}</dd><dt>Gap intervals</dt><dd>{payload.dataset?.gaps??'—'}</dd></dl></section><section><h3>Completed-bar observations · v1</h3><p>WAIT — pattern formation only. No entry, MSS/CHOCH, defended retest or profitability inferred.</p>{detections.slice(-6).reverse().map((d,i)=><details key={i}><summary>{d.kind} · {d.level}</summary><p>{stamp(d.observed_at)}<br/>{d.explanation}</p></details>)}</section>{!replaying&&<section><div className="section-title"><h3>Saved drawings</h3><span>{drawings.length}</span></div><p>Manual · stored by exact UTC time and price.</p><div className="drawing-list">{drawings.map(d=><button key={d.id} onClick={()=>setSelected({...d,points:d.points.map(p=>({...p}))})}>{d.kind} <small>{d.text||d.id.slice(0,8)} · v{d.version}</small></button>)}</div>{selected&&<div className="drawing-editor"><label>Label<input value={selected.text} onChange={e=>setSelected({...selected,text:e.target.value})}/></label>{selected.points.map((p,i)=><div key={i}><label>UTC epoch seconds · point {i+1}<input type="number" value={p.time} onChange={e=>updatePoint(i,'time',+e.target.value)}/></label><label>Price<input type="number" step="any" value={p.price} onChange={e=>updatePoint(i,'price',+e.target.value)}/></label></div>)}<button onClick={()=>persistRef.current({id:selected.id,kind:selected.kind,points:selected.points,text:selected.text,version:selected.version})}>Save changes</button><button onClick={remove}>Delete</button></div>}</section>}</aside></div>}
   {(page==='Backtesting'||page==='Trading Journal')&&<Backtesting key={page} api={api} journal={page==='Trading Journal'}/>}
+  {page==='Research Alerts'&&<Alerts api={api} onChanged={()=>setAlertGeneration(n=>n+1)}/>}
   {page==='Data Sources'&&<section className="panel"><span className="eyebrow">AUTHORIZED DATA ONLY</span><h2>Import historical candles</h2><p>One-minute bars only. Required CSV headers: <code>time,open,high,low,close</code>. Optional: <code>volume</code>.<br/>ISO 8601 timestamps must include UTC or an explicit offset. Only completed one-minute bars should be imported. Imports replace the selected instrument dataset atomically.</p><form onSubmit={upload}><label>Exact instrument<select value={instrument} onChange={e=>setInstrument(e.target.value)}><option value="XAUUSD-IMPORT">XAUUSD · Gold OTC source</option><option value="NDX-IMPORT">NDX · Nasdaq-100 cash index (not NQ or CFD)</option></select></label><label>Provider / source description<input name="source" required maxLength={160} placeholder="Provider, venue and original file reference"/></label><label>Volume classification<select name="volume_type"><option value="none">No volume</option><option value="tick">Tick volume</option><option value="exchange">Exchange volume</option></select></label><label>CSV file<input name="file" type="file" accept=".csv,text/csv" required/></label><label className="checkbox"><input name="rights_confirmed" type="checkbox" value="true" required/>I am authorized to use these data for this private research.</label><button className="primary" disabled={busy}>{busy?'Validating…':'Validate & import CSV'}</button></form><p>Maximum 12 MB / 100,000 rows per import. No data is bundled. No paid providers or brokerage accounts are connected.</p></section>}
   {page==='Watchlist'&&<section className="panel"><h2>Your research watchlist</h2>{['XAUUSD-IMPORT','NDX-IMPORT'].map(i=><label className="checkbox" key={i}><input type="checkbox" checked={watchlist.includes(i)} onChange={async e=>{const next=e.target.checked?[...watchlist,i]:watchlist.filter(x=>x!==i);try{await api('/watchlist',{method:'PUT',...json({instruments:next})});setWatchlist(next)}catch(e){report(e)}}}/>{i}</label>)}<p>Futures and additional instruments will be enabled when their metadata and provider mappings are verified.</p></section>}
   {page==='Audit Log'&&<section className="panel"><h2>Workspace audit trail</h2><p>Imports, drawing changes, watchlist changes and logins are recorded. Secrets are excluded.</p>{logs.map(l=><details key={l.id}><summary>{stamp(l.time)} · {l.action}</summary><pre>{JSON.stringify(l.detail,null,2)}</pre></details>)}</section>}
