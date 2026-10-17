@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {DISPLAY_MARKETS,widgetConfig,widgetURL} from '../lib/market-display.ts';
+import {DISPLAY_MARKETS,feedOptions,widgetConfig,widgetURL} from '../lib/market-display.ts';
 test('display registry preserves distinct cash, futures and exchange spot identities',()=>{
  const symbols=DISPLAY_MARKETS.map(m=>m.symbol);assert.equal(new Set(symbols).size,symbols.length);
  assert.ok(symbols.includes('NASDAQ:NDX'));assert.ok(symbols.includes('CME_MINI:NQ1!'));assert.ok(symbols.includes('NYMEX:CL1!'));
@@ -17,4 +17,13 @@ test('remote display frame uses only the pinned provider origin and public confi
  assert.equal(url.origin,'https://www.tradingview-widget.com');assert.equal(url.pathname,'/embed-widget/advanced-chart/');
  const config=JSON.parse(decodeURIComponent(url.hash.slice(1)));assert.equal(config.theme,'light');assert.equal(config.symbol,'OANDA:XAUUSD');
  assert.ok(!url.href.includes('apikey'));assert.equal(widgetConfig('OANDA:XAUUSD',false,'60').theme,'dark');
+});
+
+test('all markets and explicit alternatives round-trip to their own provider symbol',()=>{
+ for(const market of DISPLAY_MARKETS){const feeds=feedOptions(market.id);assert.equal(feeds[0].symbol,market.symbol);
+  for(const feed of feeds){const url=new URL(widgetURL(feed.symbol,true,'60'));const cfg=JSON.parse(decodeURIComponent(url.hash.slice(1)));assert.equal(cfg.symbol,feed.symbol)}
+ }
+ assert.equal(feedOptions('nasdaq')[0].symbol,'NASDAQ:NDX');assert.equal(feedOptions('nasdaq')[1].symbol,'OANDA:NAS100USD');assert.match(feedOptions('nasdaq')[1].type,/CFD/);
+ assert.equal(feedOptions('oil')[0].symbol,'NYMEX:CL1!');assert.match(feedOptions('oil')[1].note,/NOT an individual/);
+ assert.throws(()=>feedOptions('unknown-market'));
 });

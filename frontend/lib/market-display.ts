@@ -19,8 +19,22 @@ export const DISPLAY_MARKETS=[
  {id:'ethereum',name:'Ethereum / US Dollar',symbol:'COINBASE:ETHUSD',type:'Coinbase ETH/USD spot',note:'Exchange-specific spot USD pair, not ETH/USDT or a CFD.'},
  {id:'nq',name:'Nasdaq-100 · continuous NQ futures',symbol:'CME_MINI:NQ1!',type:'CME E-mini Nasdaq-100 continuous front-month display series',note:'Not the cash index or an individual futures expiry. Not enabled for our simulator.'},
 ] as const;
+export type DisplayFeed={symbol:string;name:string;type:string;note:string};
+export const RESTRICTED_WIDGET_SYMBOLS=new Set(['NASDAQ:NDX','NYMEX:CL1!','CME_MINI:NQ1!']);
+const ALTERNATIVES:Record<string,DisplayFeed[]>={
+ nq:[{symbol:'OANDA:NAS100USD',name:'OANDA Nasdaq-100 CFD proxy (NOT NQ futures)',type:'OANDA NAS100/USD · CFD proxy',note:'An explicitly selected broker CFD, NOT NQ futures or a specific expiry contract.'}],
+ nasdaq:[{symbol:'OANDA:NAS100USD',name:'OANDA Nasdaq-100 CFD proxy',type:'OANDA NAS100/USD · CFD proxy',note:'A broker CFD proxy, NOT NASDAQ:NDX cash index or NQ futures. Select explicitly; prices can differ.'}],
+ oil:[{symbol:'OANDA:WTICOUSD',name:'OANDA WTI CFD proxy',type:'OANDA WTI/USD · CFD proxy',note:'A broker CFD proxy, NOT an individual NYMEX contract or the CL1! continuous series.'}],
+ nikkei:[{symbol:'OANDA:JP225USD',name:'OANDA Japan 225 CFD proxy',type:'OANDA Japan 225/USD · CFD proxy',note:'A broker CFD proxy quoted in USD, NOT the Nikkei cash index or a JPY futures contract.'}],
+ sp500:[{symbol:'OANDA:SPX500USD',name:'OANDA S&P 500 CFD proxy',type:'OANDA SPX500/USD · CFD proxy',note:'A broker CFD proxy, NOT SP:SPX cash index, ES futures or VOO ETF.'}],
+};
+export function feedOptions(marketId:string):DisplayFeed[]{
+ const primary=DISPLAY_MARKETS.find(m=>m.id===marketId);
+ if(!primary)throw Error('Unknown market');
+ return [{symbol:primary.symbol,name:primary.name,type:primary.type,note:primary.note},...(ALTERNATIVES[marketId]||[])];
+}
 export function widgetConfig(symbol:string,light:boolean,interval:string){
- if(!DISPLAY_MARKETS.some(m=>m.symbol===symbol))throw Error('Unknown display symbol');
+ if(!DISPLAY_MARKETS.some(m=>feedOptions(m.id).some(f=>f.symbol===symbol)))throw Error('Unknown display symbol');
  if(!['1','3','5','15','30','60','120','240','D','W','M'].includes(interval))throw Error('Unsupported display interval');
  return {autosize:true,symbol,interval,timezone:'Europe/London',theme:light?'light':'dark',style:'1',locale:'en',allow_symbol_change:false,hide_side_toolbar:false,hide_top_toolbar:false,calendar:false,save_image:false,withdateranges:true,support_host:'https://www.tradingview.com'};
 }

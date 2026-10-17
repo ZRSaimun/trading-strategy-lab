@@ -40,3 +40,7 @@ The external chart makes requests to TradingView, which necessarily receives net
 ## Verification
 
 Three tests verify distinct instrument identities, symbol/timeframe allowlisting including script-injection rejection, and a pinned remote URL containing public display configuration only. Existing research/API tests also run. The provider iframe endpoint and official loader were reachable over HTTP. Full browser rendering, individual symbol access, provider delay and candle timestamps have **not** been verified end to end. Browser QA is unavailable in this managed environment. Never equate a build/HTTP check with a verified live quote.
+
+## Rendering investigation and fixes
+
+A later mobile-viewport browser check verified candles for Gold, Silver, NVDA, Tesla, EURUSD, BTCUSD and ETHUSD, and provider restrictions for NDX, CL1! and NQ1!. Restricted feeds now get an explicit panel and separately selected CFD alternatives. Mobile gets a native market dropdown. See bugfix-2026-10-17.md for the exact sample and remaining verification limits.

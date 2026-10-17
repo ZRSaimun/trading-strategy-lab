@@ -1,4 +1,4 @@
-import {aggregate,parseCSV,type Bar} from './research';
+import {aggregate,parseCSV,type Bar} from './research.ts';
 type Entry={key:string;value:unknown};
 async function database():Promise<IDBDatabase>{return new Promise((resolve,reject)=>{const r=indexedDB.open('trading-strategy-lab-browser-v1',1);r.onupgradeneeded=()=>r.result.createObjectStore('records',{keyPath:'key'});r.onsuccess=()=>resolve(r.result);r.onerror=()=>reject(Error('Browser storage unavailable'))})}
 async function read(key:string):Promise<unknown>{const db=await database();try{return await new Promise((resolve,reject)=>{const r=db.transaction('records').objectStore('records').get(key);r.onsuccess=()=>resolve((r.result as Entry|undefined)?.value);r.onerror=()=>reject(r.error)})}finally{db.close()}}
@@ -7,7 +7,7 @@ async function log(action:string,detail:unknown){const logs=(await read('audit')
 type Dataset={rows:Bar[];meta:{source:string;rows:number;start:number;end:number;gaps:number;retrieved_at:number;sha256:string;volume_type:string}};
 type Drawing={id:string;version:number;[key:string]:unknown};
 const valid=(i:string)=>{if(!['XAUUSD-IMPORT','NDX-IMPORT'].includes(i))throw Error('Unknown instrument; no substitution')};
-export async function localAPI(path:string,init?:RequestInit):Promise<any>{
+async function executeLocalAPI(path:string,init?:RequestInit):Promise<any>{
  const url=new URL(path,'https://local.invalid');const method=init?.method||'GET';
  const body=()=>JSON.parse(String(init?.body||'{}'));
  if(url.pathname==='/me')return {user:'browser-local'};
@@ -48,4 +48,16 @@ export async function localAPI(path:string,init?:RequestInit):Promise<any>{
   if(method==='DELETE'){const prior=drawings.find(d=>d.id===parts[2]);if(!prior)throw Error('Drawing not found');if(prior.version!==Number(url.searchParams.get('version')))throw Error('Drawing version conflict; reload');await write(key,drawings.filter(d=>d.id!==parts[2]));await log('drawing.delete',{instrument:i,before:prior});return {deleted:true}}
  }
  throw Error('Unavailable in browser-local mode');
+}
+
+
+// Serialize all writes in this tab so read-modify-write drawing/history updates cannot lose peers.
+// This also keeps shared audit appends ordered. Failed writes do not poison later operations.
+let pendingWrite:Promise<unknown>=Promise.resolve();
+export function localAPI(path:string,init?:RequestInit):Promise<any>{
+ const method=init?.method||'GET';
+ if(method==='GET')return executeLocalAPI(path,init);
+ const result=pendingWrite.then(()=>executeLocalAPI(path,init));
+ pendingWrite=result.catch(()=>undefined);
+ return result;
 }

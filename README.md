@@ -78,3 +78,7 @@ The app now opens in white day mode with a mobile-visible theme switch and saved
 ## Private historical API adapter
 
 Data Connection documents and reports the disabled-by-default Twelve Data adapter. On a private server with an owner-provided encrypted key and verified entitlement, it can import a bounded window of completed Gold candles into our engine. No provider account is activated. See [setup, research, costs and remaining verification](docs/provider-setup.md).
+
+## Market availability and bug fixes
+
+Some exact index/futures feeds are blocked by the display provider. The app identifies confirmed restrictions and offers explicitly labelled alternative instruments without silently replacing the original. Mobile market selection and concurrent browser persistence have been repaired. See [investigation and evidence](docs/bugfix-2026-10-17.md).

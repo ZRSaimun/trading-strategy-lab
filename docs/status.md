@@ -29,8 +29,8 @@ Not implemented:
 - Full instrument metadata/calendar handling, futures expiry, splits and rollovers.
 - Series primitive drawings, drag handles, undo/redo, advanced tools, indicators, multi-chart layouts, saved layouts, OHLC hover readout, volume pane or UI historical lazy loading.
 - Ten-year scalable ingestion, full raw-response archival, Parquet storage and additional data providers. A bounded, disabled historical adapter and vetted source-field archive are implemented.
-- Browser end-to-end verification, Docker runtime verification, VPN/HTTPS deployment, backup restore drill or hosted website.
+- Complete research/credential browser end-to-end verification, physical iPhone/Safari verification, Docker runtime verification, VPN/HTTPS deployment, backup restore drill or hosted website.
 
-Acceptance evidence in this environment: Sixteen passing Python integration/unit tests, twenty-four passing frontend research/simulator/alert/display tests, a successful SQLite migration and successful server/Pages production builds. Deterministic fixture prices are software-only tests. No strategy performance, current market price or successful deployment is claimed.
+Acceptance evidence in this environment: Sixteen passing Python integration/unit tests, twenty-eight passing frontend research/simulator/alert/display/storage tests, a successful SQLite migration and successful server/Pages production builds. Deterministic fixture prices are software-only tests. Pages deployment is verified. No strategy profitability or independently verified current market price is claimed. A ten-feed mobile-viewport browser check reproduced three provider restrictions; see bugfix-2026-10-17.md.
 
 The repository's visibility was public when accessed. The owner must make it private before storing private strategies or datasets. No strategy levels, personal information, credentials or real datasets were added.
