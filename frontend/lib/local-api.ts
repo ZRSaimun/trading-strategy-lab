@@ -26,6 +26,14 @@ export async function localAPI(path:string,init?:RequestInit):Promise<any>{
   const meta={source,rows:rows.length,start:rows[0].time,end:rows.at(-1)!.time,gaps:rows.slice(1).filter((r,n)=>r.time-rows[n].time>60).length,retrieved_at:Math.floor(Date.now()/1000),volume_type,sha256:Array.from(new Uint8Array(hash),b=>b.toString(16).padStart(2,'0')).join('')};
   await write('dataset:'+i,{rows,meta});await log('data.import',{instrument:i,...meta});return meta;
  }
+
+ if(url.pathname.startsWith('/research/')){
+  const kind=url.pathname.split('/')[2];if(!['backtests','journal'].includes(kind))throw Error('Unknown research record type');
+  const key='research:'+kind;const records=(await read(key)||[]) as Array<{id:string}>;
+  if(method==='GET')return records;
+  if(method==='PUT'){const b=body();if(!/^[a-zA-Z0-9-]{1,80}$/.test(b.id)||typeof b.title!=='string'||b.title.length>200||typeof b.payload!=='object'||JSON.stringify(b).length>6000000)throw Error('Invalid or oversized research record');await write(key,[b,...records.filter(r=>r.id!==b.id)].slice(0,kind==='journal'?500:20));await log('research.'+kind+'.save',{id:b.id,title:b.title});return b}
+  throw Error('Unsupported research operation');
+ }
  const parts=url.pathname.split('/').filter(Boolean),i=parts[1];valid(i);
  if(parts[0]==='candles'){
   const dataset=await read('dataset:'+i) as Dataset|undefined;

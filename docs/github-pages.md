@@ -2,7 +2,7 @@
 
 The requested URL is https://zrsaimun.github.io/trading-strategy-lab/.
 
-GitHub Pages serves static files, not the Python API, PostgreSQL, server sessions or a background alert worker. The Pages build therefore explicitly runs a **browser-local research mode**. It is functional for CSV charts, saved manual drawings, watchlist, local audit history, historical replay and basic pattern observations. It is not an authenticated deployment of the private Docker server.
+GitHub Pages serves static files, not the Python API, PostgreSQL, server sessions or a background alert worker. The Pages build therefore explicitly runs a **browser-local research mode**. It is functional for CSV charts, saved manual drawings, watchlist, local audit history, historical replay, basic pattern observations, research backtesting and demo research journal. It is not an authenticated deployment of the private Docker server.
 
 ## Enable hosting once
 

@@ -1,6 +1,6 @@
 # Implementation and verification status
 
-This version adds GitHub Pages browser-local mode, historical replay and generic formation observations to the Phase 1 foundation; it is not completion of all five phases.
+This version adds GitHub Pages browser-local mode, historical replay and generic formation observations, versioned research backtests and a demo research journal to the Phase 1 foundation; it is not completion of all five phases.
 
 Implemented:
 - Single-owner login, session expiry/logout, login throttle and origin checks.
@@ -13,16 +13,18 @@ Implemented:
 - Data source/coverage/freshness labels, NO DATA/WAIT behavior, audit viewer and responsive layout.
 - Static Pages export and deployment workflow, browser-local IndexedDB storage, prefix-only candle replay and deterministic swing/sweep/structure-break/FVG observations. See docs/github-pages.md for exact rules and setup.
 
+- Five versioned research strategy approximations, conservative event-driven OHLC simulation, costs, net RR sizing, fixed chronological splits, metrics, reproducible exports and saved demo research journal. See docs/backtesting.md.
+
 Not implemented:
 - Passkeys/TOTP, scoped/revocable AI tokens, AI API tools or verified MCP client connection.
 - Real historical Gold dataset acceptance test: requires an authorized dataset from the owner.
 - Live feeds, candle workers, alerts, news/calendar, macro data or paid subscriptions.
-- Full CRT/ICT/false-breakout strategies, backtesting, strategy comparison and trade journal. Generic pattern observations are available; they are not confirmed signals.
+- Complete discretionary CRT/ICT/false-breakout models, full original strategy reconstruction, higher-timeframe/news/opposing-room filters, walk-forward optimization and real broker journal reconciliation. Implemented research variants and simulated journal are explicitly narrower.
 - Full instrument metadata/calendar handling, futures expiry, splits and rollovers.
 - Series primitive drawings, drag handles, undo/redo, advanced tools, indicators, multi-chart layouts, saved layouts, OHLC hover readout, volume pane or UI historical lazy loading.
 - Ten-year scalable ingestion, raw file archive, Parquet storage and data-provider adapters.
 - Browser end-to-end verification, Docker runtime verification, VPN/HTTPS deployment, backup restore drill or hosted website.
 
-Acceptance evidence in this environment: Six passing Python integration/unit tests, five passing frontend research tests, a successful SQLite migration and successful server/Pages production builds. Deterministic fixture prices are software-only tests. No strategy performance, current market price or successful deployment is claimed.
+Acceptance evidence in this environment: Seven passing Python integration/unit tests, fourteen passing frontend research/simulator tests, a successful SQLite migration and successful server/Pages production builds. Deterministic fixture prices are software-only tests. No strategy performance, current market price or successful deployment is claimed.
 
 The repository's visibility was public when accessed. The owner must make it private before storing private strategies or datasets. No strategy levels, personal information, credentials or real datasets were added.

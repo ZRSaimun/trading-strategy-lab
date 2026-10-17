@@ -13,3 +13,7 @@ No background worker, Redis, hosted service, live-data adapter or trading integr
 ## Browser-only deployment
 
 A conditional static export removes server rewrites and uses a separate IndexedDB adapter with no server authentication claims. The regular Docker/server build retains the authenticated API. A shared TypeScript research module provides prefix-only replay observations in both UI modes. See github-pages.md.
+
+## Historical simulator
+
+`frontend/lib/backtest.ts` is a deterministic research engine isolated from charts and transport. A forward-only candidate state machine feeds next-open execution. Configuration, raw candle snapshot, versions and modeled trades can be exported. The same UI computation works with Pages data or authenticated API chart data. Saved reports are client-supplied research records; server computation and verification are not claimed. See backtesting.md.

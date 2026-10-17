@@ -62,3 +62,7 @@ npm test
 ```
 
 See [architecture](docs/architecture.md), [status and acceptance](docs/status.md), [data licensing](docs/data-sources.md), and [security and recovery](docs/security.md).
+
+## Research backtesting
+
+Open Backtesting to compare five versioned research approximations with costs, next-open eligibility, conservative OHLC fills, chronological sample splits and reproducible JSON exports. Add selected simulations to Trading Journal. See [rules, cost model and limits](docs/backtesting.md). These are not verified profitable strategies or broker fills.

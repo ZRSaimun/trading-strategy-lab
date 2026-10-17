@@ -76,3 +76,13 @@ def test_no_execution_surface(client):
     unlock(client)
     for endpoint in ('/api/orders','/api/trade','/api/broker'):
         assert client.post(endpoint,json={}).status_code==404
+
+
+def test_research_storage_authenticated_and_audited(client):
+    doc={'id':'run-1','title':'Test historical simulation','created_at':1700000000,'payload':{'status':'SIMULATED ONLY','notes':'test'}}
+    assert client.put('/api/research/backtests',json=doc).status_code==401
+    unlock(client)
+    assert client.put('/api/research/backtests',json=doc).status_code==200
+    assert client.get('/api/research/backtests').json()[0]['payload']['status']=='SIMULATED ONLY'
+    assert client.put('/api/research/invalid',json=doc).status_code==422
+    assert any(r['action']=='research.backtests.save' for r in client.get('/api/audit').json())

@@ -229,3 +229,26 @@ def audit_history(auth=Depends(owner)):
     with Session() as db:
         return [{"id":r.id,"time":r.time,"actor":r.actor,"action":r.action,"detail":json.loads(r.detail)}
                 for r in db.scalars(select(Audit).order_by(Audit.id.desc()).limit(200))]
+
+
+class ResearchRecord(Strict):
+    id: str = Field(pattern=r"^[a-zA-Z0-9-]{1,80}$")
+    title: str = Field(max_length=200)
+    created_at: int = Field(ge=0)
+    payload: dict
+
+@app.get("/api/research/{kind}")
+def research_records(kind: Literal["backtests","journal"], auth=Depends(owner)):
+    with Session() as db:
+        rows=db.scalars(select(Record).where(Record.key.like("research:"+kind+":%"))).all()
+        return sorted([json.loads(r.value) for r in rows],key=lambda r:r["created_at"],reverse=True)
+
+@app.put("/api/research/{kind}")
+def save_research_record(kind: Literal["backtests","journal"], body: ResearchRecord, auth=Depends(owner)):
+    encoded=body.model_dump_json()
+    if len(encoded)>6_000_000: raise HTTPException(413,"Research record exceeds 6 MB")
+    with Session() as db:
+        db.merge(Record(key="research:"+kind+":"+body.id,value=encoded))
+        audit(db,"research."+kind+".save",{"id":body.id,"title":body.title})
+        db.commit()
+    return body.model_dump()
