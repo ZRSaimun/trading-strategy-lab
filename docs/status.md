@@ -1,6 +1,6 @@
 # Implementation and verification status
 
-This version adds GitHub Pages browser-local mode, historical replay and generic formation observations, versioned research backtests, a demo research journal and conditional replay alerts to the Phase 1 foundation; it is not completion of all five phases.
+This version adds GitHub Pages browser-local mode, historical replay and generic formation observations, versioned research backtests, a demo research journal conditional replay alerts, white day mode and provider-hosted market displays to the Phase 1 foundation; it is not completion of all five phases.
 
 Implemented:
 - Single-owner login, session expiry/logout, login throttle and origin checks.
@@ -17,6 +17,8 @@ Implemented:
 
 - Saved conditional replay alert rules, completed-candle evaluations, deduplicated in-app events, event exports and audited persistence. See docs/alerts.md.
 
+- White day/night themes with persistent preference and mobile switch; default provider-hosted Market Charts view with 18 explicit feed choices. This is display-only and per-symbol availability is unverified; see docs/market-display.md.
+
 Not implemented:
 - Passkeys/TOTP, scoped/revocable AI tokens, AI API tools or verified MCP client connection.
 - Real historical Gold dataset acceptance test: requires an authorized dataset from the owner.
@@ -27,6 +29,6 @@ Not implemented:
 - Ten-year scalable ingestion, raw file archive, Parquet storage and data-provider adapters.
 - Browser end-to-end verification, Docker runtime verification, VPN/HTTPS deployment, backup restore drill or hosted website.
 
-Acceptance evidence in this environment: Eight passing Python integration/unit tests, twenty-one passing frontend research/simulator/alert tests, a successful SQLite migration and successful server/Pages production builds. Deterministic fixture prices are software-only tests. No strategy performance, current market price or successful deployment is claimed.
+Acceptance evidence in this environment: Eight passing Python integration/unit tests, twenty-four passing frontend research/simulator/alert/display tests, a successful SQLite migration and successful server/Pages production builds. Deterministic fixture prices are software-only tests. No strategy performance, current market price or successful deployment is claimed.
 
 The repository's visibility was public when accessed. The owner must make it private before storing private strategies or datasets. No strategy levels, personal information, credentials or real datasets were added.

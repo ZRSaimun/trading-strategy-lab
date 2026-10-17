@@ -70,3 +70,7 @@ Open Backtesting to compare five versioned research approximations with costs, n
 ## Conditional replay alerts
 
 Save rules in Research Alerts, select matching instrument/timeframe in Charts and advance replay. Level acceptance, sweeps and FVG observations create deduplicated historical event records. See [rules and limitations](docs/alerts.md). No live or background alert delivery is connected.
+
+## White day mode and market charts
+
+The app now opens in white day mode with a mobile-visible theme switch and saved preference. Market Charts requests provider-hosted display charts for the watchlist; Research Charts retains the imported-data engine. See [exact feed choices, licensing, privacy and verification limits](docs/market-display.md). The display integration does not supply raw data to our simulator.

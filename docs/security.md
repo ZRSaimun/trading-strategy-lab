@@ -39,3 +39,7 @@ docker compose up -d api web
 ```
 
 Verify login, candle coverage, drawing coordinates and audit history after recovery. Backup/restore commands have not been exercised here because Docker is unavailable in the development environment. Schedule and test backups on the target installation.
+
+## External display frame
+
+Market Charts adds an explicitly labelled cross-origin TradingView widget. Its public symbol/theme/timeframe configuration contains no research data or keys. The provider frame cannot read host-origin browser storage. It makes third-party requests and can be disabled in that view; see market-display.md.

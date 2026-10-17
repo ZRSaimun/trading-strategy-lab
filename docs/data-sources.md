@@ -14,3 +14,7 @@ CSV import is an adapter for user-supplied authorized one-minute files. Authoriz
 Massive, Dukascopy files and official MetaTrader 5 terminal history are investigation targets only. No prices, subscription coverage, ten-year guarantees or live entitlements have been verified or purchased. MT5 terminal history requires a compatible local terminal and depends on broker and terminal coverage. Any future integration needs a provider-specific licensing/pricing review and explicit approval before paid activation.
 
 Symbol registry currently exposes XAUUSD user-declared OTC source and NDX user-declared cash-index source as separate imports. NQ is disabled; expiry, contract size, roll rules and sessions must be implemented before enabling futures. No automatic substitutions or continuous-contract stitching occur.
+
+## Display-only provider charts
+
+Version 0.5 adds an official TradingView embedded chart view. It is separate from Lightweight Charts and the CSV adapter, and is not an ingestion license or source for automated backtests. No raw dataset has been obtained. See market-display.md for coverage/attribution/privacy constraints and original sources.
