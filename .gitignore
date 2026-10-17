@@ -1,0 +1,16 @@
+.env
+.env.*
+!.env.example
+__pycache__/
+.pytest_cache/
+*.db
+node_modules/
+.next/
+coverage/
+data/
+backups/
+*.csv
+*.parquet
+
+.venv/
+*.tsbuildinfo

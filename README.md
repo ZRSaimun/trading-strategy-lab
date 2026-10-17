@@ -1,1 +1,59 @@
-# trading-strategy-lab
+# Trading Strategy Lab
+
+Private, local-first historical trading research. **Phase 1 foundation; not a complete trading platform.** No live feeds, AI connector, signals or orders are enabled. No historical market data or credentials are distributed.
+
+## Start locally
+
+Install Docker with Compose, Python 3.10+ and the small configuration dependency:
+
+```sh
+python -m venv .venv
+. .venv/bin/activate
+pip install argon2-cffi==23.1.0
+python scripts/configure.py
+docker compose up --build -d
+```
+
+Open http://localhost:3000 and unlock with the password you created. The web port binds **only to loopback**. PostgreSQL and FastAPI have no host port bindings. Never commit `.env`. There is no registration or default password.
+
+1. Open Data Sources. Select the exact instrument and identify your authorized source.
+2. Import a one-minute CSV with headers `time,open,high,low,close` and optional `volume`. Time must contain an explicit UTC offset, for example `2024-01-02T10:00:00Z`.
+3. Select a timeframe. Only observed bars are aggregated; missing minutes are never fabricated.
+4. Choose Level, Zone, Trendline or Note and click chart coordinates. Zones and trendlines require two clicks. Drawings save immediately.
+5. Select a saved drawing to edit its exact epoch-time/price coordinates or label, or delete it. Refresh to verify persistence. Export JSON is available.
+
+**Imports replace the instrument's dataset atomically**, do not append. Back up before replacing a dataset. The current limit is 12 MB / 100,000 one-minute rows per import; ten-year ingestion is a future pipeline task. The source identifier must distinguish the exact venue/proxy. Never import NQ futures or broker CFDs under the NDX cash-index identity.
+
+## Development without Docker
+
+```sh
+cd backend
+python -m venv .venv
+. .venv/bin/activate
+pip install -r requirements-dev.txt
+# Supply OWNER_PASSWORD_HASH through your environment. Do not paste a password into commands.
+alembic upgrade head
+uvicorn app.main:app --host 127.0.0.1 --port 8000
+```
+
+In another terminal:
+
+```sh
+cd frontend
+npm ci
+NEXT_TELEMETRY_DISABLED=1 npm run dev
+```
+
+Without `DATABASE_URL`, the API uses a local SQLite database. Compose uses PostgreSQL. SQLite is for local single-process development. API documentation: http://127.0.0.1:8000/docs when running the backend locally. Docker keeps this port private.
+
+## Checks
+
+```sh
+cd backend
+PYTHONPATH=. python -m pytest -q
+cd ../frontend
+npm ci
+NEXT_TELEMETRY_DISABLED=1 npm run build
+```
+
+See [architecture](docs/architecture.md), [status and acceptance](docs/status.md), [data licensing](docs/data-sources.md), and [security and recovery](docs/security.md).

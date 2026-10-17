@@ -1,0 +1,11 @@
+# Architecture
+
+Next.js/React/TypeScript renders the terminal. Lightweight Charts supplies candlesticks, price lines, crosshair, pan and zoom. The UI projects persisted price/time coordinates onto an SVG overlay for notes, zones and trendlines. This is a basic overlay, not yet a supported series-primitive plugin implementation. Direct drag handles, rays, Fibonacci and undo/redo are not yet available. Coordinate editing is available in the inspector.
+
+Same-origin `/api/*` requests are reverse-proxied by Next.js to FastAPI. The HttpOnly owner session cookie never contains the stored session record; the database stores only its SHA-256 digest with an eight-hour expiry. Password hashes use Argon2id. The API validates an authenticated session on every research endpoint.
+
+PostgreSQL stores normalized candles, dataset manifests, drawings, watchlists, sessions and audit records. Alembic owns schema versions. Dataset SHA-256, source, retrieval time, volume type, actual coverage and gap counts are retained. Raw CSV archival is not yet implemented. Financial prices currently use floating point for chart research, not accounting or execution.
+
+Only one-minute imports are supported. Aggregation uses UTC calendar boundaries: Monday for weeks and first calendar day for months. Session-specific exchange calendars and corporate actions are not implemented; aggregates expose observed-minute counts and quality warnings. Long gaps can be closures or missing data and are not classified. Chart output is capped at the last 2,000 aggregate bars; server supports `before`, but UI lazy loading remains pending.
+
+No background worker, Redis, hosted service, live-data adapter or trading integration is enabled. Future strategy modules must be independent of chart rendering and consume completed, timestamped bars. AI annotation routes must use a separate scoped authorization model; an owner cookie is not an AI connector.
