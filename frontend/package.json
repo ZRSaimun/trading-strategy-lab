@@ -1,1 +1,24 @@
-{"name":"trading-strategy-lab","version":"0.1.0","private":true,"scripts":{"dev":"next dev --hostname 0.0.0.0","build":"next build","start":"next start --hostname 0.0.0.0","typecheck":"tsc --noEmit"},"dependencies":{"lightweight-charts":"5.0.9","next":"16.4.2","react":"19.1.4","react-dom":"19.1.4"},"devDependencies":{"@types/node":"22.14.1","@types/react":"19.1.2","@types/react-dom":"19.1.2","typescript":"5.8.3"}}
+{
+  "name": "trading-strategy-lab",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev --hostname 0.0.0.0",
+    "build": "next build",
+    "start": "next start --hostname 0.0.0.0",
+    "typecheck": "tsc --noEmit",
+    "test": "node --experimental-strip-types --test tests/*.test.ts"
+  },
+  "dependencies": {
+    "lightweight-charts": "5.0.9",
+    "next": "16.4.2",
+    "react": "19.1.4",
+    "react-dom": "19.1.4"
+  },
+  "devDependencies": {
+    "@types/node": "22.14.1",
+    "@types/react": "19.1.2",
+    "@types/react-dom": "19.1.2",
+    "typescript": "5.8.3"
+  }
+}

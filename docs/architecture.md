@@ -9,3 +9,7 @@ PostgreSQL stores normalized candles, dataset manifests, drawings, watchlists, s
 Only one-minute imports are supported. Aggregation uses UTC calendar boundaries: Monday for weeks and first calendar day for months. Session-specific exchange calendars and corporate actions are not implemented; aggregates expose observed-minute counts and quality warnings. Long gaps can be closures or missing data and are not classified. Chart output is capped at the last 2,000 aggregate bars; server supports `before`, but UI lazy loading remains pending.
 
 No background worker, Redis, hosted service, live-data adapter or trading integration is enabled. Future strategy modules must be independent of chart rendering and consume completed, timestamped bars. AI annotation routes must use a separate scoped authorization model; an owner cookie is not an AI connector.
+
+## Browser-only deployment
+
+A conditional static export removes server rewrites and uses a separate IndexedDB adapter with no server authentication claims. The regular Docker/server build retains the authenticated API. A shared TypeScript research module provides prefix-only replay observations in both UI modes. See github-pages.md.

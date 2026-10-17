@@ -1,6 +1,10 @@
 # Trading Strategy Lab
 
-Private, local-first historical trading research. **Phase 1 foundation; not a complete trading platform.** No live feeds, AI connector, signals or orders are enabled. No historical market data or credentials are distributed.
+Private, local-first historical trading research. **Phase 1 foundation; not a complete trading platform.** No live feeds, AI connector, confirmed signals or orders are enabled. Basic completed-bar research observations and replay are available. No historical market data or credentials are distributed.
+
+## GitHub Pages
+
+The browser-local workspace is built for https://zrsaimun.github.io/trading-strategy-lab/. See [one-time Pages setup and mode limitations](docs/github-pages.md). It stores imported data on your device and is separate from the authenticated Docker server.
 
 ## Start locally
 
@@ -54,6 +58,7 @@ PYTHONPATH=. python -m pytest -q
 cd ../frontend
 npm ci
 NEXT_TELEMETRY_DISABLED=1 npm run build
+npm test
 ```
 
 See [architecture](docs/architecture.md), [status and acceptance](docs/status.md), [data licensing](docs/data-sources.md), and [security and recovery](docs/security.md).
