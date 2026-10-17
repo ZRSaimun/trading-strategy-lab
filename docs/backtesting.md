@@ -37,3 +37,5 @@ Browser-mode reports/journal live in IndexedDB. The newest 20 reports and 500 jo
 ## Verification
 
 Nine deterministic simulator tests cover next-open eligibility, stop-first ambiguity, net 2R after costs, first-break rejection for B/E, candidate prefix invariance, evidence timestamps, gap entry rejection, raw-open invalidation, reproducibility, undefined zero-sample statistics, final-bar rejection, the positive B shift/retest path and conservative unknown-gap exit. Five prior parser/pattern/replay tests and seven backend authentication/persistence/audit tests also pass. Browser end-to-end interaction remains unverified.
+
+Incomplete aggregates at provider-window boundaries are excluded before a UI simulation; the report records the exclusion count. Gaps remain explicit and the engine still requires complete candles and conservative gap handling. The tested candle snapshot contains only the bars actually simulated.

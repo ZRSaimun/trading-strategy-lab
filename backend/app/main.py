@@ -113,6 +113,7 @@ async def upload(instrument: str = Form(...), source: str = Form(...,min_length=
                  volume_type: Literal["none","tick","exchange"] = Form("none"),
                  rights_confirmed: bool = Form(...), file: UploadFile=File(...), auth=Depends(owner)):
     instrument_check(instrument)
+    if not instrument.endswith("-IMPORT"): raise HTTPException(422,"Use the provider import route for provider series")
     if not rights_confirmed:
         raise HTTPException(422,"Confirm authorization to use this dataset")
     raw = await file.read(12_000_001)
@@ -256,3 +257,7 @@ def save_research_record(kind: Literal["backtests","journal","alert-rules","aler
         audit(db,"research."+kind+".save",{"id":body.id,"title":body.title})
         db.commit()
     return body.model_dump()
+
+
+from .provider_api import attach
+app.include_router(attach(owner,audit))

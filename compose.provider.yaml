@@ -1,0 +1,5 @@
+# Optional private local credential mount. Run scripts/provider-key.py first.
+services:
+  api:
+    volumes:
+      - ./.secrets:/run/provider:ro

@@ -3,3 +3,7 @@ __pycache__
 *.db
 .venv
 .env*
+
+data/
+backups/
+.secrets/

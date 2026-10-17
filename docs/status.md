@@ -19,6 +19,8 @@ Implemented:
 
 - White day/night themes with persistent preference and mobile switch; default provider-hosted Market Charts view with 18 explicit feed choices. This is display-only and per-symbol availability is unverified; see docs/market-display.md.
 
+- Disabled-by-default private Twelve Data historical adapter for exact XAU/USD, encrypted local credentials, bounded UTC validation, source archive, audited imports and Data Connection UI. No real account activation or live-data verification; see docs/provider-setup.md.
+
 Not implemented:
 - Passkeys/TOTP, scoped/revocable AI tokens, AI API tools or verified MCP client connection.
 - Real historical Gold dataset acceptance test: requires an authorized dataset from the owner.
@@ -26,9 +28,9 @@ Not implemented:
 - Complete discretionary CRT/ICT/false-breakout models, full original strategy reconstruction, higher-timeframe/news/opposing-room filters, walk-forward optimization and real broker journal reconciliation. Implemented research variants and simulated journal are explicitly narrower.
 - Full instrument metadata/calendar handling, futures expiry, splits and rollovers.
 - Series primitive drawings, drag handles, undo/redo, advanced tools, indicators, multi-chart layouts, saved layouts, OHLC hover readout, volume pane or UI historical lazy loading.
-- Ten-year scalable ingestion, raw file archive, Parquet storage and data-provider adapters.
+- Ten-year scalable ingestion, full raw-response archival, Parquet storage and additional data providers. A bounded, disabled historical adapter and vetted source-field archive are implemented.
 - Browser end-to-end verification, Docker runtime verification, VPN/HTTPS deployment, backup restore drill or hosted website.
 
-Acceptance evidence in this environment: Eight passing Python integration/unit tests, twenty-four passing frontend research/simulator/alert/display tests, a successful SQLite migration and successful server/Pages production builds. Deterministic fixture prices are software-only tests. No strategy performance, current market price or successful deployment is claimed.
+Acceptance evidence in this environment: Sixteen passing Python integration/unit tests, twenty-four passing frontend research/simulator/alert/display tests, a successful SQLite migration and successful server/Pages production builds. Deterministic fixture prices are software-only tests. No strategy performance, current market price or successful deployment is claimed.
 
 The repository's visibility was public when accessed. The owner must make it private before storing private strategies or datasets. No strategy levels, personal information, credentials or real datasets were added.

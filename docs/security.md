@@ -43,3 +43,7 @@ Verify login, candle coverage, drawing coordinates and audit history after recov
 ## External display frame
 
 Market Charts adds an explicitly labelled cross-origin TradingView widget. Its public symbol/theme/timeframe configuration contains no research data or keys. The provider frame cannot read host-origin browser storage. It makes third-party requests and can be disabled in that view; see market-display.md.
+
+## Historical provider credential vault
+
+Provider keys are locally Fernet-encrypted in ignored files, never browser configuration or query parameters. They are read only by the private backend and sent to one pinned HTTPS provider via Authorization. No credential upload route is exposed. Master-key permissions, separate encrypted backups and target-machine mount access require operator verification. This is not protection against a fully compromised host. See provider-setup.md.

@@ -74,3 +74,7 @@ Save rules in Research Alerts, select matching instrument/timeframe in Charts an
 ## White day mode and market charts
 
 The app now opens in white day mode with a mobile-visible theme switch and saved preference. Market Charts requests provider-hosted display charts for the watchlist; Research Charts retains the imported-data engine. See [exact feed choices, licensing, privacy and verification limits](docs/market-display.md). The display integration does not supply raw data to our simulator.
+
+## Private historical API adapter
+
+Data Connection documents and reports the disabled-by-default Twelve Data adapter. On a private server with an owner-provided encrypted key and verified entitlement, it can import a bounded window of completed Gold candles into our engine. No provider account is activated. See [setup, research, costs and remaining verification](docs/provider-setup.md).

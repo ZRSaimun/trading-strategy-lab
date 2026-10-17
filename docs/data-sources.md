@@ -18,3 +18,7 @@ Symbol registry currently exposes XAUUSD user-declared OTC source and NDX user-d
 ## Display-only provider charts
 
 Version 0.5 adds an official TradingView embedded chart view. It is separate from Lightweight Charts and the CSV adapter, and is not an ingestion license or source for automated backtests. No raw dataset has been obtained. See market-display.md for coverage/attribution/privacy constraints and original sources.
+
+## Disabled private historical adapter
+
+The server includes a bounded Twelve Data XAU/USD one-minute adapter, activated only by owner configuration and explicit per-import rights confirmation. No real account or provider request was made during development. Nasdaq is not mapped. See provider-setup.md for official research sources, pricing caveats, retention rights and setup.
