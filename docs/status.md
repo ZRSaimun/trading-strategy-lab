@@ -21,16 +21,18 @@ Implemented:
 
 - Disabled-by-default private Twelve Data historical adapter for exact XAU/USD, encrypted local credentials, bounded UTC validation, source archive, audited imports and Data Connection UI. No real account activation or live-data verification; see docs/provider-setup.md.
 
+- Research-chart SMA/EMA 20, Bollinger 20 ± 2 SD, London-day VWAP, Wilder RSI/ATR 14, MACD 12/26/9, classified volume pane and crosshair OHLC readout. See indicators.md for formulas and limits.
+
 Not implemented:
 - Passkeys/TOTP, scoped/revocable AI tokens, AI API tools or verified MCP client connection.
 - Real historical Gold dataset acceptance test: requires an authorized dataset from the owner.
 - Live feeds, server candle workers, live alert delivery, news/calendar, macro data or paid subscriptions.
 - Complete discretionary CRT/ICT/false-breakout models, full original strategy reconstruction, higher-timeframe/news/opposing-room filters, walk-forward optimization and real broker journal reconciliation. Implemented research variants and simulated journal are explicitly narrower.
 - Full instrument metadata/calendar handling, futures expiry, splits and rollovers.
-- Series primitive drawings, drag handles, undo/redo, advanced tools, indicators, multi-chart layouts, saved layouts, OHLC hover readout, volume pane or UI historical lazy loading.
+- Series primitive drawings, drag handles, undo/redo, advanced tools, configurable indicator periods, multi-chart layouts, saved layouts or UI historical lazy loading.
 - Ten-year scalable ingestion, full raw-response archival, Parquet storage and additional data providers. A bounded, disabled historical adapter and vetted source-field archive are implemented.
 - Complete research/credential browser end-to-end verification, physical iPhone/Safari verification, Docker runtime verification, VPN/HTTPS deployment, backup restore drill or hosted website.
 
-Acceptance evidence in this environment: Sixteen passing Python integration/unit tests, twenty-eight passing frontend research/simulator/alert/display/storage tests, a successful SQLite migration and successful server/Pages production builds. Deterministic fixture prices are software-only tests. Pages deployment is verified. No strategy profitability or independently verified current market price is claimed. A ten-feed mobile-viewport browser check reproduced three provider restrictions; see bugfix-2026-10-17.md.
+Acceptance evidence in this environment: Sixteen passing Python integration/unit tests, thirty-five passing frontend research/simulator/alert/display/storage tests, a successful SQLite migration and successful server/Pages production builds. Deterministic fixture prices are software-only tests. Pages deployment is verified. No strategy profitability or independently verified current market price is claimed. A ten-feed mobile-viewport browser check reproduced three provider restrictions; see bugfix-2026-10-17.md.
 
 The repository's visibility was public when accessed. The owner must make it private before storing private strategies or datasets. No strategy levels, personal information, credentials or real datasets were added.

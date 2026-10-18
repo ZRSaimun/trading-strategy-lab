@@ -82,3 +82,7 @@ Data Connection documents and reports the disabled-by-default Twelve Data adapte
 ## Market availability and bug fixes
 
 Some exact index/futures feeds are blocked by the display provider. The app identifies confirmed restrictions and offers explicitly labelled alternative instruments without silently replacing the original. Mobile market selection and concurrent browser persistence have been repaired. See [investigation and evidence](docs/bugfix-2026-10-17.md).
+
+## Research chart indicators
+
+Open Research Charts → Indicators to choose price overlays and separate oscillator/volume panes. Crosshair movement shows candle OHLC. Studies use only the candles revealed by replay. Volume and VWAP require valid classified volume; they never invent volume. See [formulas, warmups and limitations](docs/indicators.md).

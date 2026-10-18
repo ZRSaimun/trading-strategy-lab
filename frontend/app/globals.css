@@ -12,3 +12,11 @@
 .light{color:var(--text);color-scheme:light}.terminal{color:var(--text)}
 
 .mobile-market-select{display:none}.feed-choice{padding:14px 18px;margin:0;border-bottom:1px solid var(--border);font-size:12px}.feed-choice small{letter-spacing:0;line-height:1.6}.provider-load-status{padding:10px 18px;background:var(--button);color:var(--muted);font-size:11px;line-height:1.6;border-bottom:1px solid var(--border)}@media(max-width:640px){.mobile-market-select{display:flex;gap:8px;margin:14px 0}.market-display .market-picker{display:none}.mobile-market-select select,.feed-choice select{width:100%;min-height:44px;font-size:16px}.market-display .toolbar button{min-height:40px}.market-display .toolbar select{min-height:44px;font-size:16px}.provider-chart{height:540px}.feed-choice{font-size:11px}}
+
+.study-controls{padding:12px 16px;border-bottom:1px solid var(--border,#263345)}
+.study-controls summary{cursor:pointer;font-weight:600}
+.study-controls>div{display:flex;flex-wrap:wrap;gap:12px;margin-top:12px}
+.study-controls label{display:flex;align-items:center;gap:7px;font-size:13px;min-height:40px}
+.study-controls input{width:18px;height:18px;margin:0;accent-color:#348ccc}
+.study-controls p{font-size:12px;line-height:1.6;max-width:850px}
+.ohlc-readout{display:flex;flex-wrap:wrap;gap:14px;padding:10px 16px;font-size:12px;min-height:40px;border-bottom:1px solid var(--border,#263345)}
