@@ -65,3 +65,5 @@ Use the web server's canonical `/api/mcp` URL without a trailing slash. Its expl
 ### Full stack evidence
 
 GitHub Actions passed the complete Docker smoke workflow on commit 7bdceb5 after the proxy fix. It built PostgreSQL/FastAPI/Next.js, authenticated through the web service, imported labelled deterministic software candles, created and audited an AI note drawing, connected the official MCP SDK through the actual proxy, then denied the revoked token. The recovery extension additionally restores a fixture dump into a separate disposable database and checks retained candle, drawing and audit records. This is real container/runtime integration evidence, not a live feed or intended-ChatGPT-client test. See the checks workflow for each subsequent revision's result.
+
+After a database restore, invalidate all owner sessions and revoke every restored AI token before reopening the application. Otherwise a snapshot taken before revocation could reintroduce valid historical credentials. The security guide includes the transactional PostgreSQL command, and the Docker recovery check simulates this case on a disposable restored database.

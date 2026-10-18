@@ -35,10 +35,12 @@ The restore command replaces matching database objects. First preserve another b
 ```sh
 docker compose stop web api
 docker compose exec -T db pg_restore -U lab -d lab --clean --if-exists --no-owner < backups/lab.dump
+# Prevent a historical backup from reviving login sessions or previously revoked AI tokens.
+docker compose exec -T db psql -U lab -d lab -v ON_ERROR_STOP=1 -c "BEGIN; DELETE FROM records WHERE key LIKE 'session:%'; UPDATE records SET value=jsonb_set(value::jsonb, '{revoked}', 'true'::jsonb)::text WHERE key LIKE 'ai-token:%'; COMMIT;"
 docker compose up -d api web
 ```
 
-Verify login, candle coverage, drawing coordinates and audit history after recovery. Backup/restore commands have not been exercised here because Docker is unavailable in the development environment. Schedule and test backups on the target installation.
+Only restart if restore and authentication invalidation succeeded. Log in again and issue fresh AI tokens; old sessions and AI tokens must not be accepted after recovery. Verify login, candle coverage, drawing coordinates and audit history after recovery. Backup/restore commands have not been exercised here because Docker is unavailable in the development environment. Schedule and test backups on the target installation.
 
 ## External display frame
 
@@ -52,4 +54,4 @@ Provider keys are locally Fernet-encrypted in ignored files, never browser confi
 
 The private server supports hashed scoped AI tokens, expiry/revocation, versioned and idempotent audited drawing/notes/watchlist writes, and an official MCP SDK endpoint. See ai-access.md for supported tools, single-worker rate-limit assumptions and client verification limits. No OAuth or intended-ChatGPT connection is claimed.
 
-An isolated Docker acceptance script is included (`python scripts/smoke_compose.py`). It generates disposable credentials, uses a randomly named Compose project, tests the web/API/MCP proxy, then removes only that project's containers and volumes. It requires port 3000 to be free. It also dumps the disposable fixture database and restores it into a separate database, checking candle/drawing/audit counts. It does not replace the active database and is not an owner-data restore drill or target-host VPN verification.
+An isolated Docker acceptance script is included (`python scripts/smoke_compose.py`). It generates disposable credentials, uses a randomly named Compose project, tests the web/API/MCP proxy, then removes only that project's containers and volumes. It requires port 3000 to be free. It also dumps the disposable fixture database and restores it into a separate database, checking candle/drawing/audit counts and invalidation of restored sessions/AI tokens. It does not replace the active database and is not an owner-data restore drill or target-host VPN verification.

@@ -78,6 +78,14 @@ with tempfile.TemporaryDirectory(prefix='tsl-smoke-') as directory:
         sql="SELECT (SELECT count(*) FROM candles),(SELECT count(*) FROM records WHERE key LIKE 'drawing:%'),(SELECT count(*) FROM audit WHERE action='ai.create_chart_drawing');"
         restored=subprocess.run(compose+['exec','-T','db','psql','-U','lab','-d','lab_restore_smoke','-Atc',sql],check=True,capture_output=True,text=True).stdout.strip()
         assert restored=='3|1|1','Restored fixture candles, drawing or audit record did not match'
+        # Simulate a snapshot taken before revocation, then apply the documented recovery policy.
+        reset="UPDATE records SET value=jsonb_set(value::jsonb, '{revoked}', 'false'::jsonb)::text WHERE key LIKE 'ai-token:%';"
+        invalidate="BEGIN; DELETE FROM records WHERE key LIKE 'session:%'; UPDATE records SET value=jsonb_set(value::jsonb, '{revoked}', 'true'::jsonb)::text WHERE key LIKE 'ai-token:%'; COMMIT;"
+        for sql in (reset,invalidate):subprocess.run(compose+['exec','-T','db','psql','-U','lab','-d','lab_restore_smoke','-v','ON_ERROR_STOP=1','-c',sql],check=True,capture_output=True)
+        check="SELECT (SELECT count(*) FROM records WHERE key LIKE 'session:%'),(SELECT count(*) FROM records WHERE key LIKE 'ai-token:%' AND (value::jsonb->>'revoked')::boolean=false);"
+        state=subprocess.run(compose+['exec','-T','db','psql','-U','lab','-d','lab_restore_smoke','-Atc',check],check=True,capture_output=True,text=True).stdout.strip()
+        assert state=='0|0','Restored authentication must be invalidated before reopening access'
+
         print('Docker smoke passed: owner login, guarded data, AI drawing/audit, SDK HTTP proxy, revocation and disposable database backup/restore. No live feed was tested.')
     finally:
         # Only this randomly named disposable project's resources are removed.
