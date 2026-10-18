@@ -86,3 +86,7 @@ Some exact index/futures feeds are blocked by the display provider. The app iden
 ## Research chart indicators
 
 Open Research Charts → Indicators to choose price overlays and separate oscillator/volume panes. Crosshair movement shows candle OHLC. Studies use only the candles revealed by replay. Volume and VWAP require valid classified volume; they never invent volume. See [formulas, warmups and limitations](docs/indicators.md).
+
+## Browser workspace recovery
+
+On GitHub Pages, open **Backup & Restore** to download a complete local workspace JSON file and restore it later. The file includes imported candles, drawings and retained research records. Restore replaces the current workspace after validation; save a backup and close other app tabs first. Backups are unencrypted and should be stored privately. See [recovery guide and limitations](docs/workspace-backup.md). Private-server database recovery remains separate.

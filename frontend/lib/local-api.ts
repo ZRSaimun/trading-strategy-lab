@@ -1,3 +1,4 @@
+import {encodeBackup,decodeBackup,BACKUP_LIMIT} from './workspace-backup.ts';
 import {aggregate,parseCSV,type Bar} from './research.ts';
 type Entry={key:string;value:unknown};
 async function database():Promise<IDBDatabase>{return new Promise((resolve,reject)=>{const r=indexedDB.open('trading-strategy-lab-browser-v1',1);r.onupgradeneeded=()=>r.result.createObjectStore('records',{keyPath:'key'});r.onsuccess=()=>resolve(r.result);r.onerror=()=>reject(Error('Browser storage unavailable'))})}
@@ -10,6 +11,19 @@ const valid=(i:string)=>{if(!['XAUUSD-IMPORT','NDX-IMPORT'].includes(i))throw Er
 async function executeLocalAPI(path:string,init?:RequestInit):Promise<any>{
  const url=new URL(path,'https://local.invalid');const method=init?.method||'GET';
  const body=()=>JSON.parse(String(init?.body||'{}'));
+ if(url.pathname==='/workspace/export'&&method==='POST'){
+  const db=await database();try{const entries=await new Promise<Entry[]>((resolve,reject)=>{const tx=db.transaction('records');const r=tx.objectStore('records').getAll();tx.oncomplete=()=>resolve(r.result);tx.onerror=()=>reject(tx.error);tx.onabort=()=>reject(tx.error)});return await encodeBackup(entries)}finally{db.close()}
+ }
+ if(url.pathname==='/workspace/restore'&&method==='POST'){
+  const form=init?.body as FormData,file=form.get('file') as File;
+  if(form.get('replace_confirmed')!=='true')throw Error('Confirm replacement before restoring');
+  if(!file||typeof file.text!=='function'||file.size>BACKUP_LIMIT)throw Error('Choose a workspace JSON backup up to 64 MB');
+  const entries=await decodeBackup(await file.text());
+  const audit=(entries.find(e=>e.key==='audit')?.value||[]) as unknown[];
+  const restored={key:'audit',value:[{id:crypto.randomUUID(),time:Math.floor(Date.now()/1000),actor:'browser-local',action:'workspace.restore',detail:{records:entries.length}},...audit].slice(0,200)};
+  const db=await database();try{await new Promise<void>((resolve,reject)=>{const tx=db.transaction('records','readwrite'),store=tx.objectStore('records');try{store.clear();for(const e of entries)if(e.key!=='audit')store.put(e);store.put(restored)}catch(e){try{tx.abort()}catch{}reject(e);return}tx.oncomplete=()=>resolve();tx.onabort=()=>reject(Error('Restore failed; previous workspace retained'));tx.onerror=()=>reject(Error('Restore failed; previous workspace retained'))})}finally{db.close()}
+  return {restored:true,records:entries.length};
+ }
  if(url.pathname==='/me')return {user:'browser-local'};
  if(url.pathname==='/logout')throw Error('Browser mode has no server session. Close this tab; use a device lock for privacy.');
  if(url.pathname==='/watchlist'){if(method==='PUT'){const b=body();b.instruments.forEach(valid);await write('watchlist',b.instruments);await log('watchlist.update',b);return b.instruments}return await read('watchlist')||['XAUUSD-IMPORT','NDX-IMPORT']}

@@ -23,6 +23,8 @@ Implemented:
 
 - Research-chart SMA/EMA 20, Bollinger 20 ± 2 SD, London-day VWAP, Wilder RSI/ATR 14, MACD 12/26/9, classified volume pane and crosshair OHLC readout. See indicators.md for formulas and limits.
 
+- Browser-local complete workspace JSON backup and validated atomic replacement restore, including candle/source metadata, drawings, research records and retained audit trail. No cloud backup; see workspace-backup.md.
+
 Not implemented:
 - Passkeys/TOTP, scoped/revocable AI tokens, AI API tools or verified MCP client connection.
 - Real historical Gold dataset acceptance test: requires an authorized dataset from the owner.
@@ -33,6 +35,6 @@ Not implemented:
 - Ten-year scalable ingestion, full raw-response archival, Parquet storage and additional data providers. A bounded, disabled historical adapter and vetted source-field archive are implemented.
 - Complete research/credential browser end-to-end verification, physical iPhone/Safari verification, Docker runtime verification, VPN/HTTPS deployment, backup restore drill or hosted website.
 
-Acceptance evidence in this environment: Sixteen passing Python integration/unit tests, thirty-five passing frontend research/simulator/alert/display/storage tests, a successful SQLite migration and successful server/Pages production builds. Deterministic fixture prices are software-only tests. Pages deployment is verified. No strategy profitability or independently verified current market price is claimed. A ten-feed mobile-viewport browser check reproduced three provider restrictions; see bugfix-2026-10-17.md.
+Acceptance evidence in this environment: Sixteen passing Python integration/unit tests, forty-one passing frontend research/simulator/alert/display/storage tests, a successful SQLite migration and successful server/Pages production builds. Deterministic fixture prices are software-only tests. Pages deployment is verified. No strategy profitability or independently verified current market price is claimed. A ten-feed mobile-viewport browser check reproduced three provider restrictions; see bugfix-2026-10-17.md.
 
 The repository's visibility was public when accessed. The owner must make it private before storing private strategies or datasets. No strategy levels, personal information, credentials or real datasets were added.
