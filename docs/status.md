@@ -25,7 +25,7 @@ Implemented:
 
 - Browser-local complete workspace JSON backup and validated atomic replacement restore, including candle/source metadata, drawings, research records and retained audit trail. No cloud backup; see workspace-backup.md.
 
-- Private scoped/expiring/revocable AI tokens, 13 typed read/write tools, idempotent versioned AI annotations, owner token/notes UI and official MCP SDK HTTP transport. SDK-client integration verifies read/draw/audit/revoke/denial. See ai-access.md. An isolated Compose acceptance job is included; its CI result is recorded at release.
+- Private scoped/expiring/revocable AI tokens, 13 typed read/write tools, idempotent versioned AI annotations, owner token/notes UI and official MCP SDK HTTP transport. SDK-client integration verifies read/draw/audit/revoke/denial. See ai-access.md. The isolated Compose acceptance job passed for 7bdceb5: build/start/login/fixture import/annotation/audit/SDK proxy/revocation. Its recovery extension also checks a disposable database copy; CI is authoritative for each revision.
 
 Not implemented:
 - Passkeys/TOTP, OAuth connection and end-to-end verification from the intended ChatGPT client. A real private MCP/AI API is implemented below; the public Pages deployment has no MCP backend.
@@ -35,7 +35,7 @@ Not implemented:
 - Full instrument metadata/calendar handling, futures expiry, splits and rollovers.
 - Series primitive drawings, drag handles, undo/redo, advanced tools, configurable indicator periods, multi-chart layouts, saved layouts or UI historical lazy loading.
 - Ten-year scalable ingestion, full raw-response archival, Parquet storage and additional data providers. A bounded, disabled historical adapter and vetted source-field archive are implemented.
-- Complete research/credential browser end-to-end verification, physical iPhone/Safari verification, Docker runtime verification, VPN/HTTPS deployment, backup restore drill or hosted website.
+- Complete research/credential browser end-to-end verification, physical iPhone/Safari verification, owner-host Docker installation, VPN/HTTPS deployment, owner-data backup restore drill or hosted private backend.
 
 Acceptance evidence in this environment: Twenty-two passing Python integration/unit tests, forty-two passing frontend research/simulator/alert/display/storage tests, a successful SQLite migration and successful server/Pages production builds. Deterministic fixture prices are software-only tests. Pages deployment is verified. No strategy profitability or independently verified current market price is claimed. Earlier and expanded mobile-viewport browser samples reproduced nine restricted exact feeds and rendered multiple explicit alternatives; see bugfix-2026-10-17.md and market-display.md. Selection persistence and direct alternative buttons have not had post-deployment browser verification.
 

@@ -72,7 +72,13 @@ with tempfile.TemporaryDirectory(prefix='tsl-smoke-') as directory:
         try:request('/api/ai/tools/list_instruments','POST',{},token)
         except urllib.error.HTTPError as e:assert e.code==401
         else:raise AssertionError('Revoked token was accepted')
-        print('Docker smoke passed: owner login, guarded data, AI drawing/audit, SDK HTTP proxy and revocation. No live feed was tested.')
+        dump=subprocess.run(compose+['exec','-T','db','pg_dump','-U','lab','-d','lab','-Fc'],check=True,capture_output=True).stdout
+        subprocess.run(compose+['exec','-T','db','createdb','-U','lab','lab_restore_smoke'],check=True,capture_output=True)
+        subprocess.run(compose+['exec','-T','db','pg_restore','-U','lab','-d','lab_restore_smoke','--no-owner','--exit-on-error'],input=dump,check=True,capture_output=True)
+        sql="SELECT (SELECT count(*) FROM candles),(SELECT count(*) FROM records WHERE key LIKE 'drawing:%'),(SELECT count(*) FROM audit WHERE action='ai.create_chart_drawing');"
+        restored=subprocess.run(compose+['exec','-T','db','psql','-U','lab','-d','lab_restore_smoke','-Atc',sql],check=True,capture_output=True,text=True).stdout.strip()
+        assert restored=='3|1|1','Restored fixture candles, drawing or audit record did not match'
+        print('Docker smoke passed: owner login, guarded data, AI drawing/audit, SDK HTTP proxy, revocation and disposable database backup/restore. No live feed was tested.')
     finally:
         # Only this randomly named disposable project's resources are removed.
         subprocess.run(compose+['down','--volumes','--remove-orphans'],check=False)

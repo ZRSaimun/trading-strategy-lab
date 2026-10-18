@@ -61,3 +61,7 @@ No paid service, cloud host, subscription or brokerage account was activated.
 ### Canonical proxy route
 
 Use the web server's canonical `/api/mcp` URL without a trailing slash. Its explicit Next.js rewrite forwards directly to the internal SDK `/api/mcp/` route, preserving authentication without a redirect. Clients deliberately do not follow MCP redirects, so a trailing-slash redirect to an internal container hostname is a deployment error, not a reason to relax client redirect security. The Compose smoke test exercises this exact path. MCP database operations run in worker threads so candle reads do not block the ASGI event loop. Strict AI models reject implicit number-string coercion and out-of-range timestamps.
+
+### Full stack evidence
+
+GitHub Actions passed the complete Docker smoke workflow on commit 7bdceb5 after the proxy fix. It built PostgreSQL/FastAPI/Next.js, authenticated through the web service, imported labelled deterministic software candles, created and audited an AI note drawing, connected the official MCP SDK through the actual proxy, then denied the revoked token. The recovery extension additionally restores a fixture dump into a separate disposable database and checks retained candle, drawing and audit records. This is real container/runtime integration evidence, not a live feed or intended-ChatGPT-client test. See the checks workflow for each subsequent revision's result.
