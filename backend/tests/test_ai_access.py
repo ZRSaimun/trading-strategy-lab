@@ -65,6 +65,8 @@ def test_ai_strict_schema_quality_identity_notes_watchlist_and_no_execution(clie
     _,headers=issue(client)
     assert call(client,'get_candles',{'instrument':'NQ-IMPORT'},headers).status_code==422
     assert call(client,'get_candles',{'instrument':'XAUUSD-IMPORT','limit':2001},headers).status_code==422
+    assert call(client,'get_candles',{'instrument':'XAUUSD-IMPORT','limit':'500'},headers).status_code==422
+    assert call(client,'create_chart_drawing',drawing(points=[{'time':10**20,'price':1},{'time':1704193200,'price':2}]),headers).status_code==422
     assert call(client,'get_candles',{'instrument':'XAUUSD-IMPORT','code':'print(1)'},headers).status_code==422
     assert call(client,'get_candles',{'instrument':'XAUUSD-IMPORT'},headers).json()['quality']['state']=='NO DATA'
     client.post('/api/import',data={'instrument':'XAUUSD-IMPORT','source':'software-only fixture','rights_confirmed':'true'},files={'file':('fixture.csv',CSV)})

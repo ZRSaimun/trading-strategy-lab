@@ -64,7 +64,7 @@ with tempfile.TemporaryDirectory(prefix='tsl-smoke-') as directory:
         from mcp.client.streamable_http import streamable_http_client
         async def mcp_read():
             async with httpx2.AsyncClient(headers={'Authorization':'Bearer '+token}) as http:
-                async with Client(streamable_http_client('http://127.0.0.1:3000/api/mcp/',http_client=http),cache=None) as sdk:
+                async with Client(streamable_http_client('http://127.0.0.1:3000/api/mcp',http_client=http),cache=None) as sdk:
                     result=await sdk.call_tool('get_candles',{'request':{'instrument':'XAUUSD-IMPORT','limit':1}})
                     assert not result.is_error
         asyncio.run(mcp_read())

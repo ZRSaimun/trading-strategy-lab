@@ -15,7 +15,7 @@ from .registry import INSTRUMENTS
 from .market import aggregate, TIMEFRAMES
 
 class Strict(BaseModel):
-    model_config=ConfigDict(extra='forbid',allow_inf_nan=False)
+    model_config=ConfigDict(extra='forbid',allow_inf_nan=False,strict=True)
 Scope=Literal['charts:read','drawings:write','notes:write','watchlist:write']
 class TokenRequest(Strict):
     label:str=Field(min_length=1,max_length=80)
@@ -29,7 +29,7 @@ class CandlesArgs(Instrument):
     before:int|None=Field(default=None,ge=0)
     limit:int=Field(default=500,ge=1,le=2000)
 class Point(Strict):
-    time:int=Field(ge=0)
+    time:int=Field(ge=0,le=253402300799)
     price:float
 class DrawingArgs(Instrument):
     id:str=Field(pattern=r'^[a-zA-Z0-9-]{1,80}$')
@@ -168,7 +168,7 @@ def router(owner):
     api=APIRouter()
     @api.get('/api/ai/status')
     def status(auth=Depends(owner)):
-        return {'mode':'private-server','connector':'MCP SDK HTTP endpoint /api/mcp/','client_verified':False,'scopes':['charts:read','drawings:write','notes:write','watchlist:write'],'tools':list(TOOLS),'live_data':False}
+        return {'mode':'private-server','connector':'MCP SDK HTTP endpoint /api/mcp','client_verified':False,'scopes':['charts:read','drawings:write','notes:write','watchlist:write'],'tools':list(TOOLS),'live_data':False}
     @api.post('/api/ai/tokens')
     def issue(body:TokenRequest,auth=Depends(owner)):
         raw=secrets.token_urlsafe(48);now=int(time.time())

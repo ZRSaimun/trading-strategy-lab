@@ -4,7 +4,7 @@
 
 The private FastAPI server provides owner-managed, random bearer tokens with four scopes: `charts:read`, `drawings:write`, `notes:write`, `watchlist:write`. Tokens expire in 1–720 hours, can be revoked immediately, and are returned only on creation. Only a SHA-256 token lookup hash is stored; raw tokens are excluded from listings and audit logs. Bearer credentials deliberately authorize actions within their scopes: issue read-only tokens unless writes are intended. Active issuance is capped at 50 tokens and retained idempotent writes at 10,000 per token.
 
-The official MIT-licensed MCP Python SDK `mcp==2.3.0` provides a stateless JSON-response Streamable HTTP endpoint at **`/api/mcp/`**. It supports the SDK's negotiated protocol revisions; protocol parsing is not hand-written. The parent FastAPI lifespan starts a fresh SDK transport/session manager at each startup. Transport host/origin allowlists are explicit and must agree with `PUBLIC_ORIGIN` in deployment. The endpoint requires a bearer token for discovery and every subsequent request. No browser CORS wildcard, unrestricted shell tool, arbitrary code execution, provider-key tool, broker endpoint or order tool is present.
+The official MIT-licensed MCP Python SDK `mcp==2.3.0` provides a stateless JSON-response Streamable HTTP endpoint at **`/api/mcp`**. It supports the SDK's negotiated protocol revisions; protocol parsing is not hand-written. The parent FastAPI lifespan starts a fresh SDK transport/session manager at each startup. Transport host/origin allowlists are explicit and must agree with `PUBLIC_ORIGIN` in deployment. The endpoint requires a bearer token for discovery and every subsequent request. No browser CORS wildcard, unrestricted shell tool, arbitrary code execution, provider-key tool, broker endpoint or order tool is present.
 
 The same tool service is available over authenticated JSON HTTP:
 
@@ -38,7 +38,7 @@ The application uses existing versioned Record/Audit database storage; no additi
 5. Run the provided official-SDK verification client on a machine able to reach the server:
 
 ```sh
-.venv/bin/python scripts/verify_ai_connection.py --url https://YOUR_PRIVATE_HOST/api/mcp/
+.venv/bin/python scripts/verify_ai_connection.py --url https://YOUR_PRIVATE_HOST/api/mcp
 ```
 
 The client prompts for the token invisibly. It lists tools and reads quality status without printing candles or credentials. For an explicitly authorized temporary drawing test, add `--verify-drawing --time YOUR_UTC_EPOCH --price YOUR_PRICE` with drawings:write scope. It creates then deletes a clearly marked test note. Inspect the owner Audit Log. Revoke the token, then run the read test again to confirm denial.
@@ -57,3 +57,7 @@ This is **not** an end-to-end connection from the user's intended ChatGPT client
 - Protocol revisions/transports: https://modelcontextprotocol.io/specification/
 
 No paid service, cloud host, subscription or brokerage account was activated.
+
+### Canonical proxy route
+
+Use the web server's canonical `/api/mcp` URL without a trailing slash. Its explicit Next.js rewrite forwards directly to the internal SDK `/api/mcp/` route, preserving authentication without a redirect. Clients deliberately do not follow MCP redirects, so a trailing-slash redirect to an internal container hostname is a deployment error, not a reason to relax client redirect security. The Compose smoke test exercises this exact path. MCP database operations run in worker threads so candle reads do not block the ASGI event loop. Strict AI models reject implicit number-string coercion and out-of-range timestamps.

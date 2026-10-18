@@ -28,12 +28,12 @@ async def verify(args,token):
 
 if __name__=='__main__':
     parser=argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--url',required=True,help='Private HTTPS MCP URL ending /api/mcp/')
+    parser.add_argument('--url',required=True,help='Private HTTPS MCP URL ending /api/mcp')
     parser.add_argument('--instrument',default='XAUUSD-IMPORT')
     parser.add_argument('--verify-drawing',action='store_true',help='Authorize creation and deletion of a connection-test note')
     parser.add_argument('--time',type=int,help='Explicit UTC epoch seconds for the test drawing')
     parser.add_argument('--price',type=float,help='Explicit price coordinate for the test drawing')
-    args=parser.parse_args();url=urlparse(args.url)
+    args=parser.parse_args();args.url=args.url.rstrip('/');url=urlparse(args.url)
     if url.username or url.password or url.query or url.fragment or not url.hostname:parser.error('Use a credential-free MCP URL')
     if url.scheme!='https' and not (url.scheme=='http' and url.hostname in ('localhost','127.0.0.1')):parser.error('Remote MCP requires HTTPS')
     if args.verify_drawing and (args.time is None or args.time<0 or args.price is None):parser.error('Provide --time and --price to explicitly locate the test note')

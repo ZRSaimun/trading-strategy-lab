@@ -5,6 +5,7 @@ from mcp.server.mcpserver import MCPServer, Context
 from mcp.server.transport_security import TransportSecuritySettings
 from starlette.datastructures import Headers
 from starlette.responses import JSONResponse
+from starlette.concurrency import run_in_threadpool
 from fastapi import HTTPException
 from .ai_access import TOOLS, Empty, execute, transport_auth
 
@@ -13,11 +14,11 @@ from .ai_access import TOOLS, Empty, execute, transport_auth
 def register(mcp,name,model,description):
     if model is Empty:
         async def handler(ctx):
-            return execute(name,{},ctx.headers or {})
+            return await run_in_threadpool(execute,name,{},ctx.headers or {})
         handler.__annotations__={'ctx':Context,'return':dict|list}
     else:
         async def handler(request,ctx):
-            return execute(name,request.model_dump(),ctx.headers or {})
+            return await run_in_threadpool(execute,name,request.model_dump(),ctx.headers or {})
         handler.__annotations__={'request':model,'ctx':Context,'return':dict|list}
     mcp.tool(name=name,description=description)(handler)
 
