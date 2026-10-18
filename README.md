@@ -94,3 +94,7 @@ On GitHub Pages, open **Backup & Restore** to download a complete local workspac
 ## What remains
 
 See [next priorities and current practical benefit](docs/next-priorities.md). The public app is not yet the complete privately hosted live-data/AI terminal. External charts, imported research, replay alerts and a verified AI connection are distinct capabilities; only the implemented ones are labelled working.
+
+## Private AI chart access
+
+The private server now includes owner-managed scoped tokens, an official MCP SDK HTTP connector and audited AI drawings/notes/watchlist updates. Use **AI Chart Assistant** to manage tokens on the private deployment. The public Pages page correctly reports NOT CONNECTED. See [supported tools, connection test and remaining ChatGPT/hosting requirements](docs/ai-access.md). Run the [isolated full-stack smoke test](scripts/smoke_compose.py) on a machine with Docker; CI also runs it.

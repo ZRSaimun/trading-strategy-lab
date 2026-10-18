@@ -11,6 +11,7 @@ from argon2.exceptions import VerifyMismatchError, InvalidHashError
 from fastapi import FastAPI, HTTPException, Request, Response, Depends, UploadFile, File, Form
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from sqlalchemy import select, delete
+from sqlalchemy.exc import IntegrityError
 from .db import Base, engine, Session, Record, Candle, Audit
 from .market import parse_csv, aggregate, TIMEFRAMES
 from .registry import INSTRUMENTS
@@ -25,9 +26,12 @@ async def lifespan(app):
     # Schema is installed by Alembic in production, create_all is for explicit local tests only.
     if os.getenv("AUTO_CREATE_SCHEMA") == "true":
         Base.metadata.create_all(engine)
-    yield
+    from .mcp_server import mcp_app
+    mcp=mcp_app.configure()
+    async with mcp.session_manager.run():
+        yield
 
-app = FastAPI(title="Trading Strategy Lab", version="0.1.0", lifespan=lifespan)
+app = FastAPI(title="Trading Strategy Lab", version="0.11.0", lifespan=lifespan)
 
 @app.middleware("http")
 async def guard(request, call_next):
@@ -35,6 +39,14 @@ async def guard(request, call_next):
         return Response("Origin denied", status_code=403)
     if request.headers.get("content-length", "0").isdigit() and int(request.headers.get("content-length", "0")) > 16_000_000:
         return Response("Request too large", status_code=413)
+    if request.method=='POST' and request.url.path.startswith(('/api/ai/','/api/mcp')):
+        chunks=[];size=0
+        async for chunk in request.stream():
+            size+=len(chunk)
+            if size>1_000_000:return Response("AI request exceeds 1 MB",status_code=413)
+            chunks.append(chunk)
+        # Starlette's cached request body is replayed to the downstream ASGI app.
+        request._body=b''.join(chunks)
     response = await call_next(request)
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["Cache-Control"] = "no-store"
@@ -192,9 +204,12 @@ def save_drawing(instrument: str, body: Drawing, auth=Depends(owner)):
         prev=json.loads(old.value) if old else None
         if body.version != (prev["version"] if prev else 0):
             raise HTTPException(409,"Drawing changed; reload before saving")
-        doc=body.model_dump() | {"version":body.version+1,"owner":"owner","provenance":"manual","updated_at":int(time.time())}
+        doc=body.model_dump() | {"version":body.version+1,"owner":"owner","provenance":prev.get("provenance","manual") if prev else "manual","created_by":prev.get("created_by","owner") if prev else "owner","updated_by":"owner","updated_at":int(time.time())}
         db.merge(Record(key=key,value=json.dumps(doc)))
-        audit(db,"drawing.save",{"instrument":instrument,"before":prev,"after":doc}); db.commit()
+        audit(db,"drawing.save",{"instrument":instrument,"before":prev,"after":doc})
+        try:db.commit()
+        except IntegrityError:
+            db.rollback();raise HTTPException(409,"Concurrent drawing creation; reload before saving")
     return doc
 
 @app.delete("/api/drawings/{instrument}/{drawing_id}")
@@ -221,6 +236,8 @@ class Watchlist(Strict):
 def save_watchlist(body:Watchlist,auth=Depends(owner)):
     for i in body.instruments: instrument_check(i)
     with Session() as db:
+        version=db.get(Record,"watchlist-version",with_for_update=True)
+        db.merge(Record(key="watchlist-version",value=json.dumps((json.loads(version.value) if version else 0)+1)))
         db.merge(Record(key="watchlist",value=json.dumps(list(dict.fromkeys(body.instruments)))))
         audit(db,"watchlist.update",body.model_dump());db.commit()
     return body.instruments
@@ -261,3 +278,8 @@ def save_research_record(kind: Literal["backtests","journal","alert-rules","aler
 
 from .provider_api import attach
 app.include_router(attach(owner,audit))
+
+from .ai_access import router as ai_router
+from .mcp_server import mcp_app
+app.include_router(ai_router(owner))
+app.mount('/api/mcp',mcp_app)

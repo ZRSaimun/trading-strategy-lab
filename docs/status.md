@@ -25,8 +25,10 @@ Implemented:
 
 - Browser-local complete workspace JSON backup and validated atomic replacement restore, including candle/source metadata, drawings, research records and retained audit trail. No cloud backup; see workspace-backup.md.
 
+- Private scoped/expiring/revocable AI tokens, 13 typed read/write tools, idempotent versioned AI annotations, owner token/notes UI and official MCP SDK HTTP transport. SDK-client integration verifies read/draw/audit/revoke/denial. See ai-access.md. An isolated Compose acceptance job is included; its CI result is recorded at release.
+
 Not implemented:
-- Passkeys/TOTP, scoped/revocable AI tokens, AI API tools or verified MCP client connection.
+- Passkeys/TOTP, OAuth connection and end-to-end verification from the intended ChatGPT client. A real private MCP/AI API is implemented below; the public Pages deployment has no MCP backend.
 - Real historical Gold dataset acceptance test: requires an authorized dataset from the owner.
 - Live feeds, server candle workers, live alert delivery, news/calendar, macro data or paid subscriptions.
 - Complete discretionary CRT/ICT/false-breakout models, full original strategy reconstruction, higher-timeframe/news/opposing-room filters, walk-forward optimization and real broker journal reconciliation. Implemented research variants and simulated journal are explicitly narrower.
@@ -35,6 +37,6 @@ Not implemented:
 - Ten-year scalable ingestion, full raw-response archival, Parquet storage and additional data providers. A bounded, disabled historical adapter and vetted source-field archive are implemented.
 - Complete research/credential browser end-to-end verification, physical iPhone/Safari verification, Docker runtime verification, VPN/HTTPS deployment, backup restore drill or hosted website.
 
-Acceptance evidence in this environment: Sixteen passing Python integration/unit tests, forty-two passing frontend research/simulator/alert/display/storage tests, a successful SQLite migration and successful server/Pages production builds. Deterministic fixture prices are software-only tests. Pages deployment is verified. No strategy profitability or independently verified current market price is claimed. Earlier and expanded mobile-viewport browser samples reproduced nine restricted exact feeds and rendered multiple explicit alternatives; see bugfix-2026-10-17.md and market-display.md. Selection persistence and direct alternative buttons have not had post-deployment browser verification.
+Acceptance evidence in this environment: Twenty-two passing Python integration/unit tests, forty-two passing frontend research/simulator/alert/display/storage tests, a successful SQLite migration and successful server/Pages production builds. Deterministic fixture prices are software-only tests. Pages deployment is verified. No strategy profitability or independently verified current market price is claimed. Earlier and expanded mobile-viewport browser samples reproduced nine restricted exact feeds and rendered multiple explicit alternatives; see bugfix-2026-10-17.md and market-display.md. Selection persistence and direct alternative buttons have not had post-deployment browser verification.
 
 The repository's visibility was public when accessed. The owner must make it private before storing private strategies or datasets. No strategy levels, personal information, credentials or real datasets were added.

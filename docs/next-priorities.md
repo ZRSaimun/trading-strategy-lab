@@ -16,7 +16,7 @@ Only after the private ingestion workflow works: implement idempotent candle-clo
 
 ## 4. Authenticated AI access
 
-Add scoped, expiring/revocable tokens and schema-validated chart/read/drawing-write endpoints, auditing and idempotency. Connect an actual intended AI client and verify read → draw → inspect audit → revoke → denied action. No such connection currently exists; a chart iframe does not provide AI access.
+Scoped, expiring/revocable tokens, 13 schema-validated tools, audited/idempotent drawing writes and official MCP HTTP transport are now implemented. The official SDK client verifies read → draw → audit → revoke → denied action. Still connect the intended ChatGPT client on the actual private host; OAuth is not implemented. A chart iframe does not provide AI access. See ai-access.md.
 
 ## 5. Broader strategy and market validation
 

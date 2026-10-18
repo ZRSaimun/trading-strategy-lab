@@ -89,3 +89,9 @@ Eight new tests cover credential encryption/denial, exact metadata, complete-can
 Unverified: live provider account/entitlements, actual Gold feed/history coverage, Nasdaq mapping, Docker execution and secret-mount permissions, real credential import, browser interactions, VPN deployment and restore procedures. No current market price, live integration, ten-year history, profit or external AI connection is claimed.
 
 Backtest UI excludes incomplete aggregate candles at the bounded window edges and records the exclusion count, rather than treating partial 5m/1H candles as complete. It does not fill gaps; the simulator retains conservative gap handling.
+
+## Pricing recheck — 2026-10-19 (Europe/London)
+
+The currently rendered individual pricing page shows Basic at USD 0, a selected Grow monthly configuration at USD 79 (377 API + 8 trial WS), Pro at USD 229, and Ultra at USD 999. These are the page's selected configurations, not a confirmed minimum quote or approved project budget. Grow lists commodities and internal display access; Ultra explicitly lists internal non-display access. Exact XAU/USD/NDX entitlement, historical depth and permission for backtesting/AI processing must therefore be confirmed with the provider; a display subscription is insufficient evidence of analysis rights. No plan was purchased or activated. Source: https://twelvedata.com/pricing
+
+Hosting also remains unselected. GitHub Pages is static hosting, not the Python/PostgreSQL service. Render's official free-tier documentation states web services sleep after inactivity and free Postgres expires after 30 days; this is not an approved permanent hosting design. No paid hosting price has been approved and no account was created. Sources: https://docs.github.com/en/pages/getting-started-with-github-pages/what-is-github-pages and https://render.com/docs/free.

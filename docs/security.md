@@ -11,7 +11,7 @@
 - Drawing version checks and audit entries for saves/deletes; import and watchlist audit records.
 - Next.js telemetry disabled in Docker. No application analytics trackers.
 
-Not production security certification: TOTP/passkeys, scoped AI tokens, encrypted provider-secret storage, global API rate limiting, tamper-resistant audit retention, CSP, streaming upload limits at a reverse proxy, robust concurrent first-write conflicts and session cleanup are outstanding. Do not publish this foundation directly on the public Internet.
+Not production security certification: TOTP/passkeys, distributed API rate limiting, tamper-resistant audit retention, CSP, streaming upload limits at a reverse proxy, cross-process login throttling and session cleanup are outstanding. Do not publish this foundation directly on the public Internet.
 
 For private remote access, use a private VPN and HTTPS reverse proxy. Update PUBLIC_ORIGIN to the exact HTTPS origin and COOKIE_SECURE=true, restrict VPN membership, and verify access and origin behavior. Tailscale deployment has not been configured or tested. Do not bind to `0.0.0.0` on the host merely to obtain remote access.
 
@@ -47,3 +47,9 @@ Market Charts adds an explicitly labelled cross-origin TradingView widget. Its p
 ## Historical provider credential vault
 
 Provider keys are locally Fernet-encrypted in ignored files, never browser configuration or query parameters. They are read only by the private backend and sent to one pinned HTTPS provider via Authorization. No credential upload route is exposed. Master-key permissions, separate encrypted backups and target-machine mount access require operator verification. This is not protection against a fully compromised host. See provider-setup.md.
+
+## Scoped AI access
+
+The private server supports hashed scoped AI tokens, expiry/revocation, versioned and idempotent audited drawing/notes/watchlist writes, and an official MCP SDK endpoint. See ai-access.md for supported tools, single-worker rate-limit assumptions and client verification limits. No OAuth or intended-ChatGPT connection is claimed.
+
+An isolated Docker acceptance script is included (`python scripts/smoke_compose.py`). It generates disposable credentials, uses a randomly named Compose project, tests the web/API/MCP proxy, then removes only that project's containers and volumes. It requires port 3000 to be free. This is not a database backup/restore drill or target-host VPN verification.
