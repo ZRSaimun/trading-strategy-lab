@@ -20,7 +20,7 @@ export const DISPLAY_MARKETS=[
  {id:'nq',name:'Nasdaq-100 · continuous NQ futures',symbol:'CME_MINI:NQ1!',type:'CME E-mini Nasdaq-100 continuous front-month display series',note:'Not the cash index or an individual futures expiry. Not enabled for our simulator.'},
 ] as const;
 export type DisplayFeed={symbol:string;name:string;type:string;note:string};
-export const RESTRICTED_WIDGET_SYMBOLS=new Set(['NASDAQ:NDX','NYMEX:CL1!','CME_MINI:NQ1!']);
+export const RESTRICTED_WIDGET_SYMBOLS=new Set(['NASDAQ:NDX','NYMEX:CL1!','CME_MINI:NQ1!','TVC:NI225','SP:SPX','TVC:DXY','TVC:US02Y','TVC:US10Y','CBOE:VIX']);
 const ALTERNATIVES:Record<string,DisplayFeed[]>={
  nq:[{symbol:'OANDA:NAS100USD',name:'OANDA Nasdaq-100 CFD proxy (NOT NQ futures)',type:'OANDA NAS100/USD · CFD proxy',note:'An explicitly selected broker CFD, NOT NQ futures or a specific expiry contract.'}],
  nasdaq:[{symbol:'OANDA:NAS100USD',name:'OANDA Nasdaq-100 CFD proxy',type:'OANDA NAS100/USD · CFD proxy',note:'A broker CFD proxy, NOT NASDAQ:NDX cash index or NQ futures. Select explicitly; prices can differ.'}],
@@ -43,4 +43,11 @@ export function widgetConfig(symbol:string,light:boolean,interval:string){
 export function widgetURL(symbol:string,light:boolean,interval:string){
  const config=widgetConfig(symbol,light,interval);
  return 'https://www.tradingview-widget.com/embed-widget/advanced-chart/?locale=en#'+encodeURIComponent(JSON.stringify(config));
+}
+
+// Only restore explicit selections that still belong to the exact registry market.
+export function restoreFeedChoices(raw:string|null):Record<string,string>{
+ try{const value=JSON.parse(raw||'{}');if(!value||typeof value!=='object'||Array.isArray(value))return {};
+  return Object.fromEntries(DISPLAY_MARKETS.flatMap(m=>typeof value[m.id]==='string'&&feedOptions(m.id).some(f=>f.symbol===value[m.id])?[[m.id,value[m.id]]]:[]));
+ }catch{return {}}
 }

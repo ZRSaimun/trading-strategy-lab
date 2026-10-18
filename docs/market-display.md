@@ -44,3 +44,17 @@ Three tests verify distinct instrument identities, symbol/timeframe allowlisting
 ## Rendering investigation and fixes
 
 A later mobile-viewport browser check verified candles for Gold, Silver, NVDA, Tesla, EURUSD, BTCUSD and ETHUSD, and provider restrictions for NDX, CL1! and NQ1!. Restricted feeds now get an explicit panel and separately selected CFD alternatives. Mobile gets a native market dropdown. See bugfix-2026-10-17.md for the exact sample and remaining verification limits.
+
+## Explicit feed selection usability (v0.10)
+
+Restricted feeds expose one-click buttons for their exact, clearly labelled CFD alternatives and an immediate external link for the original instrument. No alternative is selected automatically. Once selected, each market's exact feed is retained across market switches and refreshes under `tsl-display-feed-choices`. Only allowlisted symbols belonging to that market can be restored; null, malformed JSON, unknown symbols and cross-market substitutions are ignored. If localStorage is unavailable the selection lasts for the current component session. Backup files do not include these display preferences.
+
+Native feed options now show concise exact symbols, with the CFD identity and full source note immediately below. Known restricted primary entries say “choose feed” on mobile and “external only” in the desktop source label. Selecting a new market re-enables the external chart after it was disabled on another market. A chart frame's load event still does not prove candle availability.
+
+## Wider public mobile check — 2026-10-18
+
+At a 390×844 viewport on v0.9, Gold OANDA:XAUUSD, VOO AMEX:VOO and GBPUSD OANDA:GBPUSD rendered actual candlesticks. Explicit OANDA:NAS100USD alternatives for both Nasdaq cash/NQ and OANDA:WTICOUSD for oil also rendered candles. Restricted-feed messages appeared for TVC:NI225, SP:SPX, TVC:DXY, TVC:US02Y, TVC:US10Y and CBOE:VIX in addition to the previously established NDX/NQ/CL restrictions. These nine exact feeds now display an explicit restriction panel and original-source link rather than a known unavailable iframe. Japan/S&P CFD alternatives were not rendered in this sample and their entitlement remains unverified.
+
+No literal `null` or `undefined` appeared in the inspected labels. The provider showed the glyph `∅` on unavailable charts. This is a possible explanation of the user's “null” report, not confirmation of what appeared on their physical iPhone. No quote values were extracted. This check verified the old v0.9 UI; the new selection persistence and one-click button flow have automated/configuration and production-build coverage but no post-deployment browser verification.
+
+Public sources inspected: https://zrsaimun.github.io/trading-strategy-lab/ and the exact TradingView sources linked from its market choices. Official widget data restrictions were rechecked at https://www.tradingview.com/widget-docs/faq/data/. A personal paid account does not unlock widget entitlements.

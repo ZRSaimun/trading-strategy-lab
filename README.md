@@ -90,3 +90,7 @@ Open Research Charts → Indicators to choose price overlays and separate oscill
 ## Browser workspace recovery
 
 On GitHub Pages, open **Backup & Restore** to download a complete local workspace JSON file and restore it later. The file includes imported candles, drawings and retained research records. Restore replaces the current workspace after validation; save a backup and close other app tabs first. Backups are unencrypted and should be stored privately. See [recovery guide and limitations](docs/workspace-backup.md). Private-server database recovery remains separate.
+
+## What remains
+
+See [next priorities and current practical benefit](docs/next-priorities.md). The public app is not yet the complete privately hosted live-data/AI terminal. External charts, imported research, replay alerts and a verified AI connection are distinct capabilities; only the implemented ones are labelled working.

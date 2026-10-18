@@ -5,7 +5,7 @@ This version adds GitHub Pages browser-local mode, historical replay and generic
 Implemented:
 - Single-owner login, session expiry/logout, login throttle and origin checks.
 - PostgreSQL Compose configuration, SQLite development option and Alembic migration.
-- Separate Gold and Nasdaq cash-index identities, persisted watchlist.
+- Separate Gold and Nasdaq cash-index identities, persisted watchlist. Explicit external-feed preferences are retained across market switches and refreshes; restricted feeds provide direct alternative buttons.
 - Strict chronological one-minute CSV import, UTC normalization, OHLC validation, duplicates/invalid data rejection, dataset hash and actual coverage.
 - All requested aggregation timeframes including UTC weekly/monthly buckets; never fills missing candles.
 - Interactive candlestick chart, crosshair, zoom/pan, timeframe controls, chart fitting.
@@ -17,7 +17,7 @@ Implemented:
 
 - Saved conditional replay alert rules, completed-candle evaluations, deduplicated in-app events, event exports and audited persistence. See docs/alerts.md.
 
-- White day/night themes with persistent preference and mobile switch; default provider-hosted Market Charts view with 18 explicit feed choices. This is display-only and per-symbol availability is unverified; see docs/market-display.md.
+- White day/night themes with persistent preference and mobile switch; default provider-hosted Market Charts view with 18 explicit feed choices. This is display-only; some feeds rendered in browser checks and others are restricted; see docs/market-display.md.
 
 - Disabled-by-default private Twelve Data historical adapter for exact XAU/USD, encrypted local credentials, bounded UTC validation, source archive, audited imports and Data Connection UI. No real account activation or live-data verification; see docs/provider-setup.md.
 
@@ -35,6 +35,6 @@ Not implemented:
 - Ten-year scalable ingestion, full raw-response archival, Parquet storage and additional data providers. A bounded, disabled historical adapter and vetted source-field archive are implemented.
 - Complete research/credential browser end-to-end verification, physical iPhone/Safari verification, Docker runtime verification, VPN/HTTPS deployment, backup restore drill or hosted website.
 
-Acceptance evidence in this environment: Sixteen passing Python integration/unit tests, forty-one passing frontend research/simulator/alert/display/storage tests, a successful SQLite migration and successful server/Pages production builds. Deterministic fixture prices are software-only tests. Pages deployment is verified. No strategy profitability or independently verified current market price is claimed. A ten-feed mobile-viewport browser check reproduced three provider restrictions; see bugfix-2026-10-17.md.
+Acceptance evidence in this environment: Sixteen passing Python integration/unit tests, forty-two passing frontend research/simulator/alert/display/storage tests, a successful SQLite migration and successful server/Pages production builds. Deterministic fixture prices are software-only tests. Pages deployment is verified. No strategy profitability or independently verified current market price is claimed. Earlier and expanded mobile-viewport browser samples reproduced nine restricted exact feeds and rendered multiple explicit alternatives; see bugfix-2026-10-17.md and market-display.md. Selection persistence and direct alternative buttons have not had post-deployment browser verification.
 
 The repository's visibility was public when accessed. The owner must make it private before storing private strategies or datasets. No strategy levels, personal information, credentials or real datasets were added.
