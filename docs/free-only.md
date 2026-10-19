@@ -32,7 +32,7 @@ Official limits checked 2026-10-19:
 - Render Free can run web services but sleeps after 15 minutes, loses filesystem changes on restart and shares 750 instance hours across a workspace. Its free Postgres expires after 30 days. Do not store this application's database or only backup on its ephemeral disk. https://render.com/docs/free
 - Render can bill bandwidth/build overages when a payment method is attached. A free plan label is insufficient to promise zero charges. Avoid enabling billing and verify account limits before resource creation.
 
-A combined web/API runtime, persistent database connection, database isolation from exposed Supabase schemas and memory-constrained end-to-end tests are still required before recommending the cloud deployment as working. No free cloud resources have been provisioned. Do not run the existing two-service Compose stack on Render and assume a complete month of free continuous uptime.
+A combined web/API runtime, persistent database configuration, private schema isolation and memory-constrained CI acceptance coverage are now implemented; see [deployment instructions and verification limits](free-cloud-deployment.md). Actual cloud provisioning and provider-specific connection/TLS checks remain pending. No free cloud resources have been provisioned. Do not run the existing two-service Compose stack on Render and assume a complete month of free continuous uptime.
 
 The database organization choice is pending. Account administrators can access/manage project resources, so organization ownership must be selected before provisioning. Do not send database passwords or API keys in chat; use the host's secret settings when deployment is ready.
 

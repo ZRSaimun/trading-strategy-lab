@@ -1,0 +1,36 @@
+# Disposable CI fixture. Not a cloud deployment and not real market data.
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: lab
+      POSTGRES_USER: lab
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?}
+      PGOPTIONS: -c search_path=tsl_private
+    volumes:
+      - postgres:/var/lib/postgresql/data
+      - ./test-roles.sql:/docker-entrypoint-initdb.d/test-roles.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U lab -d lab"]
+      interval: 3s
+      retries: 20
+  web:
+    build:
+      context: ..
+      dockerfile: deploy/free.Dockerfile
+    mem_limit: 512m
+    environment:
+      DEPLOYMENT_PROFILE: free-cloud
+      FREE_ONLY: "true"
+      DATABASE_SCHEMA: tsl_private
+      DATABASE_URL: postgresql+psycopg://lab:${POSTGRES_PASSWORD}@db/lab
+      OWNER_PASSWORD_HASH: ${OWNER_PASSWORD_HASH:?}
+      PUBLIC_ORIGIN: https://localhost:3000
+      PORT: "3000"
+    ports:
+      - "127.0.0.1:3000:3000"
+    depends_on:
+      db:
+        condition: service_healthy
+volumes:
+  postgres:

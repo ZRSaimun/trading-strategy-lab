@@ -1,5 +1,6 @@
 """Isolated Docker stack acceptance test. Requires Docker; uses no real data or keys."""
 import http.cookiejar
+import argparse
 import json
 import os
 from pathlib import Path
@@ -13,19 +14,36 @@ import uuid
 from argon2 import PasswordHasher
 
 root=Path(__file__).resolve().parents[1]
+parser=argparse.ArgumentParser(description=__doc__)
+parser.add_argument('--combined',action='store_true',help='Test the memory-limited free-cloud image and private schema')
+combined=parser.parse_args().combined
 project='tsl-smoke-'+uuid.uuid4().hex[:10]
 password=secrets.token_urlsafe(32)
 with tempfile.TemporaryDirectory(prefix='tsl-smoke-') as directory:
     envfile=Path(directory)/'smoke.env'
     fd=os.open(envfile,os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o600)
     with os.fdopen(fd,'w') as f:f.write("POSTGRES_PASSWORD="+secrets.token_hex(32)+"\nOWNER_PASSWORD_HASH='"+PasswordHasher().hash(password)+"'\nPUBLIC_ORIGIN=http://localhost:3000\nCOOKIE_SECURE=false\n")
-    compose=['docker','compose','--project-name',project,'--env-file',str(envfile),'-f',str(root/'compose.yaml')]
-    opener=urllib.request.build_opener(urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
+    compose=['docker','compose','--project-name',project,'--env-file',str(envfile),'-f',str(root/('deploy/compose.free-test.yaml' if combined else 'compose.yaml'))]
+    class LocalFixtureCookiePolicy(http.cookiejar.DefaultCookiePolicy):
+        def return_ok_secure(self,cookie,request):
+            # The container fixture has no TLS terminator. Production cookies stay Secure.
+            if combined and request.host=='127.0.0.1:3000':return True
+            return super().return_ok_secure(cookie,request)
+    jar=http.cookiejar.CookieJar(policy=LocalFixtureCookiePolicy())
+    opener=urllib.request.build_opener(urllib.request.HTTPCookieProcessor(jar))
     def request(path,method='GET',data=None,token=None):
         headers={'Content-Type':'application/json'}
         if token:headers['Authorization']='Bearer '+token
         req=urllib.request.Request('http://127.0.0.1:3000'+path,data=None if data is None else json.dumps(data).encode(),headers=headers,method=method)
         with opener.open(req,timeout=15) as response:return json.load(response)
+    def import_fixture(instrument,csv):
+        boundary='tsl-'+uuid.uuid4().hex
+        fields={'instrument':instrument,'source':'Deterministic software fixture — not market data','rights_confirmed':'true','volume_type':'none'}
+        parts=[]
+        for key,value in fields.items():parts.append(f'--{boundary}\r\nContent-Disposition: form-data; name="{key}"\r\n\r\n{value}\r\n')
+        parts.append(f'--{boundary}\r\nContent-Disposition: form-data; name="file"; filename="software-fixture.csv"\r\nContent-Type: text/csv\r\n\r\n{csv}\r\n--{boundary}--\r\n')
+        req=urllib.request.Request('http://127.0.0.1:3000/api/import',data=''.join(parts).encode(),headers={'Content-Type':'multipart/form-data; boundary='+boundary},method='POST')
+        with opener.open(req,timeout=30) as response:return json.load(response)
     try:
         subprocess.run(compose+['up','--build','-d'],check=True)
         ready=False
@@ -40,16 +58,21 @@ with tempfile.TemporaryDirectory(prefix='tsl-smoke-') as directory:
         except urllib.error.HTTPError as e:assert e.code==401
         else:raise AssertionError('Unauthenticated data access was allowed')
         request('/api/login','POST',{'password':password})
+        if combined:
+            assert next(c for c in jar if c.name=='tsl_session').secure
+            assert request('/api/health')['profile']=='free-cloud'
         assert request('/api/candles/XAUUSD-IMPORT')['quality']['state']=='NO DATA'
-        boundary='tsl-'+uuid.uuid4().hex
         csv='time,open,high,low,close\n2024-01-01T00:00:00Z,1,3,1,2\n2024-01-01T00:01:00Z,2,4,1,3\n2024-01-01T00:02:00Z,3,5,2,4\n'
-        fields={'instrument':'XAUUSD-IMPORT','source':'Deterministic software fixture — not market data','rights_confirmed':'true','volume_type':'none'}
-        parts=[]
-        for key,value in fields.items():parts.append(f'--{boundary}\r\nContent-Disposition: form-data; name="{key}"\r\n\r\n{value}\r\n')
-        parts.append(f'--{boundary}\r\nContent-Disposition: form-data; name="file"; filename="software-fixture.csv"\r\nContent-Type: text/csv\r\n\r\n{csv}\r\n--{boundary}--\r\n')
-        req=urllib.request.Request('http://127.0.0.1:3000/api/import',data=''.join(parts).encode(),headers={'Content-Type':'multipart/form-data; boundary='+boundary},method='POST')
-        with opener.open(req,timeout=15) as response:assert json.load(response)['rows']==3
+        assert import_fixture('XAUUSD-IMPORT',csv)['rows']==3
         assert len(request('/api/candles/XAUUSD-IMPORT?timeframe=1m')['candles'])==3
+        if combined:
+            from datetime import datetime,timezone,timedelta
+            start=datetime(2024,1,2,tzinfo=timezone.utc)
+            csv='time,open,high,low,close\n'+''.join((start+timedelta(minutes=i)).isoformat()+',1,3,1,2\n' for i in range(5000))
+            assert import_fixture('NDX-IMPORT',csv)['rows']==5000
+            result=request('/api/candles/NDX-IMPORT?timeframe=1m')
+            assert result['has_more'] and len(result['candles'])==2000
+            assert result['dataset']['rows']==5000
         issued=request('/api/ai/tokens','POST',{'label':'Isolated Docker smoke test','scopes':['charts:read','drawings:write'],'expires_in_hours':1})
         token=issued['token']
         args={'instrument':'XAUUSD-IMPORT','id':'docker-connection-test','kind':'note','points':[{'time':1704067200,'price':1}],'text':'Software connection test only — not market data','version':0,'idempotency_key':'docker-create'}
@@ -72,12 +95,31 @@ with tempfile.TemporaryDirectory(prefix='tsl-smoke-') as directory:
         try:request('/api/ai/tools/list_instruments','POST',{},token)
         except urllib.error.HTTPError as e:assert e.code==401
         else:raise AssertionError('Revoked token was accepted')
+        if combined:
+            schema_sql="SELECT count(*) FROM pg_tables WHERE schemaname='tsl_private' AND rowsecurity=true; SELECT has_schema_privilege('anon','tsl_private','USAGE'),has_schema_privilege('authenticated','tsl_private','USAGE'); SELECT count(*) FROM pg_tables WHERE schemaname='public' AND tablename IN ('records','candles','audit');"
+            schema=subprocess.run(compose+['exec','-T','db','psql','-U','lab','-d','lab','-Atc',schema_sql],check=True,capture_output=True,text=True).stdout.strip()
+            assert schema=='4\nf|f\n0','Private schema isolation or RLS did not match'
+            # A restart must preserve data/drawings in Postgres and run migrations idempotently.
+            subprocess.run(compose+['restart','web'],check=True)
+            for _ in range(60):
+                try:
+                    if request('/api/health')['status']=='ok':break
+                except (OSError,urllib.error.URLError):pass
+                time.sleep(2)
+            else:raise AssertionError('Combined service did not recover after restart')
+            assert len(request('/api/candles/XAUUSD-IMPORT?timeframe=1m')['candles'])==3
+            assert request('/api/drawings/XAUUSD-IMPORT')[0]['provenance']=='ai'
+            container=subprocess.run(compose+['ps','-q','web'],check=True,capture_output=True,text=True).stdout.strip()
+            memory=subprocess.run(['docker','stats','--no-stream','--format','{{.MemUsage}}',container],check=True,capture_output=True,text=True).stdout.strip()
+            print('Combined fixture memory after restart:',memory)
+            info=json.loads(subprocess.run(['docker','inspect',container],check=True,capture_output=True,text=True).stdout)[0]
+            assert info['HostConfig']['Memory']==512*1024*1024 and not info['State']['OOMKilled']
         dump=subprocess.run(compose+['exec','-T','db','pg_dump','-U','lab','-d','lab','-Fc'],check=True,capture_output=True).stdout
         subprocess.run(compose+['exec','-T','db','createdb','-U','lab','lab_restore_smoke'],check=True,capture_output=True)
         subprocess.run(compose+['exec','-T','db','pg_restore','-U','lab','-d','lab_restore_smoke','--no-owner','--exit-on-error'],input=dump,check=True,capture_output=True)
         sql="SELECT (SELECT count(*) FROM candles),(SELECT count(*) FROM records WHERE key LIKE 'drawing:%'),(SELECT count(*) FROM audit WHERE action='ai.create_chart_drawing');"
         restored=subprocess.run(compose+['exec','-T','db','psql','-U','lab','-d','lab_restore_smoke','-Atc',sql],check=True,capture_output=True,text=True).stdout.strip()
-        assert restored=='3|1|1','Restored fixture candles, drawing or audit record did not match'
+        assert restored==('5003|1|1' if combined else '3|1|1'),'Restored fixture candles, drawing or audit record did not match'
         # Simulate a snapshot taken before revocation, then apply the documented recovery policy.
         reset="UPDATE records SET value=jsonb_set(value::jsonb, '{revoked}', 'false'::jsonb)::text WHERE key LIKE 'ai-token:%';"
         invalidate="BEGIN; DELETE FROM records WHERE key LIKE 'session:%'; UPDATE records SET value=jsonb_set(value::jsonb, '{revoked}', 'true'::jsonb)::text WHERE key LIKE 'ai-token:%'; COMMIT;"

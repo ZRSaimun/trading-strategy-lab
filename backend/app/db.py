@@ -1,11 +1,30 @@
 import os
-from sqlalchemy import create_engine, String, Integer, Float, Text, UniqueConstraint
+from sqlalchemy import create_engine, event, String, Integer, Float, Text, UniqueConstraint
+from sqlalchemy.engine import make_url
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, sessionmaker
 
 class Base(DeclarativeBase):
     pass
 
-engine = create_engine(os.getenv("DATABASE_URL", "sqlite:///./lab.db"))
+DATABASE_SCHEMA = os.getenv('DATABASE_SCHEMA', '')
+if DATABASE_SCHEMA not in ('', 'tsl_private'):
+    raise ValueError('DATABASE_SCHEMA must be empty or tsl_private')
+url = make_url(os.getenv("DATABASE_URL", "sqlite:///./lab.db"))
+if url.drivername == 'postgresql':
+    url = url.set(drivername='postgresql+psycopg')
+if DATABASE_SCHEMA and url.get_backend_name() != 'postgresql':
+    raise ValueError('Private schema requires PostgreSQL')
+options = {}
+if url.get_backend_name() == 'postgresql':
+    options = dict(pool_pre_ping=True, pool_size=2, max_overflow=0, pool_timeout=10,
+                   connect_args={'connect_timeout': 10})
+engine = create_engine(url, **options)
+if DATABASE_SCHEMA:
+    @event.listens_for(engine, 'begin')
+    def private_transaction(connection):
+        # Every transaction sets its own path; never fall back to public tables.
+        connection.exec_driver_sql('SET LOCAL search_path TO tsl_private')
+        connection.exec_driver_sql("SET LOCAL statement_timeout TO '30s'")
 Session = sessionmaker(engine)
 
 class Record(Base):

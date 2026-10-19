@@ -3,6 +3,7 @@ import json
 import os
 import secrets
 import time
+import threading
 from collections import defaultdict, deque
 from contextlib import asynccontextmanager
 from typing import Literal
@@ -15,9 +16,11 @@ from sqlalchemy.exc import IntegrityError
 from .db import Base, engine, Session, Record, Candle, Audit
 from .market import parse_csv, aggregate, TIMEFRAMES
 from .registry import INSTRUMENTS
+from .deployment import cloud_profile
 
 ph = PasswordHasher()
 attempts = defaultdict(deque)
+login_memory_lock = threading.Lock()
 PUBLIC_ORIGIN = os.getenv("PUBLIC_ORIGIN", "http://localhost:3000")
 SECURE = os.getenv("COOKIE_SECURE", "false").lower() == "true"
 
@@ -71,10 +74,11 @@ class Login(Strict):
     password: str = Field(min_length=1,max_length=256)
 
 @app.get("/health")
+@app.get("/api/health")
 def health():
     with Session() as db:
         db.execute(select(Record).limit(1))
-    return {"status":"ok","mode":"research-only"}
+    return {"status":"ok","mode":"research-only","profile":"free-cloud" if cloud_profile() else "standard"}
 
 @app.post("/api/login")
 def login(body: Login, request: Request, response: Response):
@@ -89,10 +93,17 @@ def login(body: Login, request: Request, response: Response):
     hashed = os.getenv("OWNER_PASSWORD_HASH", "")
     if not hashed:
         raise HTTPException(503,"Owner password is not configured")
+    locked = cloud_profile()
+    if locked and not login_memory_lock.acquire(blocking=False):
+        raise HTTPException(429, "Another password check is running; retry shortly")
     try:
-        ph.verify(hashed, body.password)
-    except (VerifyMismatchError, InvalidHashError):
-        raise HTTPException(401,"Invalid credentials")
+        try:
+            ph.verify(hashed, body.password)
+        except (VerifyMismatchError, InvalidHashError):
+            raise HTTPException(401,"Invalid credentials")
+    finally:
+        if locked:
+            login_memory_lock.release()
     token = secrets.token_urlsafe(48)
     with Session() as db:
         db.add(Record(key="session:"+hashlib.sha256(token.encode()).hexdigest(),value=json.dumps({"expires":now+28800})))
@@ -128,11 +139,12 @@ async def upload(instrument: str = Form(...), source: str = Form(...,min_length=
     if not instrument.endswith("-IMPORT"): raise HTTPException(422,"Use the provider import route for provider series")
     if not rights_confirmed:
         raise HTTPException(422,"Confirm authorization to use this dataset")
-    raw = await file.read(12_000_001)
-    if len(raw)>12_000_000:
-        raise HTTPException(413,"CSV exceeds 12 MB")
+    max_bytes = 2_000_000 if cloud_profile() else 12_000_000
+    raw = await file.read(max_bytes + 1)
+    if len(raw)>max_bytes:
+        raise HTTPException(413,f"CSV exceeds {max_bytes // 1_000_000} MB for this deployment")
     try:
-        rows = parse_csv(raw.decode("utf-8-sig"))
+        rows = parse_csv(raw.decode("utf-8-sig"), max_rows=5000 if cloud_profile() else 100000)
     except (ValueError, UnicodeError) as e:
         raise HTTPException(422,str(e))
     if volume_type == "none" and any(r["volume"] is not None for r in rows):

@@ -7,15 +7,15 @@ from datetime import datetime, timezone
 TIMEFRAMES = {"1m":60,"3m":180,"5m":300,"15m":900,"30m":1800,
               "1H":3600,"2H":7200,"4H":14400,"1D":86400,"1W":604800,"1M":0}
 
-def parse_csv(raw: str):
+def parse_csv(raw: str, max_rows: int = 100000):
     rows = []
     seen = set()
     reader = csv.DictReader(io.StringIO(raw))
     if not {"time","open","high","low","close"}.issubset(reader.fieldnames or []):
         raise ValueError("Required headers: time,open,high,low,close; optional volume")
     for n, row in enumerate(reader, 2):
-        if len(rows) >= 100000:
-            raise ValueError("Maximum 100,000 rows per import")
+        if len(rows) >= max_rows:
+            raise ValueError(f"Maximum {max_rows:,} rows per import")
         try:
             dt = datetime.fromisoformat(row["time"].replace("Z", "+00:00"))
             if dt.tzinfo is None:

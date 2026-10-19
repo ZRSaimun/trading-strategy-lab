@@ -1,0 +1,15 @@
+.git
+.env
+.env.*
+.secrets
+.venv
+**/node_modules
+**/.next
+**/__pycache__
+**/.pytest_cache
+**/*.db
+**/*.csv
+**/*.parquet
+frontend/out
+data
+backups

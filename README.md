@@ -102,3 +102,7 @@ The private server now includes owner-managed scoped tokens, an official MCP SDK
 ## Free-only operation
 
 The project now defaults to `FREE_ONLY=true`, blocking the external historical-data adapter before credential loading or network access. See [the free-only plan, enforced scope and unfinished cloud requirements](docs/free-only.md). No cloud account or paid subscription is activated by this configuration.
+
+## Single-service free hosting preparation
+
+A combined Next.js/FastAPI Docker image, explicitly free Render Blueprint and private Postgres schema are available. See [setup, enforced limits and cloud activation checks](docs/free-cloud-deployment.md). This prepares deployment; it does not create or activate cloud resources.

@@ -1,0 +1,25 @@
+# Account provisioning is separate. Never add a paid database, disk or worker here.
+services:
+  - type: web
+    name: trading-strategy-lab-private
+    runtime: docker
+    plan: free
+    dockerfilePath: ./deploy/free.Dockerfile
+    dockerContext: .
+    autoDeployTrigger: checksPass
+    healthCheckPath: /api/health
+    envVars:
+      - key: DEPLOYMENT_PROFILE
+        value: free-cloud
+      - key: FREE_ONLY
+        value: "true"
+      - key: TWELVEDATA_ENABLED
+        value: "false"
+      - key: DATABASE_SCHEMA
+        value: tsl_private
+      - key: DATABASE_URL
+        sync: false
+      - key: DATABASE_CA_PEM
+        sync: false
+      - key: OWNER_PASSWORD_HASH
+        sync: false

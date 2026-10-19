@@ -40,3 +40,7 @@ Not implemented:
 Acceptance evidence in this environment: Twenty-two passing Python integration/unit tests, forty-two passing frontend research/simulator/alert/display/storage tests, a successful SQLite migration and successful server/Pages production builds. Deterministic fixture prices are software-only tests. Pages deployment is verified. No strategy profitability or independently verified current market price is claimed. Earlier and expanded mobile-viewport browser samples reproduced nine restricted exact feeds and rendered multiple explicit alternatives; see bugfix-2026-10-17.md and market-display.md. Selection persistence and direct alternative buttons have not had post-deployment browser verification.
 
 The repository's visibility was public when accessed. The owner must make it private before storing private strategies or datasets. No strategy levels, personal information, credentials or real datasets were added.
+
+## Free-cloud deployment preparation
+
+Combined web/API image and supervisor, explicit Render Free Blueprint, secure configuration validation, private Postgres schema/RLS hardening and bounded small-host imports implemented. A separate memory-limited Docker CI fixture exercises the combined runtime. Actual Render/Supabase provisioning, TLS/pooler verification and iPhone private-server access remain pending. See `free-cloud-deployment.md`.
