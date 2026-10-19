@@ -55,7 +55,7 @@ python scripts/provider-key.py
 
 It creates ignored `.secrets/provider-master.key` and `.secrets/twelvedata.enc`, with owner-only file permissions. Keep the master key private and back it up separately in encrypted storage. Encryption does not protect against a fully compromised host that can read both files. For Docker on Linux, the API user must have permission to read these owner-only files (the image's `lab` user normally has UID/GID 1000); verify UID ownership/mount access rather than making secrets world-readable. The runtime mount is read-only. Docker Desktop file-permission behavior differs; validate on the actual target.
 
-The adapter remains disabled. After account rights and costs are approved, explicitly set `TWELVEDATA_ENABLED=true` in local `.env`, then start:
+The adapter remains disabled. The current owner policy is free-only; these instructions are for a later separately approved change. After account rights and costs are approved, explicitly set `FREE_ONLY=false` and `TWELVEDATA_ENABLED=true` in local `.env`, then start:
 
 ```sh
 docker compose -f compose.yaml -f compose.provider.yaml up --build -d

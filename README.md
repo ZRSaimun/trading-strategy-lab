@@ -98,3 +98,7 @@ See [next priorities and current practical benefit](docs/next-priorities.md). Th
 ## Private AI chart access
 
 The private server now includes owner-managed scoped tokens, an official MCP SDK HTTP connector and audited AI drawings/notes/watchlist updates. Use **AI Chart Assistant** to manage tokens on the private deployment. The public Pages page correctly reports NOT CONNECTED. See [supported tools, connection test and remaining ChatGPT/hosting requirements](docs/ai-access.md). Run the [isolated full-stack smoke test](scripts/smoke_compose.py) on a machine with Docker; CI also runs it.
+
+## Free-only operation
+
+The project now defaults to `FREE_ONLY=true`, blocking the external historical-data adapter before credential loading or network access. See [the free-only plan, enforced scope and unfinished cloud requirements](docs/free-only.md). No cloud account or paid subscription is activated by this configuration.

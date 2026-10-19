@@ -16,12 +16,17 @@ router=APIRouter()
 _import_lock=threading.Lock()
 _last_attempt=0.0
 
+def free_only():
+    # Unknown values fail closed. Removing a flag must never enable paid access.
+    return os.getenv('FREE_ONLY', 'true').strip().lower() != 'false'
+
+
 def attach(owner,audit):
     @router.get('/api/providers')
     def status(auth=Depends(owner)):
         ready=vault.configured()
-        enabled=os.getenv('TWELVEDATA_ENABLED','false').lower()=='true'
-        return {'deployment':'private-server','provider':'twelvedata','credential_configured':ready,'enabled':enabled,
+        enabled=not free_only() and os.getenv('TWELVEDATA_ENABLED','false').lower()=='true'
+        return {'deployment':'private-server','provider':'twelvedata','credential_configured':ready,'enabled':enabled,'free_only':free_only(),
                 'state':'READY FOR MANUAL IMPORT' if ready and enabled else 'NOT CONNECTED',
                 'live':False,'automatic_requests':False,'mappings':[dict(id=k,**v) for k,v in MAPPINGS.items()],
                 'limits':{'max_candles':5000,'min_request_seconds':60,'interval':'1min','mode':'historical only'},
@@ -38,6 +43,7 @@ def attach(owner,audit):
     @router.post('/api/providers/twelvedata/import')
     async def import_history(body:ImportRequest,auth=Depends(owner)):
         global _last_attempt
+        if free_only():raise HTTPException(409,'Free-only policy blocks this external data adapter; no request was made.')
         if os.getenv('TWELVEDATA_ENABLED','false').lower()!='true':raise HTTPException(409,'Provider is disabled; no request was made.')
         if not body.rights_confirmed or not body.replace_confirmed:raise HTTPException(422,'Confirm data rights and replacement of this provider series.')
         now=int(time.time())

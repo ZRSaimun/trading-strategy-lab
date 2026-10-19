@@ -76,6 +76,7 @@ def test_status_authentication_disabled_gate_and_secret_isolation(client,monkeyp
 
 
 def test_historical_pipeline_persists_charts_manifest_archive_and_audit(client,monkeypatch,tmp_path):
+    monkeypatch.setenv('FREE_ONLY','false')  # Fixture-only transport; no paid network request.
     credentials(monkeypatch,tmp_path);monkeypatch.setenv('TWELVEDATA_ENABLED','true');monkeypatch.setenv('MARKET_ARCHIVE_DIR',str(tmp_path/'archive'))
     monkeypatch.setattr(provider_api,'_last_attempt',-1000)
     async def fake(key,instrument,limit,end,now):
@@ -95,8 +96,26 @@ def test_historical_pipeline_persists_charts_manifest_archive_and_audit(client,m
 
 
 def test_wrong_instrument_and_missing_rights_are_denied(client,monkeypatch):
+    monkeypatch.setenv('FREE_ONLY','false')
     monkeypatch.setenv('TWELVEDATA_ENABLED','true');unlock(client)
     body={'instrument':'NDX-IMPORT','limit':100,'end':NOW-60,'rights_confirmed':True,'replace_confirmed':True}
     assert client.post('/api/providers/twelvedata/import',json=body).status_code==422
     body.update(instrument='XAUUSD-TD',rights_confirmed=False)
     assert client.post('/api/providers/twelvedata/import',json=body).status_code==422
+
+
+@pytest.mark.parametrize('policy',[None,'true','TRUE','invalid',''])
+def test_free_policy_blocks_even_enabled_provider_before_credentials(client,monkeypatch,policy):
+    if policy is None:monkeypatch.delenv('FREE_ONLY',raising=False)
+    else:monkeypatch.setenv('FREE_ONLY',policy)
+    monkeypatch.setenv('TWELVEDATA_ENABLED','true')
+    def forbidden(*args,**kwargs):
+        pytest.fail('Free-only mode must not load credentials or invoke a provider')
+    unlock(client)
+    status=client.get('/api/providers').json()
+    assert status['free_only'] and not status['enabled']
+    monkeypatch.setattr(provider_api.vault,'load_key',forbidden)
+    monkeypatch.setattr(provider_api,'retrieve',forbidden)
+    response=client.post('/api/providers/twelvedata/import',json={'instrument':'XAUUSD-TD','limit':100,'end':NOW-60,'rights_confirmed':True,'replace_confirmed':True})
+    assert response.status_code==409
+    assert 'Free-only' in response.json()['detail']

@@ -19,6 +19,7 @@ services:
       OWNER_PASSWORD_HASH: ${OWNER_PASSWORD_HASH:?Run scripts/configure.py first}
       PUBLIC_ORIGIN: ${PUBLIC_ORIGIN:-http://localhost:3000}
       COOKIE_SECURE: ${COOKIE_SECURE:-false}
+      FREE_ONLY: ${FREE_ONLY:-true}
       TWELVEDATA_ENABLED: ${TWELVEDATA_ENABLED:-false}
       PROVIDER_MASTER_KEY_FILE: /run/provider/provider-master.key
       TWELVEDATA_KEY_FILE: /run/provider/twelvedata.enc
