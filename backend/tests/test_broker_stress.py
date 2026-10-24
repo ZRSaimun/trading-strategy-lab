@@ -136,3 +136,67 @@ def test_endpoint_requires_owner_and_never_exposes_order_action():
     locked = FastAPI()
     locked.include_router(build_router(deny))
     assert TestClient(locked).post('/api/broker/stress-preview', json=payload()).status_code == 401
+
+
+def test_micro_position_preserves_positive_json_numbers():
+    # The old 4-decimal API rounding reported zero exposure, loss and budget
+    # despite valid positive calculations. Neither the JSON nor UI may erase
+    # these values or silently imply risk-free trading.
+    values = payload(
+        entry_price=0.000001, stop_price=0.0000005,
+        stressed_exit_price=0.00000025, quantity=1,
+        point_value=1, estimated_total_cost=0,
+        account_equity=0.001, risk_budget_percent=1,
+        margin_requirement_percent=1, max_leverage=10,
+    )
+    nominal = {k: v for k, v in values.items() if k in OrderPreview.model_fields}
+    app = FastAPI()
+    app.include_router(build_router(lambda: 'owner'))
+    client = TestClient(app)
+    for path, data in (
+        ('/api/broker/order-risk-preview', nominal),
+        ('/api/broker/stress-preview', values),
+    ):
+        response = client.post(path, json=data)
+        assert response.status_code == 200
+        report = response.json()
+        assert report['estimated_exposure'] > 0
+        assert report['estimated_loss_if_filled_at_stop'] > 0
+        assert report['risk_budget_cash'] > 0
+        assert report['may_execute_real_order'] is False
+        assert report['quote_verified'] is False
+    stressed = client.post('/api/broker/stress-preview', json=values).json()
+    assert stressed['stressed_loss_if_filled'] > 0
+    assert stressed['assumed_margin_required'] > 0
+    assert stressed['assumed_effective_leverage'] > 0
+
+
+@pytest.mark.parametrize('changes', [
+    # Tiny positive notional and margin percentage can multiply to zero,
+    # creating a false zero-margin gate even when nominal checks succeed.
+    dict(entry_price=1e-100, stop_price=5e-101,
+         stressed_exit_price=1e-101, quantity=1e-100,
+         point_value=1e100, estimated_total_cost=0,
+         account_equity=1e-100, risk_budget_percent=100,
+         margin_requirement_percent=1e-300),
+    # SELL stops can be far above tiny entry prices. A nonzero nominal loss
+    # can coexist with notional/equity leverage underflowing to zero.
+    dict(direction='SELL', entry_price=1e-200, stop_price=1e200,
+         stressed_exit_price=2e200, quantity=1e-100,
+         point_value=1e100, estimated_total_cost=0,
+         account_equity=1e200, risk_budget_percent=100,
+         margin_requirement_percent=10, max_leverage=100),
+])
+def test_underflowed_stress_margin_or_leverage_rejected(changes):
+    values = payload(**changes)
+    nominal = {k: v for k, v in values.items() if k in OrderPreview.model_fields}
+    # Nominal risk arithmetic is finite and nonzero in both examples.
+    assert calculate_preview(OrderPreview(**nominal))['estimated_exposure'] > 0
+    with pytest.raises(ValueError, match='underflowed'):
+        calculate_stress_preview(StressPreview(**values))
+    app = FastAPI()
+    app.include_router(build_router(lambda: 'owner'))
+    response = TestClient(app).post('/api/broker/stress-preview', json=values)
+    assert response.status_code == 422
+    assert 'underflowed' in response.json()['detail']
+
