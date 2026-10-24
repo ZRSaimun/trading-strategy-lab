@@ -73,11 +73,17 @@ export default function CrtResearch({api,pages}:{api:API;pages:boolean}){
    const audit=auditCrtCrossTimeframe(h4,fifteen);
    if(audit.checkedFourHourBars===0)
     throw Error('No fully overlapping 4H/15m candles to verify. Load a longer source-isolated 15m history window.');
+   // A matching archive SHA does not certify each timeframe bucket. Only
+   // compare two adjacent 4H bars if BOTH were independently reconciled to
+   // all sixteen source-matched, completed 15m candles. An uncheckable edge
+   // may otherwise create a false CRT sweep against a verified bar.
+   const verifiedStarts=new Set(audit.verifiedFourHourStarts);
+   const certifiedH4=h4.filter(b=>verifiedStarts.has(b.time));
    const report=screenCrtHypotheses({
     source:{datasetId:selected,archiveSha256:pages[0].dataset.archive_sha256,
      instrument:archive.instrument,provider:archive.provider,priceSide:'bid',
      volumeType:'unverified',volumeVerified:false},
-    fourHour:h4,fifteenMinute:fifteen,daily:pages[2].candles,
+    fourHour:certifiedH4,fifteenMinute:fifteen,daily:pages[2].candles,
     sweepMaxFraction:max,displacementMultiple:mult,
    });
    setResult(report);
@@ -86,7 +92,7 @@ export default function CrtResearch({api,pages}:{api:API;pages:boolean}){
     (fourHourWindow.excludedBoundaryBars+fifteenWindow.excludedBoundaryBars)+
     ' incomplete 4H/15m boundary buckets (not synthesized). Cross-checked '+
     audit.checkedFourHourBars+' 4H bars against their 16 observed 15m bars; '+
-    audit.uncheckableFourHourBars+' outside the shared window (not certified). '+(pages.some(p=>p.has_more)?
+    audit.uncheckableFourHourBars+' outside the shared window (excluded from CRT candidates, not certified). '+(pages.some(p=>p.has_more)?
     'At least one timeframe is a capped recent window.':'No older pages reported for these requests.'));
   }catch(e){setStatus(e instanceof Error?e.message:String(e))}
   finally{setBusy(false)}
