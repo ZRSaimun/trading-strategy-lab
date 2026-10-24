@@ -8,6 +8,8 @@ type Preview={estimated_exposure:number;estimated_loss_if_filled_at_stop:number;
 type BrokerId='Trading212-CFD'|'Trading212-Invest'|'Trading212-StocksISA';
 type StressResult=Preview & {stressed_loss_if_filled:number;stressed_risk_percent:number;stressed_loss_within_budget:boolean;assumed_margin_required:number;assumed_margin_covered_by_equity:boolean;assumed_effective_leverage:number;within_user_leverage_cap:boolean;all_hypothetical_limits_pass:boolean};
 type Inputs={broker:BrokerId;symbol:string;direction:'BUY'|'SELL';entry_price:number;stop_price:number;quantity:number;point_value:number;estimated_total_cost:number;account_equity:number;risk_budget_percent:number;price_source:'UNVERIFIED USER INPUT'|'HISTORICAL BID'};
+// Avoid displaying a nonzero tiny loss or margin as 0.00.
+const precise=(v:number)=>v!==0&&Math.abs(v)<0.0001?v.toExponential(6):v.toLocaleString('en-GB',{maximumSignificantDigits:12});
 const DEFAULTS:Inputs={broker:'Trading212-CFD',symbol:'XAUUSD',direction:'BUY',entry_price:100,stop_price:98,quantity:1,point_value:1,estimated_total_cost:2,account_equity:1000,risk_budget_percent:1,price_source:'UNVERIFIED USER INPUT'};
 const FIELDS:Array<[keyof Pick<Inputs,'entry_price'|'stop_price'|'quantity'|'point_value'|'estimated_total_cost'|'account_equity'|'risk_budget_percent'>,string]>=[
  ['entry_price','Hypothetical entry price'],['stop_price','Hypothetical protective stop price'],
@@ -53,16 +55,16 @@ export default function BrokerReadiness({api,pages}:{api:API;pages:boolean}){
     <button className="primary" disabled={!caps?.risk_preview_enabled||stressBusy}>{stressBusy?'Checking scenario…':'Stress test · no order'}</button>
    </form>
    {stressResult&&<div className="journal-entry" role="status"><h3>Hypothetical stressed scenario</h3>
-    <p>Stressed fill loss: <strong>{stressResult.stressed_loss_if_filled.toLocaleString('en-GB')}</strong> account currency units · {stressResult.stressed_risk_percent.toFixed(2)}% of assumed equity.</p>
-    <p>Assumed margin required: {stressResult.assumed_margin_required.toLocaleString('en-GB')} · Effective leverage: {stressResult.assumed_effective_leverage.toFixed(2)}×.</p>
+    <p>Stressed fill loss: <strong>{precise(stressResult.stressed_loss_if_filled)}</strong> account currency units · {precise(stressResult.stressed_risk_percent)}% of assumed equity.</p>
+    <p>Assumed margin required: {precise(stressResult.assumed_margin_required)} · Effective leverage: {precise(stressResult.assumed_effective_leverage)}×.</p>
     <p>Stressed loss within budget: {stressResult.stressed_loss_within_budget?'YES':'NO'} · Margin covered: {stressResult.assumed_margin_covered_by_equity?'YES':'NO'} · Leverage within cap: {stressResult.within_user_leverage_cap?'YES':'NO'}.</p>
     <p><strong>{stressResult.all_hypothetical_limits_pass?'All illustrative checks passed (NOT an order approval)':'One or more illustrative risk checks failed'}</strong> · Live and paper execution: DISABLED</p>
     <ul>{stressResult.warnings.map((w,i)=><li key={i}>{w}</li>)}</ul>
    </div>}
    {preview&&<div className="journal-entry" role="status"><h3>Research-only risk estimate</h3>
-    <p>Estimated loss if filled at stop: <strong>{preview.estimated_loss_if_filled_at_stop.toLocaleString('en-GB')}</strong> account currency units</p>
-    <p>Chosen risk budget: {preview.risk_budget_cash.toLocaleString('en-GB')} · Estimated risk: {preview.estimated_risk_percent.toFixed(2)}%</p>
-    <p>Estimated notional: {preview.estimated_exposure.toLocaleString('en-GB')} (only if point value and conversion are correct)</p>
+    <p>Estimated loss if filled at stop: <strong>{precise(preview.estimated_loss_if_filled_at_stop)}</strong> account currency units</p>
+    <p>Chosen risk budget: {precise(preview.risk_budget_cash)} · Estimated risk: {precise(preview.estimated_risk_percent)}%</p>
+    <p>Estimated notional: {precise(preview.estimated_exposure)} (only if point value and conversion are correct)</p>
     <p><strong>{preview.within_user_risk_budget?'Within your illustrative budget':'Exceeds your illustrative risk budget'}</strong> · Live execution: NOT AUTHORISED</p>
     <ul>{preview.warnings.map((w,i)=><li key={i}>{w}</li>)}</ul>
    </div>}
