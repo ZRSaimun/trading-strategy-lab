@@ -1,6 +1,7 @@
 'use client';
 
-import {useCallback,useEffect,useRef,useState} from 'react';
+import {useCallback,useEffect,useMemo,useRef,useState} from 'react';
+import {summarizeHistoricalQuality} from '../lib/archive-quality';
 import {createChart,CandlestickSeries,ColorType,type IChartApi,type ISeriesApi,type UTCTimestamp} from 'lightweight-charts';
 
 type Archive={id:string;provider:string;instrument:string;format:string;state:string;accepted:number;rejected:number;zero_volume:number};
@@ -23,6 +24,7 @@ export default function HistoricalArchives({light,pages}:{light:boolean;pages:bo
  const candleSeries=useRef<ISeriesApi<'Candlestick'>|null>(null);
  const generation=useRef(0);
  const archive=datasets.find(x=>x.id===selected);
+ const qualitySummary=useMemo(()=>summarizeHistoricalQuality(bars,frame),[bars,frame]);
 
  useEffect(()=>{
   if(pages)return;
@@ -114,6 +116,21 @@ export default function HistoricalArchives({light,pages}:{light:boolean;pages:bo
    {archive.zero_volume>0?' · zero-volume entries retained':''}
   </p>}
   {error&&<p role="alert" className="error">{error}</p>}
+  {bars.length>0&&<section aria-label="Loaded historical data quality" style={{border:'1px solid currentColor',borderRadius:8,padding:14,margin:'12px 0'}}>
+   <h3>Historical data quality · loaded window only</h3>
+   <p>These statistics cover {qualitySummary.bars.toLocaleString()} displayed aggregate bars, not every ZIP archive or your full trading history. {nextBefore!==null?'Older bars are available but not yet loaded.':'No older bars remain in this source file.'}</p>
+   <div className="table-wrap"><table><tbody>
+    <tr><th scope="row">Loaded UTC range</th><td>{new Date(qualitySummary.firstTime!*1000).toISOString()} — {new Date(qualitySummary.lastTime!*1000).toISOString()}</td></tr>
+    <tr><th scope="row">Observed source minutes</th><td>{qualitySummary.minutesObserved.toLocaleString()}</td></tr>
+    <tr><th scope="row">Incomplete intraday timeframe buckets</th><td>{qualitySummary.partialBuckets===null?'Not assessed for daily, weekly or monthly bars':qualitySummary.partialBuckets.toLocaleString()}</td></tr>
+    <tr><th scope="row">Unobserved intervals between loaded bars</th><td>{qualitySummary.unobservedSpans.toLocaleString()}{qualitySummary.unobservedBuckets===null?' (monthly counts not inferred)':` · ${qualitySummary.unobservedBuckets.toLocaleString()} timeframe positions`}</td></tr>
+    <tr><th scope="row">Unknown volume values</th><td>{qualitySummary.unknownVolumeBars.toLocaleString()}</td></tr>
+    <tr><th scope="row">Zero-volume placeholders</th><td>{qualitySummary.zeroVolumeBars.toLocaleString()}</td></tr>
+    <tr><th scope="row">Malformed, repeated or misaligned bars</th><td>{qualitySummary.invalidBars.toLocaleString()}</td></tr>
+   </tbody></table></div>
+   {qualitySummary.invalidBars>0&&<p role="alert" className="error">Data validation warning: do not trust research based on this loaded sample until the irregularities are investigated.</p>}
+   <p style={{opacity:0.8}}>Time gaps may reflect normal market closures or missing source data; no exchange calendar is applied. BID-only prices and unverified/zero volumes cannot establish executable spreads, depth, or liquidity. This diagnostic does not certify a profitable strategy or a complete dataset.</p>
+  </section>}
   <div ref={chartHost} style={{minHeight:480,width:'100%'}} role="img" aria-label="Read-only historical candlestick chart"/>
   <p>{quality||'Historical research only. Imported bid bars are not a live executable quote feed.'}</p>
   <div style={{display:'flex',alignItems:'center',gap:12,flexWrap:'wrap'}}>

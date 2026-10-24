@@ -77,6 +77,8 @@ Save rules in Research Alerts, select matching instrument/timeframe in Charts an
 
 ## White day mode and market charts
 
+The Historical Archives viewer now includes a loaded-window data-quality panel for observed minutes, intraday partial buckets, unobserved spans and volume limitations. It does not confuse exchange closures with verified missing data. See [historical archive quality diagnostics](docs/archive-quality.md).
+
 The app now opens in white day mode with a mobile-visible theme switch and saved preference. Market Charts requests provider-hosted display charts for the watchlist; Research Charts retains the imported-data engine. See [exact feed choices, licensing, privacy and verification limits](docs/market-display.md). The display integration does not supply raw data to our simulator.
 
 ## Private historical API adapter
