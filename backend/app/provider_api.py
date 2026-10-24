@@ -62,7 +62,13 @@ def attach(owner,audit):
             # elapsed time measures the request independently of wall-clock changes.
             response_received_at=int(time.time())
             request_elapsed_ms=max(0,int((time.monotonic()-request_started_monotonic)*1000))
-            quality=assess_completed_m1(rows,response_received_at)
+            # A vendor can return only unfinished rows (normalization then yields
+            # an empty set), or a malformed normalized row. Never turn either
+            # into a 500 or overwrite an existing research series.
+            try:
+                quality=assess_completed_m1(rows,response_received_at)
+            except (ValueError, OverflowError, OSError):
+                raise HTTPException(502,'Provider returned no valid completed candle set; existing data unchanged.') from None
             digest=hashlib.sha256(archive).hexdigest()
             # Not web-served: archive is a vetted source-field snapshot, never a credential file.
             directory=Path(os.getenv('MARKET_ARCHIVE_DIR','./data/market-archive'))
