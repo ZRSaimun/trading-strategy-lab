@@ -173,3 +173,49 @@ def test_invalid_completed_set_preserves_existing_import(client,monkeypatch,tmp_
     assert sorted(p.name for p in archive_dir.glob('*.json'))==files_before
     assert client.get('/api/audit').json()==audit_before
     assert call_count==2
+
+
+@pytest.mark.parametrize('archive_case', ['corrupt_existing', 'symlink_existing'])
+def test_existing_archive_must_be_verified_before_replacement(client,monkeypatch,tmp_path,archive_case):
+    # Offline mocked response; neither import contacts a provider.
+    monkeypatch.setenv('FREE_ONLY','false')
+    credentials(monkeypatch,tmp_path)
+    monkeypatch.setenv('TWELVEDATA_ENABLED','true')
+    archive_dir=tmp_path/'archive'
+    monkeypatch.setenv('MARKET_ARCHIVE_DIR',str(archive_dir))
+    monkeypatch.setattr(provider_api,'_last_attempt',-1000)
+    rows,archive=normalize(PAYLOAD,'XAUUSD-TD',NOW)
+    calls=0
+    async def fake(key,instrument,limit,end,now):
+        nonlocal calls
+        calls+=1
+        assert key==KEY and instrument=='XAUUSD-TD'
+        return rows,archive
+    monkeypatch.setattr(provider_api,'retrieve',fake)
+    unlock(client)
+    body={'instrument':'XAUUSD-TD','limit':100,'end':NOW-60,
+          'rights_confirmed':True,'replace_confirmed':True}
+    first=client.post('/api/providers/twelvedata/import',json=body)
+    assert first.status_code==200,first.text
+    before_candles=client.get('/api/candles/XAUUSD-TD?timeframe=1m').json()
+    before_audit=client.get('/api/audit').json()
+    target=next(archive_dir.glob('*.json'))
+    if archive_case=='corrupt_existing':
+        target.write_bytes(b'corrupt existing archive')
+    else:
+        target.unlink()
+        outside=tmp_path/'external-source.json'
+        outside.write_bytes(archive)  # Even identical external bytes are not trusted.
+        target.symlink_to(outside)
+    monkeypatch.setattr(provider_api,'_last_attempt',-1000)
+    second=client.post('/api/providers/twelvedata/import',json=body)
+    assert second.status_code==503
+    assert second.json()['detail']=='Cannot verify provider archive; database unchanged.'
+    assert KEY not in second.text
+    assert client.get('/api/candles/XAUUSD-TD?timeframe=1m').json()==before_candles
+    assert client.get('/api/audit').json()==before_audit
+    assert calls==2
+    if archive_case=='corrupt_existing':
+        assert target.read_bytes()==b'corrupt existing archive'
+    else:
+        assert target.is_symlink() and outside.read_bytes()==archive
