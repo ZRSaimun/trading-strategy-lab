@@ -33,3 +33,22 @@ The stateless preview now accepts two additional **owner-declared** fields in `c
 The effective account-wide daily P&L assumption is `daily_realized_pnl_cash + min(daily_unrealized_pnl_cash, 0) - other_positions_reserved_stress_loss_cash`. The preview checks this against the daily loss cap, then deducts the proposed order's stressed loss and checks again. Both checks fail closed for nonfinite aggregate results. The response reports the components in `account_wide_daily_loss_scenario`. Synthetic tests cover existing exposure, positive floating P&L, negative reservations, and arithmetic overflow.
 
 **Important:** defaults of zero mean **unknown exposure, not verified absence of exposure**. Neither account positions nor mark-to-market P&L nor reserve totals are fetched from a broker. Do not treat a passing preview as proof that portfolio limits are satisfied or as permission to place a paper/live order. Before real execution, require broker-authenticated account-wide positions, signed current quotes, currency conversion, transactionally reserved risk and persistent cross-worker kill switches. The calculation is intentionally conservative about unrealized gains, but cannot bound actual gap loss or liquidation risk.
+
+
+## Account-wide margin and gross leverage (24 October 2026)
+
+A proposed trade can pass **its own** margin and leverage checks while other open or pending positions already consume the account's capacity. The owner-declared `controls` object now also accepts:
+
+- `other_positions_reserved_margin_cash`: nonnegative total **existing** reserved margin, in the same account currency as the hypothetical equity.
+- `other_positions_gross_notional_cash`: nonnegative total absolute gross notional of **other** open/pending exposures, converted to the account currency. Long and short positions must not cancel one another.
+
+Both default to zero solely for backwards compatibility; **zero is not evidence that the account is empty**. The response includes a `portfolio_exposure_scenario` with existing and proposed margin/notional, combined leverage and `inputs_broker_verified=false`. The preview independently fails `portfolio_margin_within_equity` if existing reserved margin plus proposed margin exceeds hypothetical equity, and fails `portfolio_gross_leverage_within_cap` if (existing gross notional + proposed gross notional) / equity exceeds the selected leverage cap. The additional `portfolio_margin_arithmetic_valid` and `portfolio_gross_arithmetic_valid` checks fail closed if floating-point overflow or precision loss hides a positive proposed increment.
+
+These are **illustrative account-wide gates, not a broker-verified free-margin, buying-power or liquidation model**. Equity may not equal available collateral; margin may be tiered, hedged, currency-converted or increased by the broker without notice. There is no account or provider connection, and passing checks never enables paper or real orders. Before activation require authenticated current broker equity, all positions/pending orders, gross exposure, margin reservation, bid/ask and currency conversion, plus transactional risk reservation and kill switch.
+
+Synthetic regressions:
+
+```sh
+cd backend
+PYTHONPATH=. python -m pytest -q tests/test_portfolio_risk_gate.py tests/test_order_gate.py tests/test_order_gate_api.py
+```
