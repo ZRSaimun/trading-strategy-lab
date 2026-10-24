@@ -39,6 +39,16 @@ def test_login_rate_limit(client):
     for _ in range(5): assert client.post('/api/login',json={'password':'wrong'}).status_code==401
     assert client.post('/api/login',json={'password':'wrong'}).status_code==429
 
+def test_malformed_hash_does_not_crash_or_create_session(client, monkeypatch):
+    malformed = PasswordHasher().hash('test-password-only') + '!'
+    monkeypatch.setenv('OWNER_PASSWORD_HASH', malformed)
+    result = client.post('/api/login', json={'password':'anything'})
+    assert result.status_code == 503
+    assert 'OWNER_PASSWORD_HASH' in result.json()['detail']
+    assert malformed not in result.text
+    assert 'tsl_session' not in result.cookies
+    assert client.get('/api/me').status_code == 401
+
 def test_import_aggregation_quality_and_atomic_failure(client):
     unlock(client)
     assert client.get('/api/candles/XAUUSD-IMPORT').json()['quality']['state']=='NO DATA'

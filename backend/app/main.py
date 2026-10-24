@@ -8,7 +8,7 @@ from collections import defaultdict, deque
 from contextlib import asynccontextmanager
 from typing import Literal
 from argon2 import PasswordHasher
-from argon2.exceptions import VerifyMismatchError, InvalidHashError
+from argon2.exceptions import VerifyMismatchError, InvalidHashError, VerificationError
 from fastapi import FastAPI, HTTPException, Request, Response, Depends, UploadFile, File, Form
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from sqlalchemy import select, delete
@@ -99,8 +99,10 @@ def login(body: Login, request: Request, response: Response):
     try:
         try:
             ph.verify(hashed, body.password)
-        except (VerifyMismatchError, InvalidHashError):
+        except VerifyMismatchError:
             raise HTTPException(401,"Invalid credentials")
+        except (InvalidHashError, VerificationError):
+            raise HTTPException(503,"Website login configuration is invalid; the owner must replace OWNER_PASSWORD_HASH") from None
     finally:
         if locked:
             login_memory_lock.release()
