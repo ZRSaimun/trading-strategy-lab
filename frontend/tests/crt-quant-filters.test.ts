@@ -18,7 +18,8 @@ function fixture():Context{
  const signal=fifteenMinute[32];
  signal.open=105;signal.close=109;signal.high=110;signal.low=104;signal.volume=200;
  const daily=Array.from({length:25},(_,i)=>make(BASE-(25-i)*24*H,100+i*.1,104+i*.1,99+i*.1,100+i*.1,1000));
- const zones=[{datasetId:source.datasetId,direction:'DEMAND' as const,
+ const zones=[{datasetId:source.datasetId,archiveSha256:source.archiveSha256,
+  priceSide:'bid' as const,direction:'DEMAND' as const,
   low:100,high:110,observedAt:BASE,referenceBarTime:BASE-4*H}];
  return {fourHour,fifteenMinute,daily,source,zones};
 }
@@ -77,6 +78,26 @@ test('no source-linked pre-existing 4H reference means supply/demand gate stays 
  assert.equal(r.gates.matchingZone,'INSUFFICIENT_DATA');
  const y=fixture();y.zones=[{...y.zones![0],datasetId:'c'.repeat(64)}];
  assert.equal(screenCrtHypotheses(y).candidates[0].gates.matchingZone,'INSUFFICIENT_DATA');
+});
+test('a matching dataset ID with a different immutable archive SHA never validates a 4H zone',()=>{
+ const x=fixture();
+ x.zones=[{...x.zones![0],archiveSha256:'c'.repeat(64)}];
+ const s=screenCrtHypotheses(x).candidates[0];
+ assert.equal(s.gates.matchingZone,'INSUFFICIENT_DATA');
+ assert.equal(s.gates.structureShift,'PASS','other source-independent filters still evaluate');
+ const y=fixture();y.source={...source,archiveSha256:'c'.repeat(64)};
+ assert.equal(screenCrtHypotheses(y).candidates[0].gates.matchingZone,'INSUFFICIENT_DATA');
+});
+test('wrong BID side or fabricated 4H zone reference timestamp cannot validate a zone',()=>{
+ const wrongSide=fixture();
+ wrongSide.zones=[{...wrongSide.zones![0],priceSide:'ask' as 'bid'}];
+ assert.equal(screenCrtHypotheses(wrongSide).candidates[0].gates.matchingZone,'INSUFFICIENT_DATA');
+ const misaligned=fixture();
+ misaligned.zones=[{...misaligned.zones![0],referenceBarTime:BASE-4*H+900}];
+ assert.equal(screenCrtHypotheses(misaligned).candidates[0].gates.matchingZone,'INSUFFICIENT_DATA');
+ const fractional=fixture();
+ fractional.zones=[{...fractional.zones![0],observedAt:BASE+0.5}];
+ assert.equal(screenCrtHypotheses(fractional).candidates[0].gates.matchingZone,'INSUFFICIENT_DATA');
 });
 test('the range median uses only 20 preceding contiguous 15m candles, not future volatility',()=>{
  const x=fixture();
