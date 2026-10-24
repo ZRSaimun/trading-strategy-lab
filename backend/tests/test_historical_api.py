@@ -101,7 +101,7 @@ def test_inventory_snapshot_rejects_changed_ready_set_and_metadata(tmp_path):
     p = tmp_path / 'same-source.zip'
     with ZipFile(p, 'w') as archive:
         archive.writestr('DAT_ASCII_XAUUSD_M1_202610.csv',
-                         '20261001 090000;1;2;0.5;1.5;0\\n')
+                         '20261001 090000;1;2;0.5;1.5;0\n')
     e = create_engine('sqlite:///' + str(tmp_path / 'snapshot.db'))
     create_schema(e)
     first_import = ingest(e, p, instrument='XAUUSD-CFD', provider='HistData',
