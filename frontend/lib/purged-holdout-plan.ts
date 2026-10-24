@@ -100,7 +100,9 @@ export function planPurgedHoldout(archives: ArchiveLineage[], observations: Outc
     if (!nonblank(o.id) || seen.has(o.id) || !a ||
         ![o.featureStart,o.decisionAt,o.labelAvailableAt].every(epoch) ||
         o.featureStart > o.decisionAt || o.decisionAt > o.labelAvailableAt ||
-        o.featureStart < a.start || o.decisionAt >= a.end || o.labelAvailableAt > a.end)
+        // Archive coverage is [start, end): a label at end is not evidenced by
+        // this archive. Do not silently borrow the next archive's observation.
+        o.featureStart < a.start || o.decisionAt >= a.end || o.labelAvailableAt >= a.end)
       throw Error('Duplicate, noncausal or unverified observation timing/lineage');
     seen.add(o.id);
     if (o.decisionAt >= holdoutEnd) {excluded.push({id:o.id,reason:'OUTSIDE_PERIOD'});continue;}
