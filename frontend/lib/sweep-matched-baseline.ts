@@ -58,7 +58,7 @@ export function compareSweepsToPastHourControls(
   const observedAt=closeAt(bars[i],cfg.frame);
   if(sweepCloses.has(observedAt))continue;
   const entry=bars[i+1].open,exit=bars[i+cfg.horizonBars].close;
-  if(!Number.isFinite(entry)||!Number.isFinite(exit)||entry<=0||exit<=0)continue;
+  if(!Number.isFinite(entry)||!Number.isFinite(exit)||entry<=0||exit<=0||!Number.isFinite((exit/entry-1)*10000))continue;
   pools[new Date(observedAt*1000).getUTCHours()].push(i);
  }
  const used=new Set<number>(),pairs:MatchedSweepPair[]=[];
