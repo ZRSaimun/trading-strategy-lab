@@ -32,6 +32,10 @@ export async function reviewHoldoutAnchorQuorum(
     throw Error('Invalid or excessive quorum audit/signature input');
   // Validate even an empty set, so invalid or contaminated chains never become NO_QUORUM.
   await verifySignedHoldoutAnchors(commitment,entries,[],trustedKeys);
+  // With zero events the freeze and final head are both sequence 0. Never
+  // count a single signature twice as evidence of a completed audit head.
+  if (entries.length === 0)
+    throw Error('Quorum requires a nonempty audit trail; freeze and final head must differ');
   const pinned=new Map(trustedKeys.map(k=>[k.keyId,k.authority]));
   const freeze=new Set<string>(), head=new Set<string>(), seen=new Set<string>();
   const finalSequence=entries.length;
