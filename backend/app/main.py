@@ -78,7 +78,10 @@ class Login(Strict):
 def health():
     with Session() as db:
         db.execute(select(Record).limit(1))
-    return {"status":"ok","mode":"research-only","profile":"free-cloud" if cloud_profile() else "standard"}
+    revision = os.getenv("RENDER_GIT_COMMIT", "")
+    revision = revision if len(revision) == 40 and all(c in "0123456789abcdef" for c in revision) else None
+    return {"status":"ok","mode":"research-only","profile":"free-cloud" if cloud_profile() else "standard",
+            "revision": revision}
 
 @app.post("/api/login")
 def login(body: Login, request: Request, response: Response):

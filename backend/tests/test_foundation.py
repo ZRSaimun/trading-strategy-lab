@@ -107,3 +107,28 @@ def test_alert_event_is_authenticated_idempotent_and_audited_once(client):
     assert client.put('/api/research/alert-events',json=changed).json()['title']==doc['title']
     assert len(client.get('/api/research/alert-events').json())==1
     assert len([r for r in client.get('/api/audit').json() if r['action']=='research.alert-events.save'])==1
+
+
+def test_chart_api_streams_complete_pages(client):
+    from datetime import datetime, timezone
+    unlock(client)
+    data = 'time,open,high,low,close\n' + ''.join(
+        datetime.fromtimestamp(1704067200+i*60, timezone.utc).isoformat() + ',10,12,9,11\n'
+        for i in range(2101))
+    params = {'instrument':'XAUUSD-IMPORT','source':'pagination-fixture','rights_confirmed':'true'}
+    assert client.post('/api/import',data=params,files={'file':('fixture.csv',data)}).status_code == 200
+    first = client.get('/api/candles/XAUUSD-IMPORT?timeframe=1m').json()
+    assert len(first['candles']) == 2000 and first['has_more']
+    cursor = first['candles'][0]['time']
+    second = client.get(f'/api/candles/XAUUSD-IMPORT?timeframe=1m&before={cursor}').json()
+    assert len(second['candles']) == 101 and not second['has_more']
+    assert second['candles'][-1]['time'] < cursor
+    # The current API rejects unaligned cursors to prevent partial OHLC.
+    assert client.get('/api/candles/XAUUSD-IMPORT?timeframe=1H&before=1704070920').status_code == 422
+
+
+def test_health_exposes_only_valid_deployment_revision(client, monkeypatch):
+    monkeypatch.setenv('RENDER_GIT_COMMIT', 'a' * 40)
+    assert client.get('/api/health').json()['revision'] == 'a' * 40
+    monkeypatch.setenv('RENDER_GIT_COMMIT', 'invalid-value')
+    assert client.get('/api/health').json()['revision'] is None
