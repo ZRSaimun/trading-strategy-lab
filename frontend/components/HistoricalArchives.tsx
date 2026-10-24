@@ -159,7 +159,7 @@ export default function HistoricalArchives({light,pages}:{light:boolean;pages:bo
   {archive&&<p style={{opacity:0.8}}>
    Source-isolated dataset · {archive.accepted.toLocaleString()} accepted M1 candles · {archive.rejected.toLocaleString()} excluded rows
    {archive.zero_volume>0?' · zero-volume entries retained':''}
-   {Number.isInteger(archive.utc_offset_minutes)?' · declared fixed UTC offset '+archive.utc_offset_minutes+' minutes':''}
+   {typeof archive.utc_offset_minutes==='number'&&Number.isInteger(archive.utc_offset_minutes)?' · declared fixed UTC offset '+archive.utc_offset_minutes+' minutes':''}
    <span style={{display:'block',overflowWrap:'anywhere'}}>Dataset ID: <code>{archive.id}</code></span>
    {archive.archive_sha256&&<span style={{display:'block',overflowWrap:'anywhere'}}>Declared archive SHA-256: <code>{archive.archive_sha256}</code></span>}
   </p>}
