@@ -73,10 +73,12 @@ def calculate_preview(body: OrderPreview) -> dict:
         'instrument': body.symbol,
         'broker': body.broker,
         'direction': body.direction,
-        'estimated_exposure': round(estimated_exposure, 4),
-        'estimated_loss_if_filled_at_stop': round(estimated_loss_at_stop, 4),
-        'risk_budget_cash': round(budget, 4),
-        'estimated_risk_percent': round(risk_fraction, 4),
+        # Keep full JSON numeric precision: rounding to 4 decimals can turn a
+        # positive micro-lot loss/budget into a misleading displayed zero.
+        'estimated_exposure': estimated_exposure,
+        'estimated_loss_if_filled_at_stop': estimated_loss_at_stop,
+        'risk_budget_cash': budget,
+        'estimated_risk_percent': risk_fraction,
         'within_user_risk_budget': permitted,
         'may_execute_real_order': False,
         'may_execute_paper_order': False,
@@ -114,8 +116,10 @@ def calculate_stress_preview(body: StressPreview) -> dict:
     effective_leverage = notional / body.account_equity
     stressed_risk_percent = 100 * stressed_loss / body.account_equity
     values = (stressed_loss, notional, assumed_margin, effective_leverage, stressed_risk_percent)
-    if not all(math.isfinite(x) and x >= 0 for x in values):
-        raise ValueError('Stress calculation overflowed')
+    # Underflowed margin/leverage must not be reported as zero and pass the
+    # corresponding limits. The stress scenario has strictly positive inputs.
+    if not all(math.isfinite(x) and x > 0 for x in values):
+        raise ValueError('Stress calculation overflowed or underflowed')
 
     # Compare with the unrounded cash budget to avoid approval near a rounding boundary.
     stress_within_budget = stressed_loss <= body.account_equity * body.risk_budget_percent / 100
@@ -140,12 +144,12 @@ def calculate_stress_preview(body: StressPreview) -> dict:
     return {
         **base,
         'stressed_exit_price': body.stressed_exit_price,
-        'stressed_loss_if_filled': round(stressed_loss, 4),
-        'stressed_risk_percent': round(stressed_risk_percent, 4),
+        'stressed_loss_if_filled': stressed_loss,
+        'stressed_risk_percent': stressed_risk_percent,
         'stressed_loss_within_budget': stress_within_budget,
-        'assumed_margin_required': round(assumed_margin, 4),
+        'assumed_margin_required': assumed_margin,
         'assumed_margin_covered_by_equity': margin_covered,
-        'assumed_effective_leverage': round(effective_leverage, 4),
+        'assumed_effective_leverage': effective_leverage,
         'within_user_leverage_cap': leverage_within_limit,
         'all_hypothetical_limits_pass': all_checks,
         'may_execute_real_order': False,
