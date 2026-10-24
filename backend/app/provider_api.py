@@ -11,6 +11,7 @@ from sqlalchemy import delete
 from .db import Session,Candle,Record
 from .providers import vault
 from .providers.twelvedata import retrieve,MAPPINGS,ProviderError
+from .completed_candle_quality import assess_completed_m1
 
 router=APIRouter()
 _import_lock=threading.Lock()
@@ -56,6 +57,7 @@ def attach(owner,audit):
             _last_attempt=time.monotonic()
             try:rows,archive=await retrieve(key,body.instrument,body.limit,body.end,now)
             except ProviderError as e:raise HTTPException(e.status,str(e)) from None
+            quality=assess_completed_m1(rows,now)
             digest=hashlib.sha256(archive).hexdigest()
             # Not web-served: archive is a vetted source-field snapshot, never a credential file.
             directory=Path(os.getenv('MARKET_ARCHIVE_DIR','./data/market-archive'))
@@ -71,6 +73,7 @@ def attach(owner,audit):
                       'retrieved_at':now,'sha256':digest,'hash_scope':'vetted source-field snapshot','volume_type':'none',
                       'rows':len(rows),'start':rows[0]['time'],'end':rows[-1]['time'],
                       'gaps':sum(b['time']-a['time']>60 for a,b in zip(rows,rows[1:])),
+                      'quality':quality,
                       'rights_confirmed':True,'live':False,'request_limit':body.limit,'request_end':body.end}
             with Session() as db:
                 db.execute(delete(Candle).where(Candle.instrument==body.instrument))
