@@ -115,7 +115,7 @@ class PaperRiskReservationStore:
             raise ValueError("Invalid client order ID")
         return hashlib.sha256(order_id.encode("ascii")).hexdigest()
 
-    def _transition(self, key, expected_revision, change, *, operation):
+    def _transition(self, key, expected_revision, change, *, operation, order_hash=None):
         if type(expected_revision) is not int or not 0 <= expected_revision < _MAX_REVISION:
             raise ValueError("Invalid expected risk revision")
         with self.session_factory() as db:
@@ -142,6 +142,9 @@ class PaperRiskReservationStore:
                                             "kill_switch": updated["kill_switch"],
                                             "emergency_latched": updated["emergency_latched"],
                                             "reserved_cash": str(_validate(updated)),
+                                            "limit_cash": updated["limit_cash"],
+                                            "reservation_count": len(updated["reservations"]),
+                                            "reservation_order_hash": order_hash if operation == "reserve" else None,
                                             "state_sha256": hashlib.sha256(new_raw.encode()).hexdigest()})))
             db.commit()
             return True
@@ -205,7 +208,8 @@ class PaperRiskReservationStore:
                 return None
             return {**state, "reservations": {**state["reservations"],
                                                order_hash: risk_cash}}
-        return self._transition(self._key(account_id), expected_revision, change, operation="reserve")
+        return self._transition(self._key(account_id), expected_revision, change,
+                                operation="reserve", order_hash=order_hash)
 
     def engage_kill_switch(self, account_id):
         """Permanently latch emergency stop, retrying competing revisions.
