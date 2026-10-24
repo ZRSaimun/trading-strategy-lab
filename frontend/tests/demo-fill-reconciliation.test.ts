@@ -74,3 +74,10 @@ test('mismatched declared paper and demo settlement currencies fail before P&L c
  assert.throws(()=>comparePaperWithDemoFills(identity,paper,source,'USD',200,2,
    [fill('e1','ENTRY',2,100.3),fill('x1','EXIT',2,102)]),/Invalid/);
 });
+
+test('saved paper chronology must be independently valid',()=>{
+ const fills=[fill('e1','ENTRY',2,100.3),fill('x1','EXIT',2,102)];
+ for(const patch of [{entryObservedAt:100},{entryReceivedAt:99},{exitObservedAt:101},
+   {exitReceivedAt:101},{expiresAt:101}])
+   assert.throws(()=>compare(fills,2,{...paper,...patch}),/Invalid/);
+});
