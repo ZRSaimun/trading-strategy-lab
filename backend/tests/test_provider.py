@@ -1,6 +1,7 @@
 import asyncio
 import json
 from pathlib import Path
+from datetime import datetime, timezone
 import httpx
 import pytest
 from cryptography.fernet import Fernet
@@ -80,14 +81,28 @@ def test_historical_pipeline_persists_charts_manifest_archive_and_audit(client,m
     credentials(monkeypatch,tmp_path);monkeypatch.setenv('TWELVEDATA_ENABLED','true');monkeypatch.setenv('MARKET_ARCHIVE_DIR',str(tmp_path/'archive'))
     monkeypatch.setattr(provider_api,'_last_attempt',-1000)
     async def fake(key,instrument,limit,end,now):
+        await asyncio.sleep(0.03)  # Mock response latency; no provider request.
         assert key==KEY;return normalize(PAYLOAD,instrument,NOW)
     monkeypatch.setattr(provider_api,'retrieve',fake)
     unlock(client)
     r=client.post('/api/providers/twelvedata/import',json={'instrument':'XAUUSD-TD','limit':100,'end':NOW-60,'rights_confirmed':True,'replace_confirmed':True})
     assert r.status_code==200,r.text
     assert r.json()['rows']==2;assert not r.json()['live'];assert KEY not in r.text
+    quality=r.json()['quality']
+    assert quality['observed_candles']==2
+    assert quality['observed_timestamp_gaps']==0
+    assert quality['seconds_since_last_candle_close']>=0
+    assert quality['assessment']=='OBSERVED_ONLY_HISTORICAL'
+    assert r.json()['retrieved_at']==r.json()['request_started_at']
+    assert r.json()['response_received_at']>=r.json()['request_started_at']
+    assert r.json()['request_elapsed_ms']>=20
+    assert r.json()['receipt_clock']=='server_wall_utc'
+    assert r.json()['elapsed_clock']=='server_monotonic'
+    assert quality['observed_at_utc']==datetime.fromtimestamp(r.json()['response_received_at'],timezone.utc).isoformat()
+    assert not quality['live'] and not quality['executable_bid_ask_verified']
     result=client.get('/api/candles/XAUUSD-TD?timeframe=1m').json()
     assert result['dataset']['provider_symbol']=='XAU/USD';assert len(result['candles'])==2
+    assert result['dataset']['quality']==quality
     assert result['quality']['state']=='WAIT'
     assert len(list((tmp_path/'archive').glob('*.json')))==1
     audit=client.get('/api/audit');assert KEY not in audit.text
