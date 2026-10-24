@@ -177,6 +177,11 @@ class PaperRiskReservationStore:
                 "emergency_latched": state["emergency_latched"], "limit_cash": state["limit_cash"],
                 "reserved_cash": str(reserved),
                 "remaining_risk_capacity_cash": str(_money(state["limit_cash"]) - reserved),
+                # A disabled/latching account has no usable reservation capacity.
+                # Remaining capacity above is accounting headroom only.
+                "reservable_risk_capacity_cash": (
+                    "0" if state["kill_switch"] else str(_money(state["limit_cash"]) - reserved)
+                ),
                 "reservation_count": len(state["reservations"]),
                 # A snapshot is never permission to submit even a paper order:
                 # quote/position provenance and an atomic journal write are absent.
@@ -192,8 +197,8 @@ class PaperRiskReservationStore:
         if not kill_switch and cap <= 0:
             raise ValueError("Positive risk cap required before enabling paper reservations")
         def change(state):
-            if state["emergency_latched"] and not kill_switch:
-                return None  # No recovery/unlatch path is implemented.
+            if state["emergency_latched"]:
+                return None  # Emergency latch freezes ALL policy writes, even disabled ones.
             if sum((_money(x) for x in state["reservations"].values()), Decimal(0)) > cap:
                 return None
             return {**state, "limit_cash": limit_cash, "kill_switch": kill_switch}
