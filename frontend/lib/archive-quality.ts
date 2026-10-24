@@ -43,13 +43,13 @@ export function summarizeHistoricalQuality(
   if(b.volume===null)unknownVolumeBars++;
   else if(b.volume===0)zeroVolumeBars++;
   if(expected!==null){
-   if(b.observed_minutes===expected)fullBuckets!++;
-   else partialBuckets!++;
+   if(b.observed_minutes===expected)fullBuckets=(fullBuckets??0)+1;
+   else partialBuckets=(partialBuckets??0)+1;
   }
   if(prev!==undefined&&seconds!==null&&b.time>prev.time+seconds){
    unobservedSpans++;
    // Count missing timeframe positions without assuming missing *market* data.
-   unobservedBuckets!+=Math.max(0,Math.floor((b.time-prev.time)/seconds)-1);
+   unobservedBuckets=(unobservedBuckets??0)+Math.max(0,Math.floor((b.time-prev.time)/seconds)-1);
   }
  }
  return {bars:bars.length,firstTime:bars[0]?.time??null,
