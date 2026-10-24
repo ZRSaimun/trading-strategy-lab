@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {screenCrtHypotheses,type Context,type Source} from '../lib/crt-quant-filters.ts';
+import {screenCrtHypotheses,completeAggregateWindow,type Context,type Source} from '../lib/crt-quant-filters.ts';
 import type {Bar} from '../lib/research.ts';
 
 const H=3600,Q=900,BASE=Date.UTC(2026,9,20)/1000;
@@ -96,4 +96,44 @@ test('malformed price bars, time alignment and source identity fail closed',()=>
  assert.throws(()=>screenCrtHypotheses(z),/Invalid source/);
  const w=fixture();w.sweepMaxFraction=1.1;
  assert.throws(()=>screenCrtHypotheses(w),/Invalid source/);
+});
+
+test('incomplete first/last imported archive buckets are excluded without hiding valid completed 4H CRT patterns',()=>{
+ const x=fixture();
+ const baseline=screenCrtHypotheses(x).candidates;
+ x.fourHour=[
+  make(BASE-4*H,105,106,104,105,80),
+  ...x.fourHour,
+  make(BASE+8*H,105,106,104,105,60),
+ ];
+ x.fifteenMinute=[
+  make(BASE-Q,105,106,104,105,8),
+  ...x.fifteenMinute,
+  make(BASE+49*Q,105,106,104,105,4),
+ ];
+ const h4=completeAggregateWindow(x.fourHour,14400);
+ const m15=completeAggregateWindow(x.fifteenMinute,900);
+ assert.equal(h4.excludedBoundaryBars,2);
+ assert.equal(m15.excludedBoundaryBars,2);
+ assert.deepEqual(screenCrtHypotheses({...x,fourHour:h4.bars,fifteenMinute:m15.bars}).candidates,baseline);
+});
+test('partial candles in the interior cannot be silently removed as missing market observations',()=>{
+ const x=fixture();
+ x.fifteenMinute[12].observed_minutes=14;
+ assert.throws(()=>completeAggregateWindow(x.fifteenMinute,900),/Incomplete internal aggregate/);
+ const y=fixture();
+ y.fourHour[0].observed_minutes=239;
+ y.fourHour[1].observed_minutes=239;
+ assert.equal(completeAggregateWindow(y.fourHour,14400).bars.length,0);
+});
+test('malformed or out-of-order boundary aggregates cannot be laundered by trimming',()=>{
+ const x=fixture();
+ x.fifteenMinute=[make(BASE-Q,105,100,104,105,8),...x.fifteenMinute];
+ assert.throws(()=>completeAggregateWindow(x.fifteenMinute,900),/Invalid aggregate candle/);
+ const y=fixture();
+ y.fifteenMinute=[make(BASE-Q,105,106,104,105,0),...y.fifteenMinute];
+ assert.throws(()=>completeAggregateWindow(y.fifteenMinute,900),/Invalid aggregate candle/);
+ const z=fixture();
+ z.fifteenMinute=[make(BASE,105,106,104,105,8),...z.fifteenMinute];
+ assert.throws(()=>completeAggregateWindow(z.fifteenMinute,900),/Invalid aggregate candle/);
 });
