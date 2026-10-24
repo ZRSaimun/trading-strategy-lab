@@ -30,17 +30,17 @@ export type CloseMomentumStudy={
 };
 const fmt=new Intl.DateTimeFormat('en-GB',{
  timeZone:'America/New_York',hour12:false,hourCycle:'h23',
- year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'
+ year:'numeric',month:'2-digit',day:'2-digit',weekday:'short',hour:'2-digit',minute:'2-digit'
 });
 function ny(t:number){
  const p=Object.fromEntries(fmt.formatToParts(new Date(t*1000)).map(x=>[x.type,x.value]));
- return {date:p.year+'-'+p.month+'-'+p.day,minute:Number(p.hour)*60+Number(p.minute)};
+ return {date:p.year+'-'+p.month+'-'+p.day,weekday:p.weekday,minute:Number(p.hour)*60+Number(p.minute)};
 }
 /** Complete-minute source observations used by the NY regular-session experiment. */
 export function isNyRegularSessionMinute(epochSeconds:number):boolean{
  if(!Number.isSafeInteger(epochSeconds)||epochSeconds<0||epochSeconds%60!==0)return false;
- const t=ny(epochSeconds).minute;
- return t>=9*60+30&&t<16*60;
+ const z=ny(epochSeconds);
+ return z.weekday!=='Sat'&&z.weekday!=='Sun'&&z.minute>=9*60+30&&z.minute<16*60;
 }
 function sign(n:number){return n>0?1:n<0?-1:0}
 function median(xs:readonly number[]){
@@ -85,7 +85,7 @@ export function studyNyCloseMomentum(bars:readonly Bar[],config:StudyConfig):Clo
  const dayMap=new Map<string,Day>();
  for(const b of bars){
   const z=ny(b.time),slot=z.minute-(9*60+30);
-  if(slot<0||slot>=390)continue;
+  if(slot<0||slot>=390||z.weekday==='Sat'||z.weekday==='Sun')continue;
   let day=dayMap.get(z.date);
   if(!day){day={date:z.date,minutes:new Map()};dayMap.set(z.date,day)}
   if(day.minutes.has(slot))throw Error('Duplicate New York session minute');
