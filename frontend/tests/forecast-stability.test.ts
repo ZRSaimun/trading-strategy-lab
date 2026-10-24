@@ -59,3 +59,43 @@ test('rejects invalid settings and does not mutate supplied forecasts',()=>{
  reviewForecastStability(data,1,60,20);
  assert.equal(JSON.stringify(data),before);
 });
+
+test('refuses to compare the last two windows across an unobserved candle gap',()=>{
+ const data=series(Array(40).fill(.8),Array(40).fill(true));
+ // An unobserved 30-minute interval separates the two windows. Neither
+ // side is a valid adjacent time window despite 40 total evaluations.
+ const withGap=data.map((x,i)=>i<20?x:{
+  ...x,observedAt:x.observedAt+1800,evaluatedAt:x.evaluatedAt+1800});
+ const result=reviewForecastStability(withGap,1,60,20);
+ assert.equal(result.status,'INSUFFICIENT');
+ assert.equal(result.earlier,null);
+ assert.equal(result.recent,null);
+ assert.equal(result.deltaBrier,null);
+ assert.match(result.reasons.join(' '),/missing or non-contiguous/);
+});
+
+test('accepts a contiguous latest comparison after an older historical gap',()=>{
+ const data=series(Array(61).fill(.7),Array(61).fill(true));
+ const withOlderGap=data.map((x,i)=>i<10?x:{
+  ...x,observedAt:x.observedAt+3600,evaluatedAt:x.evaluatedAt+3600});
+ // The latest 40 observations (indices 21..60) are consecutive.
+ const result=reviewForecastStability(withOlderGap,1,60,20);
+ assert.equal(result.status,'NO_FLAG');
+ assert.equal(result.earlier?.count,20);
+ assert.equal(result.recent?.count,20);
+});
+
+test('refuses an incomplete last 200 observations even with enough total samples',()=>{
+ const data=series(Array(210).fill(.5),Array(210).fill(false));
+ const withGap=data.map((x,i)=>i<120?x:{
+  ...x,observedAt:x.observedAt+3600,evaluatedAt:x.evaluatedAt+3600});
+ const result=reviewForecastStability(withGap,1,60,100);
+ assert.equal(result.status,'INSUFFICIENT');
+ assert.match(result.reasons[0],/200/);
+});
+
+test('rejects time-shifted forecast samples that do not align with the selected timeframe',()=>{
+ const data=series(Array(40).fill(.5),Array(40).fill(true));
+ const shifted=data.map(x=>({...x,observedAt:x.observedAt+1,evaluatedAt:x.evaluatedAt+1}));
+ assert.throws(()=>reviewForecastStability(shifted,1,60,20),/Malformed/);
+});
