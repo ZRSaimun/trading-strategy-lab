@@ -8,8 +8,8 @@ This module is **not an order execution service**. `backend/app/paper_risk_reser
 - Each account has a single revision-controlled `Record` and an operation-tagged `Audit` row committed in the **same database transaction**. Audit actors are recorded as `paper-risk-store`, **not** an authenticated owner identity; no authentication has been established by this module. A conditional SQL UPDATE compares the complete previous record, rejecting stale concurrent writers. Initial creation relies on the unique primary key.
 - Stressed cash-risk reservations use exact `Decimal` arithmetic from restricted decimal strings (maximum eight fractional places); no floating-point budget rounding. The sum cannot exceed the **owner-reviewed PAPER reservation cap**.
 - Hashed client-order IDs remain in the account record, including after process restarts. Duplicates are rejected. At 500 IDs, the account fails closed rather than pruning history and accidentally accepting a replay.
-- `engage_kill_switch` retries competing revisions up to 20 times. If the write cannot be confirmed, the caller must stop accepting orders and escalate. It never treats a failed write as successful.
-- `load` verifies schema, duplicate JSON keys, decimal syntax and a state checksum. The checksum detects accidental corruption but is **not tamper-proof cryptographic audit**. Account and client order IDs are not logged in cleartext.
+- `engage_kill_switch` retries competing revisions up to 20 times and **persists an irreversible emergency latch**, even if the account was already disabled. Once latched, `set_policy(..., kill_switch=False)` is rejected at the database compare-and-swap boundary, including across restarts and with a current revision. If the write cannot be confirmed, the caller must stop accepting orders and escalate. There is deliberately no automatic unlatch/recovery operation.
+- `load` verifies schema (now version 2 with a required boolean emergency latch), duplicate JSON keys, decimal syntax and a state checksum. The checksum detects accidental corruption but is **not tamper-proof cryptographic audit**. Account and client order IDs are not logged in cleartext.
 - There is intentionally **no release, expiration, automatic reset or daily rollover**. Risk is not freed merely because an order was submitted or a stop was hit. A separate authenticated reconciliation against verified terminal position/order state must be designed before enabling lifecycle operations.
 
 ## Explicit limitations
@@ -26,7 +26,7 @@ Run from `backend`:
 PYTHONPATH=. python -m pytest -q tests/test_paper_risk_reservations.py
 ```
 
-The eight isolated SQLite regressions cover default kill, cap exhaustion, restart/replay, stale revision, emergency kill, invalid money, corrupt JSON and transactional audit rollback. They do **not** prove cross-worker PostgreSQL behavior. The optional PostgreSQL race harness in `tests/test_paper_journal_postgres.py` is for the separate journal and does not certify this module.
+The eleven isolated SQLite regressions cover default kill, cap exhaustion, restart/replay, stale revision, emergency kill, invalid money, corrupt JSON and transactional audit rollback. The new cases verify irreversible emergency stop, latching an already-disabled account and fail-closed rejection of a malformed latch even when its checksum is recomputed. They do **not** prove cross-worker PostgreSQL behavior. The optional PostgreSQL race harness in `tests/test_paper_journal_postgres.py` is for the separate journal and does not certify this module.
 
 **Before integration:** run two independent PostgreSQL connections racing reservations and kill-switch writes in a disposable `test_*` database; simulate transaction interruption; integrate a single atomic account-wide paper risk reservation with the paper fill journal; implement a verified, audited release only after terminal reconciliation; require fresh authenticated bid/ask and positions; independently enforce daily drawdown, margin/leverage and per-order approval. Confirm Render production workspace, backup, rollback and post-deploy health before merging to auto-deploying `main`.
 
@@ -43,3 +43,7 @@ PAPER_RISK_TEST_DATABASE_URL='postgresql+psycopg://USER:PASSWORD@localhost:5432/
 ```
 
 Do **not** commit credentials or point this at any production database. The harness creates and deletes only its own randomized schema. It races two independent PostgreSQL connections attempting £60 reservations against a £100 cap, expects exactly one successful compare-and-swap, verifies persisted kill-switch behavior, and injects an audit write failure to verify transaction rollback. A CI **skip is not a PostgreSQL pass**. Full acceptance still needs an actual disposable database, including crash/recovery and broker/journal reconciliation. No release or live execution is authorized by this test.
+
+## Emergency-latch compatibility note
+
+This draft introduces a version-2 risk-state envelope. Version-1 prototype records fail closed on load; **no automatic migration or policy re-enablement is provided**. Because the prototype is not connected to any production route or broker, a future integration must explicitly design and test authenticated migration/recovery before using existing persisted prototype data. The PostgreSQL harness now also rejects attempted policy re-enablement after an emergency stop, but it remains opt-in and **not certified** until actually executed against a disposable local PostgreSQL database. Do not merge/deploy without owner-approved production rollback and health checks.
