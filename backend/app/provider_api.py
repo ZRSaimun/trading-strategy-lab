@@ -31,6 +31,8 @@ def attach(owner,audit):
         enabled=not free_only() and os.getenv('TWELVEDATA_ENABLED','false').lower()=='true'
         return {'deployment':'private-server','provider':'twelvedata','credential_configured':ready,'enabled':enabled,'free_only':free_only(),
                 'state':'READY FOR MANUAL IMPORT' if ready and enabled else 'NOT CONNECTED',
+                'rights_confirmation_scope':'owner_assertion_only','provider_instrument_entitlement_verified':False,
+                'retention_rights_verified':False,'display_rights_verified':False,'non_display_rights_verified':False,
                 'live':False,'automatic_requests':False,'mappings':[dict(id=k,**v) for k,v in MAPPINGS.items()],
                 'limits':{'max_candles':5000,'min_request_seconds':60,'interval':'1min','mode':'historical only'},
                 'message':'Manual historical imports only. Gold entitlement and internal display/non-display rights must be confirmed; Nasdaq mapping is not verified.'}
@@ -94,7 +96,7 @@ def attach(owner,audit):
                 if stored!=archive:
                     raise OSError('Archive content does not match source snapshot')
             except OSError:raise HTTPException(503,'Cannot verify provider archive; database unchanged.') from None
-            source='Twelve Data · '+MAPPINGS[body.instrument]['symbol']+' · authorized historical API'
+            source='Twelve Data · '+MAPPINGS[body.instrument]['symbol']+' · historical API (rights unverified)'
             manifest={'source':source,'provider':'twelvedata','provider_symbol':MAPPINGS[body.instrument]['symbol'],
                       'retrieved_at':now,'request_started_at':now,
                       'response_received_at':response_received_at,'request_elapsed_ms':request_elapsed_ms,
@@ -103,7 +105,10 @@ def attach(owner,audit):
                       'rows':len(rows),'start':rows[0]['time'],'end':rows[-1]['time'],
                       'gaps':sum(b['time']-a['time']>60 for a,b in zip(rows,rows[1:])),
                       'quality':quality,
-                      'rights_confirmed':True,'live':False,'request_limit':body.limit,'request_end':body.end}
+                      'rights_confirmed':True,'rights_confirmation_scope':'owner_assertion_only',
+                      'provider_instrument_entitlement_verified':False,'retention_rights_verified':False,
+                      'display_rights_verified':False,'non_display_rights_verified':False,
+                      'live':False,'request_limit':body.limit,'request_end':body.end}
             with Session() as db:
                 db.execute(delete(Candle).where(Candle.instrument==body.instrument))
                 db.add_all([Candle(instrument=body.instrument,source=source,retrieved_at=now,**r) for r in rows])
