@@ -37,7 +37,7 @@ const sameFill=(a:DemoFill,b:DemoFill)=>fillKeys.every(k=>a[k as keyof DemoFill]
  * All quantities and fees are declared inputs; financing, FX and authenticity remain unknown.
  */
 export function comparePaperWithDemoFills(
-  identity:PaperIdentity, paper:PaperOrder, source:DemoSource,
+  identity:PaperIdentity, paper:PaperOrder, source:DemoSource, paperSettlementCurrency:string,
   asOf:number, maxExecutionSkewSeconds:number, fills:readonly DemoFill[]
 ):DemoComparison {
   if(identity.priceSide!=='bid-ask'||!text(identity.instrument,160)||!text(identity.provider,160)||
@@ -50,6 +50,7 @@ export function comparePaperWithDemoFills(
      paper.exitReceivedAt!<=paper.entryReceivedAt!||!time(asOf)||asOf<paper.exitReceivedAt!||
      !time(maxExecutionSkewSeconds)||!text(source.brokerOrderId,120)||
      !text(source.accountAlias,120)||!text(source.currency,12)||
+     !text(paperSettlementCurrency,12)||paperSettlementCurrency!==source.currency||
      !/^[a-fA-F0-9]{64}$/.test(source.statementSha256))
     throw Error('Invalid closed paper order or declared demo comparison source');
   const expectedCosts=2*paper.commissionPerUnitSide*paper.units;
