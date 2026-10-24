@@ -4,7 +4,7 @@ from app.completed_candle_quality import assess_completed_m1
 
 
 def candles(*times):
-    return [{'time': t} for t in times]
+    return [{'time': t, 'open': 100.0, 'high': 102.0, 'low': 99.0, 'close': 101.0} for t in times]
 
 
 def test_contiguous_complete_bars_have_no_observed_gaps():
@@ -16,6 +16,7 @@ def test_contiguous_complete_bars_have_no_observed_gaps():
     assert report['last_candle_close_utc'] == '1970-01-01T00:04:00+00:00'
     assert not report['live'] and not report['may_execute_order']
     assert not report['market_calendar_checked']
+    assert report['ohlc_invariants_checked'] and report['price_side'] == 'UNVERIFIED'
 
 
 def test_gaps_are_observations_not_missing_market_claims():
@@ -65,3 +66,23 @@ def test_read_only_and_stale_never_becomes_live():
     assert report['seconds_since_last_candle_close'] > 0
     assert not report['live'] and not report['executable_bid_ask_verified']
     assert not report['provider_entitlement_verified']
+
+
+@pytest.mark.parametrize('bad', [
+    {'open': True}, {'open': '100'}, {'high': float('nan')},
+    {'close': float('inf')}, {'low': 103.0}, {'high': 98.0},
+    {'volume': -1}, {'volume': float('nan')}, {'volume': True},
+    {'open': None},
+])
+def test_malformed_ohlc_or_volume_fails_closed(bad):
+    row = {**candles(60)[0], **bad}
+    with pytest.raises(ValueError):
+        assess_completed_m1([row], 300)
+
+
+def test_optional_volume_and_zero_prices_are_numerically_checked():
+    rows = candles(60)
+    rows[0].update(open=0, high=0, low=0, close=0, volume=0)
+    report = assess_completed_m1(rows, 300)
+    assert report['ohlc_invariants_checked']
+    assert report['price_side'] == 'UNVERIFIED'
