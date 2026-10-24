@@ -15,6 +15,18 @@ export type ArchiveListingPage = {
 const SHA256=/^[a-f0-9]{64}$/;
 const textField=(value:unknown)=>typeof value==='string'&&value.trim().length>0&&value.length<=160;
 const count=(value:unknown)=>Number.isSafeInteger(value)&&Number(value)>=0;
+// The API sorts by instrument, provider, then dataset ID. A page that violates
+// this order is unsafe to append: an import between offset pages can otherwise
+// leave a misleadingly complete but silently incomplete inventory.
+const listingKey=(item:ArchiveListing)=>[item.instrument,item.provider,item.id] as const;
+function compareListing(a:ArchiveListing,b:ArchiveListing):number{
+ const left=listingKey(a),right=listingKey(b);
+ for(let i=0;i<left.length;i++){
+  if(left[i]<right[i])return -1;
+  if(left[i]>right[i])return 1;
+ }
+ return 0;
+}
 
 /** Reject malformed identities rather than presenting different sources as equivalent. */
 export function parseArchiveListing(
@@ -27,6 +39,7 @@ export function parseArchiveListing(
  if(!Array.isArray(payload)||payload.length>limit)
   throw Error('Malformed historical archive listing');
  const seen=new Set<string>();
+ let previous:ArchiveListing|null=null;
  for(const item of payload){
   if(!item||typeof item!=='object'||Array.isArray(item)||
      !SHA256.test(item.id)||!textField(item.provider)||
@@ -38,6 +51,9 @@ export function parseArchiveListing(
    throw Error('Invalid archive source identity or import counts');
   if(seen.has(item.id))throw Error('Repeated archive identity in discovery page');
   seen.add(item.id);
+  if(previous&&compareListing(previous,item as ArchiveListing)>=0)
+   throw Error('Historical archive discovery page is not in stable source order');
+  previous=item as ArchiveListing;
  }
  const more=headers.get('X-History-Has-More');
  const cursor=headers.get('X-History-Next-Offset');
@@ -50,6 +66,15 @@ export function parseArchiveListing(
           legacyPossiblyTruncated:payload.length===limit};
  }
  if(more!=='true'&&more!=='false')throw Error('Invalid historical archive pagination status');
+ // The paginated endpoint introduced provenance fields; missing fields are a
+ // version mismatch, not permission to silently treat two sources as equal.
+ for(const item of payload as ArchiveListing[]){
+  if(!SHA256.test(item.archive_sha256??'')||
+     !Number.isInteger(item.utc_offset_minutes)||
+     Math.abs(item.utc_offset_minutes!)>840||
+     item.zero_volume>item.accepted)
+   throw Error('Paginated archive discovery lacks valid source provenance');
+ }
  if(more==='true'){
   const next=Number(cursor);
   if(cursor===null||!/^\d+$/.test(cursor)||!Number.isSafeInteger(next)||
@@ -64,6 +89,8 @@ export function parseArchiveListing(
 }
 
 export function appendArchiveListing(current:ArchiveListing[],next:ArchiveListingPage):ArchiveListing[]{
+ if(current.length&&next.items.length&&compareListing(current.at(-1)!,next.items[0])>=0)
+  throw Error('Archive discovery pages overlap or order changed; refresh inventory');
  const ids=new Set(current.map(item=>item.id));
  for(const item of next.items){
   if(ids.has(item.id))throw Error('Archive discovery pages overlap; refresh before continuing');
