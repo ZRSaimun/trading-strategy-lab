@@ -225,6 +225,21 @@ def calculate_order_gate_preview(body: OrderGatePreview, now_ms: int) -> dict:
     checks['portfolio_gross_leverage_within_cap'] = (
         notional_arithmetic_ok and combined_leverage <= body.risk.max_leverage
     )
+    # Trading 212's official public API covers cash Invest/Stocks ISA only.
+    # A SELL entry with a protective stop above entry represents opening a
+    # short; this preview does not model reducing a verified long holding.
+    # For a proposed BUY, require full account-equity coverage of total gross
+    # exposure even if the owner supplied a looser leverage/margin assumption.
+    # These checks are conservative declarations, NOT authenticated buying power.
+    cash_account = body.risk.broker in ('Trading212-Invest', 'Trading212-StocksISA')
+    checks['cash_account_no_short_entry'] = (
+        not cash_account or body.risk.direction == 'BUY'
+    )
+    checks['cash_account_gross_fully_funded'] = (
+        not cash_account or (
+            notional_arithmetic_ok and combined_gross <= body.risk.account_equity
+        )
+    )
     gate.update(
         checks=checks,
         failed_checks=[key for key, ok in checks.items() if not ok],
