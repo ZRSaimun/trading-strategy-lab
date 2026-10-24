@@ -104,3 +104,27 @@ test('recorded early validation read contaminates the preregistered validation p
  assert.equal(review.recordedStatus,'CONTAMINATION_RECORDED');
  assert.ok(review.findings.some(f=>f.includes('before preregistered validation start')));
 });
+
+test('validation-labelled access to a pure holdout archive is contamination, not a safe validation read',async()=>{
+ const c=await make();
+ const entries=await appendHoldoutAuditEvent(c,[],access('mislabelled',year(2023)+200,'VALIDATION_ACCESS','archive-2024'));
+ const review=await verifyHoldoutAudit(c,entries);
+ assert.equal(review.recordedStatus,'CONTAMINATION_RECORDED');
+ assert.ok(review.findings.some(f=>f.includes('holdout-bearing archive')));
+});
+
+test('whole-archive validation read crossing holdout boundary contaminates even when labelled validation',async()=>{
+ const spanning=[...archives.slice(0,3),{...archives[3],end:year(2025)}];
+ const c=await createHoldoutCommitment(spanning,protocol,'researcher-1',year(2022)+100);
+ const entries=await appendHoldoutAuditEvent(c,[],access('spanning',year(2023)+200,'VALIDATION_ACCESS','archive-2023'));
+ const review=await verifyHoldoutAudit(c,entries);
+ assert.equal(review.recordedStatus,'CONTAMINATION_RECORDED');
+ assert.ok(review.findings.some(f=>f.includes('holdout-bearing archive')));
+});
+
+test('validation-only archive access remains uncontaminated after validation begins',async()=>{
+ const c=await make();
+ const entries=await appendHoldoutAuditEvent(c,[],access('validation-only',year(2023)+200,'VALIDATION_ACCESS','archive-2023'));
+ const review=await verifyHoldoutAudit(c,entries);
+ assert.equal(review.recordedStatus,'NO_CONTAMINATION_RECORDED');
+});
