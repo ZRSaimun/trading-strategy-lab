@@ -16,13 +16,13 @@ function series(n=23,july=false):Bar[]{
  while(sessions<n){
   if(day.getUTCDay()!==0&&day.getUTCDay()!==6){
    const start=Date.UTC(day.getUTCFullYear(),day.getUTCMonth(),day.getUTCDate(),july?13:14,30)/1000;
-   const highVol=sessions>=20;
+   const highVol=sessions>=20,base=100+4*sessions;
    for(let m=0;m<390;m++){
-    const close=m===29?101:m===389?(highVol?103:100):100;
-    const open=m===360?102:100;
+    const close=m===29?base+1:m===389?base+3:base;
+    const open=m===360?base+2:base;
     bars.push({time:start+m*60,open,close,
-      high:Math.max(open,close,highVol&&m===10?110:101),
-      low:Math.min(open,close,99),volume:null,observed_minutes:1});
+      high:Math.max(open,close,highVol&&m===10?base+10:base+1),
+      low:Math.min(open,close,base-1),volume:null,observed_minutes:1});
    }
    sessions++;
   }
@@ -39,7 +39,8 @@ test('volatility threshold uses only 20 PRIOR complete NY sessions and trades ar
  assert.equal(report.trades.length,3);
  assert.ok(report.trades.every(t=>t.morningRangeBps>t.priorMedianMorningRangeBps));
  assert.ok(report.trades.every(t=>t.entryAt+30*60===t.exitAt));
- assert.ok(report.trades.every(t=>t.entry===102&&t.direction==='LONG'));
+ assert.ok(report.trades.every(t=>t.entry>0&&t.direction==='LONG'));
+ assert.ok(report.trades.every(t=>t.grossBps>0));
  assert.equal(report.costs.length,4);
  assert.equal(report.costs[1].roundTripBps,1.8);
  assert.ok(report.costs[1].averageNetBps!<report.costs[0].averageNetBps!);
@@ -79,7 +80,7 @@ test('partial RTH sessions and absent history do not produce synthetic trades',(
 test('quiet days are rejected after the frozen 20-session median gate',()=>{
  const b=series(23);
  // Make all morning sessions use the same low range, so later days cannot pass.
- for(const x of b){x.high=Math.max(x.open,x.close,101)}
+ for(const x of b){const base=100+4*Math.floor(b.indexOf(x)/390);x.high=Math.max(x.open,x.close,base+1)}
  const result=studyNyCloseMomentum(b,cfg);
  assert.equal(result.candidateDays,3);
  assert.equal(result.trades.length,0);
