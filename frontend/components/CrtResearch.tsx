@@ -4,7 +4,7 @@ import {useEffect,useState} from 'react';
 import {appendArchiveListing,fetchArchiveListingPage,type ArchiveListing} from '../lib/archive-discovery';
 import {screenCrtHypotheses,completeAggregateWindow,type ScreenResult,type Gate} from '../lib/crt-quant-filters';
 import type {Bar} from '../lib/research';
-import {auditCrtCrossTimeframe} from '../lib/crt-timeframe-audit';
+import {auditCrtCrossTimeframe,certifiedCrtFourHourBars} from '../lib/crt-timeframe-audit';
 
 type API=(path:string,init?:RequestInit)=>Promise<any>;
 type HistoryPage={
@@ -77,8 +77,7 @@ export default function CrtResearch({api,pages}:{api:API;pages:boolean}){
    // compare two adjacent 4H bars if BOTH were independently reconciled to
    // all sixteen source-matched, completed 15m candles. An uncheckable edge
    // may otherwise create a false CRT sweep against a verified bar.
-   const verifiedStarts=new Set(audit.verifiedFourHourStarts);
-   const certifiedH4=h4.filter(b=>verifiedStarts.has(b.time));
+   const certifiedH4=certifiedCrtFourHourBars(h4,audit);
    const report=screenCrtHypotheses({
     source:{datasetId:selected,archiveSha256:pages[0].dataset.archive_sha256,
      instrument:archive.instrument,provider:archive.provider,priceSide:'bid',
