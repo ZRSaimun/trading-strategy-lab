@@ -1,6 +1,7 @@
 'use client';
 import {useEffect,useState} from 'react';
-import {compare,STRATEGIES,DEFAULTS,type Config,type Report,type Trade} from '../lib/backtest';
+import {compare,STRATEGIES,DEFAULTS,type Config,type Report,type Trade,type StrategyId} from '../lib/backtest';
+import {runCostStress,type CostStressRow} from '../lib/cost-stress';
 import {loadArchiveWindow,type ArchivePage} from '../lib/backtest-history';
 import type {Bar} from '../lib/research';
 type Run={id:string;title:string;created_at:number;payload:{instrument:string;source:string;datasetHash:string;window:{start:number;end:number;bars:number};candles:Bar[];reports:Report[];splits:{name:string;reports:Report[]}[];notes:string}};
@@ -17,6 +18,7 @@ export default function Backtesting({api,journal=false}:{api:API;journal?:boolea
  const [sourceMode,setSourceMode]=useState<SourceMode>('legacy'),[archives,setArchives]=useState<Archive[]>([]),[archiveId,setArchiveId]=useState(''),[archivesError,setArchivesError]=useState('');
  const [run,setRun]=useState<Run|null>(null),[runs,setRuns]=useState<Run[]>([]),[entries,setEntries]=useState<JournalEntry[]>([]),[selected,setSelected]=useState('A');
  const [error,setError]=useState(''),[message,setMessage]=useState(''),[busy,setBusy]=useState(false),[scope,setScope]=useState('Full sample');
+ const [costStress,setCostStress]=useState<{runId:string;strategy:StrategyId;rows:CostStressRow[]}|null>(null);
  async function refresh(){const [r,j]=await Promise.all([api('/research/backtests'),api('/research/journal')]);setRuns(r);setEntries(j)}
  useEffect(()=>{refresh().catch(e=>setError(e.message))},[]);
  useEffect(()=>{
@@ -64,6 +66,16 @@ export default function Backtesting({api,journal=false}:{api:API;journal?:boolea
     ' Fixed chronological splits; no parameter fitting or optimization.'}};
   setRun(value);setScope('Full sample');setMessage('Historical simulations complete. Nothing was entered in a broker account.');
  }catch(e){setMessage('');setError(e instanceof Error?e.message:String(e))}finally{setBusy(false)}}
+ function calculateCostStress(){
+  if(!run)return;
+  setError('');
+  try{
+   const saved=run.payload.reports.find(r=>r.strategy===selected);
+   if(!saved)throw Error('Selected saved strategy is unavailable');
+   const rows=runCostStress(run.payload.candles,saved);
+   setCostStress({runId:run.id,strategy:selected as StrategyId,rows});
+  }catch(e){setCostStress(null);setError(e instanceof Error?e.message:String(e))}
+ }
  async function save(){if(!run)return;try{
   // Keep a bounded equity trace in storage; JSON export of the active run retains every bar.
   const slim=(r:Report)=>({...r,equity:r.equity.filter((_,i)=>i%Math.max(1,Math.ceil(r.equity.length/500))===0||i===r.equity.length-1)});
@@ -87,7 +99,14 @@ export default function Backtesting({api,journal=false}:{api:API;journal?:boolea
    <details className="rule-definitions"><summary>Exact strategy definitions</summary>{STRATEGIES.map(s=><p key={s.id}><b>{s.name} · {s.version}</b><br/>{s.definition}</p>)}</details>
    {run&&<><div className="report-actions"><button onClick={save}>Save report</button><button onClick={()=>exportJSON(`backtest-${run.id}.json`,run)}>Export reproducible JSON</button><select aria-label="Report sample" value={scope} onChange={e=>setScope(e.target.value)}><option>Full sample</option>{run.payload.splits.map(s=><option key={s.name}>{s.name}</option>)}</select></div><p>Instrument: {run.payload.instrument} · Source: {run.payload.source}<br/>Sample: {run.payload.window.bars} bars · {date(run.payload.window.start)} to {date(run.payload.window.end)}<br/>Source dataset SHA-256: <code>{run.payload.datasetHash}</code><br/>{run.payload.notes}</p>
    <div className="table-wrap"><table><thead><tr><th>Variant</th><th>Trades</th><th>Win %</th><th>Profit factor</th><th>Expectancy</th><th>Net return %</th><th>Max DD %</th><th>Average R</th><th>Rejected</th></tr></thead><tbody>{reports?.map(r=><tr key={r.strategy} onClick={()=>setSelected(r.strategy)} className={selected===r.strategy?'selected-row':''}><td>{r.strategy}</td><td>{r.metrics.trades}</td><td>{fmt(r.metrics.winRate)}</td><td>{fmt(r.metrics.profitFactor)}</td><td>{fmt(r.metrics.expectancy)}</td><td>{fmt(r.metrics.netReturn)}</td><td>{fmt(r.metrics.maxDrawdownPercent)}</td><td>{fmt(r.metrics.averageR)}</td><td>{r.metrics.rejected}</td></tr>)}</tbody></table></div>
-   {report&&<><h3>Variant {selected} · {report.ruleVersion}</h3><p>Average win {fmt(report.metrics.avgWin)} · Average loss {fmt(report.metrics.avgLoss)}<br/>Win-rate 95% Wilson interval: {report.metrics.wilson95?report.metrics.wilson95.map(n=>fmt(n)).join('–')+'%':'insufficient sample'}. Trades are not necessarily independent.<br/>Profit factor is undefined when there are no losing trades.</p><div className="equity-trace"><svg viewBox="0 0 800 140" role="img" aria-label="Simulated equity curve"><polyline fill="none" stroke="#36d8ae" strokeWidth="2" points={(()=>{const points=report.equity,values=points.map(p=>p.mark),min=Math.min(report.config.capital,...values),max=Math.max(report.config.capital,...values);return points.filter((_,i)=>i%Math.max(1,Math.ceil(points.length/600))===0||i===points.length-1).map(p=>`${(p.time-report.start)/Math.max(1,report.end-report.start)*800},${130-(p.mark-min)/Math.max(1,max-min)*120}`).join(' ')})()}/></svg></div><p>{report.warnings.join(' ')}</p><div className="table-wrap"><table><thead><tr><th>Entry UTC</th><th>Side</th><th>Entry</th><th>Stop</th><th>Target</th><th>P&amp;L</th><th>Costs</th><th>R</th><th>Exit reason</th><th>Journal</th></tr></thead><tbody>{report.trades.slice(-100).map(t=><tr key={t.id}><td>{date(t.entryAt)}</td><td>{t.direction}</td><td>{fmt(t.entry)}</td><td>{fmt(t.stop)}</td><td>{fmt(t.target)}</td><td>{fmt(t.pnl)}</td><td>{fmt(t.costs)}</td><td>{fmt(t.r)}</td><td>{t.reason}</td><td><button onClick={()=>addTrade(t)}>Add simulation</button></td></tr>)}</tbody></table></div><p>Showing at most the last 100 simulated trades. JSON contains all logs.</p></>}
+   {report&&<><h3>Variant {selected} · {report.ruleVersion}</h3>
+    <button onClick={calculateCostStress}>Re-run full-sample cost stress (1× / 2× / 3×)</button>
+    {costStress?.runId===run.id&&costStress.strategy===selected&&<>
+     <h3>Trading-cost sensitivity · same historical sample</h3>
+     <p>Each row re-runs entry eligibility, sizing, targets and exits using the saved run's settings. Spread, slippage and commission are multiplied together; these are hypothetical cost scenarios, not verified broker quotes. Reusing the same candles is NOT independent validation. If the dataset window was capped, every row is capped too. Higher costs can change the number of trades and the exit path.</p>
+     <div className="table-wrap"><table><thead><tr><th>Costs</th><th>Spread</th><th>Slippage / side</th><th>Commission / unit / side</th><th>Trades</th><th>Net return %</th><th>Max DD %</th><th>Average R</th><th>Rejected</th></tr></thead>
+     <tbody>{costStress.rows.map(row=><tr key={row.multiplier}><td>{row.multiplier}×</td><td>{fmt(row.spread,4)}</td><td>{fmt(row.slippage,4)}</td><td>{fmt(row.commission,4)}</td><td>{row.trades}</td><td>{fmt(row.netReturn)}</td><td>{fmt(row.maxDrawdownPercent)}</td><td>{fmt(row.averageR)}</td><td>{row.rejected}</td></tr>)}</tbody></table></div>
+    </>}<p>Average win {fmt(report.metrics.avgWin)} · Average loss {fmt(report.metrics.avgLoss)}<br/>Win-rate 95% Wilson interval: {report.metrics.wilson95?report.metrics.wilson95.map(n=>fmt(n)).join('–')+'%':'insufficient sample'}. Trades are not necessarily independent.<br/>Profit factor is undefined when there are no losing trades.</p><div className="equity-trace"><svg viewBox="0 0 800 140" role="img" aria-label="Simulated equity curve"><polyline fill="none" stroke="#36d8ae" strokeWidth="2" points={(()=>{const points=report.equity,values=points.map(p=>p.mark),min=Math.min(report.config.capital,...values),max=Math.max(report.config.capital,...values);return points.filter((_,i)=>i%Math.max(1,Math.ceil(points.length/600))===0||i===points.length-1).map(p=>`${(p.time-report.start)/Math.max(1,report.end-report.start)*800},${130-(p.mark-min)/Math.max(1,max-min)*120}`).join(' ')})()}/></svg></div><p>{report.warnings.join(' ')}</p><div className="table-wrap"><table><thead><tr><th>Entry UTC</th><th>Side</th><th>Entry</th><th>Stop</th><th>Target</th><th>P&amp;L</th><th>Costs</th><th>R</th><th>Exit reason</th><th>Journal</th></tr></thead><tbody>{report.trades.slice(-100).map(t=><tr key={t.id}><td>{date(t.entryAt)}</td><td>{t.direction}</td><td>{fmt(t.entry)}</td><td>{fmt(t.stop)}</td><td>{fmt(t.target)}</td><td>{fmt(t.pnl)}</td><td>{fmt(t.costs)}</td><td>{fmt(t.r)}</td><td>{t.reason}</td><td><button onClick={()=>addTrade(t)}>Add simulation</button></td></tr>)}</tbody></table></div><p>Showing at most the last 100 simulated trades. JSON contains all logs.</p></>}
    </>}
    <h3>Saved runs</h3>{!runs.length&&<p>No saved backtests.</p>}{runs.map(r=><button className="saved-run" key={r.id} onClick={()=>{setRun(r);setScope('Full sample');setSelected('A')}}>{r.title} · {date(r.created_at)}</button>)}
   </>}
