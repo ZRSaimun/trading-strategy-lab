@@ -93,3 +93,28 @@ test('exclusive archive-end labels are excluded even with zero embargo',()=>{
  const within=planPurgedHoldout(archives,[beforeEnd],zeroEmbargo);
  assert.deepEqual(within.eligible.validation,['archive-end']);
 });
+
+test('zero embargo never admits a label first available at the next partition start',()=>{
+ // A single source archive can span validation and holdout. Its exclusive end
+ // is later than the validation cutoff, so archive-end purging alone misses this.
+ const spanning=[...archives.slice(0,3),{...archives[3],end:year(2025)}];
+ const atCutoff=event('next-segment-label',2023,364,1);
+ const zeroEmbargo={...protocol,embargoSeconds:0};
+ const rejected=planPurgedHoldout(spanning,[atCutoff],zeroEmbargo);
+ assert.deepEqual(rejected.eligible.validation,[]);
+ assert.deepEqual(rejected.excluded,[{id:'next-segment-label',reason:'EMBARGO_OR_UNSETTLED'}]);
+ // Evidence strictly before the cutoff remains eligible at zero embargo.
+ const before={...atCutoff,labelAvailableAt:year(2024)-1};
+ const accepted=planPurgedHoldout(spanning,[before],zeroEmbargo);
+ assert.deepEqual(accepted.eligible.validation,['next-segment-label']);
+});
+
+test('positive embargo admits labels exactly at its preregistered safe cutoff',()=>{
+ const spanning=[...archives.slice(0,3),{...archives[3],end:year(2025)}];
+ const cutoff=year(2024)-2*d;
+ const label={...event('embargo-edge',2023,300),labelAvailableAt:cutoff};
+ const result=planPurgedHoldout(spanning,[label],protocol);
+ assert.deepEqual(result.eligible.validation,['embargo-edge']);
+ const late=planPurgedHoldout(spanning,[{...label,labelAvailableAt:cutoff+1}],protocol);
+ assert.deepEqual(late.excluded,[{id:'embargo-edge',reason:'EMBARGO_OR_UNSETTLED'}]);
+});
