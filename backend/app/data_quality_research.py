@@ -37,6 +37,9 @@ def scan_database(path: str) -> dict:
             "archive_filename,utc_offset_minutes FROM historical_datasets ORDER BY instrument,provider,format,id")]
             for row in q]
         badstates = [d['id'] for d in ds if d['state'] != 'READY']
+        # Reconcile every READY archive separately: aggregate group totals can
+        # hide one missing dataset row cancelled by an extra row in another.
+        ready_row_counts = Counter()
         stats = defaultdict(lambda: {'datasets': 0, 'ready_datasets': 0, 'nonready_datasets': 0,
                   'raw_rows': 0, 'unique_minutes': 0,
                   'overlapping_minutes': 0, 'exact_overlap_rows': 0, 'conflicting_overlap_rows': 0,
@@ -56,6 +59,7 @@ def scan_database(path: str) -> dict:
         previous_key = previous_t = previous_values = None
         for provider, instrument, fmt, offset, t, o, h, l, c, v, dsid in con.execute(sql):
             k = (provider, instrument, fmt, offset)
+            ready_row_counts[dsid] += 1
             s = stats[k]
             s['raw_rows'] += 1
             s['zero_volume_rows'] += int(v == 0)
@@ -110,7 +114,10 @@ def scan_database(path: str) -> dict:
                 file_format=d['format'], filename=d['archive_filename'],
                 archive_sha256=d['archive_sha256'], utc_offset_minutes=d['utc_offset_minutes'],
                 accepted=d['accepted'], rejected=d['rejected'],
-                zero_volume=d['zero_volume'], state=d['state']) for d in ds],
+                zero_volume=d['zero_volume'], state=d['state'],
+                observed_ready_rows=(ready_row_counts[d['id']] if d['state'] == 'READY' else None),
+                accepted_count_matches=(ready_row_counts[d['id']] == d['accepted']
+                                        if d['state'] == 'READY' else None)) for d in ds],
           'definitions': {
              'gap': 'Difference >60 seconds between observed M1 timestamps; may be market closure or missing data',
              'overlap': 'Extra row at same timestamp within SAME provider, instrument, file format and declared UTC offset',
@@ -118,7 +125,8 @@ def scan_database(path: str) -> dict:
              'duplicate': 'Identical OHLC repeated at that timestamp, not an independent observation',
              'zero_volume': 'Provider numeric zero, not proof that no trading occurred',
              'data_limitations': 'HistData bid-only quotes; no ask side, independently verified spread, or execution volume',
-             'nonready': 'Incomplete datasets excluded from price calculations and ready-row reconciliation; their checkpoint counts are reported separately'},
+             'nonready': 'Incomplete datasets excluded from price calculations and ready-row reconciliation; their checkpoint counts are reported separately',
+             'ready_row_reconciliation': 'Each READY dataset observed row count is checked against its own accepted import counter; grouped totals may hide offsetting per-dataset discrepancies'},
           'groups': []}
         for k in sorted(stats):
             s = stats[k]
@@ -136,6 +144,8 @@ def scan_database(path: str) -> dict:
              'overlap_conflicts':sum(s['conflicting_overlap_rows'] for s in stats.values()),
              'import_rejections':sum(d['rejected'] for d in ds),
              'invalid_ohlc_in_ready':sum(s['invalid_ohlc_rows'] for s in stats.values()),
+             'ready_dataset_count_mismatch':sum(ready_row_counts[d['id']] != d['accepted']
+                 for d in ds if d['state'] == 'READY'),
              'accepted_count_mismatch':sum(s['raw_rows'] != samples_by_group[k]['accepted_imported']
                  for k, s in stats.items())}
         return report
