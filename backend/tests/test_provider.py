@@ -72,6 +72,10 @@ def test_status_authentication_disabled_gate_and_secret_isolation(client,monkeyp
     assert client.get('/api/providers').status_code==401
     unlock(client);status=client.get('/api/providers')
     assert status.json()['credential_configured'];assert not status.json()['enabled'];assert KEY not in status.text
+    assert status.json()['rights_confirmation_scope']=='owner_assertion_only'
+    for field in ('provider_instrument_entitlement_verified','retention_rights_verified',
+                  'display_rights_verified','non_display_rights_verified'):
+        assert status.json()[field] is False
     r=client.post('/api/providers/twelvedata/import',json={'instrument':'XAUUSD-TD','limit':100,'end':NOW-60,'rights_confirmed':True,'replace_confirmed':True})
     assert r.status_code==409
 
@@ -88,6 +92,13 @@ def test_historical_pipeline_persists_charts_manifest_archive_and_audit(client,m
     r=client.post('/api/providers/twelvedata/import',json={'instrument':'XAUUSD-TD','limit':100,'end':NOW-60,'rights_confirmed':True,'replace_confirmed':True})
     assert r.status_code==200,r.text
     assert r.json()['rows']==2;assert not r.json()['live'];assert KEY not in r.text
+    assert 'authorized historical API' not in r.json()['source']
+    assert 'rights unverified' in r.json()['source']
+    assert r.json()['rights_confirmed'] is True  # Legacy owner checkbox, NOT a provider grant.
+    assert r.json()['rights_confirmation_scope']=='owner_assertion_only'
+    for field in ('provider_instrument_entitlement_verified','retention_rights_verified',
+                  'display_rights_verified','non_display_rights_verified'):
+        assert r.json()[field] is False
     quality=r.json()['quality']
     assert quality['observed_candles']==2
     assert quality['observed_timestamp_gaps']==0
@@ -103,6 +114,8 @@ def test_historical_pipeline_persists_charts_manifest_archive_and_audit(client,m
     result=client.get('/api/candles/XAUUSD-TD?timeframe=1m').json()
     assert result['dataset']['provider_symbol']=='XAU/USD';assert len(result['candles'])==2
     assert result['dataset']['quality']==quality
+    assert result['dataset']['rights_confirmation_scope']=='owner_assertion_only'
+    assert result['dataset']['provider_instrument_entitlement_verified'] is False
     assert result['quality']['state']=='WAIT'
     assert len(list((tmp_path/'archive').glob('*.json')))==1
     audit=client.get('/api/audit');assert KEY not in audit.text
