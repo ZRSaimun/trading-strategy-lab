@@ -74,3 +74,19 @@ test('strict embargo removes labels near each partition end, never invents fills
  assert.deepEqual(p.eligible,{development:['early'],validation:['boundary'],holdout:['hold']});
  assert.ok(p.warnings.some(w=>w.includes('No executable')));
 });
+
+test('rejects one immutable archive digest advertised as two different calendar years',()=>{
+ const reused=archives.map(a=>({...a}));
+ reused[4].archiveSha256=reused[0].archiveSha256;
+ assert.throws(()=>planPurgedHoldout(reused,[],protocol),/Invalid or duplicate source-identified archive/);
+ // Distinct archives and their metadata remain untouched on rejection.
+ assert.equal(reused[4].archiveSha256,reused[0].archiveSha256);
+});
+test('rejects labels at exclusive archive end rather than borrowing the next source interval',()=>{
+ const atEnd=event('archive-end',2023,364,1);
+ assert.equal(atEnd.labelAvailableAt,year(2024));
+ assert.throws(()=>planPurgedHoldout(archives,[atEnd],protocol),/Duplicate, noncausal or unverified observation timing/);
+ const beforeEnd={...atEnd,labelAvailableAt:year(2024)-1};
+ const result=planPurgedHoldout(archives,[beforeEnd],protocol);
+ assert.deepEqual(result.excluded,[{id:'archive-end',reason:'EMBARGO_OR_UNSETTLED'}]);
+});
