@@ -7,7 +7,7 @@
 import {
   estimateCausalFrequencyBaseline,
   type ReceivedCompletedCandle,
-  type BaselineHorizon,
+  type HorizonBaseline,
 } from './causal-frequency-baseline.ts';
 import type {FeedIdentity} from './forward-forecast-ledger.ts';
 
@@ -73,7 +73,7 @@ export function estimateCausalEwmaFrequency(
   const verified=estimateCausalFrequencyBaseline(candles,issuedAsOf,{
     minSamples,maxSamples,maxLagSeconds:config.maxLagSeconds,
   });
-  const horizons=verified.horizons.map((h:BaselineHorizon):EwmaHorizon=>{
+  const horizons=verified.horizons.map((h:HorizonBaseline):EwmaHorizon=>{
     let sumW=0,sumW2=0,sumUp=0;
     for(let i=0;i<h.samples;i++){
       const end=candles.length-1-i*h.horizon;
