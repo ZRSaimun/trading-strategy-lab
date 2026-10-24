@@ -91,6 +91,12 @@ def test_historical_pipeline_persists_charts_manifest_archive_and_audit(client,m
     assert quality['observed_timestamp_gaps']==0
     assert quality['seconds_since_last_candle_close']>=0
     assert quality['assessment']=='OBSERVED_ONLY_HISTORICAL'
+    assert r.json()['retrieved_at']==r.json()['request_started_at']
+    assert r.json()['response_received_at']>=r.json()['request_started_at']
+    assert r.json()['request_elapsed_ms']>=0
+    assert r.json()['receipt_clock']=='server_wall_utc'
+    assert r.json()['elapsed_clock']=='server_monotonic'
+    assert quality['observed_at_utc'].startswith(__import__('datetime').datetime.fromtimestamp(r.json()['response_received_at'], __import__('datetime').timezone.utc).isoformat())
     assert not quality['live'] and not quality['executable_bid_ask_verified']
     result=client.get('/api/candles/XAUUSD-TD?timeframe=1m').json()
     assert result['dataset']['provider_symbol']=='XAU/USD';assert len(result['candles'])==2
