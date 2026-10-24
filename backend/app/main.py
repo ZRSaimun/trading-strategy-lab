@@ -319,3 +319,7 @@ app.include_router(attach_history(owner, engine))
 # Owner-only broker capability diagnostics and non-executing risk estimation.
 from .broker_readiness import build_router
 app.include_router(build_router(owner))
+
+# Read-only evidence of actual data and broker readiness, owner-gated.
+from .system_readiness import build_router as system_readiness_router
+app.include_router(system_readiness_router(owner, engine))
