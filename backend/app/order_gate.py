@@ -37,6 +37,11 @@ class OrderGateContext(Strict):
     kill_switch_active: bool = True
     market_session_open: bool = False
     daily_realized_pnl_cash: float = 0
+    # Account-wide, owner-declared cash amounts in the same account currency.
+    # Floating profits do not offset downside; reserved risk is incremental
+    # potential loss beyond the currently marked unrealized P&L.
+    daily_unrealized_pnl_cash: float = 0
+    other_positions_reserved_stress_loss_cash: float = Field(default=0, ge=0)
     max_daily_loss_cash: float = Field(gt=0)
     consecutive_losses: int = Field(default=0, ge=0)
     max_consecutive_losses: int = Field(default=3, ge=1, le=100)
@@ -82,6 +87,13 @@ def evaluate_gate(context: OrderGateContext, now_ms: int) -> dict:
     checks['kill_switch_off'] = not context.kill_switch_active
     checks['session_open'] = context.market_session_open
     checks['daily_loss_limit_not_reached'] = context.daily_realized_pnl_cash > -context.max_daily_loss_cash
+    effective_daily_pnl = (context.daily_realized_pnl_cash
+                           + min(context.daily_unrealized_pnl_cash, 0.0)
+                           - context.other_positions_reserved_stress_loss_cash)
+    checks['existing_account_downside_within_cap'] = (
+        math.isfinite(effective_daily_pnl)
+        and effective_daily_pnl > -context.max_daily_loss_cash
+    )
     checks['loss_streak_limit_not_reached'] = context.consecutive_losses < context.max_consecutive_losses
     checks['specific_owner_confirmation'] = context.owner_confirmed_this_order
     # Even when all user-declared checks pass, there is NO authenticated feed,
@@ -92,6 +104,9 @@ def evaluate_gate(context: OrderGateContext, now_ms: int) -> dict:
         'checks': checks,
         'failed_checks': [key for key, ok in checks.items() if not ok],
         'spread_bps': spread_bps if checks['finite_spread'] else None,
+        'effective_daily_pnl_after_existing_risk_cash': (
+            effective_daily_pnl if math.isfinite(effective_daily_pnl) else None
+        ),
         'quote_authenticated': False,
         'durable_order_reservation': False,
         'durable_circuit_breaker': False,
