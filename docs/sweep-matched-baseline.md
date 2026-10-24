@@ -21,4 +21,4 @@ npm test
 npm run build
 ```
 
-Nine synthetic regression tests check time-of-day/direction matching, prior-label maturity, deterministic prefix behavior, unique controls, event-order independence, equal-cost accounting, missing data, pending outcomes and fail-closed inputs. No licensed market data or broker credentials are committed. This helper requires PR #17's `sweep-outcome-study.ts` and `structure-quality.ts` and should not be cherry-picked onto main alone.
+Ten synthetic regression tests check time-of-day/direction matching, prior-label maturity, deterministic prefix behavior, unique controls, event-order independence, equal-cost accounting, missing data, pending outcomes, overflowed numeric returns and fail-closed inputs. No licensed market data or broker credentials are committed. This helper requires PR #17's `sweep-outcome-study.ts` and `structure-quality.ts` and should not be cherry-picked onto main alone.
