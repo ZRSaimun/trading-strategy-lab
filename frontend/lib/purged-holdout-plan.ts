@@ -60,6 +60,10 @@ export function planPurgedHoldout(archives: ArchiveLineage[], observations: Outc
     throw Error('Invalid preregistered chronological boundaries, embargo or strategy identity');
   const lineage = [...archives].sort((a,b) => a.start-b.start);
   const ids = new Set<string>();
+  // The same immutable archive bytes cannot legitimately describe two different
+  // disjoint UTC coverage windows. Reject digest reuse rather than trusting
+  // inconsistent metadata and silently double-counting source evidence.
+  const archiveDigests = new Set<string>();
   let source: PurgedPlan['source'] | null = null;
   let previousEnd = -1;
   const warnings: string[] = [];
@@ -68,12 +72,14 @@ export function planPurgedHoldout(archives: ArchiveLineage[], observations: Outc
     keys(a, ['id','provider','instrument','venue','priceSide','utcConvention','archiveSha256','start','end'], 'Archive');
     if (![a.id,a.provider,a.instrument,a.venue].every(nonblank) || !SHA.test(a.archiveSha256) ||
         !epoch(a.start) || !epoch(a.end) || a.end <= a.start ||
-        !['bid','ask','mid','bid_ask'].includes(a.priceSide) || a.utcConvention !== 'UTC' || ids.has(a.id))
+        !['bid','ask','mid','bid_ask'].includes(a.priceSide) || a.utcConvention !== 'UTC' ||
+        ids.has(a.id) || archiveDigests.has(a.archiveSha256))
       throw Error('Invalid or duplicate source-identified archive');
     if (a.start < previousEnd) throw Error('Overlapping archive coverage; no silent source stitching');
     if (previousEnd >= 0 && a.start > previousEnd) warnings.push('Archive coverage has gaps; no candles or trading sessions were inferred.');
     previousEnd = a.end;
     ids.add(a.id);
+    archiveDigests.add(a.archiveSha256);
     const identity = {provider:a.provider,instrument:a.instrument,venue:a.venue,priceSide:a.priceSide,utcConvention:a.utcConvention};
     if (source && Object.keys(identity).some(k => identity[k as keyof typeof identity] !== source![k as keyof typeof source]))
       throw Error('Source family changed across archives; do not mix instruments, venues, quote sides or timestamp conventions');
