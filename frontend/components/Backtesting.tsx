@@ -1,23 +1,53 @@
 'use client';
 import {useEffect,useState} from 'react';
 import {compare,STRATEGIES,DEFAULTS,type Config,type Report,type Trade} from '../lib/backtest';
+import {loadArchiveWindow,type ArchivePage} from '../lib/backtest-history';
 import type {Bar} from '../lib/research';
 type Run={id:string;title:string;created_at:number;payload:{instrument:string;source:string;datasetHash:string;window:{start:number;end:number;bars:number};candles:Bar[];reports:Report[];splits:{name:string;reports:Report[]}[];notes:string}};
 type JournalEntry={id:string;title:string;created_at:number;payload:{instrument:string;trade:Trade;runId:string;notes:string;entryStatus:'SIMULATED ONLY'|'USER-REPORTED DEMO ENTRY'}};
 type API=(path:string,init?:RequestInit)=>Promise<any>;
+type Archive={id:string;provider:string;instrument:string;format:string;state:string;accepted:number;rejected:number};
+type SourceMode='legacy'|'archive';
 const json=(body:unknown)=>({headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
 const fmt=(n:number|null,d=2)=>n===null?'—':n.toLocaleString('en-GB',{maximumFractionDigits:d});
 const date=(t:number)=>new Date(t*1000).toISOString();
 function exportJSON(name:string,data:unknown){const url=URL.createObjectURL(new Blob([JSON.stringify(data,null,2)],{type:'application/json'}));const a=document.createElement('a');a.href=url;a.download=name;a.click();URL.revokeObjectURL(url)}
 export default function Backtesting({api,journal=false}:{api:API;journal?:boolean}){
  const [instrument,setInstrument]=useState('XAUUSD-IMPORT'),[frame,setFrame]=useState('5m'),[config,setConfig]=useState<Config>({...DEFAULTS});
+ const [sourceMode,setSourceMode]=useState<SourceMode>('legacy'),[archives,setArchives]=useState<Archive[]>([]),[archiveId,setArchiveId]=useState(''),[archivesError,setArchivesError]=useState('');
  const [run,setRun]=useState<Run|null>(null),[runs,setRuns]=useState<Run[]>([]),[entries,setEntries]=useState<JournalEntry[]>([]),[selected,setSelected]=useState('A');
  const [error,setError]=useState(''),[message,setMessage]=useState(''),[busy,setBusy]=useState(false),[scope,setScope]=useState('Full sample');
  async function refresh(){const [r,j]=await Promise.all([api('/research/backtests'),api('/research/journal')]);setRuns(r);setEntries(j)}
  useEffect(()=>{refresh().catch(e=>setError(e.message))},[]);
+ useEffect(()=>{
+  if(journal||sourceMode!=='archive')return;
+  let active=true;
+  api('/history/datasets').then((data:Archive[])=>{
+   if(!active)return;
+   setArchives(data);
+   setArchiveId(old=>data.some(d=>d.id===old)?old:data[0]?.id||'');
+   setArchivesError('');
+  }).catch(e=>{if(active){setArchives([]);setArchivesError(e instanceof Error?e.message:String(e));}});
+  return ()=>{active=false};
+ },[journal,sourceMode]);
  function change(key:keyof Config,value:number){setConfig(c=>({...c,[key]:value}))}
  async function execute(){setBusy(true);setError('');setMessage('');try{
-  const p=await api(`/candles/${instrument}?timeframe=${frame}`);
+  let p:{candles:Bar[];dataset?:{source:string;sha256:string};has_more?:boolean};
+  let actualInstrument=instrument;
+  if(sourceMode==='archive'){
+   const archive=archives.find(a=>a.id===archiveId);
+   if(!archive)throw Error('Select an imported READY historical archive before running the simulation');
+   setMessage('Loading a bounded, source-verified historical archive window…');
+   const result=await loadArchiveWindow(archiveId,frame,async(before,limit)=>{
+    const params=new URLSearchParams({timeframe:frame,limit:String(limit)});
+    if(before!==null)params.set('before',String(before));
+    return await api(`/history/${encodeURIComponent(archiveId)}/candles?${params}`) as ArchivePage;
+   });
+   actualInstrument=result.dataset.instrument;
+   p={candles:result.bars,has_more:result.capped,
+      dataset:{source:`${result.dataset.provider} · ${archive.format} · BID-only archive ${result.dataset.id.slice(0,12)}`,
+               sha256:result.dataset.archive_sha256}};
+  }else p=await api(`/candles/${instrument}?timeframe=${frame}`);
   const seconds={'1m':60,'5m':300,'15m':900,'1H':3600}[frame as '1m'];
   const received=p.candles as Bar[];
   const bars=received.filter(b=>b.observed_minutes===seconds/60);
@@ -28,9 +58,12 @@ export default function Backtesting({api,journal=false}:{api:API;journal?:boolea
   const reports=compare(bars,cfg);
   const a=Math.floor(bars.length*.6),b=Math.floor(bars.length*.8);
   const splits=[{name:'Development 60%',bars:bars.slice(0,a)},{name:'Validation 20%',bars:bars.slice(a,b)},{name:'Holdout 20%',bars:bars.slice(b)}].filter(s=>s.bars.length>=5).map(s=>({name:s.name,reports:compare(s.bars,cfg)}));
-  const value:Run={id:crypto.randomUUID(),title:`${instrument} · ${frame}`,created_at:Math.floor(Date.now()/1000),payload:{instrument,source:p.dataset?.source||'Unknown',datasetHash:p.dataset?.sha256||'Unknown',window:{start:bars[0].time,end:bars.at(-1)!.time,bars:bars.length},candles:bars,reports,splits,notes:`${excluded} incomplete aggregate candles excluded; gaps remain gaps. `+(p.has_more?'WARNING: private API returned a capped recent chart window. This report tests only the displayed window, not the full imported dataset.':'Only this imported sample was tested. Fixed chronological splits; no parameter fitting or optimization.')}};
+  const value:Run={id:crypto.randomUUID(),title:`${actualInstrument} · ${frame}`,created_at:Math.floor(Date.now()/1000),payload:{instrument:actualInstrument,source:p.dataset?.source||'Unknown',datasetHash:p.dataset?.sha256||'Unknown',window:{start:bars[0].time,end:bars.at(-1)!.time,bars:bars.length},candles:bars,reports,splits,notes:`${excluded} incomplete aggregate candles excluded; gaps remain gaps. `+
+    (p.has_more?'WARNING: History was capped at the latest '+received.length+' aggregate bars. This is NOT a full archive backtest.':'Only this available sample was tested.')+
+    (sourceMode==='archive'?' Historical bid-only source; missing ask, spread, financing and executable fills. Archive files remain separately identified.':'')+
+    ' Fixed chronological splits; no parameter fitting or optimization.'}};
   setRun(value);setScope('Full sample');setMessage('Historical simulations complete. Nothing was entered in a broker account.');
- }catch(e){setError(e instanceof Error?e.message:String(e))}finally{setBusy(false)}}
+ }catch(e){setMessage('');setError(e instanceof Error?e.message:String(e))}finally{setBusy(false)}}
  async function save(){if(!run)return;try{
   // Keep a bounded equity trace in storage; JSON export of the active run retains every bar.
   const slim=(r:Report)=>({...r,equity:r.equity.filter((_,i)=>i%Math.max(1,Math.ceil(r.equity.length/500))===0||i===r.equity.length-1)});
@@ -46,10 +79,13 @@ export default function Backtesting({api,journal=false}:{api:API;journal?:boolea
   {error&&<p className="error" role="alert">{error}</p>}{message&&<p className="banner" role="status">{message}</p>}
   {journal?<><p>Simulated trades are separate from a demo trade you report entering. Outcomes below come from OHLC simulation and are not verified broker executions.</p><button onClick={()=>exportJSON('demo-research-journal.json',entries)}>Export journal JSON</button>{!entries.length&&<p>No journal entries yet. Run a backtest and add selected trades.</p>}{entries.map(entry=><article className="journal-entry" key={entry.id}><h3>{entry.title}</h3><p>{entry.payload.entryStatus} · {entry.payload.trade.verification}<br/>{date(entry.payload.trade.entryAt)} · {entry.payload.trade.reason}<br/>Hypothetical P&amp;L {fmt(entry.payload.trade.pnl)} · R {fmt(entry.payload.trade.r)}</p><label>Research notes<textarea maxLength={5000} value={entry.payload.notes} onChange={e=>setEntries(old=>old.map(x=>x.id===entry.id?{...x,payload:{...x.payload,notes:e.target.value}}:x))}/></label><label>Entry status<select value={entry.payload.entryStatus} onChange={e=>setEntries(old=>old.map(x=>x.id===entry.id?{...x,payload:{...x.payload,entryStatus:e.target.value as JournalEntry['payload']['entryStatus']}}:x))}><option>SIMULATED ONLY</option><option>USER-REPORTED DEMO ENTRY</option></select></label><button onClick={async()=>{try{await api('/research/journal',{method:'PUT',...json(entry)});setMessage('Journal entry saved; broker execution remains unverified.')}catch(e){setError((e as Error).message)}}}>Save journal entry</button></article>)}</>:<>
    <p>Compare five explicitly defined research variants on the same candles and costs. These are testable approximations. Your exact original strategy, higher-timeframe filters, macro policy and real contract specifications are not implemented here.</p>
-   <div className="backtest-settings"><label>Exact instrument<select value={instrument} onChange={e=>setInstrument(e.target.value)}><option value="XAUUSD-IMPORT">Gold · XAUUSD CSV</option><option value="NDX-IMPORT">Nasdaq-100 · cash-index CSV</option>{process.env.NEXT_PUBLIC_DEPLOYMENT!=='pages'&&<option value="XAUUSD-TD">Gold · Twelve Data historical API</option>}</select></label><label>Simulation candles<select value={frame} onChange={e=>setFrame(e.target.value)}>{['1m','5m','15m','1H'].map(f=><option key={f}>{f}</option>)}</select></label>{fields.map(([key,label])=><label key={key}>{label}<input type="number" step="any" value={config[key]} onChange={e=>change(key,+e.target.value)}/></label>)}</div>
+   <div className="backtest-settings">
+    {process.env.NEXT_PUBLIC_DEPLOYMENT!=='pages'&&<label>Historical data source<select value={sourceMode} onChange={e=>setSourceMode(e.target.value as SourceMode)}><option value="legacy">Current CSV / legacy chart data</option><option value="archive">Imported historical ZIP archive (read-only)</option></select></label>}
+    {sourceMode==='archive'?<label>Exact source-isolated archive<select value={archiveId} onChange={e=>setArchiveId(e.target.value)}><option value="">Select completed archive</option>{archives.map(a=><option key={a.id} value={a.id}>{a.instrument} · {a.provider} · {a.format.toUpperCase()} · {a.id.slice(0,8)}</option>)}</select></label>:<label>Exact instrument<select value={instrument} onChange={e=>setInstrument(e.target.value)}><option value="XAUUSD-IMPORT">Gold · XAUUSD CSV</option><option value="NDX-IMPORT">Nasdaq-100 · cash-index CSV</option>{process.env.NEXT_PUBLIC_DEPLOYMENT!=='pages'&&<option value="XAUUSD-TD">Gold · Twelve Data historical API</option>}</select></label>}<label>Simulation candles<select value={frame} onChange={e=>setFrame(e.target.value)}>{['1m','5m','15m','1H'].map(f=><option key={f}>{f}</option>)}</select></label>{fields.map(([key,label])=><label key={key}>{label}<input type="number" step="any" value={config[key]} onChange={e=>change(key,+e.target.value)}/></label>)}</div>
+   {sourceMode==='archive'&&<p>READ-ONLY ARCHIVE RESEARCH: {archives.find(a=>a.id===archiveId)?.accepted.toLocaleString()||'0'} imported minute candles in selected archive. Each run pages up to 20,000 aggregate candles from ONE source identity; older bars may remain outside the run. BID-only history does not contain executable asks or actual transaction costs. {archivesError&&<span role="alert">Archive unavailable: {archivesError}</span>}</p>}
    <p>Cost defaults are illustrative assumptions. Set source-specific costs and point value before interpreting results. Fractional research units are used, with one open position per strategy. Stops win ambiguous stop/target candles. Trading across unknown gaps is restricted.</p><button className="primary" disabled={busy} onClick={execute}>{busy?'Running historical simulations…':'Run all five research variants'}</button>
    <details className="rule-definitions"><summary>Exact strategy definitions</summary>{STRATEGIES.map(s=><p key={s.id}><b>{s.name} · {s.version}</b><br/>{s.definition}</p>)}</details>
-   {run&&<><div className="report-actions"><button onClick={save}>Save report</button><button onClick={()=>exportJSON(`backtest-${run.id}.json`,run)}>Export reproducible JSON</button><select aria-label="Report sample" value={scope} onChange={e=>setScope(e.target.value)}><option>Full sample</option>{run.payload.splits.map(s=><option key={s.name}>{s.name}</option>)}</select></div><p>Instrument: {run.payload.instrument} · Source: {run.payload.source}<br/>Sample: {run.payload.window.bars} bars · {date(run.payload.window.start)} to {date(run.payload.window.end)}<br/>Original CSV SHA-256: <code>{run.payload.datasetHash}</code><br/>{run.payload.notes}</p>
+   {run&&<><div className="report-actions"><button onClick={save}>Save report</button><button onClick={()=>exportJSON(`backtest-${run.id}.json`,run)}>Export reproducible JSON</button><select aria-label="Report sample" value={scope} onChange={e=>setScope(e.target.value)}><option>Full sample</option>{run.payload.splits.map(s=><option key={s.name}>{s.name}</option>)}</select></div><p>Instrument: {run.payload.instrument} · Source: {run.payload.source}<br/>Sample: {run.payload.window.bars} bars · {date(run.payload.window.start)} to {date(run.payload.window.end)}<br/>Source dataset SHA-256: <code>{run.payload.datasetHash}</code><br/>{run.payload.notes}</p>
    <div className="table-wrap"><table><thead><tr><th>Variant</th><th>Trades</th><th>Win %</th><th>Profit factor</th><th>Expectancy</th><th>Net return %</th><th>Max DD %</th><th>Average R</th><th>Rejected</th></tr></thead><tbody>{reports?.map(r=><tr key={r.strategy} onClick={()=>setSelected(r.strategy)} className={selected===r.strategy?'selected-row':''}><td>{r.strategy}</td><td>{r.metrics.trades}</td><td>{fmt(r.metrics.winRate)}</td><td>{fmt(r.metrics.profitFactor)}</td><td>{fmt(r.metrics.expectancy)}</td><td>{fmt(r.metrics.netReturn)}</td><td>{fmt(r.metrics.maxDrawdownPercent)}</td><td>{fmt(r.metrics.averageR)}</td><td>{r.metrics.rejected}</td></tr>)}</tbody></table></div>
    {report&&<><h3>Variant {selected} · {report.ruleVersion}</h3><p>Average win {fmt(report.metrics.avgWin)} · Average loss {fmt(report.metrics.avgLoss)}<br/>Win-rate 95% Wilson interval: {report.metrics.wilson95?report.metrics.wilson95.map(n=>fmt(n)).join('–')+'%':'insufficient sample'}. Trades are not necessarily independent.<br/>Profit factor is undefined when there are no losing trades.</p><div className="equity-trace"><svg viewBox="0 0 800 140" role="img" aria-label="Simulated equity curve"><polyline fill="none" stroke="#36d8ae" strokeWidth="2" points={(()=>{const points=report.equity,values=points.map(p=>p.mark),min=Math.min(report.config.capital,...values),max=Math.max(report.config.capital,...values);return points.filter((_,i)=>i%Math.max(1,Math.ceil(points.length/600))===0||i===points.length-1).map(p=>`${(p.time-report.start)/Math.max(1,report.end-report.start)*800},${130-(p.mark-min)/Math.max(1,max-min)*120}`).join(' ')})()}/></svg></div><p>{report.warnings.join(' ')}</p><div className="table-wrap"><table><thead><tr><th>Entry UTC</th><th>Side</th><th>Entry</th><th>Stop</th><th>Target</th><th>P&amp;L</th><th>Costs</th><th>R</th><th>Exit reason</th><th>Journal</th></tr></thead><tbody>{report.trades.slice(-100).map(t=><tr key={t.id}><td>{date(t.entryAt)}</td><td>{t.direction}</td><td>{fmt(t.entry)}</td><td>{fmt(t.stop)}</td><td>{fmt(t.target)}</td><td>{fmt(t.pnl)}</td><td>{fmt(t.costs)}</td><td>{fmt(t.r)}</td><td>{t.reason}</td><td><button onClick={()=>addTrade(t)}>Add simulation</button></td></tr>)}</tbody></table></div><p>Showing at most the last 100 simulated trades. JSON contains all logs.</p></>}
    </>}

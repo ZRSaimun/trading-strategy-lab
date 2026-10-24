@@ -63,6 +63,10 @@ npm test
 
 See [architecture](docs/architecture.md), [status and acceptance](docs/status.md), [data licensing](docs/data-sources.md), and [security and recovery](docs/security.md).
 
+## Read-only historical archive backtesting
+
+The authenticated Backtesting screen can now select one ready source-isolated historical ZIP archive and fetch up to 20,000 aggregate candles via the existing paginated history API, with dataset hash checks and explicit window/cost limitations. No archive is uploaded or merged automatically, and BID-only history is not broker-executable data. See [archive-backed backtesting](docs/archive-backtesting.md).
+
 ## Research backtesting
 
 Open Backtesting to compare five versioned research approximations with costs, next-open eligibility, conservative OHLC fills, chronological sample splits and reproducible JSON exports. Add selected simulations to Trading Journal. See [rules, cost model and limits](docs/backtesting.md). These are not verified profitable strategies or broker fills.
