@@ -14,7 +14,7 @@ export type ArchiveListingPage = {
 
 /** An inventory changed while paging: previous pages are no longer reliable. */
 export class ArchiveInventoryChangedError extends Error {
- constructor(){super('Historical archive inventory changed; refresh the archive list from the beginning.');this.name='ArchiveInventoryChangedError'}
+ constructor(message='Historical archive inventory changed; refresh the archive list from the beginning.'){super(message);this.name='ArchiveInventoryChangedError'}
 }
 
 const SHA256=/^[a-f0-9]{64}$/;
@@ -108,10 +108,10 @@ export function parseArchiveListing(
 
 export function appendArchiveListing(current:ArchiveListing[],next:ArchiveListingPage):ArchiveListing[]{
  if(current.length&&next.items.length&&compareListing(current.at(-1)!,next.items[0])>=0)
-  throw Error('Archive discovery pages overlap or order changed; refresh inventory');
+  throw new ArchiveInventoryChangedError('Archive discovery pages overlap or order changed; refresh inventory');
  const ids=new Set(current.map(item=>item.id));
  for(const item of next.items){
-  if(ids.has(item.id))throw Error('Archive discovery pages overlap; refresh before continuing');
+  if(ids.has(item.id))throw new ArchiveInventoryChangedError('Archive discovery pages overlap; refresh before continuing');
   ids.add(item.id);
  }
  return [...current,...next.items];
