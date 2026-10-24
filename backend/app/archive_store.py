@@ -11,7 +11,7 @@ import re
 import secrets
 import stat
 
-_DIGEST = re.compile(r"[0-9a-f]{64}\\Z")
+_DIGEST = re.compile(r"[0-9a-f]{64}\Z")
 
 
 def _verify_existing(directory_fd: int, filename: str, expected: bytes) -> None:
