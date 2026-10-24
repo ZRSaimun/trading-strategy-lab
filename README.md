@@ -67,6 +67,10 @@ See [architecture](docs/architecture.md), [status and acceptance](docs/status.md
 
 The authenticated Backtesting screen can now select one ready source-isolated historical ZIP archive and fetch up to 20,000 aggregate candles via the existing paginated history API, with dataset hash checks and explicit window/cost limitations. No archive is uploaded or merged automatically, and BID-only history is not broker-executable data. See [archive-backed backtesting](docs/archive-backtesting.md).
 
+## Source-isolated NY close momentum research
+
+The authenticated **NY Close Research** screen adds a read-only, historical US equity-session hypothesis using completed M1 BID-only candles from exactly one imported archive, a 20-prior-complete-session volatility gate, and 0×/1×/2×/3× illustrative friction comparisons. It uses America/New_York clock rules and deliberately refuses incomplete regular sessions. This is not a live or verified CFD edge; ETF academic results cannot be assumed to hold for Nasdaq CFD, Gold or WTI proxies. See [full research protocol and limitations](docs/ny-close-cfd-research.md).
+
 ## Research backtesting
 
 Open Backtesting to compare five versioned research approximations with costs, next-open eligibility, conservative OHLC fills, chronological sample splits and reproducible JSON exports. Add selected simulations to Trading Journal. See [rules, cost model and limits](docs/backtesting.md). These are not verified profitable strategies or broker fills.
