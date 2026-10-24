@@ -84,7 +84,11 @@ def test_postgres_reservation_race_kill_and_atomic_audit():
         # A committed emergency stop survives process/store restart and rejects
         # all subsequent paper reservations, including stale revisions.
         assert store.engage_kill_switch(ACCOUNT)
-        assert PaperRiskReservationStore(factory).load(ACCOUNT)["kill_switch"] is True
+        stopped = PaperRiskReservationStore(factory).load(ACCOUNT)
+        assert stopped["kill_switch"] is True and stopped["emergency_latched"] is True
+        assert not store.set_policy(ACCOUNT, stopped["revision"], limit_cash="100",
+                                    kill_switch=False, owner_reviewed=True)
+        assert PaperRiskReservationStore(factory).load(ACCOUNT) == stopped
         assert not store.reserve(ACCOUNT, 3, client_order_id="race-order-0004",
                                  risk_cash="1")
 
