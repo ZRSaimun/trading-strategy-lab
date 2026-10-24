@@ -27,7 +27,7 @@ export function auditConfluenceSourceInfluence(reports:readonly RiskPathReport[]
  const sorted=[...reports].sort((a,b)=>String(a.datasetId).localeCompare(String(b.datasetId),'en'));
  const ids=new Set<string>();
  const baseline=sorted[0];
- const costs=baseline.config?.roundTripCostsBps;
+ const costs=baseline.config.roundTripCostsBps;
  const sources:{id:string;n:number;r:number[];bps:number[]}[]=[];
  const allTrades:RiskPathTrade[]=[];
  let total=0;
