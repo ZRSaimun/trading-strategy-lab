@@ -107,3 +107,17 @@ def test_account_isolation_and_no_raw_ids_in_audit(setup):
     with setup[1]() as db:
         rows = db.scalars(select(Audit)).all()
         assert all("paper-acct-0001" not in row.detail and "order-00001" not in row.detail for row in rows)
+
+
+def test_audit_actor_does_not_claim_owner_authentication_and_names_operation(setup):
+    s = store(setup)
+    enabled(s)
+    assert s.reserve("paper-acct-0001", 1, client_order_id="order-00001", risk_cash="2")
+    assert s.engage_kill_switch("paper-acct-0001")
+    with setup[1]() as db:
+        rows = db.scalars(select(Audit).order_by(Audit.id)).all()
+    assert [json.loads(row.detail)["operation"] for row in rows] == [
+        "initialize", "policy", "reserve", "emergency_kill"
+    ]
+    assert all(row.actor == "paper-risk-store" for row in rows)
+    assert all("paper-acct-0001" not in row.detail for row in rows)
