@@ -9,8 +9,13 @@ export type ArchiveListing = {
 };
 export type ArchiveListingPage = {
  items:ArchiveListing[]; hasMore:boolean; nextOffset:number|null;
- legacyPossiblyTruncated:boolean;
+ legacyPossiblyTruncated:boolean; snapshot:string|null;
 };
+
+/** An inventory changed while paging: previous pages are no longer reliable. */
+export class ArchiveInventoryChangedError extends Error {
+ constructor(){super('Historical archive inventory changed; refresh the archive list from the beginning.');this.name='ArchiveInventoryChangedError'}
+}
 
 const SHA256=/^[a-f0-9]{64}$/;
 const textField=(value:unknown)=>typeof value==='string'&&value.trim().length>0&&value.length<=160;
@@ -31,7 +36,7 @@ function compareListing(a:ArchiveListing,b:ArchiveListing):number{
 /** Reject malformed identities rather than presenting different sources as equivalent. */
 export function parseArchiveListing(
  payload:unknown, headers:Pick<Headers,'get'>, offset:number,
- limit=ARCHIVE_LIST_PAGE_SIZE,
+ limit=ARCHIVE_LIST_PAGE_SIZE, expectedSnapshot?:string,
 ):ArchiveListingPage{
  if(!Number.isSafeInteger(offset)||offset<0||offset>1_000_000||
     !Number.isInteger(limit)||limit<1||limit>ARCHIVE_LIST_PAGE_SIZE)
@@ -57,13 +62,19 @@ export function parseArchiveListing(
  }
  const more=headers.get('X-History-Has-More');
  const cursor=headers.get('X-History-Next-Offset');
+ const snapshot=headers.get('X-History-Snapshot');
+ if(snapshot!==null&&!SHA256.test(snapshot))throw Error('Invalid historical archive inventory snapshot');
+ if(expectedSnapshot!==undefined){
+  if(!SHA256.test(expectedSnapshot))throw Error('Invalid expected archive inventory snapshot');
+  if(snapshot!==expectedSnapshot)throw new ArchiveInventoryChangedError();
+ }
  if(more===null){
-  if(cursor!==null)throw Error('Historical archive cursor without pagination status');
+  if(cursor!==null||snapshot!==null)throw Error('Historical archive metadata without pagination status');
   // Pre-pagination API always returned the first 200 READY datasets, regardless
   // of offset. Do not issue further requests against it or imply completeness.
   if(offset!==0)throw Error('Server does not support paginated archive discovery');
   return {items:payload as ArchiveListing[],hasMore:false,nextOffset:null,
-          legacyPossiblyTruncated:payload.length===limit};
+          legacyPossiblyTruncated:payload.length===limit,snapshot:null};
  }
  if(more!=='true'&&more!=='false')throw Error('Invalid historical archive pagination status');
  // The paginated endpoint introduced provenance fields; missing fields are a
@@ -80,12 +91,19 @@ export function parseArchiveListing(
   if(cursor===null||!/^\d+$/.test(cursor)||!Number.isSafeInteger(next)||
      next!==offset+limit||next>1_000_000||payload.length!==limit)
    throw Error('Invalid historical archive pagination cursor');
+  // Older paginated servers lack a consistency token. Show the first page,
+  // but do not silently traverse a changing inventory with offset paging.
+  if(snapshot===null){
+   if(offset!==0)throw Error('Archive pagination requires a server inventory snapshot');
+   return {items:payload as ArchiveListing[],hasMore:false,nextOffset:null,
+           legacyPossiblyTruncated:true,snapshot:null};
+  }
   return {items:payload as ArchiveListing[],hasMore:true,nextOffset:next,
-          legacyPossiblyTruncated:false};
+          legacyPossiblyTruncated:false,snapshot};
  }
  if(cursor!==null)throw Error('Unexpected historical archive pagination cursor');
  return {items:payload as ArchiveListing[],hasMore:false,nextOffset:null,
-         legacyPossiblyTruncated:false};
+         legacyPossiblyTruncated:false,snapshot};
 }
 
 export function appendArchiveListing(current:ArchiveListing[],next:ArchiveListingPage):ArchiveListing[]{
@@ -100,12 +118,16 @@ export function appendArchiveListing(current:ArchiveListing[],next:ArchiveListin
 }
 
 export async function fetchArchiveListingPage(
- fetcher:typeof fetch, offset:number, signal?:AbortSignal,
+ fetcher:typeof fetch, offset:number, signal?:AbortSignal, snapshot?:string,
 ):Promise<ArchiveListingPage>{
  if(!Number.isSafeInteger(offset)||offset<0||offset>1_000_000)
   throw Error('Invalid historical archive discovery offset');
- const url=`/api/history/datasets?offset=${offset}&limit=${ARCHIVE_LIST_PAGE_SIZE}`;
+ if(offset>0&&!snapshot)throw Error('Archive pagination requires an inventory snapshot');
+ if(snapshot!==undefined&&!SHA256.test(snapshot))throw Error('Invalid archive inventory snapshot');
+ const url=`/api/history/datasets?offset=${offset}&limit=${ARCHIVE_LIST_PAGE_SIZE}`+
+  (snapshot?`&snapshot=${snapshot}`:'');
  const response=await fetcher(url,{credentials:'same-origin',signal});
+ if(response.status===409)throw new ArchiveInventoryChangedError();
  if(!response.ok)throw Error(`Historical archive discovery unavailable (${response.status})`);
- return parseArchiveListing(await response.json(),response.headers,offset);
+ return parseArchiveListing(await response.json(),response.headers,offset,ARCHIVE_LIST_PAGE_SIZE,snapshot);
 }
