@@ -86,6 +86,12 @@ def test_historical_pipeline_persists_charts_manifest_archive_and_audit(client,m
     r=client.post('/api/providers/twelvedata/import',json={'instrument':'XAUUSD-TD','limit':100,'end':NOW-60,'rights_confirmed':True,'replace_confirmed':True})
     assert r.status_code==200,r.text
     assert r.json()['rows']==2;assert not r.json()['live'];assert KEY not in r.text
+    quality=r.json()['quality']
+    assert quality['observed_candles']==2
+    assert quality['observed_timestamp_gaps']==0
+    assert quality['seconds_since_last_candle_close']>=0
+    assert quality['assessment']=='OBSERVED_ONLY_HISTORICAL'
+    assert not quality['live'] and not quality['executable_bid_ask_verified']
     result=client.get('/api/candles/XAUUSD-TD?timeframe=1m').json()
     assert result['dataset']['provider_symbol']=='XAU/USD';assert len(result['candles'])==2
     assert result['quality']['state']=='WAIT'
