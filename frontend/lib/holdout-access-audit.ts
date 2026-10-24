@@ -65,8 +65,8 @@ function canonicalArchives(archives: ArchiveLineage[]): ArchiveLineage[] {
 export async function createHoldoutCommitment(
   archives: ArchiveLineage[], protocol: HoldoutProtocol, operatorId: string, frozenAt: number
 ): Promise<HoldoutCommitment> {
-  if (!identifier(operatorId) || !epoch(frozenAt) || !protocol || frozenAt >= protocol.validationEnd)
-    throw Error('Commitment requires a valid operator and a self-asserted freeze before holdout begins');
+  if (!identifier(operatorId) || !epoch(frozenAt) || !protocol || frozenAt >= protocol.developmentEnd)
+    throw Error('Commitment requires a valid operator and a self-asserted freeze before validation begins');
   // The existing planner validates source family, coverage, archive fingerprints,
   // protocol fields and chronology. No observations or outcomes are supplied.
   planPurgedHoldout(archives, [], protocol);
@@ -120,6 +120,8 @@ export async function verifyHoldoutAudit(c: HoldoutCommitment, entries: HoldoutA
     if ((entry.action === 'HOLDOUT_ACCESS' || entry.action === 'HOLDOUT_EVALUATION') &&
         entry.occurredAt < c.protocol.validationEnd)
       findings.push('Recorded holdout access before preregistered validation end');
+    if (entry.action === 'VALIDATION_ACCESS' && entry.occurredAt < c.protocol.developmentEnd)
+      findings.push('Recorded validation access before preregistered validation start');
     if (entry.action === 'PROTOCOL_CHANGED')
       findings.push('Recorded protocol revision after freeze; original holdout no longer untouched');
     seen.add(entry.eventId);
