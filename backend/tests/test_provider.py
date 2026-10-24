@@ -134,3 +134,42 @@ def test_free_policy_blocks_even_enabled_provider_before_credentials(client,monk
     response=client.post('/api/providers/twelvedata/import',json={'instrument':'XAUUSD-TD','limit':100,'end':NOW-60,'rights_confirmed':True,'replace_confirmed':True})
     assert response.status_code==409
     assert 'Free-only' in response.json()['detail']
+
+@pytest.mark.parametrize('invalid_case', ['no_completed_rows', 'malformed_ohlc'])
+def test_invalid_completed_set_preserves_existing_import(client,monkeypatch,tmp_path,invalid_case):
+    # Mock only: never contact a paid provider or expose credentials.
+    monkeypatch.setenv('FREE_ONLY','false')
+    credentials(monkeypatch,tmp_path)
+    monkeypatch.setenv('TWELVEDATA_ENABLED','true')
+    archive_dir=tmp_path/'archive'
+    monkeypatch.setenv('MARKET_ARCHIVE_DIR',str(archive_dir))
+    monkeypatch.setattr(provider_api,'_last_attempt',-1000)
+    valid_rows,valid_archive=normalize(PAYLOAD,'XAUUSD-TD',NOW)
+    response_rows=[dict(row) for row in valid_rows]
+    if invalid_case=='no_completed_rows':
+        response_rows=[]
+    else:
+        response_rows[0]['high']=float('nan')
+    call_count=0
+    async def fake(key,instrument,limit,end,now):
+        nonlocal call_count
+        assert key==KEY and instrument=='XAUUSD-TD'
+        call_count+=1
+        return (valid_rows if call_count==1 else response_rows),valid_archive
+    monkeypatch.setattr(provider_api,'retrieve',fake)
+    unlock(client)
+    body={'instrument':'XAUUSD-TD','limit':100,'end':NOW-60,
+          'rights_confirmed':True,'replace_confirmed':True}
+    assert client.post('/api/providers/twelvedata/import',json=body).status_code==200
+    before=client.get('/api/candles/XAUUSD-TD?timeframe=1m').json()
+    files_before=sorted(p.name for p in archive_dir.glob('*.json'))
+    audit_before=client.get('/api/audit').json()
+    monkeypatch.setattr(provider_api,'_last_attempt',-1000)
+    response=client.post('/api/providers/twelvedata/import',json=body)
+    assert response.status_code==502
+    assert response.json()['detail']=='Provider returned no valid completed candle set; existing data unchanged.'
+    assert KEY not in response.text
+    assert client.get('/api/candles/XAUUSD-TD?timeframe=1m').json()==before
+    assert sorted(p.name for p in archive_dir.glob('*.json'))==files_before
+    assert client.get('/api/audit').json()==audit_before
+    assert call_count==2
