@@ -6,6 +6,8 @@ Trading 212 API covers Invest/Stocks ISA accounts, not CFDs (24 Oct 2026).
 from typing import Literal
 import math
 import re
+import time
+from .order_gate import OrderGateContext, evaluate_gate
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -159,6 +161,52 @@ def calculate_stress_preview(body: StressPreview) -> dict:
     }
 
 
+
+class OrderGatePreview(Strict):
+    """Owner-declared quote/risk assumptions; NOT a live order authorisation."""
+    risk: StressPreview
+    controls: OrderGateContext
+
+
+def calculate_order_gate_preview(body: OrderGatePreview, now_ms: int) -> dict:
+    """No writes, orders, broker requests, secrets or quote authentication."""
+    stress = calculate_stress_preview(body.risk)
+    gate = evaluate_gate(body.controls, now_ms)
+    quote = body.controls.quote
+    checks = dict(gate['checks'])
+    checks['instrument_matches_order'] = (
+        quote.instrument == body.risk.symbol
+        and body.controls.expected_instrument == body.risk.symbol
+    )
+    # A hypothetical market entry may be worse than the current bid/ask, but
+    # must never claim a more favorable entry than the owner-declared quote.
+    checks['entry_not_optimistic_vs_quote'] = (
+        body.risk.entry_price >= quote.ask if body.risk.direction == 'BUY'
+        else body.risk.entry_price <= quote.bid
+    )
+    checks['hypothetical_stress_limits'] = stress['all_hypothetical_limits_pass']
+    checks['documented_account_api_support'] = body.risk.broker != 'Trading212-CFD'
+    gate.update(
+        checks=checks,
+        failed_checks=[key for key, ok in checks.items() if not ok],
+        assumption_checks_pass=all(checks.values()),
+        server_evaluated_at_ms=now_ms,
+        hypothetical_risk={
+            'estimated_loss_if_filled_at_stop': stress['estimated_loss_if_filled_at_stop'],
+            'stressed_loss_if_filled': stress['stressed_loss_if_filled'],
+            'assumed_margin_required': stress['assumed_margin_required'],
+            'all_hypothetical_limits_pass': stress['all_hypothetical_limits_pass'],
+        },
+        broker_connection_verified=False,
+        may_execute_real_order=False,
+        may_execute_paper_order=False,
+        warnings=gate['warnings'] + [
+            'Even a fully passing preview uses owner-declared inputs, not a signed provider feed.',
+            'The broker is NOT connected; per-order owner confirmation and a durable, atomic kill switch are not implemented.',
+        ],
+    )
+    return gate
+
 def build_router(owner):
     router = APIRouter(prefix='/api/broker', tags=['Broker Readiness'])
 
@@ -191,6 +239,14 @@ def build_router(owner):
     def stress_preview(body: StressPreview, auth=Depends(owner)):
         try:
             return calculate_stress_preview(body)
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from None
+
+
+    @router.post('/order-gate-preview')
+    def order_gate_preview(body: OrderGatePreview, auth=Depends(owner)):
+        try:
+            return calculate_order_gate_preview(body, time.time_ns() // 1_000_000)
         except ValueError as exc:
             raise HTTPException(422, str(exc)) from None
 
