@@ -247,3 +247,40 @@ def test_killed_and_missing_snapshots_never_grant_paper_execution(setup):
     latched = store(setup).load("paper-acct-0001")
     assert latched["emergency_latched"] is True
     assert latched["may_execute_paper_order"] is False
+
+
+def test_disabled_policy_has_zero_reservable_capacity_despite_accounting_headroom(setup):
+    s = store(setup)
+    enabled(s)
+    assert s.reserve("paper-acct-0001", 1, client_order_id="order-00001",
+                     risk_cash="25.12500001")
+    enabled_snapshot = s.load("paper-acct-0001")
+    assert enabled_snapshot["remaining_risk_capacity_cash"] == "74.87499999"
+    assert enabled_snapshot["reservable_risk_capacity_cash"] == "74.87499999"
+    assert enabled_snapshot["may_execute_paper_order"] is False
+    assert s.set_policy("paper-acct-0001", 2, limit_cash="100.00",
+                        kill_switch=True, owner_reviewed=True)
+    disabled = store(setup).load("paper-acct-0001")
+    assert disabled["remaining_risk_capacity_cash"] == "74.87499999"
+    assert disabled["reservable_risk_capacity_cash"] == "0"
+    assert disabled["may_execute_paper_order"] is False
+    assert not s.reserve("paper-acct-0001", disabled["revision"],
+                         client_order_id="order-00002", risk_cash="1")
+
+
+def test_emergency_latch_freezes_even_disabled_policy_mutations_and_audit(setup):
+    s = store(setup)
+    enabled(s)
+    assert s.engage_kill_switch("paper-acct-0001")
+    before = store(setup).load("paper-acct-0001")
+    with setup[1]() as db:
+        count_before = len(db.scalars(select(Audit)).all())
+    assert before["emergency_latched"] is True
+    assert before["reservable_risk_capacity_cash"] == "0"
+    assert not s.set_policy("paper-acct-0001", before["revision"],
+                            limit_cash="200", kill_switch=True, owner_reviewed=True)
+    assert not s.set_policy("paper-acct-0001", before["revision"],
+                            limit_cash="100", kill_switch=False, owner_reviewed=True)
+    assert store(setup).load("paper-acct-0001") == before
+    with setup[1]() as db:
+        assert len(db.scalars(select(Audit)).all()) == count_before
