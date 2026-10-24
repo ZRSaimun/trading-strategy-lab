@@ -87,3 +87,14 @@ def test_endpoint_authentication_and_no_order_route():
         raise HTTPException(401, 'Authentication required')
     assert client(deny).post('/api/broker/order-gate-preview', json=request()).status_code == 401
     assert client().post('/api/broker/order', json=request()).status_code == 404
+
+
+def test_proposed_stress_loss_must_not_break_daily_loss_cap():
+    data = request()
+    # Current realised loss is below 50, but another 9.06 of stressed
+    # hypothetical loss would breach the chosen 50-unit daily limit.
+    data['controls']['daily_realized_pnl_cash'] = -45
+    result = client().post('/api/broker/order-gate-preview', json=data).json()
+    assert result['checks']['daily_loss_limit_not_reached'] is True
+    assert result['checks']['projected_daily_loss_within_cap'] is False
+    assert result['may_execute_real_order'] is False
