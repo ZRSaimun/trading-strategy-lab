@@ -50,3 +50,13 @@ test('missing cashflows never imply a broker-reconciled net result',()=>{
 test('rejects arithmetic overflow rather than exporting an infinite net result',()=>{
  assert.throws(()=>reconcilePaperCashflows(identity,order,115,[cash({amountCurrency:1e308}),cash({id:'swap-2',amountCurrency:1e308})]),/overflow/);
 });
+test('SELL reconciliation preserves the correct direction and cashflow sign',()=>{
+ const short:PaperOrder={...order,side:'SELL',entry:99.9,exit:98,pnl:3.6};
+ const result=reconcilePaperCashflows(identity,short,115,[cash({amountCurrency:-.5})]);
+ assert.ok(Math.abs(result.knownCashflowAdjustedPnlCurrency-3.1)<1e-10);
+});
+test('reconciliation is pure and never mutates the order or source cashflow',()=>{
+ const original={...order};const entry=cash();const before={...entry};
+ reconcilePaperCashflows(identity,order,115,[entry]);
+ assert.deepEqual(order,original);assert.deepEqual(entry,before);
+});
