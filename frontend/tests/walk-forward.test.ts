@@ -44,6 +44,9 @@ test('later test price edits cannot alter prior forward folds or past parameter 
  for(const c of b.payload.candles!.slice(800)){
   c.open+=15;c.high+=15;c.low+=15;c.close+=15;
  }
+ // This is a NEW internally consistent saved report; otherwise altered
+ // candles must be rejected rather than silently attributed to the old run.
+ b.payload.reports[0]=backtest(b.payload.candles!,'A',b.payload.reports[0].config!);
  const after=runTimeBasedWalkForward(b,'A');
  assert.deepEqual(after.folds.slice(0,2),before.folds.slice(0,2));
  assert.equal(after.folds[2].lookback,before.folds[2].lookback);
@@ -74,5 +77,33 @@ test('rejects thin chronological time windows instead of inventing missing histo
  // A long gap forces time-quantile folds with insufficient coverage.
  for(let i=900;i<1000;i++)r.payload.candles![i].time+=60*10000;
  r.payload.window!.end=r.payload.candles!.at(-1)!.time;
+ r.payload.reports[0]=backtest(r.payload.candles!,'A',r.payload.reports[0].config!);
  assert.throws(()=>runTimeBasedWalkForward(r,'A'),/lacks 200 training or 100 test candles/);
+});
+
+test('refuses forged saved metrics or a changed candle snapshot despite unchanged coverage',()=>{
+ const r=fixture();
+ r.payload.reports[0].metrics.netReturn+=2;
+ assert.throws(()=>runTimeBasedWalkForward(r,'A'),/not reproducible/);
+ const changed=fixture();
+ changed.payload.candles![500].close+=.25;
+ changed.payload.candles![500].high+=.25;
+ assert.throws(()=>runTimeBasedWalkForward(changed,'A'),/not reproducible/);
+});
+test('refuses invalid saved reference lookbacks and mismatched report coverage',()=>{
+ const r=fixture();
+ r.payload.reports[0].config!.lookback=Infinity;
+ assert.throws(()=>runTimeBasedWalkForward(r,'A'),/lookback/);
+ const s=fixture();
+ s.payload.reports[0].config!.lookback=2;
+ assert.throws(()=>runTimeBasedWalkForward(s,'A'),/lookback/);
+ const t=fixture();
+ t.payload.reports[0].bars!+=1;
+ assert.throws(()=>runTimeBasedWalkForward(t,'A'),/report coverage/);
+});
+test('reproducibility check does not alter saved candles or report metadata',()=>{
+ const r=fixture(),before=structuredClone(r);
+ const x=runTimeBasedWalkForward(r,'A');
+ assert.equal(x.folds.length,3);
+ assert.deepEqual(r,before);
 });
