@@ -1,7 +1,7 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {studySweepOutcomes} from '../lib/sweep-outcome-study.ts';
-import type {Bar,Detection} from '../lib/research.ts';
+import {analyze,type Bar,type Detection} from '../lib/research.ts';
 const base=Date.UTC(2026,9,19)/1000;
 const bar=(i:number,open:number,close:number):Bar=>({time:base+i*60,open,high:Math.max(open,close)+1,low:Math.min(open,close)-1,close,volume:null,observed_minutes:1});
 const event=(i:number,kind:'SELL-SIDE SWEEP'|'BUY-SIDE SWEEP'='SELL-SIDE SWEEP'):Detection=>({kind,direction:kind==='SELL-SIDE SWEEP'?'bullish observation':'bearish observation',
@@ -60,4 +60,17 @@ test('duplicate or backward candles cannot remap a sweep to a different bar',()=
  const bars=[bar(0,100,100),bar(1,100,100),bar(1,101,102),bar(3,103,104)];
  assert.throws(()=>studySweepOutcomes(bars,[event(1)],cfg),/strictly increasing/);
  assert.throws(()=>studySweepOutcomes([...bars.slice(0,2),bar(0,101,102)],[],cfg),/strictly increasing/);
+});
+
+test('accepts real v3 detector sweeps but never treats unrelated formations as trades',()=>{
+ const mk=(n:number,low:number,high:number,close:number):Bar=>({
+  time:base+n*60,open:(low+high)/2,high,low,close,volume:null,observed_minutes:1
+ });
+ const bars=[mk(0,10,14,12),mk(1,9,13,11),mk(2,5,12,8),mk(3,8,13,10),
+             mk(4,9,14,11),mk(5,4,10,6),mk(6,6,12,11),mk(7,11,13,12)];
+ const detections=analyze(bars,2,'1m');
+ assert.ok(detections.some(d=>d.kind==='SELL-SIDE SWEEP'));
+ const study=studySweepOutcomes(bars,detections,cfg);
+ assert.equal(study.completed.length,1);
+ assert.equal(study.completed[0].observedAt,bars[5].time+60);
 });
