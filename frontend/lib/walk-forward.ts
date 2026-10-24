@@ -39,10 +39,18 @@ function validSnapshot(run:ResearchRun,strategy:StrategyId){
  const version=STRATEGIES.find(s=>s.id===strategy)?.version;
  if(report.ruleVersion!==version||report.engine!==ENGINE)throw Error('Saved engine/rule version differs from this simulator; do not silently mix research definitions');
  const cfg=report.config;
- if(!cfg||!Number.isSafeInteger(cfg.barSeconds)||cfg.barSeconds<60||cfg.barSeconds%60!==0)throw Error('Saved report lacks a valid aggregate timeframe');
+ if(!cfg||!Number.isSafeInteger(cfg.barSeconds)||cfg.barSeconds<60||cfg.barSeconds%60!==0||
+    !Number.isSafeInteger(cfg.lookback)||cfg.lookback<3||cfg.lookback>500)
+  throw Error('Saved report lacks a valid aggregate timeframe or reference lookback');
  if(!run.payload.window||run.payload.window.bars!==bars.length||
     run.payload.window.start!==bars[0]?.time||run.payload.window.end!==bars.at(-1)?.time)
   throw Error('Saved coverage metadata disagrees with the candle snapshot');
+ // These fields are part of the original full-sample simulator report.
+ // Reject mismatched or legacy summaries instead of silently attributing
+ // an unrelated result to the candle history selected for this evaluation.
+ if(report.bars!==bars.length||report.start!==bars[0].time||
+    report.end!==bars[bars.length-1].time+cfg.barSeconds)
+  throw Error('Saved strategy report coverage disagrees with the candle snapshot');
  // The underlying simulator will also check complete constituents, OHLC, ordering
  // and candidate-specific settings for each training/test segment.
  for(let i=0;i<bars.length;i++){
@@ -53,6 +61,21 @@ function validSnapshot(run:ResearchRun,strategy:StrategyId){
      (i>0&&b.time-bars[i-1].time<cfg.barSeconds))
    throw Error('Saved candle snapshot is incomplete, malformed or not chronological');
  }
+ // Recompute the saved full-sample result with exactly the saved settings.
+ // This detects stale rule implementations, altered candles, and inconsistent
+ // client-supplied metrics before any fold results are displayed. It does NOT
+ // authenticate the underlying data source or verify broker execution.
+ const baseline=backtest(bars,strategy,cfg).metrics;
+ const saved=report.metrics;
+ const close=(a:number|null,b:number|null)=>
+  a===null||b===null?a===b:
+  Number.isFinite(a)&&Number.isFinite(b)&&Math.abs(a-b)<=1e-7;
+ if(!saved||saved.trades!==baseline.trades||
+    !close(saved.netReturn,baseline.netReturn)||
+    !close(saved.maxDrawdownPercent,baseline.maxDrawdownPercent)||
+    !close(saved.winRate,baseline.winRate)||
+    !close(saved.profitFactor,baseline.profitFactor))
+  throw Error('Saved full-sample backtest is not reproducible from its candles and settings');
  return {bars,cfg,version};
 }
 export function runTimeBasedWalkForward(run:ResearchRun,strategy:StrategyId):ForwardReview{
