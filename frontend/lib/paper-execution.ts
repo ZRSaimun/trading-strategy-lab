@@ -90,8 +90,8 @@ export class PaperExecutionLedger {
         quote.observedAt > quote.receivedAt || quote.observedAt <= this.lastObservedAt ||
         quote.receivedAt < this.lastActionAt || !positive(quote.bid) ||
         !positive(quote.ask) || quote.ask < quote.bid) throw Error('Invalid, future or non-monotonic bid/ask quote');
-    this.lastObservedAt = quote.observedAt;
-    this.lastActionAt = quote.receivedAt;
+    // Commit event clocks only after derived fills have passed numeric checks.
+    // A rejected impossible fill must not consume the quote or mutate a position.
     const changes: PaperEvent[] = [];
     const emit = (o: PaperOrder, reason: string) => {
       o.reason = reason;
@@ -113,8 +113,8 @@ export class PaperExecutionLedger {
         }
         const stopRisk = (Math.abs(entry - o.stop) + slip)*o.units*this.identity.pointValue +
           2*o.commissionPerUnitSide*o.units;
-        if (!finite(stopRisk) || stopRisk > o.maxStopRiskCurrency) {
-          o.status = 'REJECTED'; emit(o, 'Hypothetical stop loss exceeds user risk cap'); continue;
+        if (!finite(stopRisk) || stopRisk <= 0 || stopRisk > o.maxStopRiskCurrency) {
+          o.status = 'REJECTED'; emit(o, 'Hypothetical stop loss is unrepresentable or exceeds user risk cap'); continue;
         }
         o.entry = entry; o.entryObservedAt = quote.observedAt; o.entryReceivedAt = quote.receivedAt;
         o.initialStopRisk = stopRisk; o.status = 'OPEN'; emit(o, 'Paper market entry at adverse bid/ask plus slippage');
@@ -130,12 +130,21 @@ export class PaperExecutionLedger {
           else if (quote.ask <= o.target) {exit = o.target; reason = 'Target: no favorable price improvement assumed';}
         }
         if (exit === undefined) continue;
+        // A negative/zero price or overflowing currency amount is not a
+        // plausible settled fill. Keep the paper position unresolved rather
+        // than recording invented profits/losses or JSON Infinity.
+        if (!positive(exit)) throw Error('Invalid hypothetical exit price; paper position remains OPEN');
         const gross = (o.side === 'BUY' ? exit-o.entry! : o.entry!-exit)*o.units*this.identity.pointValue;
         const costs = 2*o.commissionPerUnitSide*o.units;
+        const pnl = gross - costs;
+        if (!finite(gross) || !finite(costs) || !finite(pnl))
+          throw Error('Non-finite paper exit arithmetic; paper position remains OPEN');
         o.exit = exit; o.exitObservedAt = quote.observedAt; o.exitReceivedAt = quote.receivedAt;
-        o.costs = costs; o.pnl = gross - costs; o.status = 'CLOSED'; emit(o, reason);
+        o.costs = costs; o.pnl = pnl; o.status = 'CLOSED'; emit(o, reason);
       }
     }
+    this.lastObservedAt = quote.observedAt;
+    this.lastActionAt = quote.receivedAt;
     return changes;
   }
   get(id: string): PaperOrder | undefined {const o = this.orders.get(id); return o ? {...o} : undefined;}
