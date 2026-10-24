@@ -99,3 +99,17 @@ test('checkpoint replay rejects long-horizon issuance after the next candle clos
  assert.throws(()=>ForwardForecastJournal.restore(forged,()=>clock.now),/retroactive/);
  assert.equal(j.checkpoint().events[1].receivedAt,base+60);
 });
+
+
+test('per-horizon scores remain unchanged across checkpoint restore',()=>{
+ const j=initial();j.issue(forecast('long',12));
+ clock.now=base+120;j.receive(candle(base+60,101));
+ const before=j.summaryByHorizon();
+ assert.equal(before[1].settled,1);
+ assert.equal(before[12].pending,1);
+ clock.now=base+130;
+ const resumed=ForwardForecastJournal.restore(j.checkpoint(),()=>clock.now);
+ assert.deepEqual(resumed.summaryByHorizon(),before);
+ const result=resumed.summaryByHorizon();result[1].settled=1000;
+ assert.equal(resumed.summaryByHorizon()[1].settled,1);
+});

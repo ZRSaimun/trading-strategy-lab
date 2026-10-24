@@ -19,6 +19,13 @@ const finite=(n:number)=>Number.isFinite(n);
 const validEpoch=(n:number)=>Number.isSafeInteger(n)&&n>=0;
 const key=(f:FeedIdentity)=>JSON.stringify([f.instrument,f.provider,f.venue,f.sourceId,f.priceSide,f.seconds]);
 const clone=(f:ForecastRecord):ForecastRecord=>({...f});
+const summarize=(entries:readonly ForecastRecord[]):ForecastSummary=>{
+ const settled=entries.filter(e=>e.status==='SETTLED');
+ const brier=settled.length?settled.reduce((sum,e)=>sum+(e.probability-Number(e.outcomeUp))**2,0)/settled.length:null;
+ const logLoss=settled.length?settled.reduce((sum,e)=>sum-(e.outcomeUp?Math.log(e.probability):Math.log1p(-e.probability)),0)/settled.length:null;
+ return {issued:entries.length,pending:entries.filter(e=>e.status==='PENDING').length,settled:settled.length,
+  voidGap:entries.filter(e=>e.status==='VOID_GAP').length,brier,logLoss,referenceBrier:settled.length?0.25:null};
+};
 
 export class ForwardForecastLedger{
  private last:{start:number;close:number;receivedAt:number}|null=null;
@@ -97,11 +104,13 @@ export class ForwardForecastLedger{
   return clone(record);
  }
  entries():ForecastRecord[]{return [...this.forecasts.values()].map(clone)}
- summary():ForecastSummary{
-  const entries=this.entries(),settled=entries.filter(e=>e.status==='SETTLED');
-  const brier=settled.length?settled.reduce((sum,e)=>sum+(e.probability-Number(e.outcomeUp))**2,0)/settled.length:null;
-  const logLoss=settled.length?settled.reduce((sum,e)=>sum-(e.outcomeUp?Math.log(e.probability):Math.log(1-e.probability)),0)/settled.length:null;
-  return {issued:entries.length,pending:entries.filter(e=>e.status==='PENDING').length,settled:settled.length,
-   voidGap:entries.filter(e=>e.status==='VOID_GAP').length,brier,logLoss,referenceBrier:settled.length?0.25:null};
+ /** Aggregate across horizons for backward compatibility; never infer per-horizon skill from this. */
+ summary():ForecastSummary{return summarize(this.entries());}
+ /** Disjoint per-horizon scoring prevents easy horizons from masking weak ones. */
+ summaryByHorizon():Record<1|3|12,ForecastSummary>{
+  const entries=this.entries();
+  return {1:summarize(entries.filter(e=>e.horizon===1)),
+          3:summarize(entries.filter(e=>e.horizon===3)),
+          12:summarize(entries.filter(e=>e.horizon===12))};
  }
 }
