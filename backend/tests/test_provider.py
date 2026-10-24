@@ -94,6 +94,7 @@ def test_historical_pipeline_persists_charts_manifest_archive_and_audit(client,m
     assert not quality['live'] and not quality['executable_bid_ask_verified']
     result=client.get('/api/candles/XAUUSD-TD?timeframe=1m').json()
     assert result['dataset']['provider_symbol']=='XAU/USD';assert len(result['candles'])==2
+    assert result['dataset']['quality']==quality
     assert result['quality']['state']=='WAIT'
     assert len(list((tmp_path/'archive').glob('*.json')))==1
     audit=client.get('/api/audit');assert KEY not in audit.text
