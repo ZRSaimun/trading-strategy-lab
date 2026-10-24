@@ -109,9 +109,12 @@ function directionAndDepth(ref:Bar,manip:Bar):{direction:Direction;depth:number}
 }
 function trend(bars:readonly Bar[]|undefined,at:number,dir:Direction):Gate{
  if(!bars)return 'INSUFFICIENT_DATA';
- // Daily bars are UTC calendar buckets. Only fully CLOSED prior daily bars
- // can be used: any current day is excluded, regardless of partial data.
- const prior=bars.filter(b=>b.time+86400<=at);
+ // A daily UTC bucket can be time-closed yet contain only a fraction
+ // of its 1,440 expected source minutes (holiday, outage, archive edge).
+ // Do not let a partial day's close distort the 5/20-day trend proxy.
+ // Without a verified exchange calendar, shortened sessions are excluded
+ // rather than guessed complete. Current/future daily buckets are excluded.
+ const prior=bars.filter(b=>b.time+86400<=at&&b.observed_minutes===1440);
  if(prior.length<20)return 'INSUFFICIENT_DATA';
  const recent=prior.slice(-20).map(b=>b.close);
  const short=recent.slice(-5).reduce((a,b)=>a+b,0)/5;
