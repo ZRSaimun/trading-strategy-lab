@@ -89,6 +89,13 @@ def test_historical_pipeline_persists_charts_manifest_archive_and_audit(client,m
         assert key==KEY;return normalize(PAYLOAD,instrument,NOW)
     monkeypatch.setattr(provider_api,'retrieve',fake)
     unlock(client)
+    provider_status=client.get('/api/providers').json()
+    assert provider_status['enabled'] is True
+    assert provider_status['credential_configured'] is True
+    assert provider_status['rights_confirmation_scope']=='owner_assertion_only'
+    for field in ('provider_instrument_entitlement_verified','retention_rights_verified',
+                  'display_rights_verified','non_display_rights_verified'):
+        assert provider_status[field] is False
     r=client.post('/api/providers/twelvedata/import',json={'instrument':'XAUUSD-TD','limit':100,'end':NOW-60,'rights_confirmed':True,'replace_confirmed':True})
     assert r.status_code==200,r.text
     assert r.json()['rows']==2;assert not r.json()['live'];assert KEY not in r.text
