@@ -36,3 +36,7 @@ Thirteen deterministic tests cover quote freshness, causality, adverse BUY/SELL 
 4. Implement user-visible paper order lifecycle with clear `SIMULATED` labels and separate reconciliation tests against broker demo fills. No real-money routing without owner-confirmed per-order instructions and hard server-side risk gates.
 
 This is a testable software component, not evidence of a trading edge, achievable execution price, or profit.
+
+## Explicit posted financing/FX cashflows (experimental)
+
+The separate [paper cashflow reconciler](paper-cashflow-reconciliation.md) can apply **explicitly supplied** overnight financing, borrow, FX and broker adjustment entries to an already-closed simulated order without modifying its execution ledger. It checks exact source identity, event-time cutoffs, duplicate IDs and base price/commission P&L integrity. Seven synthetic tests pass locally. This is not automatic CFD funding-rate modeling: missing charges remain unknown and output is always labelled PARTIAL_UNVERIFIED. It is not wired to a broker or the production UI.
