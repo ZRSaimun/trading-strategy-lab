@@ -26,7 +26,7 @@ export function validStructureSegments(bars:readonly QualityBar[],frame:string):
  let start=0,previous:number|null=null;
  for(let i=0;i<bars.length;i++){
   const b=bars[i],seconds=SECONDS[frame];
-  const valid=Number.isSafeInteger(b.time)&&b.time>=0&&b.time<=8_640_000_000_000&&aligned(b.time,frame)&&
+  const valid=Number.isSafeInteger(b.time)&&b.time>=0&&b.time<=8_640_000_000&&aligned(b.time,frame)&&
     [b.open,b.high,b.low,b.close].every(Number.isFinite)&&
     b.low<=Math.min(b.open,b.close)&&b.high>=Math.max(b.open,b.close)&&b.low<=b.high&&
     Number.isSafeInteger(b.observed_minutes)&&b.observed_minutes>0&&
