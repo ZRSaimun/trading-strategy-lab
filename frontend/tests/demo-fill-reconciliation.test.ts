@@ -15,7 +15,7 @@ const fill=(executionId:string,leg:'ENTRY'|'EXIT',units:number,price:number,chan
   accountAlias:source.accountAlias,statementSha256:source.statementSha256,currency:source.currency,
   leg,side:leg==='ENTRY'?'BUY':'SELL',units,price,executedAt:leg==='ENTRY'?101:102,
   receivedAt:leg==='ENTRY'?101:102,feeCurrency:.05,...changes});
-const compare=(fills:readonly DemoFill[],skew=2,order=paper)=>comparePaperWithDemoFills(identity,order,source,200,skew,fills);
+const compare=(fills:readonly DemoFill[],skew=2,order=paper)=>comparePaperWithDemoFills(identity,order,source,'GBP',200,skew,fills);
 test('compares complete partial demo fills by weighted prices and explicit fees',()=>{
  const r=compare([fill('e1','ENTRY',1,100.2),fill('e2','ENTRY',1,100.4),
   fill('x1','EXIT',.5,102),fill('x2','EXIT',1.5,101.8)]);
@@ -68,4 +68,9 @@ test('forged paper P&L, commission and nonfinite order values are rejected',()=>
 test('strict schema rejects unknown demo fields instead of accepting credentials',()=>{
  const a={...fill('e1','ENTRY',2,100.3),brokerPassword:'should-never-be-stored'};
  assert.throws(()=>compare([a,fill('x1','EXIT',2,102)]),/Invalid/);
+});
+
+test('mismatched declared paper and demo settlement currencies fail before P&L comparison',()=>{
+ assert.throws(()=>comparePaperWithDemoFills(identity,paper,source,'USD',200,2,
+   [fill('e1','ENTRY',2,100.3),fill('x1','EXIT',2,102)]),/Invalid/);
 });
