@@ -5,7 +5,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 
-from app.bulk_import import create_schema, ingest
+from app.bulk_import import create_schema, ingest, datasets
 from app.historical_api import attach_history
 
 
@@ -71,7 +71,10 @@ def test_dataset_list_pagination_and_offset_identity(tmp_path):
     assert first.status_code == 200
     assert first.headers['x-history-has-more'] == 'true'
     assert first.headers['x-history-next-offset'] == '1'
-    second = client.get('/api/history/datasets', params={'limit': 1, 'offset': 1})
+    snapshot = first.headers['x-history-snapshot']
+    assert len(snapshot) == 64
+    second = client.get('/api/history/datasets', params={
+        'limit': 1, 'offset': 1, 'snapshot': snapshot})
     assert second.status_code == 200
     assert second.headers['x-history-has-more'] == 'false'
     assert 'x-history-next-offset' not in second.headers
@@ -91,3 +94,69 @@ def test_dataset_list_pagination_and_offset_identity(tmp_path):
     assert client.get('/api/history/datasets', params={'limit': 201}).status_code == 422
     assert client.get('/api/history/datasets', params={'offset': -1}).status_code == 422
     assert client.get('/api/history/datasets', params={'offset': 2}).json() == []
+
+
+def test_inventory_snapshot_rejects_changed_ready_set_and_metadata(tmp_path):
+    """A new READY archive must never silently shift an offset-paged inventory."""
+    p = tmp_path / 'same-source.zip'
+    with ZipFile(p, 'w') as archive:
+        archive.writestr('DAT_ASCII_XAUUSD_M1_202610.csv',
+                         '20261001 090000;1;2;0.5;1.5;0\\n')
+    e = create_engine('sqlite:///' + str(tmp_path / 'snapshot.db'))
+    create_schema(e)
+    first_import = ingest(e, p, instrument='XAUUSD-CFD', provider='HistData',
+                          utc_offset_minutes=-300, rights_confirmed=True)
+    ingest(e, p, instrument='XAUUSD-CFD', provider='HistData',
+           utc_offset_minutes=0, rights_confirmed=True)
+    app = FastAPI()
+    app.include_router(attach_history(lambda: 'owner', e))
+    client = TestClient(app)
+
+    first = client.get('/api/history/datasets', params={'limit': 1})
+    assert first.status_code == 200
+    original = first.headers['x-history-snapshot']
+    assert client.get('/api/history/datasets', params={
+        'limit': 1, 'offset': 1, 'snapshot': original}).status_code == 200
+    assert client.get('/api/history/datasets', params={
+        'limit': 200}).headers['x-history-snapshot'] == original
+
+    # Third archive is a separate source identity because its declared
+    # fixed offset differs, even though its ZIP bytes are identical.
+    ingest(e, p, instrument='XAUUSD-CFD', provider='HistData',
+           utc_offset_minutes=60, rights_confirmed=True)
+    stale = client.get('/api/history/datasets', params={
+        'limit': 1, 'offset': 1, 'snapshot': original})
+    assert stale.status_code == 409
+    assert 'restart' in stale.json()['detail'].lower()
+    fresh = client.get('/api/history/datasets', params={'limit': 1})
+    assert fresh.status_code == 200
+    assert fresh.headers['x-history-snapshot'] != original
+    assert client.get('/api/history/datasets', params={
+        'limit': 1, 'offset': 1,
+        'snapshot': fresh.headers['x-history-snapshot']}).status_code == 200
+
+    # Even if an importer/administrator unexpectedly rewrites READY
+    # provenance counters, the fingerprint detects that inconsistency.
+    with e.begin() as connection:
+        connection.execute(datasets.update().where(
+            datasets.c.id == first_import['dataset_id']).values(rejected=7))
+    assert client.get('/api/history/datasets', params={
+        'limit': 1, 'offset': 1,
+        'snapshot': fresh.headers['x-history-snapshot']}).status_code == 409
+    assert client.get('/api/history/datasets', params={
+        'snapshot': 'bad'}).status_code == 422
+
+
+def test_empty_ready_inventory_has_stable_snapshot(tmp_path):
+    e = create_engine('sqlite:///' + str(tmp_path / 'empty.db'))
+    create_schema(e)
+    app = FastAPI()
+    app.include_router(attach_history(lambda: 'owner', e))
+    client = TestClient(app)
+    first = client.get('/api/history/datasets')
+    assert first.status_code == 200 and first.json() == []
+    assert first.headers['x-history-has-more'] == 'false'
+    assert len(first.headers['x-history-snapshot']) == 64
+    repeat = client.get('/api/history/datasets', params={
+        'snapshot': first.headers['x-history-snapshot']})
+    assert repeat.status_code == 200 and repeat.json() == []
