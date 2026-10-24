@@ -1,0 +1,52 @@
+'use client';
+import {useEffect,useState} from 'react';
+
+type API=(path:string,init?:RequestInit)=>Promise<any>;
+type BrokerInfo={id:string;api_order_support:boolean;integration_status:string};
+type Capabilities={status:string;execution_mode:string;quote_verified:boolean;account_linked:boolean;live_orders_enabled:boolean;demo_orders_enabled:boolean;risk_preview_enabled:boolean;brokers:BrokerInfo[];source_url:string};
+type Preview={estimated_exposure:number;estimated_loss_if_filled_at_stop:number;risk_budget_cash:number;estimated_risk_percent:number;within_user_risk_budget:boolean;may_execute_real_order:boolean;warnings:string[]};
+type BrokerId='Trading212-CFD'|'Trading212-Invest'|'Trading212-StocksISA';
+type Inputs={broker:BrokerId;symbol:string;direction:'BUY'|'SELL';entry_price:number;stop_price:number;quantity:number;point_value:number;estimated_total_cost:number;account_equity:number;risk_budget_percent:number;price_source:'UNVERIFIED USER INPUT'|'HISTORICAL BID'};
+const DEFAULTS:Inputs={broker:'Trading212-CFD',symbol:'XAUUSD',direction:'BUY',entry_price:100,stop_price:98,quantity:1,point_value:1,estimated_total_cost:2,account_equity:1000,risk_budget_percent:1,price_source:'UNVERIFIED USER INPUT'};
+const FIELDS:Array<[keyof Pick<Inputs,'entry_price'|'stop_price'|'quantity'|'point_value'|'estimated_total_cost'|'account_equity'|'risk_budget_percent'>,string]>=[
+ ['entry_price','Hypothetical entry price'],['stop_price','Hypothetical protective stop price'],
+ ['quantity','Illustrative position quantity'],['point_value','P&L per price point per unit (account currency)'],
+ ['estimated_total_cost','Estimated total trading costs (account currency)'],
+ ['account_equity','Illustrative account equity (same currency)'],['risk_budget_percent','Maximum planned risk (% of equity)'],
+];
+export default function BrokerReadiness({api,pages}:{api:API;pages:boolean}){
+ const [caps,setCaps]=useState<Capabilities|null>(null),[error,setError]=useState('');
+ const [inputs,setInputs]=useState<Inputs>(DEFAULTS),[preview,setPreview]=useState<Preview|null>(null),[busy,setBusy]=useState(false);
+ useEffect(()=>{if(pages)return;let active=true;api('/broker/capabilities').then((v:Capabilities)=>{if(active){setCaps(v);setError('')}}).catch(e=>{if(active)setError(e.message||String(e))});return()=>{active=false}},[api,pages]);
+ const changeNumber=(key:typeof FIELDS[number][0],raw:string)=>{setInputs(old=>({...old,[key]:Number(raw)}));setPreview(null)};
+ async function calculate(e:React.FormEvent<HTMLFormElement>){e.preventDefault();setError('');setBusy(true);setPreview(null);try{const result=await api('/broker/order-risk-preview',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(inputs)});setPreview(result)}catch(e){setError(e instanceof Error?e.message:String(e))}finally{setBusy(false)}}
+ return <section className="panel research-panel">
+  <span className="eyebrow">ACCOUNT CONNECTION · CAPABILITY STATUS · ZERO EXECUTION</span>
+  <h2>Broker Readiness &amp; Risk Preview</h2>
+  <p>This screen checks what our site can actually support. It does not connect a brokerage account or enable orders. Do not enter a real account password or API key here.</p>
+  {pages?<p role="status">The browser-local version has no authenticated broker-service API. Open your private server to see the latest integration status.</p>:<>
+   {error&&<p role="alert" className="error">{error}</p>}
+   <div className="market-strip"><div><small>BROKER CONNECTION</small><strong>{caps?.status||'Checking…'}</strong></div><div><small>LIVE ORDER API</small><strong>{caps?.live_orders_enabled?'AVAILABLE':'NOT CONNECTED'}</strong></div><div><small>DEMO ORDER API</small><strong>{caps?.demo_orders_enabled?'AVAILABLE':'NOT CONNECTED'}</strong></div><div><small>RISK PREVIEW</small><strong>{caps?.risk_preview_enabled?'AVAILABLE':'UNAVAILABLE'}</strong></div></div>
+   <p><strong>API-supported account types:</strong> Trading 212 Invest and Stocks ISA offer documented order endpoints, but neither is connected to this website. Its CFD account type is not supported by the documented Public API.</p>
+   {caps?.brokers.map(b=><p key={b.id}><strong>{b.id}</strong> — {b.integration_status}</p>)}
+   <p><a href="https://docs.trading212.com/api" target="_blank" rel="noreferrer">Official Trading 212 Public API documentation ↗</a></p>
+   <h3>Illustrative order-risk calculation</h3>
+   <p>Use numbers you choose yourself. The result is NOT an executable quote, order, position recommendation or approval to trade. A stop can slip or gap, so actual loss may be greater.</p>
+   <form onSubmit={calculate} className="backtest-settings">
+    <label>Broker / account type<select value={inputs.broker} onChange={e=>{setInputs(s=>({...s,broker:e.target.value as BrokerId}));setPreview(null)}}><option value="Trading212-CFD">Trading 212 CFD — API orders unsupported</option><option value="Trading212-Invest">Trading 212 Invest — unconnected</option><option value="Trading212-StocksISA">Trading 212 Stocks ISA — unconnected</option></select></label>
+    <label>Exact instrument symbol<input value={inputs.symbol} maxLength={50} required onChange={e=>{setInputs(s=>({...s,symbol:e.target.value}));setPreview(null)}}/></label>
+    <label>Side<select value={inputs.direction} onChange={e=>{setInputs(s=>({...s,direction:e.target.value as 'BUY'|'SELL'}));setPreview(null)}}><option>BUY</option><option>SELL</option></select></label>
+    <label>Price source<select value={inputs.price_source} onChange={e=>{setInputs(s=>({...s,price_source:e.target.value as Inputs['price_source']}));setPreview(null)}}><option>UNVERIFIED USER INPUT</option><option>HISTORICAL BID</option></select></label>
+    {FIELDS.map(([key,label])=><label key={key}>{label}<input type="number" step="any" required value={inputs[key]} onChange={e=>changeNumber(key,e.target.value)}/></label>)}
+    <button className="primary" disabled={!caps?.risk_preview_enabled||busy}>{busy?'Checking…':'Calculate risk only · no order'}</button>
+   </form>
+   {preview&&<div className="journal-entry" role="status"><h3>Research-only risk estimate</h3>
+    <p>Estimated loss if filled at stop: <strong>{preview.estimated_loss_if_filled_at_stop.toLocaleString('en-GB')}</strong> account currency units</p>
+    <p>Chosen risk budget: {preview.risk_budget_cash.toLocaleString('en-GB')} · Estimated risk: {preview.estimated_risk_percent.toFixed(2)}%</p>
+    <p>Estimated notional: {preview.estimated_exposure.toLocaleString('en-GB')} (only if point value and conversion are correct)</p>
+    <p><strong>{preview.within_user_risk_budget?'Within your illustrative budget':'Exceeds your illustrative risk budget'}</strong> · Live execution: NOT AUTHORISED</p>
+    <ul>{preview.warnings.map((w,i)=><li key={i}>{w}</li>)}</ul>
+   </div>}
+  </>}
+ </section>
+}
