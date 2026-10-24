@@ -221,7 +221,8 @@ def test_existing_archive_must_be_verified_before_replacement(client,monkeypatch
         assert target.is_symlink() and outside.read_bytes()==archive
 
 
-@pytest.mark.parametrize('mismatch', ['archive_ohlc', 'archive_symbol', 'rows_close'])
+@pytest.mark.parametrize('mismatch', ['archive_ohlc', 'archive_symbol', 'rows_close',
+                                      'duplicate_meta', 'duplicate_candle'])
 def test_snapshot_mismatch_preserves_existing_provider_series(client,monkeypatch,tmp_path,mismatch):
     # The mocked provider never makes a network call; verify API transaction safety.
     monkeypatch.setenv('FREE_ONLY','false')
@@ -242,6 +243,10 @@ def test_snapshot_mismatch_preserves_existing_provider_series(client,monkeypatch
             altered=[dict(r) for r in rows]
             altered[0]['close']+=0.5  # Valid OHLC, inconsistent snapshot.
             return altered,archive
+        if mismatch=='duplicate_meta':
+            return rows,archive.replace(b'"symbol":',b'"symbol":"XAG/USD","symbol":',1)
+        if mismatch=='duplicate_candle':
+            return rows,archive.replace(b'"close":',b'"close":"999","close":',1)
         changed=json.loads(archive)
         if mismatch=='archive_ohlc':
             changed['values'][0]['close']='2002.5'

@@ -58,3 +58,23 @@ def test_bad_archive_structure_and_size_rejected(archive):
 def test_changed_normalized_rows_rejected(changed):
     with pytest.raises(ValueError):
         verify_normalized_snapshot([{**ROWS[0], **changed}], encoded(SNAPSHOT), 'XAU/USD')
+
+
+def test_duplicate_source_json_keys_are_rejected_at_every_depth():
+    # Python's default JSON parser silently keeps the last duplicate key.
+    original = encoded(SNAPSHOT)
+    ambiguous = [
+        original.replace(b'"meta":', b'"meta":{},"meta":', 1),
+        original.replace(b'"symbol":', b'"symbol":"XAG/USD","symbol":', 1),
+        original.replace(b'"close":', b'"close":"999","close":', 1),
+    ]
+    for archive in ambiguous:
+        with pytest.raises(ValueError):
+            verify_normalized_snapshot(ROWS, archive, 'XAU/USD')
+
+
+@pytest.mark.parametrize('constant', [b'NaN', b'Infinity', b'-Infinity'])
+def test_nonstandard_json_numeric_constants_rejected(constant):
+    archive = encoded(SNAPSHOT).replace(b'"close":"101"', b'"close":' + constant, 1)
+    with pytest.raises(ValueError):
+        verify_normalized_snapshot(ROWS, archive, 'XAU/USD')

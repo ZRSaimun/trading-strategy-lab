@@ -10,6 +10,21 @@ import json
 import math
 
 
+def _reject_duplicate_keys(pairs: list[tuple[str, object]]) -> dict:
+    """Reject ambiguous JSON at every object depth; last-key-wins is unsafe."""
+    result = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError('Duplicate source snapshot JSON key')
+        result[key] = value
+    return result
+
+
+def _reject_nonstandard_constant(value: str) -> None:
+    """JSON NaN/Infinity are not valid portable source evidence."""
+    raise ValueError('Nonstandard source snapshot JSON constant')
+
+
 def verify_normalized_snapshot(rows: list[dict], archive: bytes, expected_symbol: str) -> None:
     """Reject mismatches before a content-addressed archive or database is written.
 
@@ -23,7 +38,8 @@ def verify_normalized_snapshot(rows: list[dict], archive: bytes, expected_symbol
     if not isinstance(rows, list) or not rows or len(rows) > 5000:
         raise ValueError('Invalid normalized candle count')
     try:
-        snapshot = json.loads(archive)
+        snapshot = json.loads(archive, object_pairs_hook=_reject_duplicate_keys,
+                              parse_constant=_reject_nonstandard_constant)
     except (ValueError, UnicodeDecodeError):
         raise ValueError('Invalid source snapshot JSON') from None
     if not isinstance(snapshot, dict) or set(snapshot) != {'meta', 'values'}:
