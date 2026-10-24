@@ -17,7 +17,7 @@ function fixture():Context{
  const fifteenMinute=Array.from({length:49},(_,i)=>make(BASE+i*Q,105,106,104,105,15));
  const signal=fifteenMinute[32];
  signal.open=105;signal.close=109;signal.high=110;signal.low=104;signal.volume=200;
- const daily=Array.from({length:25},(_,i)=>make(BASE-(25-i)*24*H,100+i*.1,104+i*.1,99+i*.1,100+i*.1,1000));
+ const daily=Array.from({length:25},(_,i)=>make(BASE-(25-i)*24*H,100+i*.1,104+i*.1,99+i*.1,100+i*.1,1440));
  const zones=[{datasetId:source.datasetId,archiveSha256:source.archiveSha256,
   priceSide:'bid' as const,direction:'DEMAND' as const,
   low:100,high:110,observedAt:BASE,referenceBarTime:BASE-4*H}];
@@ -72,6 +72,27 @@ test('daily trend uses only completed daily history, never current incomplete da
  const missing=fixture();missing.daily=missing.daily!.slice(0,15);
  assert.equal(screenCrtHypotheses(missing).candidates[0].gates.dailyTrend,'INSUFFICIENT_DATA');
 });
+test('an elapsed but partially observed UTC daily bucket cannot satisfy the 20-day trend requirement',()=>{
+ const x=fixture();
+ // Exactly 20 earlier days: 19 complete and one elapsed-but-partial day.
+ x.daily=x.daily!.slice(-20).map((b,i)=>i===0?{...b,observed_minutes:600}:b);
+ const s=screenCrtHypotheses(x).candidates[0];
+ assert.equal(s.gates.dailyTrend,'INSUFFICIENT_DATA');
+});
+
+test('an extreme close from a past partial daily bucket cannot reverse a completed-day trend',()=>{
+ const x=fixture();
+ const baseline=screenCrtHypotheses(x).candidates[0].gates.dailyTrend;
+ assert.equal(baseline,'PASS');
+ // The last elapsed UTC day was observed for only 600 of 1440 minutes.
+ // It must not become a valid bearish outlier in the daily context.
+ x.daily=[...x.daily!.slice(0,-1),
+  make(BASE-24*H,1,2,0.5,1.2,600)];
+ const r=screenCrtHypotheses(x).candidates[0];
+ assert.equal(r.gates.dailyTrend,baseline);
+ assert.equal(r.eligibleForLiveTrading,false);
+});
+
 test('no source-linked pre-existing 4H reference means supply/demand gate stays unavailable',()=>{
  const x=fixture();x.zones=[{...x.zones![0],observedAt:BASE+9*H}];
  const r=screenCrtHypotheses(x).candidates[0];
