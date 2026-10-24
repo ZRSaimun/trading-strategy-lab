@@ -34,7 +34,7 @@ export function reviewForwardCalibration(records:readonly ForecastRecord[],ident
   if(r.modelVersion!==modelVersion||r.horizon!==horizon)continue;
   if(!epoch(r.baseStart)||r.baseStart%identity.seconds!==0||
      !epoch(r.targetStart)||r.targetStart!==r.baseStart+horizon*identity.seconds||
-     !epoch(r.issuedAt)||!Number.isFinite(r.probability)||r.probability<=0||r.probability>=1||
+     !epoch(r.issuedAt)||r.issuedAt<r.baseStart+identity.seconds||r.issuedAt>=r.baseStart+2*identity.seconds||!Number.isFinite(r.probability)||r.probability<=0||r.probability>=1||
      !['PENDING','SETTLED','VOID_GAP'].includes(r.status)||
      (r.status==='SETTLED'&&(!epoch(r.resolvedAt!)||r.resolvedAt!<r.targetStart+identity.seconds||typeof r.outcomeUp!=='boolean'))||
      (r.status!=='SETTLED'&&r.outcomeUp!==null))
