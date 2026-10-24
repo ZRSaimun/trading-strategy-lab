@@ -27,7 +27,7 @@ export function auditConfluenceSourceInfluence(reports:readonly RiskPathReport[]
  const sorted=[...reports].sort((a,b)=>String(a.datasetId).localeCompare(String(b.datasetId),'en'));
  const ids=new Set<string>();
  const baseline=sorted[0];
- const costs=baseline.config.roundTripCostsBps;
+ const costs:readonly number[]=baseline.config.roundTripCostsBps;
  const sources:{id:string;n:number;r:number[];bps:number[]}[]=[];
  const allTrades:RiskPathTrade[]=[];
  let total=0;
@@ -42,12 +42,12 @@ export function auditConfluenceSourceInfluence(reports:readonly RiskPathReport[]
      report.config.rewardRisk!==baseline.config.rewardRisk||
      report.config.maxHoldBars!==baseline.config.maxHoldBars||
      report.config.roundTripCostsBps.length!==costs.length||
-     report.config.roundTripCostsBps.some((v,j)=>v!==costs[j]))
+     report.config.roundTripCostsBps.some((v:number,j:number)=>v!==costs[j]))
    throw Error('Mixed instrument or frozen strategy configuration');
   total+=report.trades.length;
   if(total>100000)throw Error('Bounded total trade count exceeded');
-  const r=costs.map((_,j)=>report.trades.reduce((sum,t)=>sum+t.netR[j],0));
-  const bps=costs.map((_,j)=>report.trades.reduce((sum,t)=>sum+t.netBps[j],0));
+  const r=costs.map((_:number,j:number)=>report.trades.reduce((sum:number,t:RiskPathTrade)=>sum+t.netR[j],0));
+  const bps=costs.map((_:number,j:number)=>report.trades.reduce((sum:number,t:RiskPathTrade)=>sum+t.netBps[j],0));
   if([...r,...bps].some(v=>!Number.isFinite(v)))throw Error('Nonfinite source aggregate');
   sources.push({id:report.datasetId,n:report.trades.length,r,bps});
   allTrades.push(...report.trades);
@@ -59,7 +59,7 @@ export function auditConfluenceSourceInfluence(reports:readonly RiskPathReport[]
  const weeks=new Set(allTrades.map(t=>Math.floor((t.entryAt-MONDAY)/WEEK)));
  const active=sources.filter(s=>s.n>0),eligible=total>=30&&weeks.size>=12&&active.length>=5;
  const largestSourceTradeShare=total?Math.max(...sources.map(s=>s.n))/total:null;
- const scenarios:SourceInfluenceScenario[]=costs.map((cost,j)=>{
+ const scenarios:SourceInfluenceScenario[]=costs.map((cost:number,j:number)=>{
   const sumR=sources.reduce((sum,s)=>sum+s.r[j],0);
   const sumBps=sources.reduce((sum,s)=>sum+s.bps[j],0);
   if(!Number.isFinite(sumR)||!Number.isFinite(sumBps))throw Error('Nonfinite pooled aggregate');
