@@ -128,3 +128,12 @@ test('recorded premature holdout access and invalid thresholds are rejected',asy
   await assert.rejects(reviewHoldoutAnchorQuorum(f.commitment,f.entries,
     [],[],1),/threshold/);
 });
+
+test('zero-event audit cannot double-count freeze as the final head',async()=>{
+  const f=await fixture();
+  await assert.rejects(reviewHoldoutAnchorQuorum(f.commitment,[],
+    [f.a0,f.b0],[f.a.trusted,f.b.trusted],2),
+    /nonempty audit trail/);
+  await assert.rejects(reviewHoldoutAnchorQuorum(f.commitment,[],
+    [],[],2),/nonempty audit trail/);
+});
