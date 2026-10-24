@@ -6,6 +6,8 @@ Trading 212 API covers Invest/Stocks ISA accounts, not CFDs (24 Oct 2026).
 from typing import Literal
 import math
 import re
+import time
+from .order_gate import OrderGateContext, evaluate_gate
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -46,9 +48,17 @@ def calculate_preview(body: OrderPreview) -> dict:
     estimated_loss_at_stop = gross_loss_at_stop + body.estimated_total_cost
     budget = body.account_equity * body.risk_budget_percent / 100.0
     estimated_exposure = body.entry_price * body.quantity * body.point_value
-    if not all(math.isfinite(x) and x >= 0 for x in (gross_loss_at_stop, estimated_loss_at_stop, budget, estimated_exposure)):
-        raise ValueError('Risk calculation overflowed')
+    # Strictly positive inputs can still underflow to zero in float arithmetic.
+    # A risk preview showing zero loss/exposure or a zero cash budget is misleading.
+    if not all(math.isfinite(x) and x > 0 for x in (
+        gross_loss_at_stop, estimated_loss_at_stop, budget, estimated_exposure
+    )):
+        raise ValueError('Risk calculation overflowed or underflowed')
     risk_fraction = 100 * estimated_loss_at_stop / body.account_equity
+    # A finite loss divided by subnormal equity may overflow to infinity.
+    # Reject it here instead of returning non-JSON infinity or a false pass.
+    if not math.isfinite(risk_fraction) or risk_fraction <= 0:
+        raise ValueError('Risk calculation overflowed or underflowed')
     permitted = estimated_loss_at_stop <= budget
     warnings = [
         'NO BROKER CONNECTED: this is a hypothetical calculation, not a quote or order.',
@@ -65,10 +75,12 @@ def calculate_preview(body: OrderPreview) -> dict:
         'instrument': body.symbol,
         'broker': body.broker,
         'direction': body.direction,
-        'estimated_exposure': round(estimated_exposure, 4),
-        'estimated_loss_if_filled_at_stop': round(estimated_loss_at_stop, 4),
-        'risk_budget_cash': round(budget, 4),
-        'estimated_risk_percent': round(risk_fraction, 4),
+        # Keep full JSON numeric precision: rounding to 4 decimals can turn a
+        # positive micro-lot loss/budget into a misleading displayed zero.
+        'estimated_exposure': estimated_exposure,
+        'estimated_loss_if_filled_at_stop': estimated_loss_at_stop,
+        'risk_budget_cash': budget,
+        'estimated_risk_percent': risk_fraction,
         'within_user_risk_budget': permitted,
         'may_execute_real_order': False,
         'may_execute_paper_order': False,
@@ -76,6 +88,200 @@ def calculate_preview(body: OrderPreview) -> dict:
         'warnings': warnings,
     }
 
+
+
+class StressPreview(OrderPreview):
+    """Additional owner-provided assumptions for a conservative hypothetical scenario.
+
+    This is NOT a broker margin check, worst-case guarantee, or executable quote.
+    """
+    stressed_exit_price: float = Field(gt=0)
+    margin_requirement_percent: float = Field(gt=0, le=100)
+    max_leverage: float = Field(gt=0, le=100)
+
+    @model_validator(mode='after')
+    def validate_stressed_exit(self):
+        if self.direction == 'BUY' and self.stressed_exit_price >= self.stop_price:
+            raise ValueError('A BUY stressed exit must be strictly below the protective stop')
+        if self.direction == 'SELL' and self.stressed_exit_price <= self.stop_price:
+            raise ValueError('A SELL stressed exit must be strictly above the protective stop')
+        return self
+
+
+def calculate_stress_preview(body: StressPreview) -> dict:
+    """Fail-closed, zero-side-effect stress, leverage and margin assumptions."""
+    base = calculate_preview(body)
+    stressed_distance = abs(body.entry_price - body.stressed_exit_price)
+    stressed_loss = stressed_distance * body.quantity * body.point_value + body.estimated_total_cost
+    notional = body.entry_price * body.quantity * body.point_value
+    assumed_margin = notional * body.margin_requirement_percent / 100
+    effective_leverage = notional / body.account_equity
+    stressed_risk_percent = 100 * stressed_loss / body.account_equity
+    values = (stressed_loss, notional, assumed_margin, effective_leverage, stressed_risk_percent)
+    # Underflowed margin/leverage must not be reported as zero and pass the
+    # corresponding limits. The stress scenario has strictly positive inputs.
+    if not all(math.isfinite(x) and x > 0 for x in values):
+        raise ValueError('Stress calculation overflowed or underflowed')
+
+    # Compare with the unrounded cash budget to avoid approval near a rounding boundary.
+    stress_within_budget = stressed_loss <= body.account_equity * body.risk_budget_percent / 100
+    margin_covered = assumed_margin <= body.account_equity
+    leverage_within_limit = effective_leverage <= body.max_leverage
+    all_checks = (base['within_user_risk_budget'] and stress_within_budget
+                  and margin_covered and leverage_within_limit)
+    warnings = list(base['warnings'])
+    warnings.extend([
+        'Stressed exit is user-supplied; worse gaps, partial fills, spread widening and outages can cause larger losses.',
+        'Margin percentage and leverage cap are user assumptions, NOT broker-verified rules or liquidation estimates.',
+        'Estimated notional and margin depend on exact contract value and account-currency conversion.',
+    ])
+    if not stress_within_budget:
+        warnings.append('The stressed stop-gap loss exceeds the specified risk budget.')
+    if not margin_covered:
+        warnings.append('Illustrative margin requirement exceeds hypothetical account equity.')
+    if not leverage_within_limit:
+        warnings.append('Illustrative leverage exceeds the selected cap.')
+    if stressed_loss > body.account_equity:
+        warnings.append('The selected stress scenario loses more than the assumed account equity.')
+    return {
+        **base,
+        'stressed_exit_price': body.stressed_exit_price,
+        'stressed_loss_if_filled': stressed_loss,
+        'stressed_risk_percent': stressed_risk_percent,
+        'stressed_loss_within_budget': stress_within_budget,
+        'assumed_margin_required': assumed_margin,
+        'assumed_margin_covered_by_equity': margin_covered,
+        'assumed_effective_leverage': effective_leverage,
+        'within_user_leverage_cap': leverage_within_limit,
+        'all_hypothetical_limits_pass': all_checks,
+        'may_execute_real_order': False,
+        'may_execute_paper_order': False,
+        'quote_verified': False,
+        'warnings': warnings,
+    }
+
+
+
+class OrderGatePreview(Strict):
+    """Owner-declared quote/risk assumptions; NOT a live order authorisation."""
+    risk: StressPreview
+    controls: OrderGateContext
+
+
+def calculate_order_gate_preview(body: OrderGatePreview, now_ms: int) -> dict:
+    """No writes, orders, broker requests, secrets or quote authentication."""
+    stress = calculate_stress_preview(body.risk)
+    gate = evaluate_gate(body.controls, now_ms)
+    quote = body.controls.quote
+    checks = dict(gate['checks'])
+    checks['instrument_matches_order'] = (
+        quote.instrument == body.risk.symbol
+        and body.controls.expected_instrument == body.risk.symbol
+    )
+    # A hypothetical market entry may be worse than the current bid/ask, but
+    # must never claim a more favorable entry than the owner-declared quote.
+    checks['entry_not_optimistic_vs_quote'] = (
+        body.risk.entry_price >= quote.ask if body.risk.direction == 'BUY'
+        else body.risk.entry_price <= quote.bid
+    )
+    checks['hypothetical_stress_limits'] = stress['all_hypothetical_limits_pass']
+    # A new order can breach a daily loss cap even when losses so far have
+    # not reached it. Include the stressed hypothetical loss in the check.
+    # Do not ignore other open positions' unrealized losses and incremental
+    # reserved downside when projecting the account-wide daily loss.
+    existing_daily_pnl = gate['effective_daily_pnl_after_existing_risk_cash']
+    projected_daily_pnl = (
+        existing_daily_pnl - stress['stressed_loss_if_filled']
+        if existing_daily_pnl is not None else float('nan')
+    )
+    checks['projected_daily_loss_within_cap'] = (
+        math.isfinite(projected_daily_pnl)
+        and projected_daily_pnl > -body.controls.max_daily_loss_cash
+    )
+    checks['documented_account_api_support'] = body.risk.broker != 'Trading212-CFD'
+    # Per-order margin/leverage checks cannot account for other positions.
+    # This conservative portfolio preview adds owner-declared existing gross
+    # exposure and reserved margin. The default zero means UNKNOWN, not
+    # verified absence of other positions.
+    reserved_margin = body.controls.other_positions_reserved_margin_cash
+    existing_gross = body.controls.other_positions_gross_notional_cash
+    proposed_margin = stress['assumed_margin_required']
+    proposed_gross = stress['estimated_exposure']
+    combined_margin = reserved_margin + proposed_margin
+    combined_gross = existing_gross + proposed_gross
+    combined_leverage = combined_gross / body.risk.account_equity
+    # Detect both overflow and lost positive increments due to float rounding:
+    # a new order must not disappear when added to a large existing exposure.
+    margin_arithmetic_ok = math.isfinite(combined_margin) and combined_margin > reserved_margin
+    notional_arithmetic_ok = (math.isfinite(combined_gross)
+                              and combined_gross > existing_gross
+                              and math.isfinite(combined_leverage)
+                              and combined_leverage > 0)
+    checks['portfolio_margin_arithmetic_valid'] = margin_arithmetic_ok
+    checks['portfolio_gross_arithmetic_valid'] = notional_arithmetic_ok
+    checks['portfolio_margin_within_equity'] = (
+        margin_arithmetic_ok and combined_margin <= body.risk.account_equity
+    )
+    checks['portfolio_gross_leverage_within_cap'] = (
+        notional_arithmetic_ok and combined_leverage <= body.risk.max_leverage
+    )
+    # Trading 212's official public API covers cash Invest/Stocks ISA only.
+    # A SELL entry with a protective stop above entry represents opening a
+    # short; this preview does not model reducing a verified long holding.
+    # For a proposed BUY, require full account-equity coverage of total gross
+    # exposure even if the owner supplied a looser leverage/margin assumption.
+    # These checks are conservative declarations, NOT authenticated buying power.
+    cash_account = body.risk.broker in ('Trading212-Invest', 'Trading212-StocksISA')
+    checks['cash_account_no_short_entry'] = (
+        not cash_account or body.risk.direction == 'BUY'
+    )
+    checks['cash_account_gross_fully_funded'] = (
+        not cash_account or (
+            notional_arithmetic_ok and combined_gross <= body.risk.account_equity
+        )
+    )
+    gate.update(
+        checks=checks,
+        failed_checks=[key for key, ok in checks.items() if not ok],
+        assumption_checks_pass=all(checks.values()),
+        server_evaluated_at_ms=now_ms,
+        hypothetical_risk={
+            'estimated_loss_if_filled_at_stop': stress['estimated_loss_if_filled_at_stop'],
+            'stressed_loss_if_filled': stress['stressed_loss_if_filled'],
+            'assumed_margin_required': stress['assumed_margin_required'],
+            'all_hypothetical_limits_pass': stress['all_hypothetical_limits_pass'],
+        },
+        account_wide_daily_loss_scenario={
+            'realized_pnl_cash': body.controls.daily_realized_pnl_cash,
+            'unrealized_loss_cash': min(body.controls.daily_unrealized_pnl_cash, 0.0),
+            'other_positions_reserved_stress_loss_cash': (
+                body.controls.other_positions_reserved_stress_loss_cash
+            ),
+            'effective_pnl_before_proposed_order_cash': existing_daily_pnl,
+            'projected_pnl_after_proposed_stress_cash': (
+                projected_daily_pnl if math.isfinite(projected_daily_pnl) else None
+            ),
+        },
+        portfolio_exposure_scenario={
+            'other_positions_reserved_margin_cash': reserved_margin,
+            'other_positions_gross_notional_cash': existing_gross,
+            'proposed_margin_cash': proposed_margin,
+            'proposed_gross_notional_cash': proposed_gross,
+            'combined_margin_cash': combined_margin if math.isfinite(combined_margin) else None,
+            'combined_gross_notional_cash': combined_gross if math.isfinite(combined_gross) else None,
+            'combined_gross_leverage': combined_leverage if math.isfinite(combined_leverage) else None,
+            'inputs_broker_verified': False,
+        },
+        broker_connection_verified=False,
+        may_execute_real_order=False,
+        may_execute_paper_order=False,
+        warnings=gate['warnings'] + [
+            'Even a fully passing preview uses owner-declared inputs, not a signed provider feed.',
+            'The broker is NOT connected; per-order owner confirmation and a durable, atomic kill switch are not implemented.',
+            'Portfolio gross exposure and margin reservations are owner-declared; defaults of zero do not verify that the account has no other positions.',
+        ],
+    )
+    return gate
 
 def build_router(owner):
     router = APIRouter(prefix='/api/broker', tags=['Broker Readiness'])
@@ -102,6 +308,21 @@ def build_router(owner):
     def order_risk_preview(body: OrderPreview, auth=Depends(owner)):
         try:
             return calculate_preview(body)
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from None
+
+    @router.post('/stress-preview')
+    def stress_preview(body: StressPreview, auth=Depends(owner)):
+        try:
+            return calculate_stress_preview(body)
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from None
+
+
+    @router.post('/order-gate-preview')
+    def order_gate_preview(body: OrderGatePreview, auth=Depends(owner)):
+        try:
+            return calculate_order_gate_preview(body, time.time_ns() // 1_000_000)
         except ValueError as exc:
             raise HTTPException(422, str(exc)) from None
 
