@@ -117,7 +117,12 @@ export function planPurgedHoldout(archives: ArchiveLineage[], observations: Outc
     // Conservative: no features from before the evaluation segment are allowed.
     if (o.featureStart < lower) {excluded.push({id:o.id,reason:'CROSS_BOUNDARY_FEATURES'});continue;}
     // Labels must be fully known *before* the segment ends, plus a fixed purge/embargo.
-    if (o.labelAvailableAt > upper - embargoSeconds) {excluded.push({id:o.id,reason:'EMBARGO_OR_UNSETTLED'});continue;}
+    // Even with zero embargo, a label becoming available at the next segment's
+    // first instant is NOT known inside the previous segment. An archive can
+    // span multiple segments, so archive-end checks alone are insufficient.
+    if (o.labelAvailableAt >= upper || o.labelAvailableAt > upper - embargoSeconds) {
+      excluded.push({id:o.id,reason:'EMBARGO_OR_UNSETTLED'});continue;
+    }
     eligible[partition].push(o.id);
   }
   if (!eligible.development.length || !eligible.validation.length || !eligible.holdout.length)
