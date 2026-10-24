@@ -2,7 +2,7 @@
 
 import {useEffect,useState} from 'react';
 import {appendArchiveListing,fetchArchiveListingPage,type ArchiveListing} from '../lib/archive-discovery';
-import {screenCrtHypotheses,type ScreenResult,type Gate} from '../lib/crt-quant-filters';
+import {screenCrtHypotheses,completeAggregateWindow,type ScreenResult,type Gate} from '../lib/crt-quant-filters';
 import type {Bar} from '../lib/research';
 
 type API=(path:string,init?:RequestInit)=>Promise<any>;
@@ -62,11 +62,13 @@ export default function CrtResearch({api,pages}:{api:API;pages:boolean}){
    }));
    const hashes=new Set(pages.map(p=>p.dataset.archive_sha256));
    if(hashes.size!==1)throw Error('Timeframes belong to different archive versions; refusing to mix');
-   const fifteen=pages[1].candles;
+   const fifteenWindow=completeAggregateWindow(pages[1].candles,900);
+   const fourHourWindow=completeAggregateWindow(pages[0].candles,14400);
+   const fifteen=fifteenWindow.bars;
    if(fifteen.length<40)throw Error('At least 40 observed 15-minute bars are needed to review CRT confirmation');
    // Ignore sweep references outside the available 15m time window.
    const cutoff=fifteen[0].time-2*14400;
-   const h4=pages[0].candles.filter(b=>b.time>=cutoff);
+   const h4=fourHourWindow.bars.filter(b=>b.time>=cutoff);
    const report=screenCrtHypotheses({
     source:{datasetId:selected,archiveSha256:pages[0].dataset.archive_sha256,
      instrument:archive.instrument,provider:archive.provider,priceSide:'bid',
@@ -76,7 +78,9 @@ export default function CrtResearch({api,pages}:{api:API;pages:boolean}){
    });
    setResult(report);
    setCoverage('Loaded '+h4.length+' 4H, '+fifteen.length+' 15m, and '+pages[2].candles.length+
-    ' 1D aggregate bars from one archive. '+(pages.some(p=>p.has_more)?
+    ' 1D aggregate bars from one archive. Excluded '+
+    (fourHourWindow.excludedBoundaryBars+fifteenWindow.excludedBoundaryBars)+
+    ' incomplete 4H/15m boundary buckets (not synthesized). '+(pages.some(p=>p.has_more)?
     'At least one timeframe is a capped recent window.':'No older pages reported for these requests.'));
   }catch(e){setStatus(e instanceof Error?e.message:String(e))}
   finally{setBusy(false)}
