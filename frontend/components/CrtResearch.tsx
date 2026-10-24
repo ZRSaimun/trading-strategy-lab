@@ -116,7 +116,7 @@ export default function CrtResearch({api,pages}:{api:API;pages:boolean}){
   <button className="primary" disabled={busy||discoveryBusy||!selected} onClick={()=>void run()}>
    {busy?'Comparing completed multi-timeframe candles…':'Run 4H CRT research screen'}
   </button>
-  <p>Method: adjacent fully observed UTC 4H candles; manipulation closes back within Candle 1; proposed 40% maximum sweep depth. Only after Candle 2 closes, find the first 15m directional swing break in the next 4H block and compare its range with the preceding 20 complete 15m bars. Daily trend uses only earlier completed daily closes.</p>
+  <p>Method: adjacent fully observed UTC 4H candles; manipulation closes back within Candle 1; proposed 40% maximum sweep depth. Only after Candle 2 closes, find the first 15m directional swing break in the next 4H block and compare its range with the preceding 20 complete 15m bars. Daily trend uses only earlier UTC daily candles with all 1,440 source minutes observed; partial or shortened days are excluded without a verified session calendar.</p>
   <p>Volume and 4H order-block evidence are **not automatically trusted** from HistData BID-only archives. A high-impact news/calendar gate cannot pass without authorized, timestamped economic events. No research candidate can authorize execution.</p>
   {status&&<p role="alert" className="error">{status}</p>}
   {result&&<>
