@@ -22,23 +22,33 @@ const mean=(xs:ForecastRecord[])=>xs.reduce((sum,r)=>sum+(r.probability-Number(r
  * than treating overlapping h>1 outcomes as independent samples. A missing
  * aligned forecast or voided interval prevents a two-window comparison.
  */
-export function reviewForwardCalibration(records:readonly ForecastRecord[],identity:FeedIdentity,modelVersion:string,horizon:1|3|12,window=20):ForecastReview{
+export function reviewForwardCalibration(records:readonly ForecastRecord[],identity:FeedIdentity,modelVersion:string,horizon:1|3|12,asOf:number,window=20):ForecastReview{
  if(!modelVersion.trim()||modelVersion.length>80||![1,3,12].includes(horizon)||
     !Number.isSafeInteger(identity.seconds)||identity.seconds<60||identity.seconds%60!==0||
-    !Number.isSafeInteger(window)||window<10||window>500||records.length>50000)
+    !epoch(asOf)||!Number.isSafeInteger(window)||window<10||window>500||records.length>50000)
   throw Error('Invalid forecast review configuration');
  const expected=sourceKey(identity),matching:ForecastRecord[]=[];
  const bases=new Set<number>();
  for(const r of records){
   if(sourceKey(r)!==expected)throw Error('Mixed or mismatched forecast source');
   if(r.modelVersion!==modelVersion||r.horizon!==horizon)continue;
+  const baseClose=r.baseStart+identity.seconds;
+  const firstNextClose=r.baseStart+2*identity.seconds;
+  const targetClose=r.targetStart+identity.seconds;
   if(!epoch(r.baseStart)||r.baseStart%identity.seconds!==0||
+     !epoch(baseClose)||!epoch(firstNextClose)||
      !epoch(r.targetStart)||r.targetStart!==r.baseStart+horizon*identity.seconds||
-     !epoch(r.issuedAt)||r.issuedAt<r.baseStart+identity.seconds||r.issuedAt>=r.baseStart+2*identity.seconds||!Number.isFinite(r.probability)||r.probability<=0||r.probability>=1||
+     !epoch(targetClose)||!epoch(r.issuedAt)||r.issuedAt<baseClose||
+     r.issuedAt>=firstNextClose||r.issuedAt>asOf||
+     !Number.isFinite(r.baseClose)||r.baseClose<=0||
+     !Number.isFinite(r.probability)||r.probability<=0||r.probability>=1||
      !['PENDING','SETTLED','VOID_GAP'].includes(r.status)||
-     (r.status==='SETTLED'&&(!epoch(r.resolvedAt!)||r.resolvedAt!<r.targetStart+identity.seconds||typeof r.outcomeUp!=='boolean'))||
-     (r.status!=='SETTLED'&&r.outcomeUp!==null))
-   throw Error('Malformed forward forecast record');
+     (r.status==='SETTLED'&&(!epoch(r.resolvedAt!)||r.resolvedAt!<targetClose||
+       r.resolvedAt!<r.issuedAt||r.resolvedAt!>asOf||typeof r.outcomeUp!=='boolean'))||
+     (r.status==='PENDING'&&(r.resolvedAt!==null||r.outcomeUp!==null))||
+     (r.status==='VOID_GAP'&&(!epoch(r.resolvedAt!)||r.resolvedAt!<r.issuedAt||
+       r.resolvedAt!>asOf||r.outcomeUp!==null)))
+   throw Error('Malformed or future-dated forward forecast record');
   if(bases.has(r.baseStart))throw Error('Duplicate model/horizon base candle');
   bases.add(r.baseStart);
   if(r.baseStart/identity.seconds%horizon===0)matching.push(r);
@@ -48,6 +58,8 @@ export function reviewForwardCalibration(records:readonly ForecastRecord[],ident
  const insufficient=(reason:string):ForecastReview=>({status:'INSUFFICIENT',modelVersion,horizon,
   selected:matching.length,required,earlierBrier:null,recentBrier:null,
   deltaBrier:null,latestTargetClose:null,reasons:[reason]});
+ if(matching.some(r=>r.status==='PENDING'&&r.targetStart+identity.seconds<=asOf))
+  return insufficient('Unresolved forecast past its target candle close.');
  if(matching.length<required)return insufficient('Insufficient UTC-phase-aligned forward forecasts.');
  const selected=matching.slice(-required);
  for(let i=0;i<selected.length;i++){
@@ -75,8 +87,8 @@ export class ForecastReviewOutbox{
  constructor(identity:FeedIdentity,modelVersion:string,horizon:1|3|12,window=20){
   this.identity={...identity};this.modelVersion=modelVersion;this.horizon=horizon;this.window=window;
  }
- evaluate(records:readonly ForecastRecord[]):ForecastReviewCandidate[]{
-  const review=reviewForwardCalibration(records,this.identity,this.modelVersion,this.horizon,this.window);
+ evaluate(records:readonly ForecastRecord[],asOf:number):ForecastReviewCandidate[]{
+  const review=reviewForwardCalibration(records,this.identity,this.modelVersion,this.horizon,asOf,this.window);
   if(review.status!=='REVIEW'||review.latestTargetClose===null||review.earlierBrier===null||
      review.recentBrier===null||review.deltaBrier===null)return [];
   const id=JSON.stringify([sourceKey(this.identity),this.modelVersion,this.horizon,review.latestTargetClose]);
