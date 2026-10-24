@@ -14,6 +14,8 @@ export type ForecastRecord={
  resolvedAt:number|null;outcomeUp:boolean|null;reason:string|null;
 };
 export type ForecastSummary={issued:number;pending:number;settled:number;voidGap:number;brier:number|null;logLoss:number|null;referenceBrier:number|null};
+/** Separate model versions and horizons; pooling these can conceal model failure. */
+export type ModelHorizonSummary={modelVersion:string;horizon:1|3|12;summary:ForecastSummary};
 
 const finite=(n:number)=>Number.isFinite(n);
 const validEpoch=(n:number)=>Number.isSafeInteger(n)&&n>=0;
@@ -112,5 +114,21 @@ export class ForwardForecastLedger{
   return {1:summarize(entries.filter(e=>e.horizon===1)),
           3:summarize(entries.filter(e=>e.horizon===3)),
           12:summarize(entries.filter(e=>e.horizon===12))};
+ }
+ /** Never pool differently versioned forecasting models in performance reports. */
+ summaryByModelAndHorizon():ModelHorizonSummary[]{
+  const groups=new Map<string,{modelVersion:string;horizon:1|3|12;records:ForecastRecord[]}>();
+  for(const record of this.forecasts.values()){
+   const groupKey=JSON.stringify([record.modelVersion,record.horizon]);
+   let group=groups.get(groupKey);
+   if(!group){
+    group={modelVersion:record.modelVersion,horizon:record.horizon,records:[]};
+    groups.set(groupKey,group);
+   }
+   group.records.push(record);
+  }
+  return [...groups.values()]
+   .sort((a,b)=>a.modelVersion===b.modelVersion?a.horizon-b.horizon:a.modelVersion<b.modelVersion?-1:1)
+   .map(({modelVersion,horizon,records})=>({modelVersion,horizon,summary:summarize(records)}));
  }
 }
