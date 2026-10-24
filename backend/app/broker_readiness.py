@@ -77,6 +77,76 @@ def calculate_preview(body: OrderPreview) -> dict:
     }
 
 
+
+class StressPreview(OrderPreview):
+    """Additional owner-provided assumptions for a conservative hypothetical scenario.
+
+    This is NOT a broker margin check, worst-case guarantee, or executable quote.
+    """
+    stressed_exit_price: float = Field(gt=0)
+    margin_requirement_percent: float = Field(gt=0, le=100)
+    max_leverage: float = Field(gt=0, le=100)
+
+    @model_validator(mode='after')
+    def validate_stressed_exit(self):
+        if self.direction == 'BUY' and self.stressed_exit_price >= self.stop_price:
+            raise ValueError('A BUY stressed exit must be strictly below the protective stop')
+        if self.direction == 'SELL' and self.stressed_exit_price <= self.stop_price:
+            raise ValueError('A SELL stressed exit must be strictly above the protective stop')
+        return self
+
+
+def calculate_stress_preview(body: StressPreview) -> dict:
+    """Fail-closed, zero-side-effect stress, leverage and margin assumptions."""
+    base = calculate_preview(body)
+    stressed_distance = abs(body.entry_price - body.stressed_exit_price)
+    stressed_loss = stressed_distance * body.quantity * body.point_value + body.estimated_total_cost
+    notional = body.entry_price * body.quantity * body.point_value
+    assumed_margin = notional * body.margin_requirement_percent / 100
+    effective_leverage = notional / body.account_equity
+    stressed_risk_percent = 100 * stressed_loss / body.account_equity
+    values = (stressed_loss, notional, assumed_margin, effective_leverage, stressed_risk_percent)
+    if not all(math.isfinite(x) and x >= 0 for x in values):
+        raise ValueError('Stress calculation overflowed')
+
+    # Compare with the unrounded cash budget to avoid approval near a rounding boundary.
+    stress_within_budget = stressed_loss <= body.account_equity * body.risk_budget_percent / 100
+    margin_covered = assumed_margin <= body.account_equity
+    leverage_within_limit = effective_leverage <= body.max_leverage
+    all_checks = (base['within_user_risk_budget'] and stress_within_budget
+                  and margin_covered and leverage_within_limit)
+    warnings = list(base['warnings'])
+    warnings.extend([
+        'Stressed exit is user-supplied; worse gaps, partial fills, spread widening and outages can cause larger losses.',
+        'Margin percentage and leverage cap are user assumptions, NOT broker-verified rules or liquidation estimates.',
+        'Estimated notional and margin depend on exact contract value and account-currency conversion.',
+    ])
+    if not stress_within_budget:
+        warnings.append('The stressed stop-gap loss exceeds the specified risk budget.')
+    if not margin_covered:
+        warnings.append('Illustrative margin requirement exceeds hypothetical account equity.')
+    if not leverage_within_limit:
+        warnings.append('Illustrative leverage exceeds the selected cap.')
+    if stressed_loss > body.account_equity:
+        warnings.append('The selected stress scenario loses more than the assumed account equity.')
+    return {
+        **base,
+        'stressed_exit_price': body.stressed_exit_price,
+        'stressed_loss_if_filled': round(stressed_loss, 4),
+        'stressed_risk_percent': round(stressed_risk_percent, 4),
+        'stressed_loss_within_budget': stress_within_budget,
+        'assumed_margin_required': round(assumed_margin, 4),
+        'assumed_margin_covered_by_equity': margin_covered,
+        'assumed_effective_leverage': round(effective_leverage, 4),
+        'within_user_leverage_cap': leverage_within_limit,
+        'all_hypothetical_limits_pass': all_checks,
+        'may_execute_real_order': False,
+        'may_execute_paper_order': False,
+        'quote_verified': False,
+        'warnings': warnings,
+    }
+
+
 def build_router(owner):
     router = APIRouter(prefix='/api/broker', tags=['Broker Readiness'])
 
@@ -102,6 +172,13 @@ def build_router(owner):
     def order_risk_preview(body: OrderPreview, auth=Depends(owner)):
         try:
             return calculate_preview(body)
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from None
+
+    @router.post('/stress-preview')
+    def stress_preview(body: StressPreview, auth=Depends(owner)):
+        try:
+            return calculate_stress_preview(body)
         except ValueError as exc:
             raise HTTPException(422, str(exc)) from None
 
