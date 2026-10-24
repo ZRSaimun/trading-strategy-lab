@@ -21,6 +21,8 @@ test('NY equity regular session filter respects January and July US daylight tim
  assert.equal(isNyRegularSessionMinute(july),true);
  assert.equal(isNyRegularSessionMinute(july-60),false);
  assert.equal(isNyRegularSessionMinute(july+390*60),false);
+ // US equity exchange is closed on Saturdays; do not infer weekend RTH.
+ assert.equal(isNyRegularSessionMinute(t(10,14,30)),false);
 });
 test('scans older page through off-session data without pretending all minutes were tradable',async()=>{
  const seen:Array<[number|null,number]>=[];
