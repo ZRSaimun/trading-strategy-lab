@@ -28,8 +28,9 @@ export function labelCausalHourlyVolatility(
   throw Error('Exact source and instrument identity required');
  if(!Array.isArray(bars)||bars.length>1_000_000)
   throw Error('Bounded hourly candle input required');
- for(let i=1;i<bars.length;i++)
-  if(!Number.isSafeInteger(bars[i].time)||bars[i].time<=bars[i-1].time)
+ for(let i=0;i<bars.length;i++)
+  if(!Number.isSafeInteger(bars[i].time)||bars[i].time<0||
+     (i>0&&bars[i].time<=bars[i-1].time))
    throw Error('Duplicate, unordered or invalid hourly timestamp');
  const segments=validStructureSegments(bars,'1H');
  const tr=new Array<number>(bars.length).fill(NaN);
