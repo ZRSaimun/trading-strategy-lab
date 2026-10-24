@@ -5,7 +5,7 @@ This module is **not an order execution service**. `backend/app/paper_risk_reser
 ## Safety properties
 
 - A new account starts with a persistent **kill switch ON**, a zero cap and no reservations. A missing, corrupt or stale account record is not trading permission.
-- Each account has a single revision-controlled `Record` and an `Audit` row committed in the **same database transaction**. A conditional SQL UPDATE compares the complete previous record, rejecting stale concurrent writers. Initial creation relies on the unique primary key.
+- Each account has a single revision-controlled `Record` and an operation-tagged `Audit` row committed in the **same database transaction**. Audit actors are recorded as `paper-risk-store`, **not** an authenticated owner identity; no authentication has been established by this module. A conditional SQL UPDATE compares the complete previous record, rejecting stale concurrent writers. Initial creation relies on the unique primary key.
 - Stressed cash-risk reservations use exact `Decimal` arithmetic from restricted decimal strings (maximum eight fractional places); no floating-point budget rounding. The sum cannot exceed the **owner-reviewed PAPER reservation cap**.
 - Hashed client-order IDs remain in the account record, including after process restarts. Duplicates are rejected. At 500 IDs, the account fails closed rather than pruning history and accidentally accepting a replay.
 - `engage_kill_switch` retries competing revisions up to 20 times. If the write cannot be confirmed, the caller must stop accepting orders and escalate. It never treats a failed write as successful.
