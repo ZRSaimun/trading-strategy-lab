@@ -35,6 +35,9 @@ export class PaperExecutionLedger {
   private readonly orders = new Map<string, PaperOrder>();
   private lastObservedAt = -1;
   private lastReceivedAt = -1;
+  // All mutating events share a received/action-time clock, not only quotes.
+  // Otherwise a future-dated cancel can incorrectly erase an earlier quote fill.
+  private lastActionAt = -1;
   private readonly events: PaperEvent[] = [];
   readonly identity: PaperIdentity;
   constructor(identity: PaperIdentity) {
@@ -55,7 +58,7 @@ export class PaperExecutionLedger {
     if (!validId(request.clientOrderId) || request.instrument !== this.identity.instrument ||
         (request.side !== 'BUY' && request.side !== 'SELL') || !positive(request.units) ||
         !timestamp(request.submittedAt) || !timestamp(request.expiresAt) ||
-        request.expiresAt <= request.submittedAt || request.submittedAt < this.lastReceivedAt ||
+        request.expiresAt <= request.submittedAt || request.submittedAt < this.lastActionAt ||
         !positive(request.stop) || !positive(request.target) ||
         !nonnegative(request.maxSpread) || !nonnegative(request.maxQuoteAgeSeconds) ||
         !positive(request.maxStopRiskCurrency) || !nonnegative(request.adverseSlippagePerSide) ||
@@ -66,14 +69,16 @@ export class PaperExecutionLedger {
     const copy = {...request};
     this.requests.set(copy.clientOrderId, copy);
     this.orders.set(copy.clientOrderId, {...copy, status:'PENDING'});
+    this.lastActionAt = copy.submittedAt;
     return this.get(copy.clientOrderId)!;
   }
   /** Cancellation is a simulated local transition, not a broker request. */
   cancel(id: string, at: number): PaperOrder {
     const order = this.orders.get(id);
     if (!order) throw Error('Unknown paper order');
-    if (!timestamp(at) || at < order.submittedAt || at < this.lastReceivedAt) throw Error('Retroactive cancellation');
+    if (!timestamp(at) || at < order.submittedAt || at < this.lastActionAt) throw Error('Retroactive cancellation');
     if (order.status !== 'PENDING') throw Error('Only pending paper orders can be canceled');
+    this.lastActionAt = at;
     order.status = 'CANCELED'; order.reason = 'Owner simulated cancellation';
     this.events.push({orderId:id,status:'CANCELED',reason:order.reason,at});
     return this.get(id)!;
@@ -84,10 +89,11 @@ export class PaperExecutionLedger {
         quote.venue !== this.identity.venue) throw Error('Quote source identity mismatch');
     if (!timestamp(quote.observedAt) || !timestamp(quote.receivedAt) ||
         quote.observedAt > quote.receivedAt || quote.observedAt <= this.lastObservedAt ||
-        quote.receivedAt < this.lastReceivedAt || !positive(quote.bid) ||
+        quote.receivedAt < this.lastActionAt || !positive(quote.bid) ||
         !positive(quote.ask) || quote.ask < quote.bid) throw Error('Invalid, future or non-monotonic bid/ask quote');
     this.lastObservedAt = quote.observedAt;
     this.lastReceivedAt = quote.receivedAt;
+    this.lastActionAt = quote.receivedAt;
     const changes: PaperEvent[] = [];
     const emit = (o: PaperOrder, reason: string) => {
       o.reason = reason;
