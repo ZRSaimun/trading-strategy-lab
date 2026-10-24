@@ -48,4 +48,6 @@ test('weekly bucket alignment uses exchange-agnostic UTC sequence, not a calenda
  assert.equal(result.unobservedSpans,1);
  assert.equal(result.unobservedBuckets,1);
  assert.equal(result.partialBuckets,null);
+ assert.equal(summarizeHistoricalQuality([candle(monday+3600)],'1W').invalidBars,1);
+ assert.equal(summarizeHistoricalQuality([candle(1704153600)],'1M').invalidBars,1);
 });
