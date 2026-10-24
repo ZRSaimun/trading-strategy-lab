@@ -54,11 +54,15 @@ def attach(owner,audit):
         if not _import_lock.acquire(blocking=False):raise HTTPException(409,'Another import is in progress.')
         try:
             if time.monotonic()-_last_attempt<60:raise HTTPException(429,'Wait at least 60 seconds between provider requests.')
-            _last_attempt=time.monotonic()
+            request_started_monotonic=time.monotonic()
+            _last_attempt=request_started_monotonic
             try:rows,archive=await retrieve(key,body.instrument,body.limit,body.end,now)
             except ProviderError as e:raise HTTPException(e.status,str(e)) from None
-            # Record assessment after the provider response, not at request start.
-            quality=assess_completed_m1(rows,int(time.time()))
+            # Wall clock identifies when the server received the response; monotonic
+            # elapsed time measures the request independently of wall-clock changes.
+            response_received_at=int(time.time())
+            request_elapsed_ms=max(0,int((time.monotonic()-request_started_monotonic)*1000))
+            quality=assess_completed_m1(rows,response_received_at)
             digest=hashlib.sha256(archive).hexdigest()
             # Not web-served: archive is a vetted source-field snapshot, never a credential file.
             directory=Path(os.getenv('MARKET_ARCHIVE_DIR','./data/market-archive'))
@@ -71,7 +75,10 @@ def attach(owner,audit):
             except OSError:raise HTTPException(503,'Cannot archive provider data; database unchanged.') from None
             source='Twelve Data · '+MAPPINGS[body.instrument]['symbol']+' · authorized historical API'
             manifest={'source':source,'provider':'twelvedata','provider_symbol':MAPPINGS[body.instrument]['symbol'],
-                      'retrieved_at':now,'sha256':digest,'hash_scope':'vetted source-field snapshot','volume_type':'none',
+                      'retrieved_at':now,'request_started_at':now,
+                      'response_received_at':response_received_at,'request_elapsed_ms':request_elapsed_ms,
+                      'receipt_clock':'server_wall_utc','elapsed_clock':'server_monotonic',
+                      'sha256':digest,'hash_scope':'vetted source-field snapshot','volume_type':'none',
                       'rows':len(rows),'start':rows[0]['time'],'end':rows[-1]['time'],
                       'gaps':sum(b['time']-a['time']>60 for a,b in zip(rows,rows[1:])),
                       'quality':quality,
