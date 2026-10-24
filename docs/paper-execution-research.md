@@ -45,3 +45,7 @@ The separate [paper cashflow reconciler](paper-cashflow-reconciliation.md) can a
 ## Assumed maintenance margin stress (experimental)
 
 The independent [paper margin scenario assessor](paper-margin-scenarios.md) marks an OPEN paper position using externally supplied bid/ask quotes and explicit cash-equity/maintenance assumptions. It flags hypothetical negative headroom but does not execute a liquidation or claim to reproduce any broker's margin policy. Eight synthetic tests cover source/time validation, long/short gaps and financing.
+
+## Replay-verifiable paper checkpoint (experimental)
+
+See [paper replay journal and persistence contract](paper-replay-journal.md). It records all accepted paper actions and quote events, verifies restored state by deterministic replay, and provides an atomic compare-and-swap storage interface. The only tested store is an in-memory fake: no production database adapter or UI integration is active, and tamper-proof quote provenance is not established. No live orders are supported.
