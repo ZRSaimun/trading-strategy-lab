@@ -114,3 +114,45 @@ test('rejected time-travel events do not advance the paper event clock',()=>{
  l.submit(req({clientOrderId:'paper-002',submittedAt:200,expiresAt:500}));
  assert.deepEqual(l.onQuote(q(201)).map(e=>e.status),['OPEN']);
 });
+
+
+test('impossible adverse gap fill never creates a negative executable price or closes the paper position',()=>{
+ const l=new PaperExecutionLedger(identity);
+ l.submit(req());
+ assert.deepEqual(l.onQuote(q(101)).map(e=>e.status),['OPEN']);
+ const before=l.get('paper-001');
+ // A quoted positive bid smaller than the fixed adverse slippage would
+ // otherwise manufacture a negative fill price.
+ assert.throws(()=>l.onQuote(q(102,0.05,0.06)),/Invalid hypothetical exit price/);
+ assert.deepEqual(l.get('paper-001'),before);
+ assert.deepEqual(l.history().map(e=>e.status),['OPEN']);
+ // The rejected event did not advance the clock: a corrected quote at the
+ // same timestamp may still close the simulated position.
+ assert.deepEqual(l.onQuote(q(102,98,98.2)).map(e=>e.status),['CLOSED']);
+ assert.ok(l.get('paper-001')!.exit!>0);
+});
+
+test('overflowing paper P&L cannot settle as Infinity or consume the quote timestamp',()=>{
+ const huge={...identity,pointValue:1e308};
+ const l=new PaperExecutionLedger(huge);
+ l.submit(req({units:1,stop:99.9,target:1e308,maxStopRiskCurrency:1e308,commissionPerUnitSide:0}));
+ assert.deepEqual(l.onQuote(q(101)).map(e=>e.status),['OPEN']);
+ const before=l.get('paper-001');
+ // Stop risk is finite, but a target at the edge of finite price range
+ // multiplies to non-finite gross P&L.
+ assert.throws(()=>l.onQuote(q(102,1e308,1e308)),/Non-finite paper exit arithmetic/);
+ assert.deepEqual(l.get('paper-001'),before);
+ assert.deepEqual(l.history().map(e=>e.status),['OPEN']);
+ assert.deepEqual(l.onQuote(q(102,99,99.2)).map(e=>e.status),['CLOSED']);
+ assert.ok(Number.isFinite(l.get('paper-001')!.pnl));
+});
+
+test('underflowed initial stop risk is not accepted as zero-risk exposure',()=>{
+ const l=new PaperExecutionLedger({...identity,pointValue:Number.MIN_VALUE});
+ l.submit(req({units:Number.MIN_VALUE,commissionPerUnitSide:0,maxStopRiskCurrency:1}));
+ assert.deepEqual(l.onQuote(q(101)).map(e=>e.status),['REJECTED']);
+ const o=l.get('paper-001')!;
+ assert.equal(o.status,'REJECTED');
+ assert.equal(o.entry,undefined);
+ assert.match(o.reason||'',/unrepresentable/);
+});
