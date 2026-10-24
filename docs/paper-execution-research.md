@@ -15,6 +15,7 @@ Orders have unique client IDs, exact instrument, BUY/SELL side, fractional resea
 - Paper BUY enters at ask + assumed adverse slippage; SELL enters at bid - assumed adverse slippage. An invalid bracket or a hypothetical stop loss exceeding the configured risk cap is rejected before filling.
 - Protective exits are evaluated only on subsequent **fresh** quote events. BUY stops use bid and SELL stops use ask. If the quote gaps beyond the stop, the simulator fills at the worse observed executable side plus adverse slippage rather than assuming the stop price is guaranteed. Targets fill at the target with no favorable improvement assumed.
 - The explicit `costs` output is round-trip **commission only**; spread and slippage are embedded in simulated entry/exit prices. Financing, borrow fees, currency conversion, variable slippage, price impact, depth/partial fills, exchange calendars, margin liquidation and broker-specific contract specifications are **not** modeled.
+- **Numerical fail-closed checks:** stop-risk calculations that underflow to zero reject entry; a protective gap fill that would imply a zero/negative price, or a simulated exit with non-finite gross, commission or net P&L, raises an error and leaves the position OPEN without consuming the quote timestamp. This is not a realistic model of extreme negative-price markets or broker settlement; it is a safety boundary until contract-specific execution rules are available.
 - A stale quote does not trigger a fabricated exit. If a later fresh quote appears beyond a stop, the simulator may record a worse fill. It does not model what could have happened during missing quotes. Expiry occurs when a later quote is received; there is no background timer.
 - Closed orders cannot be changed by future quote events. State is held in memory; callers must not treat it as a durable, independently reconciled brokerage ledger.
 
@@ -26,7 +27,7 @@ From `frontend/` run:
 node --experimental-strip-types --test tests/paper-execution.test.ts
 ```
 
-Thirteen deterministic tests cover quote freshness, causality, adverse BUY/SELL gap exits, quote-source isolation, idempotent client IDs, cancellation, expiry, wide spreads, risk rejection and settled-order invariance. Existing frontend/backend/Docker/cloud CI must pass on the proposed PR before merge. No historical profitability was evaluated by these synthetic quote tests.
+Sixteen deterministic tests cover quote freshness, causality, adverse BUY/SELL gap exits, quote-source isolation, idempotent client IDs, cancellation, expiry, wide spreads, risk rejection and settled-order invariance. Existing frontend/backend/Docker/cloud CI must pass on the proposed PR before merge. No historical profitability was evaluated by these synthetic quote tests.
 
 ## Handoff and activation gates
 
