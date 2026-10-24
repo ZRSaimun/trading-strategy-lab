@@ -35,6 +35,11 @@ export async function reviewHoldoutAnchorQuorum(
   const pinned=new Map(trustedKeys.map(k=>[k.keyId,k.authority]));
   const freeze=new Set<string>(), head=new Set<string>(), seen=new Set<string>();
   const finalSequence=entries.length;
+  // A frozen protocol must be attested BEFORE validation starts, and before
+  // any recorded validation read (including an erroneously early read).
+  const firstValidationAt=entries.reduce((first,e)=>
+    e.action==='VALIDATION_ACCESS'?Math.min(first,e.occurredAt):first,
+    Number.POSITIVE_INFINITY);
   for (const anchor of anchors) {
     if (!anchor || !anchor.receipt || typeof anchor.keyId!=='string')
       throw Error('Invalid signed quorum receipt');
@@ -49,7 +54,8 @@ export async function reviewHoldoutAnchorQuorum(
     await verifySignedHoldoutAnchors(commitment,entries,[anchor],trustedKeys);
     const authority=pinned.get(anchor.keyId);
     if (!authority) throw Error('Untrusted quorum signer');
-    if (seq===0 && anchor.receipt.anchoredAt<=commitment.protocol.validationEnd)
+    if (seq===0 && anchor.receipt.anchoredAt<commitment.protocol.developmentEnd &&
+        anchor.receipt.anchoredAt<firstValidationAt)
       freeze.add(authority);
     if (seq===finalSequence)
       head.add(authority);
