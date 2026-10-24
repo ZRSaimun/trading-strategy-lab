@@ -186,30 +186,51 @@ export function screenCrtHypotheses(input:Context):ScreenResult{
   let confirm:Bar|null=null;
   const notes:string[]=[];
   if(!depthPass)notes.push('Outside wick exceeds frozen 40% reference-range hypothesis (or configured research threshold).');
-  // A 15m signal is eligible only AFTER 4H Candle 2 completed.
-  // This research hypothesis permits the following completed 4H block.
-  for(let j=20;j<fifteenMinute.length;j++){
-   const b=fifteenMinute[j];
-   if(b.time<sweepCloseAt)continue;
-   if(b.time>=sweepCloseAt+14400)break;
-   const history=fifteenMinute.slice(j-20,j);
-   if(b.time-history[0].time!==20*900)continue;
-   const span=b.high-b.low;
-   const priorRanges=history.map(x=>x.high-x.low);
-   const threshold=median(priorRanges)*displacement;
-   const bullish=observed.direction==='BULLISH';
-   const swing=history.slice(-3);
-   const shift=bullish?b.close>Math.max(...swing.map(x=>x.high))&&b.close>b.open:
-    b.close<Math.min(...swing.map(x=>x.low))&&b.close<b.open;
-   if(!shift)continue;
-   gates.structureShift='PASS';
-   gates.displacement=span>=threshold&&span>0?'PASS':'FAIL';
-   gates.volume=volumeGate(history,b,source,volumeMultiple);
-   confirm=b;
-   break; // earliest observed shift, never optimize by later outcome
+  // Only the next 16 completed 15m bars may confirm the closed 4H sweep.
+  // If the first eligible bar or any preceding bar is missing, later shifts
+  // CANNOT be cherry-picked: the earliest shift may have occurred in that gap.
+  // Conversely, a fully observed 16-bar window with no shift is an observed
+  // negative (FAIL), not missing evidence (INSUFFICIENT_DATA).
+  const firstPost=fifteenMinute.findIndex(b=>b.time>=sweepCloseAt);
+  let completeNegativeWindow=false;
+  if(firstPost>=20&&fifteenMinute[firstPost]?.time===sweepCloseAt){
+   completeNegativeWindow=true;
+   for(let offset=0;offset<16;offset++){
+    const j=firstPost+offset;
+    const b=fifteenMinute[j];
+    if(!b||b.time!==sweepCloseAt+offset*900){
+     completeNegativeWindow=false;
+     break;
+    }
+    const history=fifteenMinute.slice(j-20,j);
+    if(history.length!==20||b.time-history[0].time!==20*900){
+     completeNegativeWindow=false;
+     break;
+    }
+    const bullish=observed.direction==='BULLISH';
+    const swing=history.slice(-3);
+    const shift=bullish?b.close>Math.max(...swing.map(x=>x.high))&&b.close>b.open:
+     b.close<Math.min(...swing.map(x=>x.low))&&b.close<b.open;
+    if(!shift)continue;
+    gates.structureShift='PASS';
+    const span=b.high-b.low;
+    const threshold=median(history.map(x=>x.high-x.low))*displacement;
+    gates.displacement=span>=threshold&&span>0?'PASS':'FAIL';
+    gates.volume=volumeGate(history,b,source,volumeMultiple);
+    confirm=b;
+    break; // first observed shift; no later-best selection
+   }
   }
-  if(confirm===null)notes.push('No eligible 15-minute closed-bar swing break within the next completed 4H block; or 20 prior contiguous bars unavailable.');
-  else if(gates.displacement==='FAIL')notes.push('First qualifying shift lacks prior-20-median range displacement; later shifts are not cherry-picked.');
+  if(confirm===null){
+   if(completeNegativeWindow){
+    gates.structureShift='FAIL';
+    notes.push('All 16 following 15-minute bars and prior 20-bar windows were observed; no qualifying directional structure shift occurred.');
+   }else{
+    notes.push('Cannot determine the first 15-minute structure shift: the next 4H window or its preceding 20 contiguous bars is incomplete.');
+   }
+  }else if(gates.displacement==='FAIL'){
+   notes.push('First qualifying shift lacks prior-20-median range displacement; later shifts are not cherry-picked.');
+  }
   if(gates.volume==='INSUFFICIENT_DATA')notes.push('Verified actual volume history is missing; zero-volume HistData placeholders must not pass volume gates.');
   gates.matchingZone=zoneGate(input.zones,source,observed.direction,sweepCloseAt,confirm?.close??sweep.close);
   if(gates.matchingZone==='INSUFFICIENT_DATA')notes.push('No source-linked, causally recorded matching 4H supply/demand reference; no automatic order-block claim.');
