@@ -52,3 +52,13 @@ Synthetic regressions:
 cd backend
 PYTHONPATH=. python -m pytest -q tests/test_portfolio_risk_gate.py tests/test_order_gate.py tests/test_order_gate_api.py
 ```
+
+## Cash Invest / Stocks ISA funding and direction checks (24 October 2026)
+
+Trading 212's [official Public API](https://docs.trading212.com/api) supports Invest and Stocks ISA, **not CFDs**. Its [Invest versus CFD account guidance](https://helpcentre.trading212.com/hc/en-us/articles/360009036118-What-are-the-differences-between-CFD-and-Invest) explains that leverage is a CFD-only feature, not supported in Invest. The current risk-preview schema represents `SELL` with a protective stop **above** entry, i.e. a new short position; it does **not** represent selling already-owned shares. For the two cash-account labels, the new `cash_account_no_short_entry` check therefore rejects hypothetical SELL/short entries. A future *sell-owned-shares* workflow must first verify actual holdings, available quantity, pending sell orders and source-identified account positions; it must not bypass this check by relabelling the trade.
+
+The independent `cash_account_gross_fully_funded` check requires **existing declared gross notional plus proposed BUY notional <= declared account equity**, regardless of a looser user-entered `max_leverage` or margin percentage. This is a conservative cash-account preview and **not** a broker buying-power calculation: cash available for a purchase can be *less* than equity because of existing holdings, unsettled transactions, currency conversion, pending orders or fees. The existing portfolio-margin and gross-leverage checks still apply. Synthetic tests cover fully funded BUY, rejected short SELL, rejected apparent 1.1x gross exposure despite a 2x user cap, and continued unsupported CFD API classification.
+
+The example `XAUUSD` label in synthetic tests is **not** evidence that a commodity is available in an Invest or ISA account. Actual instrument availability, eligible equity/ETF ticker, trading currency, settlement and broker account capability must be verified from authenticated broker metadata before any real order. All previews remain stateless, unauthenticated with respect to broker balances/quotes, and **non-executing**. No live or demo orders are enabled.
+
+Test from `backend` with `PYTHONPATH=. python -m pytest -q tests/test_cash_account_gate.py`.
