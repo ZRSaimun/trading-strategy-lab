@@ -5,7 +5,7 @@
  */
 import {
  ForwardForecastLedger,
- type CompletedCandle,type FeedIdentity,type ForecastIssue,type ForecastRecord,type ForecastSummary,
+ type CompletedCandle,type FeedIdentity,type ForecastIssue,type ForecastRecord,type ForecastSummary,type ModelHorizonSummary,
 } from './forward-forecast-ledger.ts';
 
 export type ForecastJournalEvent =
@@ -83,6 +83,7 @@ export class ForwardForecastJournal{
  entries():ForecastRecord[]{return this.ledger.entries();}
  summary():ForecastSummary{return this.ledger.summary();}
  summaryByHorizon():Record<1|3|12,ForecastSummary>{return this.ledger.summaryByHorizon();}
+ summaryByModelAndHorizon():ModelHorizonSummary[]{return this.ledger.summaryByModelAndHorizon();}
  checkpoint():ForecastCheckpoint{
   return {version:1,evidence:'UNVERIFIED_LOCAL_EVENT_LOG',identity:{...this.identity},
    maxLagSeconds:this.maxLagSeconds,events:this.events.map(cloneEvent)};
