@@ -160,3 +160,61 @@ def test_empty_ready_inventory_has_stable_snapshot(tmp_path):
     repeat = client.get('/api/history/datasets', params={
         'snapshot': first.headers['x-history-snapshot']})
     assert repeat.status_code == 200 and repeat.json() == []
+
+
+def test_inventory_paging_over_200_and_ready_transition(tmp_path):
+    """Full two-page discovery must detect a concurrent READY transition.
+
+    Synthetic metadata only: no ZIP download, provider access, or prices.
+    """
+    e = create_engine('sqlite:///' + str(tmp_path / 'many-archives.db'))
+    create_schema(e)
+    rows = [
+        dict(id=f'{i:064x}', provider='HistData', instrument='XAUUSD-OTC',
+             format='ascii', utc_offset_minutes=-300,
+             archive_sha256=f'{i + 1000:064x}', archive_filename=f'{i}.zip',
+             state='READY' if i < 202 else 'IMPORTING',
+             seen=100, accepted=100, rejected=0, zero_volume=100,
+             checkpoint_member=1, checkpoint_line=0)
+        for i in range(203)
+    ]
+    with e.begin() as connection:
+        connection.execute(datasets.insert(), rows)
+
+    app = FastAPI()
+    app.include_router(attach_history(lambda: 'owner', e))
+    client = TestClient(app)
+
+    first = client.get('/api/history/datasets')
+    assert first.status_code == 200
+    assert len(first.json()) == 200
+    assert first.headers['x-history-has-more'] == 'true'
+    assert first.headers['x-history-next-offset'] == '200'
+    original = first.headers['x-history-snapshot']
+
+    last = client.get('/api/history/datasets', params={
+        'offset': 200, 'snapshot': original})
+    assert last.status_code == 200
+    assert len(last.json()) == 2
+    assert last.headers['x-history-has-more'] == 'false'
+    assert last.headers['x-history-snapshot'] == original
+    combined = first.json() + last.json()
+    assert [r['id'] for r in combined] == [f'{i:064x}' for i in range(202)]
+    assert all(r['state'] == 'READY' for r in combined)
+
+    # A previously unfinished import becoming READY changes the inventory.
+    with e.begin() as connection:
+        connection.execute(datasets.update().where(
+            datasets.c.id == f'{202:064x}').values(state='READY'))
+    assert client.get('/api/history/datasets', params={
+        'offset': 200, 'snapshot': original}).status_code == 409
+
+    fresh = client.get('/api/history/datasets')
+    assert fresh.status_code == 200
+    assert fresh.headers['x-history-snapshot'] != original
+    final = client.get('/api/history/datasets', params={
+        'offset': 200, 'snapshot': fresh.headers['x-history-snapshot']})
+    assert final.status_code == 200
+    assert len(final.json()) == 3
+    assert final.json()[-1]['id'] == f'{202:064x}'
+    assert final.headers['x-history-has-more'] == 'false'
