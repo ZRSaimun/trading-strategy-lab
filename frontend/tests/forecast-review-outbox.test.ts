@@ -31,7 +31,7 @@ test('insufficient and pending or void outcomes fail closed',()=>{
 test('non-overlapping horizon-3 phase with continuous outcomes is scored',()=>{
  const data=records(3);
  assert.equal(reviewForwardCalibration(data,identity,'v1',3).status,'REVIEW');
- data[20].baseStart+=60;data[20].targetStart+=60;data[20].resolvedAt+=60;
+ data[20].baseStart+=60;data[20].targetStart+=60;data[20].resolvedAt=data[20].resolvedAt!+60;
  assert.equal(reviewForwardCalibration(data,identity,'v1',3).status,'INSUFFICIENT');
 });
 test('source, version, horizon and duplicate candle isolation',()=>{
