@@ -47,7 +47,7 @@ export function preflightForecastReviewClaims(
   for(const event of events){
     if(event.action==='QUEUED')candidates.set(event.id,event.candidate!);
   }
-  const assessments:ForecastClaimAssessment[]=replay.entries.map(entry=>{
+  const assessments:ForecastClaimAssessment[]=replay.entries.map((entry):ForecastClaimAssessment=>{
     const candidate=candidates.get(entry.id);
     if(!candidate)throw Error('Missing replayed review candidate');
     let reason:ForecastClaimAssessment['reason'];
