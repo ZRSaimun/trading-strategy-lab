@@ -6,7 +6,7 @@ The private Twelve Data **manual historical import** records a bounded, read-onl
 
 `market_calendar_checked`, `source_authenticity_verified`, `provider_entitlement_verified`, `executable_bid_ask_verified`, `live` and `may_execute_order` remain `false`. A SHA-256 of the vetted source-field snapshot is not a signed vendor statement. Historical BID/mid OHLC bars are not an executable two-sided CFD quote or broker spread.
 
-The audit fails closed on malformed, non-UTC-minute, duplicate, out-of-order, incomplete or future timestamps. It uses only the already normalized completed-candle rows and a server-owned timestamp; no provider credentials are read by the auditor. Existing `gaps` and manifest fields remain unchanged for backwards compatibility. No database migration or new route is introduced.
+The audit fails closed on malformed, non-UTC-minute, duplicate, out-of-order, incomplete or future timestamps. It also rejects nonnumeric, NaN, infinite or internally inconsistent OHLC values, and invalid optional volume. `ohlc_invariants_checked=true` means only that numeric bar invariants were checked; it does **not** prove a vendor source, correct venue, price side or executable quote. `price_side=UNVERIFIED` remains explicit. It uses only the already normalized completed-candle rows and a server-owned timestamp; no provider credentials are read by the auditor. Existing `gaps` and manifest fields remain unchanged for backwards compatibility. No database migration or new route is introduced.
 
 ## Tests and operational limits
 
