@@ -2,15 +2,18 @@
  * These reviews interpret existing deterministic backtest reports and do NOT
  * reconstruct missing broker fills, future returns or statistical significance.
  */
+import type {Bar} from './research.ts';
+import type {Config} from './backtest.ts';
+
 export type SnapshotMetrics={
  trades:number; netReturn:number; maxDrawdownPercent:number;
  winRate:number|null; profitFactor:number|null;
 };
-export type ResearchSnapshot={strategy:string;ruleVersion?:string;metrics:SnapshotMetrics};
+export type ResearchSnapshot={strategy:string;ruleVersion?:string;engine?:string;config?:Config;metrics:SnapshotMetrics};
 export type ResearchSegment={name:string;reports:ResearchSnapshot[]};
 export type ResearchRun={
  id:string;title:string;created_at:number;
- payload:{reports:ResearchSnapshot[];splits:ResearchSegment[];
+ payload:{reports:ResearchSnapshot[];splits:ResearchSegment[];candles?:Bar[];
   notes?:string;source?:string;datasetHash?:string;
   window?:{start:number;end:number;bars:number}};
 };
