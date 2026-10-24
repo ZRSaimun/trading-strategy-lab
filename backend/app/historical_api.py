@@ -68,14 +68,17 @@ def attach_history(owner, engine):
 
     @router.get('/api/history/{dataset_id}/candles')
     def historical_candles(dataset_id: str, timeframe: str = '5m',
-                           before: int | None = None,
+                           before: int | None = Query(default=None, ge=0, le=253402300740),
                            limit: int = Query(default=2000, ge=1, le=2000),
                            auth=Depends(owner)):
         if not re.fullmatch(r'[a-f0-9]{64}', dataset_id):
             raise HTTPException(422, 'Invalid dataset ID')
         if timeframe not in TIMEFRAMES:
             raise HTTPException(422, 'Unsupported timeframe')
-        if before is not None and (before < 0 or before != bucket(before, timeframe)):
+        # Bound the cursor to the UTC datetime range supported by bucket().
+        # Without this, huge integer cursors trigger OverflowError/ValueError
+        # (HTTP 500) before we reach the database, particularly on 1M pages.
+        if before is not None and before != bucket(before, timeframe):
             raise HTTPException(422, 'before must be a complete timeframe bucket boundary')
         with engine.connect() as connection:
             item = connection.execute(select(datasets).where(
