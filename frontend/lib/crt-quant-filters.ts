@@ -226,8 +226,12 @@ export function screenCrtHypotheses(input:Context):ScreenResult{
     if(!shift)continue;
     gates.structureShift='PASS';
     const span=b.high-b.low;
-    const threshold=median(history.map(x=>x.high-x.low))*displacement;
-    gates.displacement=span>=threshold&&span>0?'PASS':'FAIL';
+    // A zero-range median makes any positive signal candle appear to
+    // exceed 1.5x its baseline. Such a ratio is undefined, often indicating
+    // stale/placeholder quotes. Never report a displacement PASS from it.
+    const priorMedianRange=median(history.map(x=>x.high-x.low));
+    gates.displacement=priorMedianRange<=0?'INSUFFICIENT_DATA':
+     span>=priorMedianRange*displacement&&span>0?'PASS':'FAIL';
     gates.volume=volumeGate(history,b,source,volumeMultiple);
     confirm=b;
     break; // first observed shift; no later-best selection
@@ -242,6 +246,8 @@ export function screenCrtHypotheses(input:Context):ScreenResult{
    }
   }else if(gates.displacement==='FAIL'){
    notes.push('First qualifying shift lacks prior-20-median range displacement; later shifts are not cherry-picked.');
+  }else if(gates.displacement==='INSUFFICIENT_DATA'){
+   notes.push('Prior-20 15-minute median candle range is zero: a multiplicative displacement ratio cannot be verified from flat/stale quotes.');
   }
   if(gates.volume==='INSUFFICIENT_DATA')notes.push('Verified actual volume history is missing; zero-volume HistData placeholders must not pass volume gates.');
   gates.matchingZone=zoneGate(input.zones,source,observed.direction,sweepCloseAt,confirm?.close??sweep.close);
