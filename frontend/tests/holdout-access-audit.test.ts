@@ -76,7 +76,8 @@ test('rejects unknown archive, outcomes, and extra fields',async()=>{
  const bad={...access('a',year(2024)+200,'HOLDOUT_ACCESS'),realizedPnl:999};
  await assert.rejects(appendHoldoutAuditEvent(c,[],bad),/no outcomes or additional fields/);
  const entries=await appendHoldoutAuditEvent(c,[],access('a',year(2024)+200,'HOLDOUT_ACCESS'));
- const mutated=[{...entries[0],realizedR:100}] as HoldoutAuditEntry[];
+ const mutated=structuredClone(entries) as HoldoutAuditEntry[];
+ (mutated[0] as unknown as Record<string,unknown>).realizedR=100;
  await assert.rejects(verifyHoldoutAudit(c,mutated),/no outcomes or additional fields/);
 });
 test('rejects malformed freeze, wrong protocol window, and backdated access',async()=>{
