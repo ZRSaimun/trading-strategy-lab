@@ -113,3 +113,19 @@ test('per-horizon scores remain unchanged across checkpoint restore',()=>{
  const result=resumed.summaryByHorizon();result[1].settled=1000;
  assert.equal(resumed.summaryByHorizon()[1].settled,1);
 });
+
+test('model-specific scores survive checkpoint replay without pooling',()=>{
+ clock.now=base+60;const j=journal();j.receive(candle(base,100));
+ j.issue({...forecast('alpha'),modelVersion:'alpha',probability:.9});
+ j.issue({...forecast('beta'),modelVersion:'beta',probability:.1});
+ clock.now=base+120;j.receive(candle(base+60,101));
+ const before=j.summaryByModelAndHorizon();
+ assert.deepEqual(before.map(g=>g.modelVersion),['alpha','beta']);
+ assert.ok(Math.abs(before[0].summary.brier!-.01)<1e-12);
+ assert.ok(Math.abs(before[1].summary.brier!-.81)<1e-12);
+ clock.now=base+125;
+ const restored=ForwardForecastJournal.restore(j.checkpoint(),()=>clock.now);
+ assert.deepEqual(restored.summaryByModelAndHorizon(),before);
+ before[0].summary.brier=999;
+ assert.ok(Math.abs(restored.summaryByModelAndHorizon()[0].summary.brier!-.01)<1e-12);
+});
