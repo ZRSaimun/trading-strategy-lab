@@ -4,6 +4,7 @@ import {volumeAvailable} from '../lib/indicators';
 import AIAccess from './AIAccess';
 import WorkspaceBackup from './WorkspaceBackup';
 import DataConnection from './DataConnection';
+import BrokerReadiness from './BrokerReadiness';
 import MarketCharts from './MarketCharts';
 import Alerts from './Alerts';
 import {evaluateAdvance,type AlertRule,type AlertEvent} from '../lib/alerts';
@@ -22,7 +23,7 @@ type Dataset={source:string;rows:number;start:number;end:number;gaps:number;volu
 type Payload={candles:Bar[];has_more?:boolean;dataset:Dataset|null;quality:{state:string;message?:string}};
 const FRAMES=['1m','3m','5m','15m','30m','1H','2H','4H','1D','1W','1M'];
 const PAGES=process.env.NEXT_PUBLIC_DEPLOYMENT==='pages';
-const NAV=['Market Charts','Charts','Historical Archives','Backtesting','Strategy Robustness','Trading Journal','Research Alerts','Watchlist','Data Sources','Data Connection','Audit Log','AI Chart Assistant'];
+const NAV=['Market Charts','Charts','Historical Archives','Backtesting','Strategy Robustness','Trading Journal','Research Alerts','Watchlist','Data Sources','Data Connection','Broker Readiness','Audit Log','AI Chart Assistant'];
 async function api(path:string,init?:RequestInit){if(PAGES)return localAPI(path,init);const res=await fetch('/api'+path,init);if(!res.ok){let msg=await res.text();try{msg=JSON.parse(msg).detail}catch{}throw Error(typeof msg==='string'?msg:JSON.stringify(msg))}return res.json()}
 const json=(body:unknown)=>({headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
 const stamp=(t:number)=>new Date(t*1000).toLocaleString('en-GB',{timeZone:'Europe/London',timeZoneName:'short'});
@@ -138,6 +139,7 @@ export default function Terminal(){
   {(page==='Backtesting'||page==='Trading Journal')&&<Backtesting key={page} api={api} journal={page==='Trading Journal'}/>}
   {page==='Strategy Robustness'&&<StrategyReview api={api}/>}
   {page==='Research Alerts'&&<Alerts api={api} onChanged={()=>setAlertGeneration(n=>n+1)}/>}
+  {page==='Broker Readiness'&&<BrokerReadiness api={api} pages={PAGES}/>}
   {page==='Data Connection'&&<DataConnection api={api} pages={PAGES} onImported={()=>{changeInstrument('XAUUSD-TD');setDataRevision(n=>n+1);setPage('Charts');setNotice('Authorized provider candles imported. Historical research only.')}}/>}
   {page==='AI Chart Assistant'&&<AIAccess api={api} pages={PAGES}/>}
   {page==='Backup & Restore'&&<WorkspaceBackup api={api} beforeRestore={()=>alertQueue.current}/>}
