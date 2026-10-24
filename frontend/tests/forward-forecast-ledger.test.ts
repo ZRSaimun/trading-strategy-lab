@@ -86,3 +86,19 @@ test('rejects forecasts issued after the target close even when the base candle 
  assert.throws(()=>l.issue({id:'late',modelVersion:'v1',horizon:1,probability:.6}),/retroactive/);
  assert.equal(l.summary().issued,0);
 });
+
+test('long-horizon forecasts cannot be backdated after an unreceived next candle has closed',()=>{
+ clock.now=base+60;const l=new ForwardForecastLedger(identity,()=>clock.now,3600);
+ l.receive(candle(base,100));
+ clock.now=base+119;
+ const early=l.issue({id:'early',modelVersion:'v1',horizon:12,probability:.51});
+ assert.equal(early.issuedAt,base+119);
+ assert.equal(early.provider,identity.provider);
+ assert.equal(early.venue,identity.venue);
+ assert.equal(early.seconds,60);
+ clock.now=base+120;
+ assert.throws(()=>l.issue({id:'late-3',modelVersion:'v1',horizon:3,probability:.6}),/retroactive/);
+ assert.throws(()=>l.issue({id:'late-12',modelVersion:'v2',horizon:12,probability:.6}),/retroactive/);
+ assert.equal(l.summary().issued,1);
+ assert.equal(l.issue({id:'early',modelVersion:'v1',horizon:12,probability:.51}).id,'early');
+});
