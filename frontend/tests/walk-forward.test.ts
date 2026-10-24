@@ -86,8 +86,10 @@ test('refuses forged saved metrics or a changed candle snapshot despite unchange
  r.payload.reports[0].metrics.netReturn+=2;
  assert.throws(()=>runTimeBasedWalkForward(r,'A'),/not reproducible/);
  const changed=fixture();
- changed.payload.candles![500].close+=.25;
- changed.payload.candles![500].high+=.25;
+ assert.ok(changed.payload.reports[0].metrics.trades>0,'fixture must produce trades');
+ for(const bar of changed.payload.candles!){
+  bar.open=100;bar.high=100;bar.low=100;bar.close=100;
+ }
  assert.throws(()=>runTimeBasedWalkForward(changed,'A'),/not reproducible/);
 });
 test('refuses invalid saved reference lookbacks and mismatched report coverage',()=>{
