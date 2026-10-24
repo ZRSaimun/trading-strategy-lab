@@ -88,3 +88,14 @@ test('rejects invalid checkpoint envelope, future clock, malformed event and bac
  assert.throws(()=>resumed.receive(candle(base+60,102)),/backward/);
  assert.equal(resumed.checkpoint().events.length,2);
 });
+
+test('checkpoint replay rejects long-horizon issuance after the next candle closed',()=>{
+ clock.now=base+60;
+ const j=new ForwardForecastJournal(identity,()=>clock.now,3600);
+ j.receive(candle(base,100));j.issue(forecast('long',12));
+ const checkpoint=j.checkpoint();clock.now=base+240;
+ const forged=structuredClone(checkpoint);
+ forged.events[1].receivedAt=base+120;
+ assert.throws(()=>ForwardForecastJournal.restore(forged,()=>clock.now),/retroactive/);
+ assert.equal(j.checkpoint().events[1].receivedAt,base+60);
+});
