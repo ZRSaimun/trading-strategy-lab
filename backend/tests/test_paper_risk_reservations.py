@@ -209,3 +209,41 @@ def test_rejected_replay_does_not_mutate_reservation_or_emit_success_audit(setup
     assert s.load("paper-acct-0001") == before
     with setup[1]() as db:
         assert len(db.scalars(select(Audit)).all()) == audit_count
+
+
+def test_snapshot_reports_exact_remaining_capacity_without_execution_permission(setup):
+    s = store(setup)
+    enabled(s)
+    initial = s.load("paper-acct-0001")
+    assert initial["remaining_risk_capacity_cash"] == "100.00"
+    assert initial["may_execute_paper_order"] is False
+    assert initial["may_execute_real_order"] is False
+
+    assert s.reserve("paper-acct-0001", 1, client_order_id="order-00001",
+                     risk_cash="0.00000001")
+    partial = store(setup).load("paper-acct-0001")
+    assert partial["remaining_risk_capacity_cash"] == "99.99999999"
+    assert partial["reserved_cash"] == "1E-8"
+    assert partial["may_execute_paper_order"] is False
+
+    assert s.reserve("paper-acct-0001", 2, client_order_id="order-00002",
+                     risk_cash="99.99999999")
+    exhausted = store(setup).load("paper-acct-0001")
+    assert exhausted["remaining_risk_capacity_cash"] == "0E-8"
+    assert exhausted["may_execute_paper_order"] is False
+    assert not s.reserve("paper-acct-0001", 3, client_order_id="order-00003",
+                         risk_cash="0.00000001")
+
+
+def test_killed_and_missing_snapshots_never_grant_paper_execution(setup):
+    s = store(setup)
+    assert s.load("paper-acct-0001") is None
+    assert s.initialize("paper-acct-0001")
+    disabled = s.load("paper-acct-0001")
+    assert disabled["kill_switch"] is True
+    assert disabled["remaining_risk_capacity_cash"] == "0"
+    assert disabled["may_execute_paper_order"] is False
+    assert s.engage_kill_switch("paper-acct-0001")
+    latched = store(setup).load("paper-acct-0001")
+    assert latched["emergency_latched"] is True
+    assert latched["may_execute_paper_order"] is False
