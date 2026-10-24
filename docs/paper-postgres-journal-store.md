@@ -15,3 +15,19 @@ PYTHONPATH=. pytest -q tests/test_paper_journal_store.py
 ```
 
 The synthetic tests exercise restart, revision conflicts, transaction interruption, identity isolation, corruption detection, size bounds and audit-only-on-success. They do not measure trading profitability or real broker fills.
+
+
+## Optional local PostgreSQL concurrency and rollback acceptance test
+
+The isolated `backend/tests/test_paper_journal_postgres.py` test requires a **separate local PostgreSQL test database** with a name beginning `test_`, e.g. `test_paper`. It rejects non-local hosts, database names without that prefix, and URL query parameters. Do **not** point it at production or reuse production credentials. It creates a randomized temporary schema, exercises the store using two independent database connections, and drops only that test schema. It never places orders or accesses provider data.
+
+```sh
+cd backend
+# Provision a dedicated local test_paper database with a test-only PostgreSQL user first.
+PAPER_JOURNAL_TEST_DATABASE_URL='postgresql+psycopg://TEST_USER:TEST_PASSWORD@127.0.0.1:5432/test_paper' \
+  PYTHONPATH=. python -m pytest -q tests/test_paper_journal_postgres.py
+```
+
+The test synchronizes two competing writers after their reads and asserts **exactly one** revision-1 winner, a single stored session and the correct audit count. It then injects a failure during audit insertion and asserts that both the checkpoint update and audit are rolled back, followed by a successful retry and restart-load. Without the explicit test URL, pytest marks the test **SKIPPED**; a green CI run with that skip is **not** evidence of PostgreSQL concurrency or crash recovery. This is a transaction interruption simulation, not a real process-kill, power-loss, replica-failover or backup/restore test. Full durability and deployment readiness remain unverified.
+
+The JSON envelope parser now also rejects duplicate object keys at any depth and non-finite numeric exponent overflow (e.g. `1e999`), rather than accepting ambiguous or non-replayable saved paper events. The Python store still does not certify order events against the TypeScript replay engine or authenticate market-data provenance.
