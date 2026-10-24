@@ -98,8 +98,9 @@ def test_extreme_values_fail_closed_without_overflowing_response():
 ])
 def test_numerically_unsafe_nominal_risk_fails_closed(changes):
     values = payload(**changes)
+    nominal = {k: v for k, v in values.items() if k in OrderPreview.model_fields}
     with pytest.raises(ValueError, match='overflowed or underflowed'):
-        calculate_preview(OrderPreview(**values))
+        calculate_preview(OrderPreview(**nominal))
     with pytest.raises(ValueError, match='overflowed or underflowed'):
         calculate_stress_preview(StressPreview(**values))
 
@@ -108,8 +109,13 @@ def test_subnormal_risk_returns_422_not_non_json_infinity():
     app = FastAPI()
     app.include_router(build_router(lambda: 'owner'))
     client = TestClient(app)
-    for path in ('/api/broker/order-risk-preview', '/api/broker/stress-preview'):
-        result = client.post(path, json=payload(account_equity=1e-320))
+    values = payload(account_equity=1e-320)
+    nominal = {k: v for k, v in values.items() if k in OrderPreview.model_fields}
+    for path, body in (
+        ('/api/broker/order-risk-preview', nominal),
+        ('/api/broker/stress-preview', values),
+    ):
+        result = client.post(path, json=body)
         assert result.status_code == 422
         assert 'overflowed or underflowed' in result.json()['detail']
 
