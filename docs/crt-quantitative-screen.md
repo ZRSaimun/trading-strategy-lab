@@ -27,6 +27,16 @@ The UI's 15m window is usually much shorter than the 4H and daily windows, so ea
 
 **Out of scope:** the owner's 1H FVG midpoint wick-rejection threshold, broker BID/ASK spread/funding, 1m/5m/15m CFD cost comparison, source-verified macro/VIX/CPI/FOMC, proper 4H order-block reconstruction, exchange holiday/early-close calendars, margin, live trading, position sizing and out-of-sample performance. See `docs/ny-close-cfd-research.md` and `docs/next-priorities.md`.
 
+## Observed negative versus missing confirmation evidence (24 October 2026)
+
+A complete CRT sweep does **not** imply that the next 4H block produced a 15m structure break. The screen now makes this distinction reproducibly:
+
+- `PASS`: the **first** qualifying closed 15m structure-break candle is found after the manipulation 4H candle closes, with all 20 immediately preceding contiguous 15m candles observed. A PASS may be reported at that confirmation close; later 15m bars are not required and cannot retroactively change it.
+- `FAIL`: **all sixteen** 15m candles in the next 4H block and each required 20-bar preceding window are complete and contiguous, but **none** has a qualifying directional shift. This is a genuine observed negative rather than an unknown outcome.
+- `INSUFFICIENT_DATA`: the first eligible 15m candle, a preceding 20-bar window, or any needed subsequent 15m candle is absent or noncontiguous before a confirmed shift. The engine does not skip missing earlier evidence to select a more attractive later shift. A truncated archive tail is not counted as a negative.
+
+When no shift occurs, displacement and verified-volume confirmation remain unavailable rather than being assigned a fictitious rejection or pass. Five additional synthetic regressions cover fully observed negative windows, a missing earlier history bar followed by a seemingly attractive shift, interior gaps, truncated tails and prefix stability. These are research evidence-status corrections, not observed profitability.
+
 ## Interpretation, limitations and next evidence
 
 The screen counts *pattern candidates* and gate statuses, **not trades or returns**. It must not be interpreted as win rate, Sharpe, profitability, backtested execution, or a 3–6% improvement. In particular, the optional historical source may represent a CFD that trades different hours from a cash index. Historical minute data cannot establish actual executable ask prices, spread spikes, slippage, financing, news availability or broker session cutoffs.
