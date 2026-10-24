@@ -1,4 +1,4 @@
-import {validStructureSegments} from './structure-quality';
+import {validStructureSegments} from './structure-quality.ts';
 export type Bar={time:number;open:number;high:number;low:number;close:number;volume:number|null;observed_minutes:number};
 export const FRAMES:Record<string,number>={'1m':60,'3m':180,'5m':300,'15m':900,'30m':1800,'1H':3600,'2H':7200,'4H':14400,'1D':86400,'1W':604800,'1M':0};
 // Small strict RFC4180 parser: rejects malformed quotes instead of guessing columns.
