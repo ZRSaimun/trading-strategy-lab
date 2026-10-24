@@ -8,7 +8,7 @@ export type CompletedCandle={identity:FeedIdentity;start:number;close:number};
 export type ForecastIssue={id:string;modelVersion:string;horizon:1|3|12;probability:number};
 export type ForecastRecord={
  id:string;modelVersion:string;horizon:1|3|12;probability:number;
- instrument:string;sourceId:string;priceSide:FeedIdentity['priceSide'];
+ instrument:string;provider:string;venue:string;sourceId:string;priceSide:FeedIdentity['priceSide'];seconds:number;
  baseStart:number;baseClose:number;issuedAt:number;targetStart:number;
  status:'PENDING'|'SETTLED'|'VOID_GAP';
  resolvedAt:number|null;outcomeUp:boolean|null;reason:string|null;
@@ -82,10 +82,16 @@ export class ForwardForecastLedger{
   if(this.issuedKeys.has(unique))throw Error('Forecast already issued for this model, bar and horizon');
   const targetStart=this.last.start+input.horizon*this.identity.seconds;
   if(!Number.isSafeInteger(targetStart))throw Error('Target candle exceeds supported timestamp range');
-  if(now>=targetStart+this.identity.seconds)throw Error('Target outcome has already closed; cannot issue retroactive forecast');
+  // A longer horizon must not bypass the first subsequent completed-candle boundary.
+  // Without this gate, a delayed h=3/12 forecast could be issued after later
+  // market outcomes were already observable but before its own target closed.
+  const firstNextClose=this.last.start+2*this.identity.seconds;
+  if(!Number.isSafeInteger(firstNextClose)||now>=firstNextClose)
+   throw Error('Cannot issue retroactive forecast after the first subsequent candle close');
   const record:ForecastRecord={id:input.id,modelVersion:input.modelVersion,horizon:input.horizon,
-   probability:input.probability,instrument:this.identity.instrument,sourceId:this.identity.sourceId,
-   priceSide:this.identity.priceSide,baseStart:this.last.start,baseClose:this.last.close,issuedAt:now,
+   probability:input.probability,instrument:this.identity.instrument,provider:this.identity.provider,
+   venue:this.identity.venue,sourceId:this.identity.sourceId,priceSide:this.identity.priceSide,
+   seconds:this.identity.seconds,baseStart:this.last.start,baseClose:this.last.close,issuedAt:now,
    targetStart,status:'PENDING',resolvedAt:null,outcomeUp:null,reason:null};
   this.forecasts.set(input.id,record);this.issuedKeys.add(unique);this.lastActionAt=now;
   return clone(record);
