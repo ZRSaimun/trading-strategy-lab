@@ -169,3 +169,43 @@ def test_invalid_latch_state_fails_closed_even_with_matching_checksum(setup):
         s.load("paper-acct-0001")
     with pytest.raises(ValueError, match="corrupt"):
         s.engage_kill_switch("paper-acct-0001")
+
+
+def test_reservation_audit_records_hashed_order_and_exact_budget_without_raw_ids(setup):
+    import hashlib
+    s = store(setup)
+    enabled(s)
+    assert s.reserve("paper-acct-0001", 1, client_order_id="order-00001",
+                     risk_cash="12.12500001")
+    with setup[1]() as db:
+        rows = db.scalars(select(Audit).where(Audit.action == "paper.risk.cas")
+                          .order_by(Audit.id)).all()
+    assert len(rows) == 2
+    policy, reservation = [json.loads(row.detail) for row in rows]
+    assert policy["operation"] == "policy"
+    assert policy["limit_cash"] == "100.00"
+    assert policy["reservation_count"] == 0
+    assert policy["reservation_order_hash"] is None
+    assert reservation["operation"] == "reserve"
+    assert reservation["limit_cash"] == "100.00"
+    assert reservation["reserved_cash"] == "12.12500001"
+    assert reservation["reservation_count"] == 1
+    assert reservation["reservation_order_hash"] == hashlib.sha256(
+        b"order-00001").hexdigest()
+    assert all("order-00001" not in row.detail and "paper-acct-0001" not in row.detail
+               for row in rows)
+
+
+def test_rejected_replay_does_not_mutate_reservation_or_emit_success_audit(setup):
+    s = store(setup)
+    enabled(s)
+    assert s.reserve("paper-acct-0001", 1, client_order_id="order-00001",
+                     risk_cash="25")
+    before = s.load("paper-acct-0001")
+    with setup[1]() as db:
+        audit_count = len(db.scalars(select(Audit)).all())
+    assert not s.reserve("paper-acct-0001", before["revision"],
+                         client_order_id="order-00001", risk_cash="1")
+    assert s.load("paper-acct-0001") == before
+    with setup[1]() as db:
+        assert len(db.scalars(select(Audit)).all()) == audit_count
