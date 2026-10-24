@@ -4,6 +4,7 @@ import {volumeAvailable} from '../lib/indicators';
 import AIAccess from './AIAccess';
 import WorkspaceBackup from './WorkspaceBackup';
 import DataConnection from './DataConnection';
+import BrokerReadiness from './BrokerReadiness';
 import MarketCharts from './MarketCharts';
 import Alerts from './Alerts';
 import {evaluateAdvance,type AlertRule,type AlertEvent} from '../lib/alerts';
@@ -22,7 +23,7 @@ type Dataset={source:string;rows:number;start:number;end:number;gaps:number;volu
 type Payload={candles:Bar[];has_more?:boolean;dataset:Dataset|null;quality:{state:string;message?:string}};
 const FRAMES=['1m','3m','5m','15m','30m','1H','2H','4H','1D','1W','1M'];
 const PAGES=process.env.NEXT_PUBLIC_DEPLOYMENT==='pages';
-const NAV=['Market Charts','Charts','Historical Archives','Backtesting','Strategy Robustness','Trading Journal','Research Alerts','Watchlist','Data Sources','Data Connection','Audit Log','AI Chart Assistant'];
+const NAV=['Market Charts','Charts','Historical Archives','Backtesting','Strategy Robustness','Trading Journal','Research Alerts','Watchlist','Data Sources','Data Connection','Broker Readiness','Audit Log','AI Chart Assistant'];
 async function api(path:string,init?:RequestInit){if(PAGES)return localAPI(path,init);const res=await fetch('/api'+path,init);if(!res.ok){let msg=await res.text();try{msg=JSON.parse(msg).detail}catch{}throw Error(typeof msg==='string'?msg:JSON.stringify(msg))}return res.json()}
 const json=(body:unknown)=>({headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
 const stamp=(t:number)=>new Date(t*1000).toLocaleString('en-GB',{timeZone:'Europe/London',timeZoneName:'short'});
@@ -122,7 +123,7 @@ export default function Terminal(){
  const geometry=(replaying?[]:drawings).filter(d=>d.kind!=='horizontal').map(d=>({d,p:d.points.map(p=>({x:chart.current?.timeScale().timeToCoordinate(p.time as Time),y:series.current?.priceToCoordinate(p.price)}))}));
  void revision;
  return <div className={'terminal '+(light?'light':'')}>
-  <aside className="rail"><div className="brand">◈</div><b>TSL<span>RESEARCH TERMINAL</span></b><nav>{[...NAV,...(PAGES?['Backup & Restore']:[])].map((name,i)=><button key={name} className={page===name?'active':''} onClick={()=>setPage(name)}><span>{['◈','▥','◫','▤','▦','♧','☆','⇧','⇄','≡','◇','↓','⇩'][i]}</span>{name==='Charts'?'Research Charts':name}</button>)}</nav><div className="rail-bottom"><span className="badge">RESEARCH BUILD · V0.11</span><p>Evidence before action.</p><button onClick={toggleTheme}>{light?'Night mode':'Day mode'}</button><button disabled={PAGES} onClick={async()=>{try{await api('/logout',{method:'POST'});setAuthenticated(false)}catch(e){report(e)}}}>{PAGES?'Close tab to leave':'Lock workspace ↗'}</button></div></aside>
+  <aside className="rail"><div className="brand">◈</div><b>TSL<span>RESEARCH TERMINAL</span></b><nav>{[...NAV,...(PAGES?['Backup & Restore']:[])].map((name,i)=><button key={name} className={page===name?'active':''} onClick={()=>setPage(name)}><span>{['◈','▥','◫','▤','▦','♧','☆','⇧','⇄','≡','⛨','◇','↓','⇩'][i]}</span>{name==='Charts'?'Research Charts':name}</button>)}</nav><div className="rail-bottom"><span className="badge">RESEARCH BUILD · V0.11</span><p>Evidence before action.</p><button onClick={toggleTheme}>{light?'Night mode':'Day mode'}</button><button disabled={PAGES} onClick={async()=>{try{await api('/logout',{method:'POST'});setAuthenticated(false)}catch(e){report(e)}}}>{PAGES?'Close tab to leave':'Lock workspace ↗'}</button></div></aside>
   <main><header><div><span className="eyebrow">{PAGES?'BROWSER-LOCAL RESEARCH WORKSPACE':'YOUR PRIVATE MARKET WORKSPACE'}</span><h1>{page==='Charts'?'Research Charts':page}</h1></div><button className="theme-toggle" onClick={toggleTheme}>{light?'☾ Night mode':'☀ Day mode'}</button><div className="header-right"><span className="status"><i/>Research only</span><span>Europe/London</span></div></header>
   {latestAlert&&<div className="banner" role="status">{latestAlert.title} · {latestAlert.payload.state} · {stamp(latestAlert.payload.observedAt)} · Historical replay only <button onClick={()=>{setPage('Research Alerts');setLatestAlert(null)}}>View event history</button><button onClick={()=>setLatestAlert(null)}>Dismiss</button></div>}{PAGES&&<div className="banner">Public app interface · Your imported data and drawings stay in this browser’s IndexedDB. No server login, cloud backup or AI connection. Use Backup & Restore to save your workspace; use Docker for the private server.</div>}{error&&<div role="alert" className="banner error" onClick={()=>setError('')}>{error} · Dismiss</div>}{notice&&<div role="status" className="banner" onClick={()=>setNotice('')}>{notice} · Dismiss</div>}
   {page!=='Market Charts'&&<div className="market-strip"><div><small>RESEARCH INSTRUMENT</small><strong>{instrument.startsWith('XAUUSD')?'XAU / USD':'NASDAQ 100'}</strong></div><div><small>LAST IMPORTED CLOSE</small><strong>{last?.close.toLocaleString('en-GB',{maximumFractionDigits:2})??'—'}</strong></div><div><small>DATA STATUS</small><strong className="amber">{payload.quality.state}</strong></div><div><small>EXECUTION</small><strong>Disabled</strong></div></div>}
@@ -138,6 +139,7 @@ export default function Terminal(){
   {(page==='Backtesting'||page==='Trading Journal')&&<Backtesting key={page} api={api} journal={page==='Trading Journal'}/>}
   {page==='Strategy Robustness'&&<StrategyReview api={api}/>}
   {page==='Research Alerts'&&<Alerts api={api} onChanged={()=>setAlertGeneration(n=>n+1)}/>}
+  {page==='Broker Readiness'&&<BrokerReadiness api={api} pages={PAGES}/>}
   {page==='Data Connection'&&<DataConnection api={api} pages={PAGES} onImported={()=>{changeInstrument('XAUUSD-TD');setDataRevision(n=>n+1);setPage('Charts');setNotice('Authorized provider candles imported. Historical research only.')}}/>}
   {page==='AI Chart Assistant'&&<AIAccess api={api} pages={PAGES}/>}
   {page==='Backup & Restore'&&<WorkspaceBackup api={api} beforeRestore={()=>alertQueue.current}/>}

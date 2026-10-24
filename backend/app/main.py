@@ -306,3 +306,7 @@ app.mount('/api/mcp',mcp_app)
 # The tables are installed explicitly by the offline import CLI, not on startup.
 from .historical_api import attach_history
 app.include_router(attach_history(owner, engine))
+
+# Owner-only broker capability diagnostics and non-executing risk estimation.
+from .broker_readiness import build_router
+app.include_router(build_router(owner))
