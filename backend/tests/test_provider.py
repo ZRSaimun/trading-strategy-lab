@@ -219,3 +219,50 @@ def test_existing_archive_must_be_verified_before_replacement(client,monkeypatch
         assert target.read_bytes()==b'corrupt existing archive'
     else:
         assert target.is_symlink() and outside.read_bytes()==archive
+
+
+@pytest.mark.parametrize('mismatch', ['archive_ohlc', 'archive_symbol', 'rows_close'])
+def test_snapshot_mismatch_preserves_existing_provider_series(client,monkeypatch,tmp_path,mismatch):
+    # The mocked provider never makes a network call; verify API transaction safety.
+    monkeypatch.setenv('FREE_ONLY','false')
+    credentials(monkeypatch,tmp_path)
+    monkeypatch.setenv('TWELVEDATA_ENABLED','true')
+    archive_dir=tmp_path/'archive'
+    monkeypatch.setenv('MARKET_ARCHIVE_DIR',str(archive_dir))
+    monkeypatch.setattr(provider_api,'_last_attempt',-1000)
+    rows,archive=normalize(PAYLOAD,'XAUUSD-TD',NOW)
+    calls=0
+
+    async def fake(key,instrument,limit,end,now):
+        nonlocal calls
+        calls+=1
+        if calls==1:
+            return rows,archive
+        if mismatch=='rows_close':
+            altered=[dict(r) for r in rows]
+            altered[0]['close']+=0.5  # Valid OHLC, inconsistent snapshot.
+            return altered,archive
+        changed=json.loads(archive)
+        if mismatch=='archive_ohlc':
+            changed['values'][0]['close']='2002.5'
+        else:
+            changed['meta']['symbol']='XAG/USD'
+        return rows,json.dumps(changed).encode()
+
+    monkeypatch.setattr(provider_api,'retrieve',fake)
+    unlock(client)
+    body={'instrument':'XAUUSD-TD','limit':100,'end':NOW-60,
+          'rights_confirmed':True,'replace_confirmed':True}
+    assert client.post('/api/providers/twelvedata/import',json=body).status_code==200
+    candles_before=client.get('/api/candles/XAUUSD-TD?timeframe=1m').json()
+    audit_before=client.get('/api/audit').json()
+    archive_before={p.name:p.read_bytes() for p in archive_dir.glob('*.json')}
+    monkeypatch.setattr(provider_api,'_last_attempt',-1000)
+    response=client.post('/api/providers/twelvedata/import',json=body)
+    assert response.status_code==502
+    assert response.json()['detail']=='Provider returned no valid completed candle set; existing data unchanged.'
+    assert KEY not in response.text
+    assert client.get('/api/candles/XAUUSD-TD?timeframe=1m').json()==candles_before
+    assert client.get('/api/audit').json()==audit_before
+    assert {p.name:p.read_bytes() for p in archive_dir.glob('*.json')}==archive_before
+    assert calls==2
