@@ -55,6 +55,7 @@ export function studySweepOutcomes(bars:readonly Bar[],observations:readonly Det
   if(!Number.isFinite(entry)||!Number.isFinite(exit)||entry<=0||exit<=0){priceExcluded++;continue}
   const sign=event.kind==='SELL-SIDE SWEEP'?1:-1;
   const grossBps=sign*(exit/entry-1)*10000;
+  if(!Number.isFinite(grossBps)||!Number.isFinite(grossBps-cfg.costBps)){priceExcluded++;continue}
   completed.push({observedAt:event.observed_at,kind:event.kind,direction:sign===1?'bullish':'bearish',
     entryAt:bars[i+1].time,exitAt:closeTime(bars[end],cfg.frame),entry,exit,grossBps,netBps:grossBps-cfg.costBps});
  }
