@@ -27,6 +27,7 @@ test('paginated discovery returns verified next cursor and terminal page',()=>{
 test('rejects repeated identities, cross-page collisions and invalid provenance',()=>{
  assert.throws(()=>parseArchiveListing([item(1),item(1)],headers('false'),0),/Repeated/);
  assert.throws(()=>appendArchiveListing([item(1)],{items:[item(1)],hasMore:false,nextOffset:null,legacyPossiblyTruncated:false,snapshot:SNAP}),/overlap/);
+ assert.throws(()=>appendArchiveListing([item(1)],{items:[item(1)],hasMore:false,nextOffset:null,legacyPossiblyTruncated:false,snapshot:SNAP}),ArchiveInventoryChangedError);
  for(const changed of [
   {...item(1),id:'not-sha'}, {...item(1),archive_sha256:'x'},
   {...item(1),utc_offset_minutes:3000},{...item(1),accepted:-1},
@@ -65,6 +66,7 @@ test('rejects out-of-order listings and cross-page offset drift even without dup
  // second page. Even if IDs do not overlap, an out-of-order page must fail.
  const shifted=parseArchiveListing([item(150),item(201)],headers('false'),200);
  assert.throws(()=>appendArchiveListing(first.items,shifted),/order changed/);
+ assert.throws(()=>appendArchiveListing(first.items,shifted),ArchiveInventoryChangedError);
  assert.deepEqual(appendArchiveListing(first.items,parseArchiveListing([item(200)],headers('false'),200)).at(-1),item(200));
 });
 
