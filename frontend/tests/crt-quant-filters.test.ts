@@ -93,6 +93,34 @@ test('an extreme close from a past partial daily bucket cannot reverse a complet
  assert.equal(r.eligibleForLiveTrading,false);
 });
 
+test('stale daily history cannot produce a positive 5/20 trend signal for a newer CRT sweep',()=>{
+ const x=fixture();
+ // The latest completed daily bucket is now more than three days old.
+ x.daily=x.daily!.map(b=>({...b,time:b.time-10*24*H}));
+ const r=screenCrtHypotheses(x).candidates[0];
+ assert.equal(r.gates.dailyTrend,'INSUFFICIENT_DATA');
+ assert.equal(r.gates.structureShift,'PASS','independent price evidence is unaffected');
+});
+
+test('twenty old scattered daily bars cannot masquerade as a fresh 20-session trend',()=>{
+ const x=fixture();
+ // Last completed day is recent, but twenty observations span 38 days.
+ // This is a calendar/data-quality ambiguity, not a validated trend.
+ x.daily=Array.from({length:20},(_,i)=>
+  make(BASE-(40-i*2)*24*H,100+i*.1,104+i*.1,99+i*.1,100+i*.1,1440));
+ assert.equal(screenCrtHypotheses(x).candidates[0].gates.dailyTrend,
+  'INSUFFICIENT_DATA');
+});
+
+test('a short closure gap does not automatically discard otherwise fresh daily context',()=>{
+ const x=fixture();
+ // Last fully observed day closed two days before the sweep, while
+ // the 20 complete observations remain within a 30-day window.
+ x.daily=Array.from({length:20},(_,i)=>
+  make(BASE-(22-i)*24*H,100+i*.1,104+i*.1,99+i*.1,100+i*.1,1440));
+ assert.equal(screenCrtHypotheses(x).candidates[0].gates.dailyTrend,'PASS');
+});
+
 test('no source-linked pre-existing 4H reference means supply/demand gate stays unavailable',()=>{
  const x=fixture();x.zones=[{...x.zones![0],observedAt:BASE+9*H}];
  const r=screenCrtHypotheses(x).candidates[0];
