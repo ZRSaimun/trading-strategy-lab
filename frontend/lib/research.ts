@@ -1,3 +1,4 @@
+import {validStructureSegments} from './structure-quality';
 export type Bar={time:number;open:number;high:number;low:number;close:number;volume:number|null;observed_minutes:number};
 export const FRAMES:Record<string,number>={'1m':60,'3m':180,'5m':300,'15m':900,'30m':1800,'1H':3600,'2H':7200,'4H':14400,'1D':86400,'1W':604800,'1M':0};
 // Small strict RFC4180 parser: rejects malformed quotes instead of guessing columns.
@@ -67,17 +68,22 @@ function contiguousThreeBarFormation(bars:readonly Bar[],i:number,frame:string):
  return seconds>14400||[a,m,b].every(x=>x.observed_minutes===seconds/60);
 }
 export function analyze(bars:Bar[],swing=2,frame='1m'):Detection[]{
- // Caller passes completed bars only. A swing is usable only after `swing` right bars close.
+ // Quality gate enforces completed, contiguous bars rather than trusting callers.
+ // A swing is usable only after `swing` right bars close inside one valid run.
+ if(!Number.isSafeInteger(swing)||swing<1||swing>50)throw Error('Swing lookback must be an integer from 1 to 50');
+ const segments=validStructureSegments(bars,frame);
  const out:Detection[]=[];let high:{value:number;time:number;broken:boolean}|null=null,low:{value:number;time:number;broken:boolean}|null=null;
  for(let i=0;i<bars.length;i++){
-  const b=bars[i],p=bars[i-1],j=i-swing;
+  if(segments[i]<0){high=null;low=null;continue}
+  if(segments[i]===i){high=null;low=null}
+  const b=bars[i],p=i>segments[i]?bars[i-1]:undefined,j=i-swing;
   const date=new Date(b.time*1000);
   const closedAt=frame==='1M'?Date.UTC(date.getUTCFullYear(),date.getUTCMonth()+1,1)/1000:b.time+(FRAMES[frame]||60);
-  if(j>=swing){const candidate=bars[j],window=bars.slice(j-swing,j+swing+1);
+  if(j>=swing&&j-swing>=segments[i]){const candidate=bars[j],window=bars.slice(j-swing,j+swing+1);
    if(window.every((x,k)=>k===swing||x.high<candidate.high))high={value:candidate.high,time:candidate.time,broken:false};
    if(window.every((x,k)=>k===swing||x.low>candidate.low))low={value:candidate.low,time:candidate.time,broken:false};
   }
-  const emit=(kind:string,direction:string,level:number,times:number[],explanation:string)=>out.push({kind,direction,level,observed_at:closedAt,reference_times:times,explanation,rule_version:'structure-research-v2'});
+  const emit=(kind:string,direction:string,level:number,times:number[],explanation:string)=>out.push({kind,direction,level,observed_at:closedAt,reference_times:times,explanation,rule_version:'structure-research-v3'});
   const sellSideSweep=!!(low&&!low.broken&&b.low<low.value&&b.close>low.value);
   const buySideSweep=!!(high&&!high.broken&&b.high>high.value&&b.close<high.value);
   // A single outside bar sweeping both confirmed sides has no directional resolution.
@@ -85,7 +91,7 @@ export function analyze(bars:Bar[],swing=2,frame='1m'):Detection[]{
   if(high&&buySideSweep&&!sellSideSweep)emit('BUY-SIDE SWEEP','bearish observation',high.value,[high.time,b.time],'Wick above confirmed swing high; same candle closes back below. WAIT: displacement and defended retest not confirmed.');
   if(high&&!high.broken&&p&&p.close<=high.value&&b.close>high.value){emit('BULLISH STRUCTURE BREAK','bullish observation',high.value,[high.time,b.time],'Close above a confirmed swing high. Contextual MSS/CHOCH and retest are not inferred.');high.broken=true}
   if(low&&!low.broken&&p&&p.close>=low.value&&b.close<low.value){emit('BEARISH STRUCTURE BREAK','bearish observation',low.value,[low.time,b.time],'Close below a confirmed swing low. First break is not a SELL signal.');low.broken=true}
-  if(contiguousThreeBarFormation(bars,i,frame)){const a=bars[i-2];if(a.high<b.low)emit('BULLISH FVG','bullish observation',a.high,[a.time,bars[i-1].time,b.time],`Three-candle wick gap ${a.high}–${b.low}. Formation only; mitigation not evaluated.`);if(a.low>b.high)emit('BEARISH FVG','bearish observation',a.low,[a.time,bars[i-1].time,b.time],`Three-candle wick gap ${b.high}–${a.low}. Formation only; mitigation not evaluated.`)}
+  if(i-2>=segments[i]&&contiguousThreeBarFormation(bars,i,frame)){const a=bars[i-2];if(a.high<b.low)emit('BULLISH FVG','bullish observation',a.high,[a.time,bars[i-1].time,b.time],`Three-candle wick gap ${a.high}–${b.low}. Formation only; mitigation not evaluated.`);if(a.low>b.high)emit('BEARISH FVG','bearish observation',a.low,[a.time,bars[i-1].time,b.time],`Three-candle wick gap ${b.high}–${a.low}. Formation only; mitigation not evaluated.`)}
  }
  return out;
 }
