@@ -14,7 +14,10 @@ export type Source={
  volumeVerified:boolean;
 };
 export type Zone={
- datasetId:string;direction:'DEMAND'|'SUPPLY';low:number;high:number;
+ // Dataset IDs alone can be reused across imports: pin the exact archive
+ // revision and BID price side before a prior zone can pass this gate.
+ datasetId:string;archiveSha256:string;priceSide:'bid';
+ direction:'DEMAND'|'SUPPLY';low:number;high:number;
  observedAt:number;referenceBarTime:number;
 };
 export type Context={
@@ -119,6 +122,9 @@ function zoneGate(zones:readonly Zone[]|undefined,source:Source,
  dir:Direction,at:number,price:number):Gate{
  if(!zones?.length)return 'INSUFFICIENT_DATA';
  const matching=zones.filter(z=>z.datasetId===source.datasetId&&
+  z.archiveSha256===source.archiveSha256&&z.priceSide===source.priceSide&&
+  Number.isSafeInteger(z.observedAt)&&Number.isSafeInteger(z.referenceBarTime)&&
+  z.referenceBarTime>=0&&z.referenceBarTime%14400===0&&
   z.observedAt<=at&&z.referenceBarTime+14400<=z.observedAt&&
   z.observedAt-z.referenceBarTime<30*86400&&
   z.low>0&&z.high>z.low&&z.low<=price&&price<=z.high&&
