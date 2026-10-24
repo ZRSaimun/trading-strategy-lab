@@ -71,6 +71,10 @@ The authenticated Backtesting screen can now select one ready source-isolated hi
 
 Open Backtesting to compare five versioned research approximations with costs, next-open eligibility, conservative OHLC fills, chronological sample splits and reproducible JSON exports. Add selected simulations to Trading Journal. See [rules, cost model and limits](docs/backtesting.md). These are not verified profitable strategies or broker fills.
 
+## Saved-strategy robustness review
+
+**Strategy Robustness** compares each saved historical simulation's development, validation and holdout results, with caution flags for sample size, negative holdout returns, drawdown, missing provenance and incomplete windows. It never certifies a profitable strategy or trades on an owner's behalf. See [strategy robustness review](docs/strategy-robustness-review.md).
+
 ## Conditional replay alerts
 
 Save rules in Research Alerts, select matching instrument/timeframe in Charts and advance replay. Level acceptance, sweeps and FVG observations create deduplicated historical event records. See [rules and limitations](docs/alerts.md). No live or background alert delivery is connected.
