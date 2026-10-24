@@ -199,6 +199,32 @@ def calculate_order_gate_preview(body: OrderGatePreview, now_ms: int) -> dict:
         and projected_daily_pnl > -body.controls.max_daily_loss_cash
     )
     checks['documented_account_api_support'] = body.risk.broker != 'Trading212-CFD'
+    # Per-order margin/leverage checks cannot account for other positions.
+    # This conservative portfolio preview adds owner-declared existing gross
+    # exposure and reserved margin. The default zero means UNKNOWN, not
+    # verified absence of other positions.
+    reserved_margin = body.controls.other_positions_reserved_margin_cash
+    existing_gross = body.controls.other_positions_gross_notional_cash
+    proposed_margin = stress['assumed_margin_required']
+    proposed_gross = stress['estimated_exposure']
+    combined_margin = reserved_margin + proposed_margin
+    combined_gross = existing_gross + proposed_gross
+    combined_leverage = combined_gross / body.risk.account_equity
+    # Detect both overflow and lost positive increments due to float rounding:
+    # a new order must not disappear when added to a large existing exposure.
+    margin_arithmetic_ok = math.isfinite(combined_margin) and combined_margin > reserved_margin
+    notional_arithmetic_ok = (math.isfinite(combined_gross)
+                              and combined_gross > existing_gross
+                              and math.isfinite(combined_leverage)
+                              and combined_leverage > 0)
+    checks['portfolio_margin_arithmetic_valid'] = margin_arithmetic_ok
+    checks['portfolio_gross_arithmetic_valid'] = notional_arithmetic_ok
+    checks['portfolio_margin_within_equity'] = (
+        margin_arithmetic_ok and combined_margin <= body.risk.account_equity
+    )
+    checks['portfolio_gross_leverage_within_cap'] = (
+        notional_arithmetic_ok and combined_leverage <= body.risk.max_leverage
+    )
     gate.update(
         checks=checks,
         failed_checks=[key for key, ok in checks.items() if not ok],
@@ -221,12 +247,23 @@ def calculate_order_gate_preview(body: OrderGatePreview, now_ms: int) -> dict:
                 projected_daily_pnl if math.isfinite(projected_daily_pnl) else None
             ),
         },
+        portfolio_exposure_scenario={
+            'other_positions_reserved_margin_cash': reserved_margin,
+            'other_positions_gross_notional_cash': existing_gross,
+            'proposed_margin_cash': proposed_margin,
+            'proposed_gross_notional_cash': proposed_gross,
+            'combined_margin_cash': combined_margin if math.isfinite(combined_margin) else None,
+            'combined_gross_notional_cash': combined_gross if math.isfinite(combined_gross) else None,
+            'combined_gross_leverage': combined_leverage if math.isfinite(combined_leverage) else None,
+            'inputs_broker_verified': False,
+        },
         broker_connection_verified=False,
         may_execute_real_order=False,
         may_execute_paper_order=False,
         warnings=gate['warnings'] + [
             'Even a fully passing preview uses owner-declared inputs, not a signed provider feed.',
             'The broker is NOT connected; per-order owner confirmation and a durable, atomic kill switch are not implemented.',
+            'Portfolio gross exposure and margin reservations are owner-declared; defaults of zero do not verify that the account has no other positions.',
         ],
     )
     return gate
