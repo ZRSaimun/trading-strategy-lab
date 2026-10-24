@@ -176,12 +176,16 @@ def candles(instrument: str, timeframe: str="5m", before: int|None=None, auth=De
         stmt = select(Candle).where(Candle.instrument==instrument)
         if before is not None:
             stmt = stmt.where(Candle.time<before)
-        # Aggregate full imported dataset before paging so a bucket is never cut at a raw row limit.
-        raw = db.scalars(stmt.order_by(Candle.time)).all()
-        rows = aggregate([{k:getattr(c,k) for k in ("time","open","high","low","close","volume")} for c in raw],timeframe)
+        # Consume newest candles first; stop after the 2001st complete bucket.
+        # A DB index on (instrument, time) supports this descending query.
+        from .history import latest_aggregates
+        rows, has_more = latest_aggregates(
+            db.scalars(stmt.order_by(Candle.time.desc()).execution_options(yield_per=1024)),
+            timeframe, limit=2000,
+        )
         metadata = json.loads(meta.value)
     stale = time.time()-metadata["end"]>180
-    return {"candles":rows[-2000:],"has_more":len(rows)>2000,"dataset":metadata,
+    return {"candles":rows,"has_more":has_more,"dataset":metadata,
             "quality":{"state":"WAIT" if stale or metadata["gaps"] else "HISTORICAL ONLY",
                        "stale":stale,"live":False,"gaps":metadata["gaps"],
                        "message":"Imported research bars; never executable live quotes. Gaps may include market closures. Aggregates contain observed bars only."}}
