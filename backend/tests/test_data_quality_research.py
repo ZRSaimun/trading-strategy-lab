@@ -116,3 +116,42 @@ def test_offset_isolation_does_not_change_read_only_source(tmp_path):
     assert p.read_bytes() == before
     assert len([g for g in r['groups'] if g['provider'] == 'HistData'
                 and g['format'] == 'ascii']) == 2
+
+
+
+def test_ready_dataset_reconciliation_catches_offsetting_count_errors(tmp_path):
+    """Two broken archives must not appear valid because their group sum matches."""
+    p = fixture(tmp_path)
+    with sqlite3.connect(str(p)) as db:
+        db.execute("DELETE FROM historical_candles WHERE dataset_id='d1' AND time=0")
+        db.execute(
+            "INSERT INTO historical_candles VALUES (?,?,?,?,?,?,?)",
+            ('d2', 300, 110, 112, 109, 111, 0),
+        )
+    before = p.read_bytes()
+    r = scan_database(str(p))
+    assert p.read_bytes() == before
+    # The previous group-only comparison cannot detect these opposing errors.
+    assert r['summary']['accepted_count_mismatch'] == 0
+    assert r['summary']['ready_dataset_count_mismatch'] == 2
+    manifest = {d['id']: d for d in r['dataset_manifest']}
+    assert manifest['d1']['observed_ready_rows'] == 1
+    assert manifest['d2']['observed_ready_rows'] == 3
+    assert manifest['d1']['accepted_count_matches'] is False
+    assert manifest['d2']['accepted_count_matches'] is False
+    assert manifest['d3']['accepted_count_matches'] is True
+    # An IMPORTING dataset is intentionally excluded from READY reconciliation.
+    assert manifest['d4']['observed_ready_rows'] is None
+    assert manifest['d4']['accepted_count_matches'] is None
+
+
+def test_ready_dataset_reconciliation_detects_zero_observed_rows(tmp_path):
+    p = fixture(tmp_path)
+    with sqlite3.connect(str(p)) as db:
+        db.execute("DELETE FROM historical_candles WHERE dataset_id='d1'")
+    r = scan_database(str(p))
+    assert r['summary']['ready_dataset_count_mismatch'] == 1
+    manifest = {d['id']: d for d in r['dataset_manifest']}
+    assert manifest['d1']['observed_ready_rows'] == 0
+    assert manifest['d1']['accepted_count_matches'] is False
+    assert manifest['d2']['accepted_count_matches'] is True
