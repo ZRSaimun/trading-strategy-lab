@@ -34,6 +34,12 @@ Add selected trades to Trading Journal. Entries initially say SIMULATED ONLY and
 
 Browser-mode reports/journal live in IndexedDB. The newest 20 reports and 500 journal entries are retained; export important records before saving further entries. A 6 MB per-record limit applies. Private-server mode stores records in the authenticated database and audits changes; the server treats reports as client-supplied research records, not independently verified computations. Journal edits are single-user and do not yet have cross-tab optimistic version checks. Export JSON backups are available; restore UI remains pending.
 
+## On-demand cost-sensitivity stress test
+
+After running or loading a saved Backtesting result, select a strategy and click **Re-run full-sample cost stress (1× / 2× / 3×)**. This replays the *same saved candle snapshot* using the strategy's saved configuration with spread, per-side slippage and per-unit per-side commission all multiplied by 1, 2 and 3. Entry eligibility, stops, targets, position sizing and exits are recalculated rather than adjusting the final profit by a fixed amount. Each row displays trades, net return, close-marked maximum drawdown, average R and rejected entries.
+
+This test requires at least one nonzero baseline cost; otherwise it refuses to manufacture meaningful cost sensitivity. Baseline values are owner-supplied assumptions, not actual historical broker bid/ask quotes, commissions, CFD financing or guaranteed fills. The test uses the **full available saved window** even when a different chronological split is selected for viewing. A capped archive stays capped. The rows are *not* independent samples, a new holdout, a walk-forward optimization, a real-money broker test, or proof of a profitable edge. More expensive fills can change trade counts, targets and outcomes in non-monotonic ways; never assume net return must decrease monotonically as costs increase.
+
 ## Verification
 
 Nine deterministic simulator tests cover next-open eligibility, stop-first ambiguity, net 2R after costs, first-break rejection for B/E, candidate prefix invariance, evidence timestamps, gap entry rejection, raw-open invalidation, reproducibility, undefined zero-sample statistics, final-bar rejection, the positive B shift/retest path and conservative unknown-gap exit. Five prior parser/pattern/replay tests and seven backend authentication/persistence/audit tests also pass. Browser end-to-end interaction remains unverified.
