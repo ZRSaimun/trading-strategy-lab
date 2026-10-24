@@ -55,3 +55,13 @@ test('completed-bar structure is prefix invariant and only observable at bar clo
   assert.deepEqual(analyze(bars.slice(0,k),2,'5m'),full.filter(d=>d.observed_at<=cutoff));
  }
 });
+
+test('rejects UTC seconds outside JavaScript Date range before checking timeframe alignment',()=>{
+ // 8.64e9 seconds is the maximum valid Date instant; the previous bound was
+ // incorrectly expressed in milliseconds and accepted this invalid timestamp.
+ const invalid=8_640_000_060; // divisible by 60 but outside Date range
+ assert.equal(Number.isNaN(new Date(invalid*1000).getTime()),true);
+ assert.deepEqual(validStructureSegments([bar(0),bar(invalid),bar(60)],'1m'),[0,-1,2]);
+ const market=[{...bar(0),volume:null},{...bar(invalid),volume:null},{...bar(60),volume:null}] as Bar[];
+ assert.equal(analyze(market,1,'1m').length,0);
+});
