@@ -82,11 +82,14 @@ test('rejects one immutable archive digest advertised as two different calendar 
  // Distinct archives and their metadata remain untouched on rejection.
  assert.equal(reused[4].archiveSha256,reused[0].archiveSha256);
 });
-test('rejects labels at exclusive archive end rather than borrowing the next source interval',()=>{
+test('exclusive archive-end labels are excluded even with zero embargo',()=>{
  const atEnd=event('archive-end',2023,364,1);
  assert.equal(atEnd.labelAvailableAt,year(2024));
- assert.throws(()=>planPurgedHoldout(archives,[atEnd],protocol),/Duplicate, noncausal or unverified observation timing/);
- const beforeEnd={...atEnd,labelAvailableAt:year(2024)-1};
- const result=planPurgedHoldout(archives,[beforeEnd],protocol);
+ const zeroEmbargo={...protocol,embargoSeconds:0};
+ const result=planPurgedHoldout(archives,[atEnd],zeroEmbargo);
+ assert.deepEqual(result.eligible.validation,[]);
  assert.deepEqual(result.excluded,[{id:'archive-end',reason:'EMBARGO_OR_UNSETTLED'}]);
+ const beforeEnd={...atEnd,labelAvailableAt:year(2024)-1};
+ const within=planPurgedHoldout(archives,[beforeEnd],zeroEmbargo);
+ assert.deepEqual(within.eligible.validation,['archive-end']);
 });
