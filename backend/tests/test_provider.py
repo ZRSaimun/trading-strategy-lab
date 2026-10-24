@@ -1,6 +1,7 @@
 import asyncio
 import json
 from pathlib import Path
+from datetime import datetime, timezone
 import httpx
 import pytest
 from cryptography.fernet import Fernet
@@ -96,7 +97,7 @@ def test_historical_pipeline_persists_charts_manifest_archive_and_audit(client,m
     assert r.json()['request_elapsed_ms']>=0
     assert r.json()['receipt_clock']=='server_wall_utc'
     assert r.json()['elapsed_clock']=='server_monotonic'
-    assert quality['observed_at_utc'].startswith(__import__('datetime').datetime.fromtimestamp(r.json()['response_received_at'], __import__('datetime').timezone.utc).isoformat())
+    assert quality['observed_at_utc']==datetime.fromtimestamp(r.json()['response_received_at'],timezone.utc).isoformat()
     assert not quality['live'] and not quality['executable_bid_ask_verified']
     result=client.get('/api/candles/XAUUSD-TD?timeframe=1m').json()
     assert result['dataset']['provider_symbol']=='XAU/USD';assert len(result['candles'])==2
