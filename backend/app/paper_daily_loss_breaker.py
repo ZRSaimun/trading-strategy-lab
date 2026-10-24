@@ -148,6 +148,8 @@ class PaperDailyLossBreaker:
         unrealized_d = _money(unrealized)
         reserved_d = _money(reserved, nonnegative=True)
         loss = max(Decimal(0), -(realized_d + min(unrealized_d, Decimal(0)) - reserved_d))
+        if loss > Decimal("1000000000000000"):
+            raise ValueError("Aggregate paper loss exceeds supported bounds")
         with self.session_factory() as db:
             raw = db.scalar(select(Record.value).where(Record.key == key))
             if raw is None:
