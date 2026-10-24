@@ -157,6 +157,42 @@ test('the range median uses only 20 preceding contiguous 15m candles, not future
  assert.deepEqual(after.gates,before.gates);
  assert.equal(after.confirmationCloseAt,before.confirmationCloseAt);
 });
+test('zero prior-20 median range cannot create an automatic displacement PASS',()=>{
+ const x=fixture();
+ // All 20 baseline bars are complete and chronologically valid, but flat.
+ // A multiplicative range threshold would otherwise be 1.5 * 0 = 0.
+ for(let i=12;i<32;i++){
+  Object.assign(x.fifteenMinute[i],make(BASE+i*Q,105,105,105,105,15));
+ }
+ const r=screenCrtHypotheses(x).candidates[0];
+ assert.equal(r.gates.structureShift,'PASS','the first observed close still breaks prior highs');
+ assert.equal(r.gates.displacement,'INSUFFICIENT_DATA');
+ assert.equal(r.confirmationCloseAt,BASE+33*Q);
+ assert.match(r.notes.join(' '),/median candle range is zero/);
+ assert.equal(r.eligibleForLiveTrading,false);
+});
+test('median zero with a majority of flat 15m bars remains insufficient',()=>{
+ const x=fixture();
+ for(let i=12;i<23;i++){
+  Object.assign(x.fifteenMinute[i],make(BASE+i*Q,105,105,105,105,15));
+ }
+ const r=screenCrtHypotheses(x).candidates[0];
+ assert.equal(r.gates.structureShift,'PASS');
+ assert.equal(r.gates.displacement,'INSUFFICIENT_DATA');
+});
+test('positive prior-20 median retains the configured displacement comparison',()=>{
+ const x=fixture();
+ // Ten flat candles and ten 2-point ranges yield a positive median of 1.
+ for(let i=12;i<22;i++){
+  Object.assign(x.fifteenMinute[i],make(BASE+i*Q,105,105,105,105,15));
+ }
+ const r=screenCrtHypotheses(x).candidates[0];
+ assert.equal(r.gates.structureShift,'PASS');
+ assert.equal(r.gates.displacement,'PASS');
+ const stricter=screenCrtHypotheses({...x,displacementMultiple:8}).candidates[0];
+ assert.equal(stricter.gates.displacement,'FAIL','threshold still controls valid positive baselines');
+});
+
 test('malformed price bars, time alignment and source identity fail closed',()=>{
  const x=fixture();x.fifteenMinute[1].observed_minutes=14;
  assert.throws(()=>screenCrtHypotheses(x),/Invalid, incomplete/);
