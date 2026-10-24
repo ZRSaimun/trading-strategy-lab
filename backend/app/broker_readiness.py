@@ -187,8 +187,13 @@ def calculate_order_gate_preview(body: OrderGatePreview, now_ms: int) -> dict:
     checks['hypothetical_stress_limits'] = stress['all_hypothetical_limits_pass']
     # A new order can breach a daily loss cap even when losses so far have
     # not reached it. Include the stressed hypothetical loss in the check.
-    projected_daily_pnl = (body.controls.daily_realized_pnl_cash
-                           - stress['stressed_loss_if_filled'])
+    # Do not ignore other open positions' unrealized losses and incremental
+    # reserved downside when projecting the account-wide daily loss.
+    existing_daily_pnl = gate['effective_daily_pnl_after_existing_risk_cash']
+    projected_daily_pnl = (
+        existing_daily_pnl - stress['stressed_loss_if_filled']
+        if existing_daily_pnl is not None else float('nan')
+    )
     checks['projected_daily_loss_within_cap'] = (
         math.isfinite(projected_daily_pnl)
         and projected_daily_pnl > -body.controls.max_daily_loss_cash
@@ -204,6 +209,17 @@ def calculate_order_gate_preview(body: OrderGatePreview, now_ms: int) -> dict:
             'stressed_loss_if_filled': stress['stressed_loss_if_filled'],
             'assumed_margin_required': stress['assumed_margin_required'],
             'all_hypothetical_limits_pass': stress['all_hypothetical_limits_pass'],
+        },
+        account_wide_daily_loss_scenario={
+            'realized_pnl_cash': body.controls.daily_realized_pnl_cash,
+            'unrealized_loss_cash': min(body.controls.daily_unrealized_pnl_cash, 0.0),
+            'other_positions_reserved_stress_loss_cash': (
+                body.controls.other_positions_reserved_stress_loss_cash
+            ),
+            'effective_pnl_before_proposed_order_cash': existing_daily_pnl,
+            'projected_pnl_after_proposed_stress_cash': (
+                projected_daily_pnl if math.isfinite(projected_daily_pnl) else None
+            ),
         },
         broker_connection_verified=False,
         may_execute_real_order=False,
