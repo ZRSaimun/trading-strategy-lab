@@ -116,7 +116,16 @@ function trend(bars:readonly Bar[]|undefined,at:number,dir:Direction):Gate{
  // rather than guessed complete. Current/future daily buckets are excluded.
  const prior=bars.filter(b=>b.time+86400<=at&&b.observed_minutes===1440);
  if(prior.length<20)return 'INSUFFICIENT_DATA';
- const recent=prior.slice(-20).map(b=>b.close);
+ const window=prior.slice(-20);
+ // A completed candle can be from months or years before this sweep.
+ // With no certified exchange calendar, use a conservative freshness
+ // ceiling and a bounded 20-session span. This does NOT infer whether
+ // a gap is a weekend, holiday or data outage.
+ const latestClose=window[19].time+86400;
+ const oldestClose=window[0].time+86400;
+ if(at-latestClose>3*86400||latestClose-oldestClose>30*86400)
+  return 'INSUFFICIENT_DATA';
+ const recent=window.map(b=>b.close);
  const short=recent.slice(-5).reduce((a,b)=>a+b,0)/5;
  const long=recent.reduce((a,b)=>a+b,0)/20;
  return dir==='BULLISH'?(short>long?'PASS':'FAIL'):(short<long?'PASS':'FAIL');
