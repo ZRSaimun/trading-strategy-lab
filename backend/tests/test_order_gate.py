@@ -83,3 +83,39 @@ def test_pure_replay_does_not_reserve_order_id():
     state = context()
     assert evaluate_gate(state, NOW) == evaluate_gate(state, NOW)
     assert state.prior_client_order_ids == []
+
+
+def test_existing_unrealized_losses_and_reserved_downside_count_toward_daily_cap():
+    # Realized P&L is within the cap, but exposure elsewhere in the account
+    # already consumes more than the remaining loss budget.
+    result = evaluate_gate(context(
+        daily_realized_pnl_cash=-10,
+        daily_unrealized_pnl_cash=-25,
+        other_positions_reserved_stress_loss_cash=20,
+    ), NOW)
+    assert result['checks']['daily_loss_limit_not_reached'] is True
+    assert result['checks']['existing_account_downside_within_cap'] is False
+    assert result['effective_daily_pnl_after_existing_risk_cash'] == -55
+    assert result['may_execute_real_order'] is False
+
+
+def test_floating_profits_cannot_expand_the_loss_budget():
+    result = evaluate_gate(context(
+        daily_realized_pnl_cash=-40,
+        daily_unrealized_pnl_cash=1000,
+        other_positions_reserved_stress_loss_cash=15,
+    ), NOW)
+    assert result['effective_daily_pnl_after_existing_risk_cash'] == -55
+    assert not result['checks']['existing_account_downside_within_cap']
+
+
+def test_reserved_risk_rejects_negative_and_overflowing_aggregates():
+    with pytest.raises(ValidationError):
+        context(other_positions_reserved_stress_loss_cash=-1)
+    result = evaluate_gate(context(
+        daily_realized_pnl_cash=-1e308,
+        other_positions_reserved_stress_loss_cash=1e308,
+    ), NOW)
+    assert result['effective_daily_pnl_after_existing_risk_cash'] is None
+    assert not result['checks']['existing_account_downside_within_cap']
+    assert not result['assumption_checks_pass']
