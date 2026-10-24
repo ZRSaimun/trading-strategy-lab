@@ -6,8 +6,8 @@ const identity:PaperIdentity={instrument:'XAUUSD-CFD-DEMO',provider:'Demo Broker
 const order:PaperOrder={clientOrderId:'o1',instrument:identity.instrument,side:'BUY',units:2,
  submittedAt:100,expiresAt:500,stop:99,target:102,maxSpread:.5,maxQuoteAgeSeconds:2,
  maxStopRiskCurrency:10,adverseSlippagePerSide:.1,commissionPerUnitSide:.05,
- status:'CLOSED',entry:100.3,entryReceivedAt:101,exit:102,exitReceivedAt:110,
- costs:.2,pnl:3.2};
+ status:'CLOSED',entry:100.3,entryObservedAt:101,entryReceivedAt:101,
+ exit:102,exitObservedAt:110,exitReceivedAt:110,costs:.2,pnl:3.2};
 const cash=(changes:Partial<PaperCashflow>={}):PaperCashflow=>({id:'swap-1',orderId:'o1',instrument:identity.instrument,
  provider:identity.provider,venue:identity.venue,at:105,kind:'OVERNIGHT_FINANCING',amountCurrency:-.4,
  reference:'User-declared hypothetical broker swap',...changes});
@@ -59,4 +59,34 @@ test('reconciliation is pure and never mutates the order or source cashflow',()=
  const original={...order};const entry=cash();const before={...entry};
  reconcilePaperCashflows(identity,order,115,[entry]);
  assert.deepEqual(order,original);assert.deepEqual(entry,before);
+});
+
+test('does not accept a forged commission even when net P&L is changed to agree with it',()=>{
+ // A forged zero-commission record previously passed because the two
+ // caller-controlled fields were checked against each other only.
+ const changed={...order,costs:0,pnl:3.4};
+ assert.throws(()=>reconcilePaperCashflows(identity,changed,115,[]),/reconcile/);
+ assert.throws(()=>reconcilePaperCashflows(identity,{...order,commissionPerUnitSide:0},115,[]),/reconcile/);
+ // Correctly recomputed commission-inclusive records still pass.
+ assert.equal(reconcilePaperCashflows(identity,order,115,[]).basePaperPnlCurrency,3.2);
+});
+test('rejects impossible fill chronology and missing observed-time evidence',()=>{
+ for(const changed of [
+  {entryObservedAt:undefined},{exitObservedAt:undefined},
+  {entryObservedAt:100},{entryReceivedAt:100},
+  {entryReceivedAt:501},{exitObservedAt:101},
+  {exitObservedAt:111},{exitReceivedAt:100},
+  {exitReceivedAt:116},{submittedAt:102},
+  {expiresAt:100}
+ ]){
+  assert.throws(()=>reconcilePaperCashflows(identity,{...order,...changed},115,[]),/closed, chronologically valid/);
+ }
+});
+test('rejects non-positive fill prices and malformed trade direction',()=>{
+ for(const changed of [
+  {entry:0},{exit:-1},{entry:Infinity},{exit:NaN},
+  {side:'HOLD' as PaperOrder['side']}
+ ]){
+  assert.throws(()=>reconcilePaperCashflows(identity,{...order,...changed},115,[]),/closed, chronologically valid/);
+ }
 });
