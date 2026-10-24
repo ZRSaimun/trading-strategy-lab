@@ -291,3 +291,39 @@ def test_snapshot_mismatch_preserves_existing_provider_series(client,monkeypatch
     assert client.get('/api/audit').json()==audit_before
     assert {p.name:p.read_bytes() for p in archive_dir.glob('*.json')}==archive_before
     assert calls==2
+
+
+def test_snapshot_publication_failure_preserves_existing_series(client, monkeypatch, tmp_path):
+    # End-to-end mocked API regression: publication must precede any DB replacement.
+    monkeypatch.setenv('FREE_ONLY', 'false')
+    credentials(monkeypatch, tmp_path)
+    monkeypatch.setenv('TWELVEDATA_ENABLED', 'true')
+    monkeypatch.setenv('MARKET_ARCHIVE_DIR', str(tmp_path / 'archive'))
+    monkeypatch.setattr(provider_api, '_last_attempt', -1000)
+    rows, archive = normalize(PAYLOAD, 'XAUUSD-TD', NOW)
+
+    async def fake(key, instrument, limit, end, now):
+        assert key == KEY and instrument == 'XAUUSD-TD'
+        return rows, archive
+
+    monkeypatch.setattr(provider_api, 'retrieve', fake)
+    unlock(client)
+    body = {'instrument': 'XAUUSD-TD', 'limit': 100, 'end': NOW-60,
+            'rights_confirmed': True, 'replace_confirmed': True}
+    assert client.post('/api/providers/twelvedata/import', json=body).status_code == 200
+    before_candles = client.get('/api/candles/XAUUSD-TD?timeframe=1m').json()
+    before_audit = client.get('/api/audit').json()
+    before_archive = {p.name: p.read_bytes() for p in (tmp_path / 'archive').glob('*.json')}
+
+    def blocked_publication(*args):
+        raise OSError('synthetic filesystem publication failure')
+
+    monkeypatch.setattr(provider_api, 'publish_verified_snapshot', blocked_publication)
+    monkeypatch.setattr(provider_api, '_last_attempt', -1000)
+    response = client.post('/api/providers/twelvedata/import', json=body)
+    assert response.status_code == 503
+    assert response.json()['detail'] == 'Cannot verify provider archive; database unchanged.'
+    assert KEY not in response.text
+    assert client.get('/api/candles/XAUUSD-TD?timeframe=1m').json() == before_candles
+    assert client.get('/api/audit').json() == before_audit
+    assert {p.name: p.read_bytes() for p in (tmp_path / 'archive').glob('*.json')} == before_archive
