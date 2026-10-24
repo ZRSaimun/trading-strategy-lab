@@ -4,7 +4,7 @@
 
 ## Inputs and identity
 
-Construct one ledger for one exact instrument/provider/venue with a positive currency-per-point-per-unit multiplier and explicit `priceSide: 'bid-ask'`. Supply external quote events containing `observedAt`, `receivedAt`, bid and ask, in strictly increasing observed-time order. Future timestamps, crossed/negative quotes, source mismatches, and duplicate/out-of-order events are rejected. The provider/source metadata is a declared identity, not a guarantee of quote authenticity or executable liquidity.
+Construct one ledger for one exact instrument/provider/venue with a positive currency-per-point-per-unit multiplier and explicit `priceSide: 'bid-ask'`. Supply external quote events containing `observedAt` and `receivedAt` as Unix seconds, bid and ask, in strictly increasing observed-time order. Future timestamps, crossed/negative quotes, source mismatches, and duplicate/out-of-order events are rejected. The provider/source metadata is a declared identity, not a guarantee of quote authenticity or executable liquidity.
 
 Orders have unique client IDs, exact instrument, BUY/SELL side, fractional research units, submission and expiry times, stop, target, maximum spread, maximum quote age, hypothetical stop-risk cap, adverse slippage per side and commission per unit per side. Only one pending/open order per ledger is allowed. Re-submitting an identical ID/body is idempotent; changing an existing ID's request is rejected. Cancellations apply to pending orders only.
 
