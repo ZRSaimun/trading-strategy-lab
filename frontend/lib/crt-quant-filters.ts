@@ -97,7 +97,7 @@ function volumeGate(history:readonly Bar[],last:Bar,source:Source,multiple:numbe
  const values=history.map(b=>b.volume);
  if(last.volume===null||last.volume<=0||
   values.some(v=>v===null||v<=0))return 'INSUFFICIENT_DATA';
- const average=values.reduce((sum,v)=>sum+v!,0)/values.length;
+ const average=values.reduce<number>((sum,v)=>sum+(v??0),0)/values.length;
  return Number.isFinite(average)&&average>0&&last.volume>multiple*average?'PASS':'FAIL';
 }
 
