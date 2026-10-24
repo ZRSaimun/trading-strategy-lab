@@ -32,6 +32,7 @@ export function reviewForecastStability(samples:readonly ForecastSample[],horizo
  let priorIssue=-1,priorEvaluation=-1;
  for(const s of samples){
   if(!epoch(s.observedAt)||!epoch(s.evaluatedAt)||s.observedAt<=priorIssue||s.evaluatedAt<=priorEvaluation||
+     s.observedAt%seconds!==0||s.evaluatedAt%seconds!==0||
      s.evaluatedAt-s.observedAt!==horizon*seconds||
      !Number.isFinite(s.probability)||s.probability<=0||s.probability>=1||typeof s.up!=='boolean')
    throw Error('Malformed, mixed-horizon, duplicate or unordered forecast evaluation');
@@ -39,7 +40,21 @@ export function reviewForecastStability(samples:readonly ForecastSample[],horizo
  }
  if(samples.length<window*2)return {status:'INSUFFICIENT',horizon,window,earlier:null,recent:null,
   deltaBrier:null,recentBrierSkill:null,reasons:['Need '+window*2+' matured outcomes for two fixed comparison windows; have '+samples.length+'.']};
- const earlier=metrics(samples.slice(-2*window,-window)),recent=metrics(samples.slice(-window));
+ // A fixed-count comparison must not silently bridge missing/partial bars,
+ // weekend closures, or disconnected provider intervals. Historical calibration
+ // produces one evaluation per completed bar within a contiguous segment.
+ // The last two windows must therefore cover 2*window consecutive issue times.
+ // An older gap outside the comparison is irrelevant.
+ const selected=samples.slice(-2*window);
+ for(let i=1;i<selected.length;i++){
+  if(selected[i].observedAt-selected[i-1].observedAt!==seconds ||
+     selected[i].evaluatedAt-selected[i-1].evaluatedAt!==seconds){
+   return {status:'INSUFFICIENT',horizon,window,earlier:null,recent:null,
+    deltaBrier:null,recentBrierSkill:null,
+    reasons:['The latest '+(2*window)+' evaluations cross a missing or non-contiguous candle interval; do not compare score windows across gaps. Collect '+(2*window)+' consecutive matured evaluations.']};
+  }
+ }
+ const earlier=metrics(selected.slice(0,window)),recent=metrics(selected.slice(window));
  const deltaBrier=recent.brier-earlier.brier;
  const recentBrierSkill=1-recent.brier/0.25;
  const reasons:string[]=[];
