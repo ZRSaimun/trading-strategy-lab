@@ -81,3 +81,36 @@ test('SELL target closes using ask, and invalid brackets reject at entry',()=>{
  assert.deepEqual(invalid.onQuote(q(101)).map(e=>e.status),['REJECTED']);
  assert.equal(invalid.get('paper-001')?.entry,undefined);
 });
+
+test('future-dated cancellation prevents older quotes from rewriting paper history',()=>{
+ const l=new PaperExecutionLedger(identity);
+ l.submit(req());
+ l.cancel('paper-001',200);
+ assert.throws(()=>l.onQuote(q(150)),/non-monotonic/);
+ assert.equal(l.get('paper-001')?.status,'CANCELED');
+ assert.deepEqual(l.history().map(e=>e.status),['CANCELED']);
+ // An older submission must not be inserted after a future-dated cancel.
+ assert.throws(()=>l.submit(req({clientOrderId:'paper-002',submittedAt:150})),/retroactive/);
+ // Idempotent replay of the original request is allowed but cannot reopen it.
+ assert.equal(l.submit(req()).status,'CANCELED');
+ l.submit(req({clientOrderId:'paper-002',submittedAt:200,expiresAt:500}));
+ assert.deepEqual(l.onQuote(q(201)).map(e=>e.status),['OPEN']);
+ assert.equal(l.get('paper-001')?.status,'CANCELED');
+});
+test('quotes received before a submitted paper request cannot be processed afterward',()=>{
+ const l=new PaperExecutionLedger(identity);
+ l.onQuote(q(99));
+ l.submit(req({submittedAt:150,expiresAt:300}));
+ assert.throws(()=>l.onQuote(q(101,100,100.2,120)),/non-monotonic/);
+ assert.equal(l.get('paper-001')?.status,'PENDING');
+ assert.deepEqual(l.onQuote(q(151,100,100.2,151)).map(e=>e.status),['OPEN']);
+});
+test('rejected time-travel events do not advance the paper event clock',()=>{
+ const l=new PaperExecutionLedger(identity);
+ l.submit(req());
+ l.cancel('paper-001',200);
+ assert.throws(()=>l.onQuote(q(150)),/non-monotonic/);
+ // This request is chronological and should remain valid after the rejection.
+ l.submit(req({clientOrderId:'paper-002',submittedAt:200,expiresAt:500}));
+ assert.deepEqual(l.onQuote(q(201)).map(e=>e.status),['OPEN']);
+});
