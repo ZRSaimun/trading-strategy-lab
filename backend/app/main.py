@@ -14,7 +14,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from sqlalchemy import select, delete
 from sqlalchemy.exc import IntegrityError
 from .db import Base, engine, Session, Record, Candle, Audit
-from .market import parse_csv, aggregate, TIMEFRAMES
+from .market import parse_csv, aggregate, TIMEFRAMES, bucket
 from .registry import INSTRUMENTS
 from .deployment import cloud_profile
 
@@ -169,6 +169,12 @@ def candles(instrument: str, timeframe: str="5m", before: int|None=None, auth=De
     instrument_check(instrument)
     if timeframe not in TIMEFRAMES:
         raise HTTPException(422,"Unsupported timeframe")
+    # A raw-timestamp cursor inside an aggregate bucket silently truncates
+    # that candle. Require exact UTC timeframe starts, including week/month.
+    # Bound epoch values before calling datetime-based monthly bucketing.
+    if before is not None and (before < 0 or before > 253402300799
+                               or before != bucket(before, timeframe)):
+        raise HTTPException(422, "before must be a complete timeframe bucket boundary")
     with Session() as db:
         meta = db.get(Record,"dataset:"+instrument)
         if not meta:
