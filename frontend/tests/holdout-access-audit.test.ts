@@ -11,12 +11,12 @@ const archives:ArchiveLineage[]=[2020,2021,2022,2023,2024].map((y,i)=>({
 }));
 const protocol:HoldoutProtocol={developmentEnd:year(2023),validationEnd:year(2024),holdoutEnd:year(2025),
  embargoSeconds:86400,strategyVersion:'v1',configSha256:'a'.repeat(64)};
-const make=()=>createHoldoutCommitment(archives,protocol,'researcher-1',year(2023)+100);
+const make=()=>createHoldoutCommitment(archives,protocol,'researcher-1',year(2022)+100);
 const access=(eventId:string,occurredAt:number,action:'VALIDATION_ACCESS'|'HOLDOUT_ACCESS'|'HOLDOUT_EVALUATION'|'PROTOCOL_CHANGED',archiveId:string|null='archive-2024')=>({eventId,occurredAt,action,archiveId});
 
 test('stable source-identified commitment despite archive input order',async()=>{
  const a=await make();
- const b=await createHoldoutCommitment([...archives].reverse(),{...protocol},'researcher-1',year(2023)+100);
+ const b=await createHoldoutCommitment([...archives].reverse(),{...protocol},'researcher-1',year(2022)+100);
  assert.equal(a.digest,b.digest);
  assert.deepEqual(a.archives.map(x=>x.id),archives.map(x=>x.id));
  assert.equal(a.digest.length,64);
@@ -81,14 +81,26 @@ test('rejects unknown archive, outcomes, and extra fields',async()=>{
  await assert.rejects(verifyHoldoutAudit(c,mutated),/no outcomes or additional fields/);
 });
 test('rejects malformed freeze, wrong protocol window, and backdated access',async()=>{
- await assert.rejects(createHoldoutCommitment(archives,protocol,'researcher-1',year(2024)),/freeze before holdout/);
+ await assert.rejects(createHoldoutCommitment(archives,protocol,'researcher-1',year(2024)),/freeze before validation/);
  await assert.rejects(createHoldoutCommitment(archives,protocol,'bad name',year(2023)),/valid operator/);
  const c=await make();
- await assert.rejects(appendHoldoutAuditEvent(c,[],access('old',year(2023),'VALIDATION_ACCESS','archive-2023')),/Invalid access event/);
+ await assert.rejects(appendHoldoutAuditEvent(c,[],access('old',year(2022),'VALIDATION_ACCESS','archive-2023')),/Invalid access event/);
 });
 test('clean self-attested hash chain still warns it cannot prove untouched holdout',async()=>{
  const c=await make();
  const entries=await appendHoldoutAuditEvent(c,[],access('a',year(2024)+200,'HOLDOUT_ACCESS'));
  const result=await verifyHoldoutAudit(c,entries);
  assert.ok(result.findings.some(f=>f.includes('self-reported')));
+});
+
+test('late freeze at or after validation start is rejected before any audit can be signed',async()=>{
+ await assert.rejects(createHoldoutCommitment(archives,protocol,'researcher-1',protocol.developmentEnd),/freeze before validation/);
+ await assert.rejects(createHoldoutCommitment(archives,protocol,'researcher-1',protocol.developmentEnd+1),/freeze before validation/);
+});
+test('recorded early validation read contaminates the preregistered validation period',async()=>{
+ const c=await make();
+ const entries=await appendHoldoutAuditEvent(c,[],access('early-validation',year(2022)+200,'VALIDATION_ACCESS','archive-2023'));
+ const review=await verifyHoldoutAudit(c,entries);
+ assert.equal(review.recordedStatus,'CONTAMINATION_RECORDED');
+ assert.ok(review.findings.some(f=>f.includes('before preregistered validation start')));
 });
