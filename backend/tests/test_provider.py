@@ -81,6 +81,7 @@ def test_historical_pipeline_persists_charts_manifest_archive_and_audit(client,m
     credentials(monkeypatch,tmp_path);monkeypatch.setenv('TWELVEDATA_ENABLED','true');monkeypatch.setenv('MARKET_ARCHIVE_DIR',str(tmp_path/'archive'))
     monkeypatch.setattr(provider_api,'_last_attempt',-1000)
     async def fake(key,instrument,limit,end,now):
+        await asyncio.sleep(0.03)  # Mock response latency; no provider request.
         assert key==KEY;return normalize(PAYLOAD,instrument,NOW)
     monkeypatch.setattr(provider_api,'retrieve',fake)
     unlock(client)
@@ -94,7 +95,7 @@ def test_historical_pipeline_persists_charts_manifest_archive_and_audit(client,m
     assert quality['assessment']=='OBSERVED_ONLY_HISTORICAL'
     assert r.json()['retrieved_at']==r.json()['request_started_at']
     assert r.json()['response_received_at']>=r.json()['request_started_at']
-    assert r.json()['request_elapsed_ms']>=0
+    assert r.json()['request_elapsed_ms']>=20
     assert r.json()['receipt_clock']=='server_wall_utc'
     assert r.json()['elapsed_clock']=='server_monotonic'
     assert quality['observed_at_utc']==datetime.fromtimestamp(r.json()['response_received_at'],timezone.utc).isoformat()
