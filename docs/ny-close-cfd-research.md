@@ -17,7 +17,7 @@ In the private terminal, **NY Close Research** loads **one source-isolated READY
 - Entry *assumption* = 15:30 NY open and exit *assumption* = 15:59 close (16:00 boundary), one hypothetical position per accepted session. This is an exploratory 30-minute hold, **not one-minute scalping**.
 - Recalculates illustrative mean net basis points, win rate and gross-profit-to-loss profit factor at 0×, 1×, 2× and 3× the user's cost scenario. Reports the ungated same-direction comparator as a useful negative control.
 - Never estimates absent executable ask, intraminute slippage, financing, marginal borrowing, commissions, funding, actual broker contract values, dividends or intraday equity risk.
-- Keeps the oldest-partially-loaded/newest-partially-loaded sample caveat: the browser caps the archive at **20,000 one-minute bars**. A recent sample does **not** establish years of out-of-sample validity.
+- Reads up to **100,000 recent raw one-minute archive bars** in bounded authenticated pages and retains at most **20,000 US equity regular-session minutes**. A partial first/last session is excluded. This is still a **limited historical window**, not a seven-year or complete-archive backtest, and reading raw CFD history does not establish that an instrument follows US equity session conventions.
 
 The original academic effect is **not a verified CFD edge**. Gao, Han, Li and Zhou (2018), *Market intraday momentum*, Journal of Financial Economics 129(2), pp.394–414, DOI https://doi.org/10.1016/j.jfineco.2018.05.009 studied SPY (1993–2013) and other ETFs. Rosa (2022), *Understanding intraday momentum strategies*, Journal of Futures Markets, DOI https://doi.org/10.1002/fut.22375, reports that a related strategy's out-of-sample predictability disappeared. These results cannot be transferred to NSXUSD/NDX cash proxies, futures, XAUUSD or WTI without source-specific testing and defensible markets/sessions.
 
@@ -41,4 +41,4 @@ The repo's confluence/CRT research in PR #24 is independent; do not misrepresent
 
 ### Tests
 
-`frontend/tests/ny-close-momentum.test.ts` checks 20-session trailing cutoff, 390-minute completeness, DST-aware NYC boundaries, no lookahead on 15:30 entry decisions, neutral/rejected outcomes, and strictly validated source/cost inputs. Run the frontend test/build jobs in GitHub Actions. A synthetic regression pass does not demonstrate live or historical profitability on the owner's private archive.
+`frontend/tests/ny-close-momentum.test.ts` and `frontend/tests/ny-close-history.test.ts` check 20-session trailing cutoff, 390-minute completeness, DST-aware NYC boundaries, no lookahead on 15:30 entry decisions, neutral/rejected outcomes, and strictly validated source/cost inputs. Run the frontend test/build jobs in GitHub Actions. A synthetic regression pass does not demonstrate live or historical profitability on the owner's private archive.
