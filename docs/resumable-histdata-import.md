@@ -44,6 +44,33 @@ Use `--format mt` for MetaTrader M1 archives. The `-300` minute offset represent
 - API never returns an unfinished dataset. All endpoints use the existing owner-session authentication.
 - Bid-only historical OHLCV is explicitly labelled **HISTORICAL ONLY**, not live or executable.
 
+## Offline READY archive row reconciliation
+
+For an existing **SQLite** research database, run the read-only integrity report
+before interpreting imported archives as backtest-ready:
+
+```bash
+cd backend
+python -m app.data_quality_research /private/path/research.sqlite --output /private/path/quality-report.json
+```
+
+The JSON `dataset_manifest` reports `observed_ready_rows` and
+`accepted_count_matches` for **each READY dataset**, and the summary reports
+`ready_dataset_count_mismatch`. This catches cases where one archive has
+missing rows and another has extra rows, even when their provider/instrument/
+format/UTC-offset group's combined count still equals its accepted total.
+The existing `accepted_count_mismatch` is the **group-level** counter and is
+retained for compatibility. Non-READY imports have null reconciliation fields;
+their checkpoint counts are not treated as completed candles.
+
+Counts include all stored rows for each dataset, not only distinct timestamps.
+A matching count alone does **not** prove that prices, timestamps, provider
+identity, licensing or archive completeness are correct. Investigate any
+mismatch against the immutable ZIP/checkpoints before using that dataset;
+this report never repairs or deletes data. It reads SQLite only and does not
+automatically audit production PostgreSQL or load data into the live site.
+Store JSON reports privately because they include source filenames.
+
 ## Testing and limitations
 
 Local isolated tests cover fixed-offset parsing, malformed rows, quarantine, source isolation, no overwrite, paused/resumed imports, ASCII/MT parsing and paginated authenticated historical responses. Before production activation, perform PostgreSQL migration/recovery and authenticated browser acceptance tests against a **staging** database.
