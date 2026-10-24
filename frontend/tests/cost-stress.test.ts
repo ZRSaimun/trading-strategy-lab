@@ -15,7 +15,7 @@ const cfg={...DEFAULTS,lookback:3,atrPeriod:3,barSeconds:60,
  capital:1000,riskPercent:1,spread:.4,slippage:.1,commission:.05};
 
 test('cost stress reruns the engine with original strategy and 1x, 2x, 3x costs',()=>{
- const rows=runCostStress(bars,'A',cfg);
+ const rows=runCostStress(bars,backtest(bars,'A',cfg));
  assert.deepEqual(rows.map(r=>r.multiplier),[...COST_MULTIPLIERS]);
  for(const row of rows){
   const expected=backtest(bars,'A',{...cfg,spread:cfg.spread*row.multiplier,
@@ -32,16 +32,24 @@ test('cost stress reruns the engine with original strategy and 1x, 2x, 3x costs'
 });
 test('cost stress is deterministic and does not mutate candles or saved configuration',()=>{
  const originalBars=structuredClone(bars),originalConfig={...cfg};
- assert.deepEqual(runCostStress(bars,'B',cfg),runCostStress(bars,'B',cfg));
+ assert.deepEqual(runCostStress(bars,backtest(bars,'B',cfg)),runCostStress(bars,'B',cfg));
  assert.deepEqual(bars,originalBars);
  assert.deepEqual(cfg,originalConfig);
 });
 test('rejects zero, negative, or non-finite baseline costs instead of inventing friction',()=>{
- assert.throws(()=>runCostStress(bars,'A',{...cfg,spread:0,slippage:0,commission:0}),/nonzero/);
- assert.throws(()=>runCostStress(bars,'A',{...cfg,spread:-.1}),/nonnegative/);
- assert.throws(()=>runCostStress(bars,'A',{...cfg,slippage:Infinity}),/finite/);
+ assert.throws(()=>runCostStress(bars,backtest(bars,'A',{...cfg,spread:0,slippage:0,commission:0})),/nonzero/);
+ assert.throws(()=>runCostStress(bars,{...backtest(bars,'A',cfg),config:{...cfg,spread:-.1}}),/nonnegative/);
+ assert.throws(()=>runCostStress(bars,{...backtest(bars,'A',cfg),config:{...cfg,slippage:Infinity}}),/finite/);
 });
 test('fails closed when historical candles are incomplete or unordered',()=>{
- assert.throws(()=>runCostStress(bars.map((x,i)=>i===2?{...x,observed_minutes:0}:x),'A',cfg),/Incomplete/);
- assert.throws(()=>runCostStress([...bars.slice(1),bars[0]],'A',cfg),/unordered/);
+ assert.throws(()=>runCostStress(bars.map((x,i)=>i===2?{...x,observed_minutes:0}:x),backtest(bars,'A',cfg)),/Incomplete/);
+ assert.throws(()=>runCostStress([...bars.slice(1),bars[0]],backtest(bars,'A',cfg)),/snapshot/);
+});
+
+test('rejects stale strategy versions, snapshot changes and falsified saved results',()=>{
+ const saved=backtest(bars,'A',cfg);
+ assert.throws(()=>runCostStress(bars,{...saved,engine:'old-engine'}),/version/);
+ assert.throws(()=>runCostStress(bars,{...saved,ruleVersion:'stale'}),/version/);
+ assert.throws(()=>runCostStress(bars,{...saved,bars:saved.bars+1}),/snapshot/);
+ assert.throws(()=>runCostStress(bars,{...saved,metrics:{...saved.metrics,netReturn:saved.metrics.netReturn+10}}),/not reproducible/);
 });
