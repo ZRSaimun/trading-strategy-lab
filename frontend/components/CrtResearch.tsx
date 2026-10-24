@@ -4,6 +4,7 @@ import {useEffect,useState} from 'react';
 import {appendArchiveListing,fetchArchiveListingPage,type ArchiveListing} from '../lib/archive-discovery';
 import {screenCrtHypotheses,completeAggregateWindow,type ScreenResult,type Gate} from '../lib/crt-quant-filters';
 import type {Bar} from '../lib/research';
+import {auditCrtCrossTimeframe} from '../lib/crt-timeframe-audit';
 
 type API=(path:string,init?:RequestInit)=>Promise<any>;
 type HistoryPage={
@@ -69,6 +70,9 @@ export default function CrtResearch({api,pages}:{api:API;pages:boolean}){
    // Ignore sweep references outside the available 15m time window.
    const cutoff=fifteen[0].time-2*14400;
    const h4=fourHourWindow.bars.filter(b=>b.time>=cutoff);
+   const audit=auditCrtCrossTimeframe(h4,fifteen);
+   if(audit.checkedFourHourBars===0)
+    throw Error('No fully overlapping 4H/15m candles to verify. Load a longer source-isolated 15m history window.');
    const report=screenCrtHypotheses({
     source:{datasetId:selected,archiveSha256:pages[0].dataset.archive_sha256,
      instrument:archive.instrument,provider:archive.provider,priceSide:'bid',
@@ -80,7 +84,9 @@ export default function CrtResearch({api,pages}:{api:API;pages:boolean}){
    setCoverage('Loaded '+h4.length+' 4H, '+fifteen.length+' 15m, and '+pages[2].candles.length+
     ' 1D aggregate bars from one archive. Excluded '+
     (fourHourWindow.excludedBoundaryBars+fifteenWindow.excludedBoundaryBars)+
-    ' incomplete 4H/15m boundary buckets (not synthesized). '+(pages.some(p=>p.has_more)?
+    ' incomplete 4H/15m boundary buckets (not synthesized). Cross-checked '+
+    audit.checkedFourHourBars+' 4H bars against their 16 observed 15m bars; '+
+    audit.uncheckableFourHourBars+' outside the shared window (not certified). '+(pages.some(p=>p.has_more)?
     'At least one timeframe is a capped recent window.':'No older pages reported for these requests.'));
   }catch(e){setStatus(e instanceof Error?e.message:String(e))}
   finally{setBusy(false)}
