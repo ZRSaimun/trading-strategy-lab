@@ -13,6 +13,7 @@ from .db import Session,Candle,Record
 from .providers import vault
 from .providers.twelvedata import retrieve,MAPPINGS,ProviderError
 from .completed_candle_quality import assess_completed_m1
+from .provider_snapshot import verify_normalized_snapshot
 
 router=APIRouter()
 _import_lock=threading.Lock()
@@ -68,6 +69,9 @@ def attach(owner,audit):
             # into a 500 or overwrite an existing research series.
             try:
                 quality=assess_completed_m1(rows,response_received_at)
+                # The content-addressed source snapshot must describe exactly the
+                # rows about to replace the provider series, not merely hash cleanly.
+                verify_normalized_snapshot(rows,archive,MAPPINGS[body.instrument]['symbol'])
             except (ValueError, OverflowError, OSError):
                 raise HTTPException(502,'Provider returned no valid completed candle set; existing data unchanged.') from None
             digest=hashlib.sha256(archive).hexdigest()
