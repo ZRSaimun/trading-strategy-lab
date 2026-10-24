@@ -58,6 +58,40 @@ function validateBars(bars:readonly Bar[],seconds:number){
    throw Error('Invalid, incomplete, misaligned or unordered historical candles');
  }
 }
+/**
+ * Historical M1 -> timeframe aggregation can legitimately return a partial
+ * first or last bucket when an imported source begins/ends mid-interval.
+ * Exclude ONLY those two boundary buckets. Never silently discard internal
+ * incomplete buckets, since that would hide missing market observations.
+ * All retained bars are revalidated by the research engine.
+ */
+export function completeAggregateWindow(
+ bars:readonly Bar[],seconds:900|14400,
+):{bars:Bar[];excludedBoundaryBars:number}{
+ if(!Array.isArray(bars)||bars.length>20000)
+  throw Error('Invalid or oversized aggregate research window');
+ const minutes=seconds/60;
+ for(let i=0;i<bars.length;i++){
+  const b=bars[i];
+  if(!Number.isSafeInteger(b.time)||b.time<0||b.time%seconds!==0||
+   !Number.isSafeInteger(b.observed_minutes)||b.observed_minutes<1||
+   b.observed_minutes>minutes||
+   ![b.open,b.high,b.low,b.close].every(n=>Number.isFinite(n)&&n>0)||
+   b.low>Math.min(b.open,b.close)||b.high<Math.max(b.open,b.close)||
+   (b.volume!==null&&(!Number.isFinite(b.volume)||b.volume<0))||
+   (i>0&&b.time<=bars[i-1].time))
+   throw Error('Invalid aggregate candle quality or time order');
+ }
+ const first=bars.length&&bars[0].observed_minutes!==minutes?1:0;
+ const end=bars.length>first&&bars[bars.length-1].observed_minutes!==minutes?
+  bars.length-1:bars.length;
+ for(let i=first;i<end;i++){
+  if(bars[i].observed_minutes!==minutes)
+   throw Error('Incomplete internal aggregate candle; research window is not safe');
+ }
+ return {bars:bars.slice(first,end),excludedBoundaryBars:first+bars.length-end};
+}
+
 function median(v:number[]){
  const s=[...v].sort((a,b)=>a-b),n=s.length;
  return n%2?s[(n-1)/2]:(s[n/2-1]+s[n/2])/2;
