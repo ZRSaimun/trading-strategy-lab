@@ -1,6 +1,7 @@
 'use client';
 import {useEffect,useState} from 'react';
 import {auditRollingDirection,type ForecastAudit as Audit} from '../lib/forecast-audit';
+import {reviewForecastStability} from '../lib/forecast-stability';
 import {loadArchiveWindow,type ArchivePage} from '../lib/backtest-history';
 import type {Bar} from '../lib/research';
 
@@ -72,6 +73,14 @@ export default function ForecastAudit({api,pages}:{api:API;pages:boolean}){
    {result.capped&&<p role="status" className="banner">Only the latest bounded historical window was evaluated. This is not the entire archive; earlier observations remain outside the audit.</p>}
    <p><strong>Model:</strong> {result.audit.version} · {result.audit.window} prior matured outcomes, Beta({result.audit.alpha},{result.audit.alpha}) smoothing. Fixed 50% reference forecast; Brier skill above zero means improvement against that reference on this same historical sample only. Scores do not include spreads, slippage, commissions or trading rules.</p>
    <div className="table-wrap"><table><thead><tr><th>Horizon</th><th>Evaluated</th><th>Brier ↓</th><th>50% baseline</th><th>Brier skill</th><th>Log loss ↓</th><th>Calibration error ↓</th></tr></thead><tbody>{result.audit.horizons.map(h=><tr key={h.horizon}><td>{h.horizon} bars</td><td>{h.samples.toLocaleString()}</td><td>{number(h.brier)}</td><td>{number(h.baselineBrier)}</td><td>{h.brierSkill===null?'—':(h.brierSkill*100).toFixed(2)+'%'}</td><td>{number(h.logLoss)}</td><td>{number(h.calibrationError)}</td></tr>)}</tbody></table></div>
+   <h3>Historical score stability · fixed-window review</h3>
+   <p>Compare the last 100 matured evaluations with the preceding 100, separately for each horizon. A review flag means recent Brier loss is at least 0.02 worse than the earlier window or exceeds the fixed 50% baseline (0.25). These are descriptive thresholds, not statistically significant drift detection, live alerts, or trading signals. Overlapping multi-bar outcomes are correlated.</p>
+   <div className="table-wrap"><table><thead><tr><th>Horizon</th><th>Earlier Brier</th><th>Recent Brier</th><th>Change (recent − earlier)</th><th>Review status</th></tr></thead><tbody>
+    {result.audit.horizons.map(h=>{
+     const s=reviewForecastStability(h.evaluations,h.horizon as 1|3|12,FRAMES[frame],100);
+     return <tr key={h.horizon}><td>{h.horizon} bars</td><td>{number(s.earlier?.brier??null)}</td><td>{number(s.recent?.brier??null)}</td><td>{number(s.deltaBrier)}</td><td>{s.status==='INSUFFICIENT'?'Insufficient settled samples':s.status==='REVIEW'?'Review deterioration':'No threshold flag'}{s.reasons.length>0?' · '+s.reasons.join(' '):''}</td></tr>;
+    })}
+   </tbody></table></div>
    {result.audit.horizons.map(h=><details key={h.horizon} className="rule-definitions"><summary>{h.horizon}-bar horizon · calibration buckets and last ten settled forecasts</summary>
     <p>First evaluated: {time(h.firstEvaluatedAt)} · Last evaluated: {time(h.lastEvaluatedAt)}. Overlapping horizon outcomes are correlated; small bins are unreliable.</p>
     <div className="table-wrap"><table><thead><tr><th>Forecast probability</th><th>Count</th><th>Mean forecast</th><th>Observed up rate</th></tr></thead><tbody>{h.bins.map(b=><tr key={b.from}><td>{Math.round(b.from*100)}–{Math.round(b.to*100)}%</td><td>{b.count}</td><td>{b.meanForecast===null?'—':(b.meanForecast*100).toFixed(1)+'%'}</td><td>{b.observedUpRate===null?'—':(b.observedUpRate*100).toFixed(1)+'%'}</td></tr>)}</tbody></table></div>
