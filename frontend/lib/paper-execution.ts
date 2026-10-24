@@ -34,7 +34,6 @@ export class PaperExecutionLedger {
   private readonly requests = new Map<string, PaperRequest>();
   private readonly orders = new Map<string, PaperOrder>();
   private lastObservedAt = -1;
-  private lastReceivedAt = -1;
   // All mutating events share a received/action-time clock, not only quotes.
   // Otherwise a future-dated cancel can incorrectly erase an earlier quote fill.
   private lastActionAt = -1;
@@ -92,7 +91,6 @@ export class PaperExecutionLedger {
         quote.receivedAt < this.lastActionAt || !positive(quote.bid) ||
         !positive(quote.ask) || quote.ask < quote.bid) throw Error('Invalid, future or non-monotonic bid/ask quote');
     this.lastObservedAt = quote.observedAt;
-    this.lastReceivedAt = quote.receivedAt;
     this.lastActionAt = quote.receivedAt;
     const changes: PaperEvent[] = [];
     const emit = (o: PaperOrder, reason: string) => {
