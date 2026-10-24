@@ -92,8 +92,14 @@ export function comparePaperWithDemoFills(
       if(exitUnits>entryUnits&&!close(exitUnits,entryUnits))throw Error('Demo exit exceeds preceding entry fills');
     }
     fees+=f.feeCurrency;
-    const skew=Math.abs(f.receivedAt-(f.leg==='ENTRY'?paper.entryReceivedAt!:paper.exitReceivedAt!));
-    maxSkew=Math.max(maxSkew??0,skew);
+    // Receipt timestamps alone can match even when the underlying executions
+    // occurred much later. Compare both independent clocks, fail closed on
+    // either mismatch, and never substitute receipt time for execution time.
+    const observedAt=f.leg==='ENTRY'?paper.entryObservedAt!:paper.exitObservedAt!;
+    const paperReceivedAt=f.leg==='ENTRY'?paper.entryReceivedAt!:paper.exitReceivedAt!;
+    const executedSkew=Math.abs(f.executedAt-observedAt);
+    const receivedSkew=Math.abs(f.receivedAt-paperReceivedAt);
+    maxSkew=Math.max(maxSkew??0,executedSkew,receivedSkew);
     if(!Number.isFinite(entryUnits)||!Number.isFinite(exitUnits)||
        !Number.isFinite(entryValue)||!Number.isFinite(exitValue)||!Number.isFinite(fees)||
        entryUnits>paper.units&&!close(entryUnits,paper.units)||
