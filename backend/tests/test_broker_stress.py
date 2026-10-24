@@ -3,7 +3,8 @@ import pytest
 from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 
-from app.broker_readiness import StressPreview, calculate_stress_preview, build_router
+from app.broker_readiness import (OrderPreview, StressPreview, calculate_preview,
+                                  calculate_stress_preview, build_router)
 
 
 def payload(**changes):
@@ -85,6 +86,32 @@ def test_extreme_values_fail_closed_without_overflowing_response():
             entry_price=1e200, stop_price=1e199,
             stressed_exit_price=1e198, quantity=1e200,
         )))
+
+
+@pytest.mark.parametrize('changes', [
+    # Finite loss divided by subnormal equity must not produce JSON infinity.
+    {'account_equity': 1e-320},
+    # Strictly positive prices/quantity can multiply to zero in binary float.
+    {'entry_price': 1e-320, 'stop_price': 5e-321,
+     'stressed_exit_price': 1e-321, 'quantity': 1e-320,
+     'estimated_total_cost': 0},
+])
+def test_numerically_unsafe_nominal_risk_fails_closed(changes):
+    values = payload(**changes)
+    with pytest.raises(ValueError, match='overflowed or underflowed'):
+        calculate_preview(OrderPreview(**values))
+    with pytest.raises(ValueError, match='overflowed or underflowed'):
+        calculate_stress_preview(StressPreview(**values))
+
+
+def test_subnormal_risk_returns_422_not_non_json_infinity():
+    app = FastAPI()
+    app.include_router(build_router(lambda: 'owner'))
+    client = TestClient(app)
+    for path in ('/api/broker/order-risk-preview', '/api/broker/stress-preview'):
+        result = client.post(path, json=payload(account_equity=1e-320))
+        assert result.status_code == 422
+        assert 'overflowed or underflowed' in result.json()['detail']
 
 
 def test_endpoint_requires_owner_and_never_exposes_order_action():
