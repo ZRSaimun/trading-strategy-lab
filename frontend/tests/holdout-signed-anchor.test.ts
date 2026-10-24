@@ -20,7 +20,7 @@ async function fixture(){
   const entries=await appendHoldoutAuditEvent(commitment,[],{
     eventId:'v1',action:'VALIDATION_ACCESS',archiveId:'source-3',occurredAt:start+3*year+100
   });
-  const pair=await webcrypto.subtle.generateKey('Ed25519',true,['sign','verify']);
+  const pair=await webcrypto.subtle.generateKey('Ed25519',true,['sign','verify']) as CryptoKeyPair;
   const pub=new Uint8Array(await webcrypto.subtle.exportKey('raw',pair.publicKey));
   const trusted:TrustedAnchorKey={keyId:'anchor-1',authority:'pinned-auditor',publicKeyBase64url:b64(pub)};
   const receipt:HoldoutAnchorReceipt={schema:'holdout-anchor-receipt-v1',
@@ -61,7 +61,7 @@ test('rejects unknown key and signer authority substitution',async()=>{
 });
 test('rejects wrong pinned public key even with same key ID',async()=>{
   const f=await fixture(),signed=await f.sign(f.receipt);
-  const other=await webcrypto.subtle.generateKey('Ed25519',true,['sign','verify']);
+  const other=await webcrypto.subtle.generateKey('Ed25519',true,['sign','verify']) as CryptoKeyPair;
   const replacement={...f.trusted,publicKeyBase64url:b64(
     new Uint8Array(await webcrypto.subtle.exportKey('raw',other.publicKey)))};
   await assert.rejects(verifySignedHoldoutAnchors(f.commitment,f.entries,
