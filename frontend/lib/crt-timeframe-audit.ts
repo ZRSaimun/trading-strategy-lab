@@ -82,3 +82,22 @@ export function auditCrtCrossTimeframe(
  return {checkedFourHourBars:checked,uncheckableFourHourBars:uncheckable,
   verifiedFourHourStarts};
 }
+
+/**
+ * Keep only 4H buckets independently reconciled to complete source-matched
+ * 15m OHLC. An uncheckable edge bucket must NEVER be a CRT reference or sweep,
+ * even when some other 4H buckets in the response passed the audit.
+ */
+export function certifiedCrtFourHourBars(
+ fourHour:readonly Bar[],audit:CrossoverAudit,
+):Bar[]{
+ const verified=new Set(audit.verifiedFourHourStarts);
+ if(verified.size!==audit.checkedFourHourBars||
+  audit.checkedFourHourBars+audit.uncheckableFourHourBars!==fourHour.length||
+  fourHour.some(b=>verified.has(b.time)&&!Number.isSafeInteger(b.time)))
+  throw Error('Inconsistent 4H/15m certification report');
+ const result=fourHour.filter(b=>verified.has(b.time));
+ if(result.length!==audit.checkedFourHourBars)
+  throw Error('Certified 4H candle identity missing from input window');
+ return result;
+}
