@@ -74,6 +74,31 @@ test('late claimed freeze receipt cannot count as preregistration',async()=>{
     [f.a0,f.a1,late,f.b1],[f.a.trusted,f.b.trusted],2);
   assert.equal(out.status,'INSUFFICIENT_QUORUM');
 });
+test('freeze signed after validation begins cannot count even before first validation read',async()=>{
+  const f=await fixture();
+  const late=await f.b.sign(f.receipt('b',0,protocol.developmentEnd+1));
+  const out=await reviewHoldoutAnchorQuorum(f.commitment,f.entries,
+    [f.a0,f.a1,late,f.b1],[f.a.trusted,f.b.trusted],2);
+  assert.equal(out.status,'INSUFFICIENT_QUORUM');
+  assert.equal(out.matchingAuthorities,1);
+});
+test('a recorded validation read before freeze attestation disqualifies the freeze',async()=>{
+  const f=await fixture();
+  const earlyEntries=await appendHoldoutAuditEvent(f.commitment,[],{
+    eventId:'early-validation-read',action:'VALIDATION_ACCESS',archiveId:'source-3',
+    occurredAt:f.commitment.frozenAt+50
+  });
+  const aHead=await f.a.sign({...f.a0.receipt,sequence:1,
+    headDigest:earlyEntries[0].digest,anchoredAt:f.commitment.frozenAt+150,
+    reference:'a-early-head'});
+  const bHead=await f.b.sign({...f.b0.receipt,sequence:1,
+    headDigest:earlyEntries[0].digest,anchoredAt:f.commitment.frozenAt+150,
+    reference:'b-early-head'});
+  const out=await reviewHoldoutAnchorQuorum(f.commitment,earlyEntries,
+    [f.a0,f.b0,aHead,bHead],[f.a.trusted,f.b.trusted],2);
+  assert.equal(out.status,'INSUFFICIENT_QUORUM');
+  assert.equal(out.freezeAuthorities,0);
+});
 test('invalid signature and duplicate signer are rejected',async()=>{
   const f=await fixture();
   await assert.rejects(reviewHoldoutAnchorQuorum(f.commitment,f.entries,
