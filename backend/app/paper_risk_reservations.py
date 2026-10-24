@@ -174,8 +174,13 @@ class PaperRiskReservationStore:
             return None  # Absence is NOT permission to trade.
         state, reserved = _decode(raw)
         return {"revision": state["revision"], "kill_switch": state["kill_switch"],
-                "emergency_latched": state["emergency_latched"], "limit_cash": state["limit_cash"], "reserved_cash": str(reserved),
+                "emergency_latched": state["emergency_latched"], "limit_cash": state["limit_cash"],
+                "reserved_cash": str(reserved),
+                "remaining_risk_capacity_cash": str(_money(state["limit_cash"]) - reserved),
                 "reservation_count": len(state["reservations"]),
+                # A snapshot is never permission to submit even a paper order:
+                # quote/position provenance and an atomic journal write are absent.
+                "may_execute_paper_order": False,
                 "may_execute_real_order": False}
 
     def set_policy(self, account_id, expected_revision, *, limit_cash, kill_switch,
