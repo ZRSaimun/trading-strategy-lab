@@ -16,6 +16,21 @@ Open **Strategy Robustness** from the terminal navigation to inspect previously 
 - A warning not triggering is **not** an endorsement or evidence of positive expected return.
 - A true walk-forward or purged rolling evaluation with pre-registered tuning, untouched final test set, realistic contracts/costs and later paper trading remains separate work.
 
+## Time-based expanding-window forward evaluation
+
+The **Strategy Robustness** screen now offers an **on-demand**, read-only, time-based forward evaluation on a saved backtest's exact candle snapshot. It does not call external data providers, submit orders, change research records or fit a model on forward-test candles.
+
+- Requires a saved snapshot of **500–20,000 complete aggregate candles**, matching coverage metadata and the current version of the deterministic simulator. The saved full-sample strategy report must also match the snapshot's start/end/bar count, and its trade count, net return, win rate, profit factor and close-marked drawdown must be reproducible with the saved engine settings. Missing, duplicate, unordered, altered or incomplete aggregate data fails closed when these checks detect a mismatch.
+- Divides the observed elapsed UTC period into five equal-duration intervals, **not** five equal-count candle buckets. Unknown market closures and source gaps remain gaps. A fold fails if its calendar-time interval has fewer than 200 training or 100 test candles.
+- Uses expanding past-only training windows: first 40%, 60%, then 80% of elapsed history; the following non-overlapping 20%-duration periods are independent forward tests. Boundaries are based on time, not outcomes.
+- For one chosen versioned strategy, training tests at most three **predeclared lookbacks**: the saved lookback, its half (minimum 3), and its double (maximum 500). If any candidate has **30 or more training trades**, the highest training average R is selected (ties prefer the saved lookback). If none qualifies, the original saved lookback is retained **without optimization**. No test-period metrics influence selection.
+- Each forward test starts its own warmup and starting capital. No position, candidate or equity crosses a boundary; folds are not compounded or added into a synthetic portfolio return.
+- Shows fold-level selected lookback, training/test trade counts, test return, test average R and close-marked drawdown, with descriptive caution flags for thin samples, negative return, and high drawdown.
+
+**Limits:** Replaying a baseline checks *internal consistency only*. It does not cryptographically authenticate the market-data source or verify the raw archive's dataset hash, broker fills or entitlement. This is a small historical walk-forward sensitivity experiment, **not** a protected untouched holdout, robust parameter search, or profitability proof. All test periods become visible once inspected; repeated research or expanding the candidate grid after inspection introduces multiple-testing bias. Real bid/ask execution, slippage, exchange calendars, contract metadata and independently observed paper-trading results remain unverified. A longer licensed archive and a preregistered final untouched evaluation are needed before treating results as evidence of an edge.
+
+Regression coverage: `frontend/tests/walk-forward.test.ts` checks chronological fold isolation, future-price invariance of earlier folds and training choices, low-trade no-fit fallback, source/coverage version failures, invalid lookbacks, tampered saved metrics, changed snapshot reproducibility and thin calendar-time coverage.
+
 ## Verification
 `frontend/tests/research-review.test.ts` covers return reversal, small holdouts, drawdowns, no-trade cases, missing segments, source uncertainty, strategy isolation and malformed saved report rejection.
 
