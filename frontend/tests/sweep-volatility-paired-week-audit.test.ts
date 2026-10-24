@@ -22,9 +22,9 @@ function makeReport(trades:RiskPathTrade[]):RiskPathReport{
   meanNetBps:COSTS.map((_,j)=>ts.length?ts.reduce((s,t)=>s+t.netBps[j],0)/ts.length:null),
   meanNetR:COSTS.map((_,j)=>ts.length?ts.reduce((s,t)=>s+t.netR[j],0)/ts.length:null),warning:'synthetic'};
 }
-function makeVolatility(ts:RiskPathTrade[],skip=-1):VolatilityRegimeReport{
+function makeVolatility(ts:RiskPathTrade[],byEntry:ReadonlyMap<number,VolatilityRegime>,skip=-1):VolatilityRegimeReport{
  const labels=ts.filter((_,i)=>i!==skip).map(t=>{
-  const regime:VolatilityRegime=t.exit>100.25?'HIGH':t.exit>100.15?'LOW':'NORMAL';
+  const regime=byEntry.get(t.entryAt);if(!regime)throw Error('Missing synthetic predeclared regime');
   return {candleOpenAt:t.entryAt-H,observedAt:t.entryAt,eligibleFrom:t.entryAt,
    normalizedAtrBps:200,trailingPercentile:regime==='LOW'?.1:regime==='HIGH'?.9:.5,regime};
  }).sort((a,b)=>a.candleOpenAt-b.candleOpenAt);
@@ -36,12 +36,13 @@ function makeVolatility(ts:RiskPathTrade[],skip=-1):VolatilityRegimeReport{
    HIGH:labels.filter(l=>l.regime==='HIGH').length},warning:'synthetic'};
 }
 function fixture(weeks=12,perRegime=3){
- const ts:RiskPathTrade[]=[];
+ const ts:RiskPathTrade[]=[],byEntry=new Map<number,VolatilityRegime>();
  for(let w=0;w<weeks;w++)for(let r=0;r<3;r++)for(let k=0;k<perRegime;k++){
   const regime=(['LOW','NORMAL','HIGH'] as const)[r];
-  ts.push(trade(START+w*WEEK+(r*perRegime+k)*2*H,regime));
+  const at=START+w*WEEK+(r*perRegime+k)*2*H;
+  ts.push(trade(at,regime));byEntry.set(at,regime);
  }
- return {r:makeReport(ts),v:makeVolatility(ts)};
+ return {r:makeReport(ts),v:makeVolatility(ts,byEntry),byEntry};
 }
 test('fixed contrasts, equal-week difference and deterministic adjusted intervals',()=>{
  const {r,v}=fixture();const a=auditFrozenVolatilityPairedWeeks(r,v);
@@ -63,15 +64,16 @@ test('withholds when shared cohort trade counts are below thirty',()=>{
  assert.ok(a.contrasts.every(c=>c.withheldReason==='TOO_FEW_SHARED_TRADES'&&c.bonferroniBootstrapIntervalR===null));
 });
 test('no shared weeks means no fabricated cross-regime effect',()=>{
- const ts:RiskPathTrade[]=[];
+ const ts:RiskPathTrade[]=[],byEntry=new Map<number,VolatilityRegime>();
  for(let r=0;r<3;r++)for(let w=0;w<12;w++)for(let k=0;k<3;k++){
-  ts.push(trade(START+(r*12+w)*WEEK+k*2*H,(['LOW','NORMAL','HIGH'] as const)[r]));
+  const at=START+(r*12+w)*WEEK+k*2*H,regime=(['LOW','NORMAL','HIGH'] as const)[r];
+  ts.push(trade(at,regime));byEntry.set(at,regime);
  }
- const a=auditFrozenVolatilityPairedWeeks(makeReport(ts),makeVolatility(ts));
+ const a=auditFrozenVolatilityPairedWeeks(makeReport(ts),makeVolatility(ts,byEntry));
  assert.ok(a.contrasts.every(c=>c.sharedUtcWeeks===0&&c.withheldReason==='TOO_FEW_SHARED_WEEKS'));
 });
 test('one missing volatility label withholds all estimates, never drops path silently',()=>{
- const {r}=fixture();const v=makeVolatility(r.trades,0);
+ const {r,byEntry}=fixture();const v=makeVolatility(r.trades,byEntry,0);
  const a=auditFrozenVolatilityPairedWeeks(r,v);
  assert.equal(a.unlabelledPaths,1);
  assert.ok(a.contrasts.every(c=>c.withheldReason==='UNLABELLED_PATHS'&&c.pairedWeekMeanDifferenceR===null));
@@ -95,6 +97,6 @@ test('source mismatch fails closed',()=>{
  assert.throws(()=>auditFrozenVolatilityPairedWeeks(r,v),/Mismatched/);
 });
 test('empty path input never invents performance',()=>{
- const a=auditFrozenVolatilityPairedWeeks(makeReport([]),makeVolatility([]));
+ const a=auditFrozenVolatilityPairedWeeks(makeReport([]),makeVolatility([],new Map()));
  assert.ok(a.contrasts.every(c=>c.pairedWeekMeanDifferenceR===null&&c.sharedUtcWeeks===0));
 });
