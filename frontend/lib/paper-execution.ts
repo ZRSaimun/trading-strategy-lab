@@ -48,7 +48,8 @@ export class PaperExecutionLedger {
   submit(request: PaperRequest): PaperOrder {
     const existing = this.requests.get(request.clientOrderId);
     if (existing) {
-      if (JSON.stringify(existing) !== JSON.stringify(request)) throw Error('Conflicting duplicate client order ID');
+      const fields = Object.keys(existing) as (keyof PaperRequest)[];
+      if (fields.some(key => existing[key] !== request[key])) throw Error('Conflicting duplicate client order ID');
       return this.get(request.clientOrderId)!;
     }
     if (!validId(request.clientOrderId) || request.instrument !== this.identity.instrument ||
