@@ -2,7 +2,7 @@
 
 import {useCallback,useEffect,useMemo,useRef,useState} from 'react';
 import {summarizeHistoricalQuality} from '../lib/archive-quality';
-import {appendArchiveListing,fetchArchiveListingPage,type ArchiveListing} from '../lib/archive-discovery';
+import {appendArchiveListing,ArchiveInventoryChangedError,fetchArchiveListingPage,type ArchiveListing} from '../lib/archive-discovery';
 import {createChart,CandlestickSeries,ColorType,type IChartApi,type ISeriesApi,type UTCTimestamp} from 'lightweight-charts';
 
 type Archive=ArchiveListing;
@@ -16,6 +16,9 @@ export default function HistoricalArchives({light,pages}:{light:boolean;pages:bo
  const [listingBusy,setListingBusy]=useState(false);
  const [listingMore,setListingMore]=useState(false);
  const [listingOffset,setListingOffset]=useState<number|null>(null);
+ const [listingSnapshot,setListingSnapshot]=useState<string|null>(null);
+ const [listingRevision,setListingRevision]=useState(0);
+ const [listingError,setListingError]=useState('');
  const [legacyListingLimit,setLegacyListingLimit]=useState(false);
  const [selected,setSelected]=useState('');
  const [frame,setFrame]=useState('1H');
@@ -36,6 +39,13 @@ export default function HistoricalArchives({light,pages}:{light:boolean;pages:bo
   if(pages)return;
   const controller=new AbortController();
   listingController.current=controller;
+  setDatasets([]);
+  setSelected('');
+  setListingMore(false);
+  setListingOffset(null);
+  setListingSnapshot(null);
+  setLegacyListingLimit(false);
+  setListingError('');
   setListingBusy(true);
   fetchArchiveListingPage(fetch,0,controller.signal)
    .then(page=>{
@@ -44,34 +54,43 @@ export default function HistoricalArchives({light,pages}:{light:boolean;pages:bo
     setSelected(old=>page.items.some(d=>d.id===old)?old:page.items[0]?.id||'');
     setListingMore(page.hasMore);
     setListingOffset(page.nextOffset);
+    setListingSnapshot(page.snapshot);
     setLegacyListingLimit(page.legacyPossiblyTruncated);
-    setError('');
+    setListingError('');
    })
-   .catch(e=>{if(!controller.signal.aborted)setError(String(e))})
+   .catch(e=>{if(!controller.signal.aborted)setListingError(String(e))})
    .finally(()=>{if(!controller.signal.aborted)setListingBusy(false)});
   return ()=>{controller.abort();if(listingController.current===controller)listingController.current=null};
- },[pages]);
+ },[pages,listingRevision]);
 
  const loadMoreArchives=useCallback(async()=>{
-  if(listingBusy||listingOffset===null)return;
+  if(listingBusy||listingOffset===null||!listingSnapshot)return;
   const signal=listingController.current?.signal;
   if(!signal||signal.aborted)return;
   setListingBusy(true);
   try{
-   const page=await fetchArchiveListingPage(fetch,listingOffset,signal);
+   const page=await fetchArchiveListingPage(fetch,listingOffset,signal,listingSnapshot);
    if(signal.aborted)return;
    const combined=appendArchiveListing(datasets,page);
    setDatasets(combined);
    setListingMore(page.hasMore);
    setListingOffset(page.nextOffset);
+   setListingSnapshot(page.snapshot);
    setLegacyListingLimit(page.legacyPossiblyTruncated);
-   setError('');
+   setListingError('');
   }catch(e){
-   if(!signal.aborted)setError(String(e));
+   if(!signal.aborted){
+    if(e instanceof ArchiveInventoryChangedError){
+     // The already loaded pages cannot be trusted after an inventory change.
+     setDatasets([]);setSelected('');setListingMore(false);
+     setListingOffset(null);setListingSnapshot(null);
+    }
+    setListingError(String(e));
+   }
   }finally{
    if(!signal.aborted)setListingBusy(false);
   }
- },[datasets,listingBusy,listingOffset]);
+ },[datasets,listingBusy,listingOffset,listingSnapshot]);
 
  const fetchPage=useCallback(async(cursor:number|null,replace:boolean,requestId:number)=>{
   if(!selected)return;
@@ -154,8 +173,10 @@ export default function HistoricalArchives({light,pages}:{light:boolean;pages:bo
     {listingBusy?'Loading datasets…':'Load more archive datasets'}
    </button>}
    {listingBusy&&!listingMore&&<span role="status">Loading archive discovery…</span>}
+   <button type="button" disabled={listingBusy} onClick={()=>setListingRevision(n=>n+1)}>Refresh archive inventory</button>
   </div>
-  {legacyListingLimit&&<p role="status">This server returned its first 200 archives without pagination headers. More datasets may exist but cannot be discovered until the private backend supports paginated listings.</p>}
+  {legacyListingLimit&&<p role="status">The server returned an archive list without a verifiable inventory snapshot. Additional datasets may exist, but paging is disabled until the private backend supports consistent inventory snapshots.</p>}
+  {listingError&&<p role="alert" className="error">{listingError} Refresh the archive inventory to retry.</p>}
   {archive&&<p style={{opacity:0.8}}>
    Source-isolated dataset · {archive.accepted.toLocaleString()} accepted M1 candles · {archive.rejected.toLocaleString()} excluded rows
    {archive.zero_volume>0?' · zero-volume entries retained':''}
