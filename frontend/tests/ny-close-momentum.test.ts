@@ -80,7 +80,7 @@ test('partial RTH sessions and absent history do not produce synthetic trades',(
 test('quiet days are rejected after the frozen 20-session median gate',()=>{
  const b=series(23);
  // Make all morning sessions use the same low range, so later days cannot pass.
- for(const x of b){const base=100+4*Math.floor(b.indexOf(x)/390);x.high=Math.max(x.open,x.close,base+1)}
+ for(let i=0;i<b.length;i++){const base=100+4*Math.floor(i/390);b[i].high=Math.max(b[i].open,b[i].close,base+1)}
  const result=studyNyCloseMomentum(b,cfg);
  assert.equal(result.candidateDays,3);
  assert.equal(result.trades.length,0);
