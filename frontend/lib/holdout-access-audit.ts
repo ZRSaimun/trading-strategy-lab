@@ -122,6 +122,14 @@ export async function verifyHoldoutAudit(c: HoldoutCommitment, entries: HoldoutA
       findings.push('Recorded holdout access before preregistered validation end');
     if (entry.action === 'VALIDATION_ACCESS' && entry.occurredAt < c.protocol.developmentEnd)
       findings.push('Recorded validation access before preregistered validation start');
+    // Access receipts identify an entire archive, not a row or time slice.
+    // A validation-labelled read of an archive containing any holdout period
+    // could expose holdout rows, even if the event claims a validation action.
+    // Fail closed rather than trusting the action label as an access boundary.
+    if (entry.action === 'VALIDATION_ACCESS' &&
+        c.archives.some(a => a.id === entry.archiveId &&
+          a.start < c.protocol.holdoutEnd && a.end > c.protocol.validationEnd))
+      findings.push('Recorded validation access to holdout-bearing archive without slice-level isolation');
     if (entry.action === 'PROTOCOL_CHANGED')
       findings.push('Recorded protocol revision after freeze; original holdout no longer untouched');
     seen.add(entry.eventId);
