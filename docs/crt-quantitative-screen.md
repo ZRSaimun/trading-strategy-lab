@@ -1,0 +1,28 @@
+# 4H CRT / 15m closed-bar research screen (candidate protocol v1)
+
+**Scope:** read-only, authenticated archive research. This branch introduces no orders, broker connections, cloud mutations, real-time signals, automated trading, or claimed market edge. This protocol is a pre-registration of **candidate thresholds** for subsequent independent holdout testing, not a backtest of their profitability.
+
+## One source and strictly observed bars
+
+The `CRT / ICT Research` terminal tab reads up to the most recent **2,000 aggregated bars per timeframe** from one READY, SHA-256-identified, BID-only historical ZIP archive. It checks the same dataset ID, provider, instrument, archive SHA-256 and BID-only source metadata for 4H, 15m and UTC daily reads; it never joins different instruments, providers, price sides or archive versions. The read-only engine accepts ordered, positive finite OHLC; 4H and 15m bars must be UTC-bucket-aligned with exactly 240 and 15 observed minutes respectively. It will not synthesize missing bars. Daily aggregates may include scheduled closures and are **only** used if the complete calendar-day bucket has elapsed; daily trend is explicitly a proxy, not an ICT order block.
+
+The UI's 15m window is usually much shorter than the 4H and daily windows, so earlier 4H sweeps may be omitted from the screen. The 2,000-bar per-frame cap is **not** a multi-year or independent holdout study; a later implementation must paginate a common bounded calendar interval and report its exact coverage and source lineage.
+
+## Fixed hypotheses (v1)
+
+1. Two adjacent **completed 4H** bars: Candle 2 sweeps below Candle 1 low and closes back strictly inside Candle 1 range for bullish; vice versa for bearish. An ambiguous double-sided outside bar is excluded. Proposed sweep-depth fraction is outside-wick excursion / **Candle 1 full high–low range**, with a candidate **maximum 0.40**. This is a configurable *research rejection* rule, not an established profitable threshold; test alternatives with pre-declared multiple-testing correction.
+2. After Candle 2 has **closed**, inspect the next 4H block of **completed 15m** candles. The first close beyond the highs (bullish) or lows (bearish) of the immediately preceding three 15m candles, with directional body, is a deterministic **local structure-break proxy**, not a formal validated MSS/CHOCH. Require a contiguous prior 20-bar 15m window. Compare that first signal candle's high–low range with the **median** of those preceding 20 ranges; proposed candidate is **>=1.5×**. Do not select a later better shift if the first fails.
+3. **Daily context:** average of the last five completed UTC daily closes > average of last 20 for bullish, reverse for bearish. If fewer than 20 completed daily buckets are supplied, context is unavailable. This is a deliberately simple *trend proxy*, not a validated higher-timeframe institutional order block.
+4. **Volume:** only classified, independently verified actual exchange/tick history with all prior 20 positive observations may pass; compare current completed 15m volume to **>1.5× the preceding 20 mean**. The current historical ZIP API explicitly identifies its volume as `unverified_histdata`, so the UI always shows **INSUFFICIENT_DATA** for volume. Zero placeholders never count as genuine observed volume. Passing test fixtures do not establish real market volume.
+5. **4H zone:** an optional, source-linked, earlier-observed supply/demand rectangle can match the candidate price, but cannot independently establish a genuine order block. No such zones are auto-created by this UI, so it shows **INSUFFICIENT_DATA**.
+6. **Economic news:** always **INSUFFICIENT_DATA** until an authorized, timestamped, revision-aware release calendar and source-specific instrument/session mapping are supplied. A 15-minute pre-news block is not active. There is no trade authorization under any gate combination.
+
+**Out of scope:** the owner's 1H FVG midpoint wick-rejection threshold, broker BID/ASK spread/funding, 1m/5m/15m CFD cost comparison, source-verified macro/VIX/CPI/FOMC, proper 4H order-block reconstruction, exchange holiday/early-close calendars, margin, live trading, position sizing and out-of-sample performance. See `docs/ny-close-cfd-research.md` and `docs/next-priorities.md`.
+
+## Interpretation, limitations and next evidence
+
+The screen counts *pattern candidates* and gate statuses, **not trades or returns**. It must not be interpreted as win rate, Sharpe, profitability, backtested execution, or a 3–6% improvement. In particular, the optional historical source may represent a CFD that trades different hours from a cash index. Historical minute data cannot establish actual executable ask prices, spread spikes, slippage, financing, news availability or broker session cutoffs.
+
+Regression tests cover exact 4H wick fraction, first completed 15m shift, contiguous prior 20-bar displacement median, daily lookahead exclusion, volume provenance, source isolation, future-bar edits, zone timing and malformed candles. GitHub CI is the authoritative build/test result for this branch.
+
+**Next independent study:** lock a source/instrument/session specification and fixed thresholds before untouched, purged chronological holdouts; add cost-stress negative controls and alternative 1H/4H versus short-frame CFD variants. Use actual observed bid/ask and broker contract metadata for executable estimates. Keep all execution disabled.
