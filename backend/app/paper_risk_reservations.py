@@ -50,13 +50,15 @@ def _canonical(value):
 
 def _validate(state):
     if not isinstance(state, dict) or set(state) != {
-        "version", "revision", "kill_switch", "limit_cash", "reservations"
-    } or type(state["version"]) is not int or state["version"] != 1:
+        "version", "revision", "kill_switch", "emergency_latched", "limit_cash", "reservations"
+    } or type(state["version"]) is not int or state["version"] != 2:
         raise ValueError("Invalid paper risk-state schema")
     if type(state["revision"]) is not int or not 0 <= state["revision"] <= _MAX_REVISION:
         raise ValueError("Invalid paper risk-state revision")
-    if type(state["kill_switch"]) is not bool:
+    if type(state["kill_switch"]) is not bool or type(state["emergency_latched"]) is not bool:
         raise ValueError("Invalid paper kill-switch state")
+    if state["emergency_latched"] and not state["kill_switch"]:
+        raise ValueError("Emergency-latched paper risk state cannot be enabled")
     limit = _money(state["limit_cash"])
     reservations = state["reservations"]
     if not isinstance(reservations, dict) or len(reservations) > _MAX_RESERVATIONS:
@@ -138,6 +140,7 @@ class PaperRiskReservationStore:
                                             "operation": operation,
                                             "revision": updated["revision"],
                                             "kill_switch": updated["kill_switch"],
+                                            "emergency_latched": updated["emergency_latched"],
                                             "reserved_cash": str(_validate(updated)),
                                             "state_sha256": hashlib.sha256(new_raw.encode()).hexdigest()})))
             db.commit()
@@ -145,8 +148,8 @@ class PaperRiskReservationStore:
 
     def initialize(self, account_id):
         key = self._key(account_id)
-        state = {"version": 1, "revision": 0, "kill_switch": True,
-                 "limit_cash": "0", "reservations": {}}
+        state = {"version": 2, "revision": 0, "kill_switch": True,
+                 "emergency_latched": False, "limit_cash": "0", "reservations": {}}
         with self.session_factory() as db:
             try:
                 db.execute(insert(Record).values(key=key, value=_encode(state)))
@@ -168,7 +171,7 @@ class PaperRiskReservationStore:
             return None  # Absence is NOT permission to trade.
         state, reserved = _decode(raw)
         return {"revision": state["revision"], "kill_switch": state["kill_switch"],
-                "limit_cash": state["limit_cash"], "reserved_cash": str(reserved),
+                "emergency_latched": state["emergency_latched"], "limit_cash": state["limit_cash"], "reserved_cash": str(reserved),
                 "reservation_count": len(state["reservations"]),
                 "may_execute_real_order": False}
 
@@ -181,6 +184,8 @@ class PaperRiskReservationStore:
         if not kill_switch and cap <= 0:
             raise ValueError("Positive risk cap required before enabling paper reservations")
         def change(state):
+            if state["emergency_latched"] and not kill_switch:
+                return None  # No recovery/unlatch path is implemented.
             if sum((_money(x) for x in state["reservations"].values()), Decimal(0)) > cap:
                 return None
             return {**state, "limit_cash": limit_cash, "kill_switch": kill_switch}
@@ -203,7 +208,7 @@ class PaperRiskReservationStore:
         return self._transition(self._key(account_id), expected_revision, change, operation="reserve")
 
     def engage_kill_switch(self, account_id):
-        """Retry competing revisions; failure must be treated as an emergency.
+        """Permanently latch emergency stop, retrying competing revisions.
 
         Never report success without a committed kill state. A service caller
         must stop accepting orders if this returns False or raises.
@@ -215,10 +220,11 @@ class PaperRiskReservationStore:
             if raw is None:
                 return False
             state, _ = _decode(raw)
-            if state["kill_switch"]:
+            if state["kill_switch"] and state["emergency_latched"]:
                 return True
             if self._transition(key, state["revision"],
-                                lambda current: {**current, "kill_switch": True},
+                                lambda current: {**current, "kill_switch": True,
+                                                 "emergency_latched": True},
                                 operation="emergency_kill"):
                 return True
         raise RuntimeError("Could not persist emergency paper kill switch; halt all orders")
