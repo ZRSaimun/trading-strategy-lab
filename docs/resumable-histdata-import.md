@@ -36,7 +36,8 @@ Use `--format mt` for MetaTrader M1 archives. The `-300` minute offset represent
 
 ## Authenticated historical chart API
 
-- `GET /api/history/datasets`: list completed import datasets.
+- `GET /api/history/datasets`: list READY imports as a JSON array (up to 200 by default). Use `?limit=100&offset=0` to paginate; `X-History-Has-More: true` and `X-History-Next-Offset` indicate another page. Fetch until no more; the legacy response remains an array. Pagination is a point-in-time view, not a snapshot: if imports finish during pagination, re-enumerate to ensure no dataset was skipped.
+- Dataset listings and candle pages include exact provider, instrument, archive SHA-256, declared fixed UTC offset and source file format; the candle page also includes accepted/rejected and zero-volume counters. These fields are provenance claims from the importer, **not** proof of timestamp convention or vendor authenticity. Do not combine different offsets, providers, contracts or archive hashes without explicit reconciliation.
 - `GET /api/history/{dataset_id}/candles?timeframe=5m&limit=2000`: paged observed OHLCV aggregations; `before` must be aligned to timeframe bucket start.
 - Response includes `has_more` and `next_before`, which can be used for an older page.
 - API never returns an unfinished dataset. All endpoints use the existing owner-session authentication.
