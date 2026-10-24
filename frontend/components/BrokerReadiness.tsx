@@ -6,6 +6,10 @@ type BrokerInfo={id:string;api_order_support:boolean;integration_status:string};
 type Capabilities={status:string;execution_mode:string;quote_verified:boolean;account_linked:boolean;live_orders_enabled:boolean;demo_orders_enabled:boolean;risk_preview_enabled:boolean;brokers:BrokerInfo[];source_url:string};
 type Preview={estimated_exposure:number;estimated_loss_if_filled_at_stop:number;risk_budget_cash:number;estimated_risk_percent:number;within_user_risk_budget:boolean;may_execute_real_order:boolean;warnings:string[]};
 type BrokerId='Trading212-CFD'|'Trading212-Invest'|'Trading212-StocksISA';
+type ReadinessCheck={id:string;met:boolean;detail:string};
+type SystemReadiness={state:string;automatic_live_trading_ready:boolean;paper_trading_state:string;
+ research_storage:{legacy_candles:number;ready_archive_datasets:number;declared_accepted_archive_candles:number};
+ checks:ReadinessCheck[];blockers:string[]};
 type StressResult=Preview & {stressed_loss_if_filled:number;stressed_risk_percent:number;stressed_loss_within_budget:boolean;assumed_margin_required:number;assumed_margin_covered_by_equity:boolean;assumed_effective_leverage:number;within_user_leverage_cap:boolean;all_hypothetical_limits_pass:boolean};
 type Inputs={broker:BrokerId;symbol:string;direction:'BUY'|'SELL';entry_price:number;stop_price:number;quantity:number;point_value:number;estimated_total_cost:number;account_equity:number;risk_budget_percent:number;price_source:'UNVERIFIED USER INPUT'|'HISTORICAL BID'};
 // Avoid displaying a nonzero tiny loss or margin as 0.00.
@@ -19,10 +23,16 @@ const FIELDS:Array<[keyof Pick<Inputs,'entry_price'|'stop_price'|'quantity'|'poi
 ];
 export default function BrokerReadiness({api,pages}:{api:API;pages:boolean}){
  const [caps,setCaps]=useState<Capabilities|null>(null),[error,setError]=useState('');
+ const [system,setSystem]=useState<SystemReadiness|null>(null),[systemError,setSystemError]=useState('');
  const [inputs,setInputs]=useState<Inputs>(DEFAULTS),[preview,setPreview]=useState<Preview|null>(null),[busy,setBusy]=useState(false);
  const [stressExit,setStressExit]=useState(95),[marginPercent,setMarginPercent]=useState(10),[maxLeverage,setMaxLeverage]=useState(2);
  const [stressResult,setStressResult]=useState<StressResult|null>(null),[stressBusy,setStressBusy]=useState(false);
  useEffect(()=>{if(pages)return;let active=true;api('/broker/capabilities').then((v:Capabilities)=>{if(active){setCaps(v);setError('')}}).catch(e=>{if(active)setError(e.message||String(e))});return()=>{active=false}},[api,pages]);
+ useEffect(()=>{if(pages)return;let active=true;
+  api('/system/readiness').then((v:SystemReadiness)=>{if(active){setSystem(v);setSystemError('')}})
+    .catch(e=>{if(active){setSystem(null);setSystemError(e instanceof Error?e.message:String(e))}});
+  return()=>{active=false};
+ },[api,pages]);
  const changeNumber=(key:typeof FIELDS[number][0],raw:string)=>{setInputs(old=>({...old,[key]:Number(raw)}));setPreview(null);setStressResult(null)};
  async function calculate(e:React.FormEvent<HTMLFormElement>){e.preventDefault();setError('');setBusy(true);setPreview(null);try{const result=await api('/broker/order-risk-preview',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(inputs)});setPreview(result)}catch(e){setError(e instanceof Error?e.message:String(e))}finally{setBusy(false)}}
  async function calculateStress(e:React.FormEvent<HTMLFormElement>){e.preventDefault();setError('');setStressBusy(true);setStressResult(null);try{const result=await api('/broker/stress-preview',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...inputs,stressed_exit_price:stressExit,margin_requirement_percent:marginPercent,max_leverage:maxLeverage})});setStressResult(result)}catch(e){setError(e instanceof Error?e.message:String(e))}finally{setStressBusy(false)}}
@@ -33,6 +43,15 @@ export default function BrokerReadiness({api,pages}:{api:API;pages:boolean}){
   {pages?<p role="status">The browser-local version has no authenticated broker-service API. Open your private server to see the latest integration status.</p>:<>
    {error&&<p role="alert" className="error">{error}</p>}
    <div className="market-strip"><div><small>BROKER CONNECTION</small><strong>{caps?.status||'Checking…'}</strong></div><div><small>LIVE ORDER API</small><strong>{caps?.live_orders_enabled?'AVAILABLE':'NOT CONNECTED'}</strong></div><div><small>DEMO ORDER API</small><strong>{caps?.demo_orders_enabled?'AVAILABLE':'NOT CONNECTED'}</strong></div><div><small>RISK PREVIEW</small><strong>{caps?.risk_preview_enabled?'AVAILABLE':'UNAVAILABLE'}</strong></div></div>
+   <h3>Verified research-to-trading checklist</h3>
+   {systemError&&<p role="alert" className="error">Current readiness unavailable: {systemError}</p>}
+   {!system&&!systemError&&<p>Checking private database and research readiness…</p>}
+   {system&&<div className="journal-entry" role="status">
+    <p><strong>{system.state}</strong> · Paper mode: {system.paper_trading_state} · Automatic live trading: {system.automatic_live_trading_ready?'AVAILABLE':'NOT READY'}</p>
+    <p>Existing chart candles: {system.research_storage.legacy_candles.toLocaleString('en-GB')} · Completed archive datasets in cloud: {system.research_storage.ready_archive_datasets.toLocaleString('en-GB')} · Declared accepted archive candles in cloud: {system.research_storage.declared_accepted_archive_candles.toLocaleString('en-GB')}</p>
+    <ul>{system.checks.map(item=><li key={item.id}><strong>{item.met?'AVAILABLE':'NOT READY'}</strong> — {item.detail}</li>)}</ul>
+    <p>Research observations and passed software tests do not certify profit or executable broker access.</p>
+   </div>}
    <p><strong>API-supported account types:</strong> Trading 212 Invest and Stocks ISA offer documented order endpoints, but neither is connected to this website. Its CFD account type is not supported by the documented Public API.</p>
    {caps?.brokers.map(b=><p key={b.id}><strong>{b.id}</strong> — {b.integration_status}</p>)}
    <p><a href="https://docs.trading212.com/api" target="_blank" rel="noreferrer">Official Trading 212 Public API documentation ↗</a></p>
