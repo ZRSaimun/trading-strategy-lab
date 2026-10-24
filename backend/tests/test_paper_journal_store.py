@@ -123,3 +123,23 @@ def test_two_source_isolated_sessions_and_nonfinite_payloads(setup):
         store.compare_and_swap("too-many", IDENTITY, None, 0, checkpoint(actions=[0] * 50_001))
     assert store.load("nan") is None
     assert store.load("too-many") is None
+
+
+def test_duplicate_json_fields_and_exponent_overflow_fail_closed(setup):
+    _, factory = setup
+    store = PaperJournalStore(factory)
+    valid = checkpoint()
+    duplicate = valid.replace('"version":1', '"version":1,"version":1')
+    nested_duplicate = valid.replace('"pointValue":1', '"pointValue":1,"pointValue":1')
+    overflow = valid.replace('"actions":[]', '"actions":[{"quote":1e999}]')
+    for index, payload in enumerate((duplicate, nested_duplicate, overflow)):
+        with pytest.raises(ValueError, match="JSON"):
+            store.compare_and_swap(f"reject-{index}", IDENTITY, None, 0, payload)
+        assert store.load(f"reject-{index}") is None
+    assert store.compare_and_swap("stored-corrupt", IDENTITY, None, 0, valid)
+    key = store._key("stored-corrupt")
+    with factory.begin() as db:
+        record = db.get(Record, key)
+        record.value = record.value.replace('"revision":0', '"revision":0,"revision":0')
+    with pytest.raises(ValueError, match="corrupt"):
+        store.load("stored-corrupt")
