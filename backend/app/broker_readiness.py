@@ -46,9 +46,17 @@ def calculate_preview(body: OrderPreview) -> dict:
     estimated_loss_at_stop = gross_loss_at_stop + body.estimated_total_cost
     budget = body.account_equity * body.risk_budget_percent / 100.0
     estimated_exposure = body.entry_price * body.quantity * body.point_value
-    if not all(math.isfinite(x) and x >= 0 for x in (gross_loss_at_stop, estimated_loss_at_stop, budget, estimated_exposure)):
-        raise ValueError('Risk calculation overflowed')
+    # Strictly positive inputs can still underflow to zero in float arithmetic.
+    # A risk preview showing zero loss/exposure or a zero cash budget is misleading.
+    if not all(math.isfinite(x) and x > 0 for x in (
+        gross_loss_at_stop, estimated_loss_at_stop, budget, estimated_exposure
+    )):
+        raise ValueError('Risk calculation overflowed or underflowed')
     risk_fraction = 100 * estimated_loss_at_stop / body.account_equity
+    # A finite loss divided by subnormal equity may overflow to infinity.
+    # Reject it here instead of returning non-JSON infinity or a false pass.
+    if not math.isfinite(risk_fraction) or risk_fraction <= 0:
+        raise ValueError('Risk calculation overflowed or underflowed')
     permitted = estimated_loss_at_stop <= budget
     warnings = [
         'NO BROKER CONNECTED: this is a hypothetical calculation, not a quote or order.',
