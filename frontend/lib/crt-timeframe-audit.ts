@@ -14,6 +14,8 @@ import type {Bar} from './research.ts';
 export type CrossoverAudit={
  checkedFourHourBars:number;
  uncheckableFourHourBars:number;
+ /** Exact 4H bucket starts whose complete 16-bar 15m OHLC matched. */
+ verifiedFourHourStarts:number[];
 };
 const MIN15=900, FOUR_HOUR=14400, BARS_PER_4H=16;
 
@@ -48,6 +50,7 @@ export function auditCrtCrossTimeframe(
    throw Error('Out-of-order 15m cross-timeframe candles');
  }
  let checked=0,uncheckable=0,index=0;
+ const verifiedFourHourStarts:number[]=[];
  const start=fifteenMinute[0]?.time,end=fifteenMinute[fifteenMinute.length-1]?.time;
  for(const h4 of fourHour){
   // An overlapping but incomplete boundary block must be classified as
@@ -73,7 +76,9 @@ export function auditCrtCrossTimeframe(
    !samePrice(h4.low,observed.low)||!samePrice(h4.close,observed.close))
    throw Error('4H/15m OHLC mismatch for same historical archive');
   checked++;
+  verifiedFourHourStarts.push(h4.time);
   index+=BARS_PER_4H;
  }
- return {checkedFourHourBars:checked,uncheckableFourHourBars:uncheckable};
+ return {checkedFourHourBars:checked,uncheckableFourHourBars:uncheckable,
+  verifiedFourHourStarts};
 }
