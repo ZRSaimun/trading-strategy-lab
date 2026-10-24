@@ -113,7 +113,7 @@ class PaperRiskReservationStore:
             raise ValueError("Invalid client order ID")
         return hashlib.sha256(order_id.encode("ascii")).hexdigest()
 
-    def _transition(self, key, expected_revision, change):
+    def _transition(self, key, expected_revision, change, *, operation):
         if type(expected_revision) is not int or not 0 <= expected_revision < _MAX_REVISION:
             raise ValueError("Invalid expected risk revision")
         with self.session_factory() as db:
@@ -133,8 +133,9 @@ class PaperRiskReservationStore:
             if changed.rowcount != 1:
                 db.rollback()
                 return False
-            db.add(Audit(time=int(time.time()), actor="owner", action="paper.risk.cas",
+            db.add(Audit(time=int(time.time()), actor="paper-risk-store", action="paper.risk.cas",
                          detail=_canonical({"account_hash": key.split(":", 1)[1],
+                                            "operation": operation,
                                             "revision": updated["revision"],
                                             "kill_switch": updated["kill_switch"],
                                             "reserved_cash": str(_validate(updated)),
@@ -149,8 +150,9 @@ class PaperRiskReservationStore:
         with self.session_factory() as db:
             try:
                 db.execute(insert(Record).values(key=key, value=_encode(state)))
-                db.add(Audit(time=int(time.time()), actor="owner", action="paper.risk.init",
+                db.add(Audit(time=int(time.time()), actor="paper-risk-store", action="paper.risk.init",
                              detail=_canonical({"account_hash": key.split(":", 1)[1],
+                                                "operation": "initialize",
                                                 "revision": 0, "kill_switch": True})))
                 db.commit()
                 return True
@@ -182,7 +184,7 @@ class PaperRiskReservationStore:
             if sum((_money(x) for x in state["reservations"].values()), Decimal(0)) > cap:
                 return None
             return {**state, "limit_cash": limit_cash, "kill_switch": kill_switch}
-        return self._transition(self._key(account_id), expected_revision, change)
+        return self._transition(self._key(account_id), expected_revision, change, operation="policy")
 
     def reserve(self, account_id, expected_revision, *, client_order_id, risk_cash):
         """Atomically reserve stressed PAPER risk; never places or fills an order."""
@@ -198,7 +200,7 @@ class PaperRiskReservationStore:
                 return None
             return {**state, "reservations": {**state["reservations"],
                                                order_hash: risk_cash}}
-        return self._transition(self._key(account_id), expected_revision, change)
+        return self._transition(self._key(account_id), expected_revision, change, operation="reserve")
 
     def engage_kill_switch(self, account_id):
         """Retry competing revisions; failure must be treated as an emergency.
@@ -216,6 +218,7 @@ class PaperRiskReservationStore:
             if state["kill_switch"]:
                 return True
             if self._transition(key, state["revision"],
-                                lambda current: {**current, "kill_switch": True}):
+                                lambda current: {**current, "kill_switch": True},
+                                operation="emergency_kill"):
                 return True
         raise RuntimeError("Could not persist emergency paper kill switch; halt all orders")
