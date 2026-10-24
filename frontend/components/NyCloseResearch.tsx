@@ -2,7 +2,8 @@
 
 import {useEffect,useState} from 'react';
 import {appendArchiveListing,fetchArchiveListingPage,type ArchiveListing} from '../lib/archive-discovery';
-import {loadArchiveWindow,type ArchivePage} from '../lib/backtest-history';
+import type {ArchivePage} from '../lib/backtest-history';
+import {loadNyCloseWindow} from '../lib/ny-close-history';
 import {studyNyCloseMomentum,type CloseMomentumStudy} from '../lib/ny-close-momentum';
 
 type API=(path:string,init?:RequestInit)=>Promise<any>;
@@ -44,7 +45,7 @@ export default function NyCloseResearch({api,pages}:{api:API;pages:boolean}){
    if(!archive)throw Error('Select one ready completed ZIP archive first');
    const cost=Number(costBps);
    if(!Number.isFinite(cost)||cost<=0||cost>1000)throw Error('Specify a positive illustrative round-trip CFD cost in basis points (at most 1,000)');
-   const window=await loadArchiveWindow(selected,'1m',async(before,limit)=>{
+   const window=await loadNyCloseWindow(selected,async(before,limit)=>{
     const q=new URLSearchParams({timeframe:'1m',limit:String(limit)});
     if(before!==null)q.set('before',String(before));
     return await api('/history/'+encodeURIComponent(selected)+'/candles?'+q) as ArchivePage;
@@ -80,6 +81,7 @@ export default function NyCloseResearch({api,pages}:{api:API;pages:boolean}){
      onChange={e=>{setCostBps(e.target.value);setResult(null)}}/>
    </label>
   </div>
+  <p>Data read: bounded scan of up to 100,000 raw one-minute source bars, retaining at most 20,000 NY regular-session minute bars. No market data is written back to the archive.</p>
   <p>Eligibility: complete US equity 09:30–16:00 ET historical session, first-half-hour direction agrees with price change from the previous session close to 15:30, and the first-half-hour high/low range exceeds the median of the previous 20 complete sessions. All signals are determined at 15:30 ET. This is an experimental session proxy, not a verified strategy for XAUUSD, NSXUSD or WTI.</p>
   <button className="primary" disabled={loading||listingBusy||!selected} onClick={()=>void run()}>{loading?'Researching complete NY sessions…':listingBusy?'Discovering imported archives…':'Run historical NY close experiment'}</button>
   {listingError&&<p role="alert" className="error">{listingError}</p>}
@@ -88,7 +90,7 @@ export default function NyCloseResearch({api,pages}:{api:API;pages:boolean}){
    <p><strong>Source: </strong>{result.source.instrument} · {result.source.provider} · archive {result.source.archiveId.slice(0,12)} · BID only<br/>
     Complete NY sessions: {result.completeSessions} / {result.totalObservedSessions}<br/>
     Agreement candidates: {result.candidateDays} · High-volatility eligible sessions: {result.volatilityGatedDays}</p>
-   {capped&&<p role="alert" className="banner">WINDOW LIMIT: Only the most recent 20,000 one-minute source bars were examined. This is not a full multi-year archive evaluation.</p>}
+   {capped&&<p role="alert" className="banner">WINDOW LIMIT: Scanned up to 100,000 recent raw minute bars, retaining up to 20,000 NY regular-session bars. This is not a full multi-year archive evaluation.</p>}
    <h3>Illustrative net results by cost assumption</h3>
    <div className="table-wrap"><table><thead><tr><th>Round-trip cost</th><th>Volatility-gated trades</th><th>Gated mean net bps</th><th>Gated win %</th><th>Gated profit factor</th><th>Without volatility gate: mean net bps</th></tr></thead><tbody>
     {result.costs.map((s,i)=><tr key={i}><td>{fmt(s.roundTripBps)} bps</td>
