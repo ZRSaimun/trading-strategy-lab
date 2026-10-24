@@ -32,7 +32,7 @@ test('cost stress reruns the engine with original strategy and 1x, 2x, 3x costs'
 });
 test('cost stress is deterministic and does not mutate candles or saved configuration',()=>{
  const originalBars=structuredClone(bars),originalConfig={...cfg};
- assert.deepEqual(runCostStress(bars,backtest(bars,'B',cfg)),runCostStress(bars,'B',cfg));
+ assert.deepEqual(runCostStress(bars,backtest(bars,'B',cfg)),runCostStress(bars,backtest(bars,'B',cfg)));
  assert.deepEqual(bars,originalBars);
  assert.deepEqual(cfg,originalConfig);
 });
