@@ -1,6 +1,7 @@
 import hashlib
 import json
 import os
+import stat
 import threading
 import time
 from pathlib import Path
@@ -78,7 +79,17 @@ def attach(owner,audit):
                 if not target.exists():
                     fd=os.open(target,os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o600)
                     with os.fdopen(fd,'wb') as f:f.write(archive)
-            except OSError:raise HTTPException(503,'Cannot archive provider data; database unchanged.') from None
+                # A digest-shaped filename alone does not prove an existing
+                # archive is intact. Verify exact bytes before replacing candles.
+                # O_NOFOLLOW prevents accepting a symlink to an external file.
+                fd=os.open(target,os.O_RDONLY|os.O_NOFOLLOW)
+                with os.fdopen(fd,'rb') as f:
+                    if not stat.S_ISREG(os.fstat(f.fileno()).st_mode):
+                        raise OSError('Archive is not a regular file')
+                    stored=f.read(len(archive)+1)
+                if stored!=archive:
+                    raise OSError('Archive content does not match source snapshot')
+            except OSError:raise HTTPException(503,'Cannot verify provider archive; database unchanged.') from None
             source='Twelve Data · '+MAPPINGS[body.instrument]['symbol']+' · authorized historical API'
             manifest={'source':source,'provider':'twelvedata','provider_symbol':MAPPINGS[body.instrument]['symbol'],
                       'retrieved_at':now,'request_started_at':now,
