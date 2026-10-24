@@ -1,7 +1,6 @@
 import hashlib
 import json
 import os
-import stat
 import threading
 import time
 from pathlib import Path
@@ -14,6 +13,7 @@ from .providers import vault
 from .providers.twelvedata import retrieve,MAPPINGS,ProviderError
 from .completed_candle_quality import assess_completed_m1
 from .provider_snapshot import verify_normalized_snapshot
+from .archive_store import publish_verified_snapshot
 
 router=APIRouter()
 _import_lock=threading.Lock()
@@ -78,24 +78,13 @@ def attach(owner,audit):
                 raise HTTPException(502,'Provider returned no valid completed candle set; existing data unchanged.') from None
             digest=hashlib.sha256(archive).hexdigest()
             # Not web-served: archive is a vetted source-field snapshot, never a credential file.
+            # Publish only complete fsynced bytes, atomically, without overwriting
+            # an existing content-addressed archive. Corruption fails closed.
             directory=Path(os.getenv('MARKET_ARCHIVE_DIR','./data/market-archive'))
             try:
-                directory.mkdir(parents=True,exist_ok=True,mode=0o700)
-                target=directory/(digest+'.json')
-                if not target.exists():
-                    fd=os.open(target,os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o600)
-                    with os.fdopen(fd,'wb') as f:f.write(archive)
-                # A digest-shaped filename alone does not prove an existing
-                # archive is intact. Verify exact bytes before replacing candles.
-                # O_NOFOLLOW prevents accepting a symlink to an external file.
-                fd=os.open(target,os.O_RDONLY|os.O_NOFOLLOW)
-                with os.fdopen(fd,'rb') as f:
-                    if not stat.S_ISREG(os.fstat(f.fileno()).st_mode):
-                        raise OSError('Archive is not a regular file')
-                    stored=f.read(len(archive)+1)
-                if stored!=archive:
-                    raise OSError('Archive content does not match source snapshot')
-            except OSError:raise HTTPException(503,'Cannot verify provider archive; database unchanged.') from None
+                publish_verified_snapshot(directory,digest,archive)
+            except OSError:
+                raise HTTPException(503,'Cannot verify provider archive; database unchanged.') from None
             source='Twelve Data · '+MAPPINGS[body.instrument]['symbol']+' · historical API (rights unverified)'
             manifest={'source':source,'provider':'twelvedata','provider_symbol':MAPPINGS[body.instrument]['symbol'],
                       'retrieved_at':now,'request_started_at':now,
