@@ -60,6 +60,38 @@ test('timing mismatch is explicitly noncomparable, not a simulated win',()=>{
  assert.equal(r.status,'TIMING_MISMATCH');assert.equal(r.knownNetDeltaCurrency,null);
  assert.equal(r.maxExecutionSkewSeconds,19);
 });
+test('matching receipt times cannot hide late demo executions',()=>{
+ const delayedPaper={...paper,entryReceivedAt:150,exitObservedAt:151,exitReceivedAt:152};
+ const lateExecution=[
+  fill('e1','ENTRY',2,100.3,{executedAt:120,receivedAt:150}),
+  fill('x1','EXIT',2,102,{executedAt:151,receivedAt:152})
+ ];
+ const result=compare(lateExecution,2,delayedPaper);
+ assert.equal(result.status,'TIMING_MISMATCH');
+ assert.equal(result.maxExecutionSkewSeconds,19);
+ assert.equal(result.demoKnownNetPnlCurrency,null);
+ assert.equal(result.knownNetDeltaCurrency,null);
+});
+
+test('both execution and receipt clocks must match for a comparable demo record',()=>{
+ const delayedPaper={...paper,entryReceivedAt:150,exitObservedAt:151,exitReceivedAt:152};
+ const timely=[
+  fill('e1','ENTRY',2,100.3,{executedAt:101,receivedAt:150}),
+  fill('x1','EXIT',2,102,{executedAt:151,receivedAt:152})
+ ];
+ const result=compare(timely,0,delayedPaper);
+ assert.equal(result.status,'COMPARABLE_UNVERIFIED');
+ assert.equal(result.maxExecutionSkewSeconds,0);
+ const mismatchedReceipt=[
+  fill('e1','ENTRY',2,100.3,{executedAt:101,receivedAt:149}),
+  fill('x1','EXIT',2,102,{executedAt:151,receivedAt:152})
+ ];
+ const mismatch=compare(mismatchedReceipt,0,delayedPaper);
+ assert.equal(mismatch.status,'TIMING_MISMATCH');
+ assert.equal(mismatch.maxExecutionSkewSeconds,1);
+ assert.equal(mismatch.knownNetDeltaCurrency,null);
+});
+
 test('forged paper P&L, commission and nonfinite order values are rejected',()=>{
  const fills=[fill('e1','ENTRY',2,100.3),fill('x1','EXIT',2,102)];
  for(const patch of [{pnl:99},{costs:0},{entry:Infinity},{commissionPerUnitSide:Infinity}])
