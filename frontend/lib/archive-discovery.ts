@@ -69,7 +69,7 @@ export function parseArchiveListing(
   if(snapshot!==expectedSnapshot)throw new ArchiveInventoryChangedError();
  }
  if(more===null){
-  if(cursor!==null||snapshot!==null)throw Error('Historical archive metadata without pagination status');
+  if(cursor!==null||snapshot!==null)throw Error('Historical archive cursor or snapshot metadata without pagination status');
   // Pre-pagination API always returned the first 200 READY datasets, regardless
   // of offset. Do not issue further requests against it or imply completeness.
   if(offset!==0)throw Error('Server does not support paginated archive discovery');
