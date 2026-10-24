@@ -55,6 +55,11 @@ test('missing or partial horizon data is never used as a baseline label',()=>{
  const gap=bars();gap[5]={...gap[5],time:gap[5].time+60};
  assert.equal(compareSweepsToPastHourControls(gap,[event(28)],cfg).matched,0);
 });
+test('rejects overflowing control returns rather than contaminating averages',()=>{
+ const extreme=bars();extreme[5]={...extreme[5],open:1e-300,low:1e-300,close:1e300,high:1e300};
+ const r=compareSweepsToPastHourControls(extreme,[event(28)],cfg);
+ assert.equal(r.matched,0);assert.equal(r.unmatched,1);
+});
 test('pending sweep outcomes are not matched using future candles',()=>{
  const r=compareSweepsToPastHourControls(bars(30),[event(29)],cfg);
  assert.equal(r.pending,1);assert.equal(r.matched,0);assert.equal(r.unmatched,0);
