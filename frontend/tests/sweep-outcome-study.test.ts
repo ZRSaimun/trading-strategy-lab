@@ -74,3 +74,8 @@ test('accepts real v3 detector sweeps but never treats unrelated formations as t
  assert.equal(study.completed.length,1);
  assert.equal(study.completed[0].observedAt,bars[5].time+60);
 });
+test('nonfinite percentage return is excluded instead of reporting infinite profitability',()=>{
+ const rows=[bar(0,100,100),bar(1,100,100),{...bar(2,100,100),open:1e-300,low:1e-300,close:1e300,high:1e300}];
+ const r=studySweepOutcomes(rows,[event(1)],{...cfg,horizonBars:1});
+ assert.equal(r.priceExcluded,1);assert.equal(r.completed.length,0);assert.equal(r.meanNetBps,null);
+});
