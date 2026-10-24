@@ -11,6 +11,7 @@ Orders have unique client IDs, exact instrument, BUY/SELL side, fractional resea
 ## Causal event model
 
 - Entry waits for a quote observed strictly **after** submission and received before order expiry; it will not fill from a quote already available at submission, from a stale quote, or above the user-set spread cap.
+- **All** accepted state-changing events (submission, cancellation, quote receipt) advance one non-decreasing action-time clock. An old quote cannot be replayed after a later cancellation or submission to rewrite simulated history. Exact duplicate order-ID retries remain idempotent without advancing time. This is event-order protection, **not** proof that externally supplied timestamps are genuine.
 - Paper BUY enters at ask + assumed adverse slippage; SELL enters at bid - assumed adverse slippage. An invalid bracket or a hypothetical stop loss exceeding the configured risk cap is rejected before filling.
 - Protective exits are evaluated only on subsequent **fresh** quote events. BUY stops use bid and SELL stops use ask. If the quote gaps beyond the stop, the simulator fills at the worse observed executable side plus adverse slippage rather than assuming the stop price is guaranteed. Targets fill at the target with no favorable improvement assumed.
 - The explicit `costs` output is round-trip **commission only**; spread and slippage are embedded in simulated entry/exit prices. Financing, borrow fees, currency conversion, variable slippage, price impact, depth/partial fills, exchange calendars, margin liquidation and broker-specific contract specifications are **not** modeled.
@@ -25,7 +26,7 @@ From `frontend/` run:
 node --experimental-strip-types --test tests/paper-execution.test.ts
 ```
 
-Ten deterministic tests cover quote freshness, causality, adverse BUY/SELL gap exits, quote-source isolation, idempotent client IDs, cancellation, expiry, wide spreads, risk rejection and settled-order invariance. Existing frontend/backend/Docker/cloud CI must pass on the proposed PR before merge. No historical profitability was evaluated by these synthetic quote tests.
+Thirteen deterministic tests cover quote freshness, causality, adverse BUY/SELL gap exits, quote-source isolation, idempotent client IDs, cancellation, expiry, wide spreads, risk rejection and settled-order invariance. Existing frontend/backend/Docker/cloud CI must pass on the proposed PR before merge. No historical profitability was evaluated by these synthetic quote tests.
 
 ## Handoff and activation gates
 
