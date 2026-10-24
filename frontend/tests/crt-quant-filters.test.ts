@@ -52,7 +52,7 @@ test('15m shift cannot be validated from a bar closing BEFORE the 4H manipulatio
  before.open=105;before.close=110;before.high=111;before.low=104;before.volume=500;
  // The first shift after 08:00 now cannot beat the 07:45 spike.
  const s=screenCrtHypotheses(x).candidates[0];
- assert.equal(s.gates.structureShift,'INSUFFICIENT_DATA');
+ assert.equal(s.gates.structureShift,'FAIL','complete 16-bar observation without shift is an observed rejection');
  assert.equal(s.confirmationCloseAt,null);
 });
 test('verified volume missing means insufficient: never turn placeholders into volume confirmation',()=>{
@@ -157,4 +157,56 @@ test('malformed or out-of-order boundary aggregates cannot be laundered by trimm
  const z=fixture();
  z.fifteenMinute=[make(BASE,105,106,104,105,8),...z.fifteenMinute];
  assert.throws(()=>completeAggregateWindow(z.fifteenMinute,900),/Invalid aggregate candle/);
+});
+
+test('a complete next 4H window without a directional shift is a negative, not unavailable data',()=>{
+ const x=fixture();
+ x.fifteenMinute[32]=make(BASE+32*Q,105,106,104,105,15);
+ const s=screenCrtHypotheses(x).candidates[0];
+ assert.equal(s.gates.structureShift,'FAIL');
+ assert.equal(s.gates.displacement,'INSUFFICIENT_DATA');
+ assert.equal(s.confirmationCloseAt,null);
+ assert.match(s.notes.join(' '),/All 16 following 15-minute bars/);
+});
+
+test('missing 15m history at first eligible close prevents cherry-picking a later stronger shift',()=>{
+ const x=fixture();
+ // The first eligible 08:00 bar lacks one of its previous 20 bars. The
+ // following 08:15 bar has 20 contiguous prior bars and looks attractive,
+ // but an earlier shift could have been hidden by the missing observation.
+ x.fifteenMinute.splice(12,1);
+ const later=x.fifteenMinute.find(b=>b.time===BASE+33*Q)!;
+ later.open=105;later.close=112;later.high=113;later.low=104;
+ const s=screenCrtHypotheses(x).candidates[0];
+ assert.equal(s.gates.structureShift,'INSUFFICIENT_DATA');
+ assert.equal(s.confirmationCloseAt,null);
+ assert.match(s.notes.join(' '),/preceding 20 contiguous bars is incomplete/);
+});
+
+test('a gap inside the next 4H block cannot be counted as a complete negative',()=>{
+ const x=fixture();
+ x.fifteenMinute[32]=make(BASE+32*Q,105,106,104,105,15);
+ x.fifteenMinute.splice(35,1);
+ const s=screenCrtHypotheses(x).candidates[0];
+ assert.equal(s.gates.structureShift,'INSUFFICIENT_DATA');
+ assert.equal(s.confirmationCloseAt,null);
+});
+
+test('truncated future history cannot turn a partial negative into an observed FAIL',()=>{
+ const x=fixture();
+ x.fifteenMinute[32]=make(BASE+32*Q,105,106,104,105,15);
+ x.fifteenMinute=x.fifteenMinute.slice(0,38);
+ const s=screenCrtHypotheses(x).candidates[0];
+ assert.equal(s.gates.structureShift,'INSUFFICIENT_DATA');
+ assert.equal(s.confirmationCloseAt,null);
+});
+
+test('the first closed-bar confirmation is stable without later 15m candles',()=>{
+ const x=fixture();
+ const full=screenCrtHypotheses(x).candidates[0];
+ x.fifteenMinute=x.fifteenMinute.slice(0,33);
+ const prefix=screenCrtHypotheses(x).candidates[0];
+ assert.equal(prefix.gates.structureShift,'PASS');
+ assert.equal(prefix.gates.displacement,full.gates.displacement);
+ assert.equal(prefix.confirmationCloseAt,full.confirmationCloseAt);
 });
