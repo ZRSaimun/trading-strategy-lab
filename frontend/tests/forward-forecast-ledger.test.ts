@@ -151,3 +151,13 @@ test('model and horizon grouping keeps opposite calibration scores separate',()=
  groups[0].summary.brier=999;
  assert.ok(Math.abs(l.summaryByModelAndHorizon()[0].summary.brier!-.01)<1e-12);
 });
+
+test('model-version gap outcomes are excluded from scoring',()=>{
+ clock.now=base+60;const l=ledger();l.receive(candle(base,100));
+ l.issue({id:'alpha',modelVersion:'alpha',horizon:12,probability:.8});
+ l.issue({id:'beta',modelVersion:'beta',horizon:12,probability:.2});
+ clock.now=base+240;l.receive(candle(base+180,105));
+ const groups=l.summaryByModelAndHorizon();
+ assert.equal(groups.length,2);
+ assert.ok(groups.every(g=>g.summary.voidGap===1&&g.summary.settled===0&&g.summary.brier===null));
+});
