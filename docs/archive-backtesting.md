@@ -4,13 +4,14 @@ The **Backtesting** screen on an authenticated private deployment can now use th
 
 1. Import and verify a licensed archive using the existing offline ingestion workflow (see `resumable-histdata-import.md`). No ZIP uploads are made by the backtester.
 2. Open **Backtesting → Historical data source → Imported historical ZIP archive**.
-3. Select a READY archive by its exact instrument/provider/format and short dataset identity. Pick a supported timeframe (1m, 5m, 15m or 1H).
+3. Select a READY archive by its exact instrument/provider/format and short dataset identity. If more than 200 completed datasets exist, use **Load more archive datasets** to retrieve subsequent source-verified pages, or **Refresh archive inventory** to start over. Pick a supported timeframe (1m, 5m, 15m or 1H).
 4. Set meaningful hypothetical costs, point value and risk parameters; run the five research approximations.
 5. Review the recorded start/end, archive SHA-256, excluded incomplete aggregates, 60/20/20 chronological splits, trades and explicit capped-window warning. Export a reproducible report if desired.
 
 ## Safety and reproducibility
 
-- Pages are fetched through authenticated, read-only `/api/history/{dataset_id}/candles` requests.
+- The Backtesting archive selector now uses the same authenticated, read-only paginated `/api/history/datasets` inventory as Historical Archives. It verifies a server SHA-256 inventory snapshot across pages and refuses shifted snapshots, overlapping identities, malformed provenance, and truncated legacy lists. A failed later page clears selectable inventory until refresh; it never silently treats the first 200 as all datasets. The inventory hash is a consistency token, **not** proof of data authenticity or a vendor license.
+- Candle pages are fetched through authenticated, read-only `/api/history/{dataset_id}/candles` requests.
 - A run accepts **only one immutable archive dataset identity**. Hash/identity changes, repeated or unordered candle timestamps, malformed cursors and unexpected live-price claims reject the run.
 - The browser loads at most **20,000 aggregated bars**, in pages of at most **2,000**. A run may cover only the most recent portion of the selected file; the warning is not proof that the whole archive was tested.
 - Complete one-minute constituent coverage is required for each aggregate used by the existing research simulator. Incomplete aggregates are excluded; missing intervals remain gaps rather than invented prices.
@@ -23,7 +24,7 @@ This feature does **not** import the owner's full private dataset into Render, m
 
 ## Automated checks
 
-`frontend/tests/backtest-history.test.ts` covers sorted-page assembly, bounded windows, archive identity/hash preservation, overlap rejection, cursor validation and the refusal to treat live/malformed responses as backtest history.
+`frontend/tests/archive-discovery.test.ts` covers Backtesting's incremental inventory traversal beyond 200 datasets, snapshot drift, overlap rejection and legacy fail-closed behaviour. `frontend/tests/backtest-history.test.ts` covers sorted-page assembly, bounded windows, archive identity/hash preservation, overlap rejection, cursor validation and the refusal to treat live/malformed responses as backtest history.
 
 ## Legacy chart pagination boundary
 
