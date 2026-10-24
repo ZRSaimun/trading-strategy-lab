@@ -66,7 +66,7 @@ test('verified volume missing means insufficient: never turn placeholders into v
 test('daily trend uses only completed daily history, never current incomplete daily candle',()=>{
  const x=fixture();
  const original=screenCrtHypotheses(x).candidates[0].gates.dailyTrend;
- x.daily!.push(make(BASE,10000,10002,9999,10001,600));
+ x.daily=[...x.daily!,make(BASE,10000,10002,9999,10001,600)];
  assert.equal(screenCrtHypotheses(x).candidates[0].gates.dailyTrend,original);
  const missing=fixture();missing.daily=missing.daily!.slice(0,15);
  assert.equal(screenCrtHypotheses(missing).candidates[0].gates.dailyTrend,'INSUFFICIENT_DATA');
