@@ -121,3 +121,51 @@ def test_audit_actor_does_not_claim_owner_authentication_and_names_operation(set
     ]
     assert all(row.actor == "paper-risk-store" for row in rows)
     assert all("paper-acct-0001" not in row.detail for row in rows)
+
+def test_emergency_stop_cannot_be_reenabled_even_with_current_revision(setup):
+    s = store(setup)
+    enabled(s)
+    assert s.engage_kill_switch("paper-acct-0001")
+    killed = s.load("paper-acct-0001")
+    assert killed["kill_switch"] is True
+    assert killed["emergency_latched"] is True
+    assert not s.set_policy("paper-acct-0001", killed["revision"],
+                            limit_cash="100", kill_switch=False, owner_reviewed=True)
+    assert not s.set_policy("paper-acct-0001", 1,
+                            limit_cash="100", kill_switch=False, owner_reviewed=True)
+    restarted = store(setup)
+    assert restarted.load("paper-acct-0001") == killed
+    assert restarted.engage_kill_switch("paper-acct-0001")
+    assert restarted.load("paper-acct-0001") == killed
+    assert not restarted.reserve("paper-acct-0001", killed["revision"],
+                                 client_order_id="order-00009", risk_cash="1")
+
+
+def test_emergency_stop_latches_an_already_disabled_account(setup):
+    s = store(setup)
+    assert s.initialize("paper-acct-0001")
+    assert s.load("paper-acct-0001")["emergency_latched"] is False
+    assert s.engage_kill_switch("paper-acct-0001")
+    stopped = s.load("paper-acct-0001")
+    assert stopped["revision"] == 1
+    assert stopped["emergency_latched"] is True
+    assert not s.set_policy("paper-acct-0001", 1, limit_cash="100",
+                            kill_switch=False, owner_reviewed=True)
+
+
+def test_invalid_latch_state_fails_closed_even_with_matching_checksum(setup):
+    import hashlib
+    s = store(setup)
+    assert s.initialize("paper-acct-0001")
+    key = s._key("paper-acct-0001")
+    with setup[1].begin() as db:
+        row = db.get(Record, key)
+        envelope = json.loads(row.value)
+        envelope["state"]["emergency_latched"] = "false"
+        canonical = json.dumps(envelope["state"], sort_keys=True, separators=(",", ":"))
+        envelope["sha256"] = hashlib.sha256(canonical.encode()).hexdigest()
+        row.value = json.dumps(envelope)
+    with pytest.raises(ValueError, match="corrupt"):
+        s.load("paper-acct-0001")
+    with pytest.raises(ValueError, match="corrupt"):
+        s.engage_kill_switch("paper-acct-0001")
