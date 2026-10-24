@@ -61,3 +61,58 @@ def test_conflicting_same_source_overlaps_are_separately_counted(tmp_path):
     r=scan_database(str(p))
     assert r['summary']['overlap_conflicts']==1
     assert r['summary']['source_overlap_extra_rows']==1
+
+def test_different_declared_offsets_are_isolated(tmp_path):
+    """A fixed-clock convention is part of source identity, not a display option."""
+    p = fixture(tmp_path)
+    with sqlite3.connect(str(p)) as db:
+        db.execute(
+            "INSERT INTO historical_datasets VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+            ('d5', 'HistData', 'NSXUSD-CFD', 'ascii', 'READY',
+             'hash5', 1, 0, 1, 'offset-zero.zip', 0),
+        )
+        # Same timestamp as d1/d2 but different declared clock convention:
+        # it must not be counted as a conflicting same-source overlap.
+        db.execute(
+            "INSERT INTO historical_candles VALUES (?,?,?,?,?,?,?)",
+            ('d5', 60, 888, 889, 887, 888.5, 0),
+        )
+    r = scan_database(str(p))
+    assert r['schema_version'] == 2
+    groups = [g for g in r['groups']
+              if g['provider'] == 'HistData' and g['format'] == 'ascii']
+    assert len(groups) == 2
+    assert {g['utc_offset_minutes'] for g in groups} == {-300, 0}
+    assert r['summary']['source_overlap_extra_rows'] == 1  # d1/d2 only
+    assert r['summary']['overlap_conflicts'] == 0
+    assert r['summary']['distinct_within_source_group_minutes'] == 5
+    assert r['summary']['accepted_count_mismatch'] == 0
+
+
+def test_nonready_checkpoint_rows_are_not_misreported_as_ready_mismatches(tmp_path):
+    p = fixture(tmp_path)
+    r = scan_database(str(p))
+    assert r['summary']['accepted_count_mismatch'] == 0
+    group = next(g for g in r['groups']
+                 if g['provider'] == 'HistData' and g['format'] == 'mt')
+    assert group['ready_datasets'] == 0
+    assert group['nonready_datasets'] == 1
+    assert group['raw_rows'] == 0
+    assert group['accepted_imported'] == 0
+    assert group['nonready_accepted_imported'] == 1
+    assert r['input']['nonready_dataset_count'] == 1
+
+
+def test_offset_isolation_does_not_change_read_only_source(tmp_path):
+    p = fixture(tmp_path)
+    with sqlite3.connect(str(p)) as db:
+        db.execute(
+            "INSERT INTO historical_datasets VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+            ('d5', 'HistData', 'NSXUSD-CFD', 'ascii', 'READY',
+             'hash5', 0, 0, 0, 'offset-zero.zip', 0),
+        )
+    before = p.read_bytes()
+    r = scan_database(str(p))
+    assert p.read_bytes() == before
+    assert len([g for g in r['groups'] if g['provider'] == 'HistData'
+                and g['format'] == 'ascii']) == 2
