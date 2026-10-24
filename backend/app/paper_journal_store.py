@@ -21,6 +21,33 @@ _IDENTITY_KEYS = {"instrument", "provider", "venue", "priceSide", "pointValue"}
 _CHECKPOINT_KEYS = {"version", "identity", "actions", "orders", "events"}
 
 
+def _strict_json(raw):
+    """Reject duplicate object keys and numeric overflow at every nesting level.
+
+    Standard json.loads accepts duplicate keys and parses 1e999 to float inf,
+    even with parse_constant; neither is safe for a replayable trade ledger.
+    """
+    def unique(pairs):
+        obj = {}
+        for key, value in pairs:
+            if key in obj:
+                raise ValueError("Duplicate paper journal JSON field")
+            obj[key] = value
+        return obj
+
+    def finite_float(value):
+        number = float(value)
+        if not math.isfinite(number):
+            raise ValueError("Non-finite paper journal number")
+        return number
+
+    def nonfinite(_value):
+        raise ValueError("Non-finite paper journal number")
+
+    return json.loads(raw, object_pairs_hook=unique,
+                      parse_float=finite_float, parse_constant=nonfinite)
+
+
 def _identity(value):
     if not isinstance(value, dict) or set(value) != _IDENTITY_KEYS:
         raise ValueError("Invalid paper journal source identity")
@@ -40,7 +67,7 @@ def _checkpoint(raw, identity):
     if not isinstance(raw, str) or len(raw.encode("utf-8")) > MAX_CHECKPOINT_BYTES:
         raise ValueError("Paper checkpoint exceeds byte limit")
     try:
-        value = json.loads(raw, parse_constant=lambda _: (_ for _ in ()).throw(ValueError("Non-finite JSON")))
+        value = _strict_json(raw)
     except (ValueError, TypeError, RecursionError) as exc:
         raise ValueError("Invalid paper checkpoint JSON") from exc
     if not isinstance(value, dict) or set(value) != _CHECKPOINT_KEYS or value["version"] != 1:
@@ -78,7 +105,7 @@ class PaperJournalStore:
     @staticmethod
     def _decode(value):
         try:
-            doc = json.loads(value)
+            doc = _strict_json(value)
             if not isinstance(doc, dict) or set(doc) != {"revision", "identity", "json", "sha256"}:
                 raise ValueError()
             if not _revision(doc["revision"]):
