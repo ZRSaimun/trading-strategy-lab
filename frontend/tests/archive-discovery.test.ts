@@ -112,5 +112,5 @@ test('legacy paginated servers without inventory token show a first page but can
  assert.equal(first.hasMore,false);
  assert.equal(first.nextOffset,null);
  assert.equal(first.legacyPossiblyTruncated,true);
- assert.throws(()=>parseArchiveListing([item(200)],headers('true','400',null),200),/requires a server inventory snapshot/);
+ assert.throws(()=>parseArchiveListing(Array.from({length:200},(_,i)=>item(i+200)),headers('true','400',null),200),/requires a server inventory snapshot/);
 });
