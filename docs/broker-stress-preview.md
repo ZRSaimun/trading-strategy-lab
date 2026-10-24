@@ -21,3 +21,9 @@ For CFD accounts, do not assume the Trading 212 Public API supports CFD executio
 Run `cd backend && PYTHONPATH=. python -m pytest -q tests/test_broker_stress.py tests/test_broker_readiness.py`. These tests cover nominal-versus-gap loss, independent leverage/margin failure, both directions, malformed inputs, numerical overflow/underflow, JSON-safe 422 failures, owner authentication and absence of an order endpoint.
 
 Do not merge or deploy this branch until complete CI and production rollback/health checks have been independently verified.
+
+## Precision and fail-closed edge cases (24 October 2026)
+
+The authenticated API now returns full finite floating-point results instead of rounding every monetary estimate and risk percentage to four decimals. Rounding a legitimate positive small risk budget, margin or hypothetical loss to `0.0000` misleads reviewers; the UI now uses significant-digit/scientific formatting for tiny nonzero values. Values are still illustrative **account-currency units**, not guaranteed cash settlement or precise broker accounting; production accounting should use broker-defined decimal minor units and conversion rules.
+
+The stress engine also rejects positive inputs whose computed assumed margin or effective leverage **underflows to zero**, or whose stress arithmetic is nonfinite. This returns HTTP 422 rather than allowing a false zero-margin/zero-leverage pass. Added synthetic API regressions verify preserved micro-position values and rejected underflow. No order endpoint, broker connectivity or production data mutation is added.
