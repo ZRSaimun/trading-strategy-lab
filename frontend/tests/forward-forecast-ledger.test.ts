@@ -135,3 +135,19 @@ test('per-horizon gap invalidation cannot be mistaken for poor prediction',()=>{
  assert.equal(by[1].brier,null);assert.equal(by[12].logLoss,null);
  assert.equal(by[3].issued,0);assert.equal(by[3].referenceBrier,null);
 });
+
+test('model and horizon grouping keeps opposite calibration scores separate',()=>{
+ clock.now=base+60;const l=ledger();l.receive(candle(base,100));
+ l.issue({id:'alpha1',modelVersion:'alpha',horizon:1,probability:.9});
+ l.issue({id:'beta1',modelVersion:'beta',horizon:1,probability:.1});
+ l.issue({id:'alpha3',modelVersion:'alpha',horizon:3,probability:.6});
+ clock.now=base+120;l.receive(candle(base+60,110));
+ const groups=l.summaryByModelAndHorizon();
+ assert.deepEqual(groups.map(g=>[g.modelVersion,g.horizon]),[['alpha',1],['alpha',3],['beta',1]]);
+ assert.ok(Math.abs(groups[0].summary.brier!-.01)<1e-12);
+ assert.equal(groups[1].summary.pending,1);
+ assert.equal(groups[1].summary.brier,null);
+ assert.ok(Math.abs(groups[2].summary.brier!-.81)<1e-12);
+ groups[0].summary.brier=999;
+ assert.ok(Math.abs(l.summaryByModelAndHorizon()[0].summary.brier!-.01)<1e-12);
+});
