@@ -12,7 +12,7 @@ test('requires a strictly subsequent fresh bid/ask quote and calculates real-sid
  assert.equal(l.get('paper-001')?.entry,100.3);
  assert.deepEqual(l.onQuote(q(103,102.2,102.4,105)).map(e=>e.status),['CLOSED']);
  const order=l.get('paper-001')!;
- assert.equal(order.exit,102);assert.ok(Math.abs(order.pnl-3.2)<1e-9);
+ assert.equal(order.exit,102);assert.ok(Math.abs(order.pnl!-3.2)<1e-9);
  assert.equal(order.costs,0.2);
  assert.equal(l.history().length,2);
 });
