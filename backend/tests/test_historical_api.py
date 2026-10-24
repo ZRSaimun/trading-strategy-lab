@@ -58,7 +58,7 @@ def test_dataset_list_pagination_and_offset_identity(tmp_path):
     p = tmp_path / 'clock.zip'
     with ZipFile(p, 'w') as archive:
         archive.writestr('DAT_ASCII_XAUUSD_M1_202610.csv',
-                         '20261001 090000;1;2;0.5;1.5;0\\n')
+                         '20261001 090000;1;2;0.5;1.5;0\n')
     e = create_engine('sqlite:///' + str(tmp_path / 'clock.db'))
     create_schema(e)
     for offset in (-300, 0):
