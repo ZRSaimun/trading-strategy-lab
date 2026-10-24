@@ -37,7 +37,13 @@ export function summarizeHistoricalQuality(
      b.low>b.high||b.volume!==null&&(!Number.isFinite(b.volume)||b.volume<0)||
      (prev!==undefined&&b.time<=prev.time)||
      (expected!==null&&b.observed_minutes>expected)||
-     (seconds!==null&&b.time%seconds!==0&&timeframe!=='1W'))
+     (seconds!==null&&timeframe!=='1W'&&b.time%seconds!==0)||
+     (timeframe==='1W'&&(b.time-345600)%604800!==0)||
+     (timeframe==='1M'&&Number.isSafeInteger(b.time)&&
+      (()=>{
+       const d=new Date(b.time*1000);
+       return d.getUTCDate()!==1||d.getUTCHours()!==0||d.getUTCMinutes()!==0||d.getUTCSeconds()!==0;
+      })()))
    invalidBars++;
   minutesObserved+=Number.isFinite(b.observed_minutes)&&b.observed_minutes>0?b.observed_minutes:0;
   if(b.volume===null)unknownVolumeBars++;
