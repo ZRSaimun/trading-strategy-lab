@@ -27,6 +27,7 @@ test('buy and sell stops fill at worse observed bid/ask after gaps, not at guara
 });
 test('duplicate client order is idempotent, conflicting duplicate and overlapping orders rejected',()=>{
  const l=new PaperExecutionLedger(identity);l.submit(req());assert.deepEqual(l.submit(req()),l.get('paper-001'));
+ assert.deepEqual(l.submit(Object.fromEntries(Object.entries(req()).reverse()) as unknown as PaperRequest),l.get('paper-001'));
  assert.throws(()=>l.submit(req({units:3})),/Conflicting/);
  assert.throws(()=>l.submit(req({clientOrderId:'paper-002'})),/overlapping/);
  l.cancel('paper-001',100);assert.equal(l.get('paper-001')?.status,'CANCELED');
