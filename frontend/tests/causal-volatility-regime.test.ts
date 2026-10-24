@@ -65,6 +65,8 @@ test('rejects duplicate, reversed and malformed timestamps',()=>{
  assert.throws(()=>labelCausalHourlyVolatility(b,ID),/Duplicate/);
  const c=bars();c[5].time=NaN;
  assert.throws(()=>labelCausalHourlyVolatility(c,ID),/invalid hourly timestamp/);
+ const d=bars();d[0].time=NaN;
+ assert.throws(()=>labelCausalHourlyVolatility(d,ID),/invalid hourly timestamp/);
 });
 test('requires exact source identity and bounds inputs',()=>{
  assert.throws(()=>labelCausalHourlyVolatility(bars(),{...ID,datasetId:''}),/identity/);
