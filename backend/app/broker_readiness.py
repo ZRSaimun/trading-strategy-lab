@@ -185,6 +185,14 @@ def calculate_order_gate_preview(body: OrderGatePreview, now_ms: int) -> dict:
         else body.risk.entry_price <= quote.bid
     )
     checks['hypothetical_stress_limits'] = stress['all_hypothetical_limits_pass']
+    # A new order can breach a daily loss cap even when losses so far have
+    # not reached it. Include the stressed hypothetical loss in the check.
+    projected_daily_pnl = (body.controls.daily_realized_pnl_cash
+                           - stress['stressed_loss_if_filled'])
+    checks['projected_daily_loss_within_cap'] = (
+        math.isfinite(projected_daily_pnl)
+        and projected_daily_pnl > -body.controls.max_daily_loss_cash
+    )
     checks['documented_account_api_support'] = body.risk.broker != 'Trading212-CFD'
     gate.update(
         checks=checks,
