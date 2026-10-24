@@ -81,18 +81,9 @@ def test_postgres_reservation_race_kill_and_atomic_audit():
             assert len(db.scalars(select(Audit).where(
                 Audit.action == "paper.risk.cas")).all()) == 2
 
-        # A committed emergency stop survives process/store restart and rejects
-        # all subsequent paper reservations, including stale revisions.
-        assert store.engage_kill_switch(ACCOUNT)
-        stopped = PaperRiskReservationStore(factory).load(ACCOUNT)
-        assert stopped["kill_switch"] is True and stopped["emergency_latched"] is True
-        assert not store.set_policy(ACCOUNT, stopped["revision"], limit_cash="100",
-                                    kill_switch=False, owner_reviewed=True)
-        assert PaperRiskReservationStore(factory).load(ACCOUNT) == stopped
-        assert not store.reserve(ACCOUNT, 3, client_order_id="race-order-0004",
-                                 risk_cash="1")
-
-        # Audit-write interruption must roll back the policy mutation as well.
+        # Audit-write interruption must roll back an otherwise VALID policy
+        # mutation. Run before the emergency latch: latched policies reject
+        # before audit insertion, which would never exercise rollback.
         before = store.load(ACCOUNT)
 
         @event.listens_for(engine, "before_cursor_execute")
@@ -107,6 +98,21 @@ def test_postgres_reservation_race_kill_and_atomic_audit():
         finally:
             event.remove(engine, "before_cursor_execute", interrupt_audit)
         assert PaperRiskReservationStore(factory).load(ACCOUNT) == before
+        with factory() as db:
+            assert len(db.scalars(select(Audit).where(
+                Audit.action == "paper.risk.cas")).all()) == 2
+
+        # A committed emergency stop survives process/store restart and rejects
+        # all subsequent paper reservations, including stale revisions.
+        assert store.engage_kill_switch(ACCOUNT)
+        stopped = PaperRiskReservationStore(factory).load(ACCOUNT)
+        assert stopped["kill_switch"] is True and stopped["emergency_latched"] is True
+        assert not store.set_policy(ACCOUNT, stopped["revision"], limit_cash="100",
+                                    kill_switch=False, owner_reviewed=True)
+        assert PaperRiskReservationStore(factory).load(ACCOUNT) == stopped
+        assert not store.reserve(ACCOUNT, 3, client_order_id="race-order-0004",
+                                 risk_cash="1")
+
     finally:
         # Never touch an existing owner schema or any other database objects.
         try:
