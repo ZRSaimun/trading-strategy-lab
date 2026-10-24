@@ -1,6 +1,7 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {auditCrtCrossTimeframe} from '../lib/crt-timeframe-audit.ts';
+import {auditCrtCrossTimeframe,certifiedCrtFourHourBars} from '../lib/crt-timeframe-audit.ts';
+import {screenCrtHypotheses} from '../lib/crt-quant-filters.ts';
 import type {Bar} from '../lib/research.ts';
 
 const BASE=Date.UTC(2026,9,20)/1000, Q=900, H4=14400;
@@ -20,7 +21,8 @@ function fixture(){
 test('validates two complete adjacent 4H bars against exactly 16 observed 15m bars each',()=>{
  const {h,q}=fixture();
  assert.deepEqual(auditCrtCrossTimeframe(h,q),
-  {checkedFourHourBars:2,uncheckableFourHourBars:0});
+  {checkedFourHourBars:2,uncheckableFourHourBars:0,
+   verifiedFourHourStarts:[BASE,BASE+H4]});
 });
 test('fails closed when source-identical timeframe response has inconsistent OHLC',()=>{
  for(const field of ['open','high','low','close'] as const){
@@ -36,9 +38,11 @@ test('missing interior 15m observations never certify an apparently complete 4H 
 test('partial overlapping boundary windows are explicitly uncheckable, not falsely verified',()=>{
  const {h,q}=fixture();
  assert.deepEqual(auditCrtCrossTimeframe(h,q.slice(1,31)),
-  {checkedFourHourBars:0,uncheckableFourHourBars:2});
+  {checkedFourHourBars:0,uncheckableFourHourBars:2,
+   verifiedFourHourStarts:[]});
  assert.deepEqual(auditCrtCrossTimeframe(h,q.slice(16)),
-  {checkedFourHourBars:1,uncheckableFourHourBars:1});
+  {checkedFourHourBars:1,uncheckableFourHourBars:1,
+   verifiedFourHourStarts:[BASE+H4]});
 });
 test('mutations to candles after the checked 4H window do not affect past audit',()=>{
  const {h,q}=fixture();
@@ -57,5 +61,45 @@ test('rejects malformed 15m/4H input instead of silently accepting',()=>{
 test('a missing 15m response cannot be presented as verified 4H coherence',()=>{
  const {h}=fixture();
  assert.deepEqual(auditCrtCrossTimeframe(h,[]),
-  {checkedFourHourBars:0,uncheckableFourHourBars:2});
+  {checkedFourHourBars:0,uncheckableFourHourBars:2,
+   verifiedFourHourStarts:[]});
+});
+
+test('uncheckable archive-edge 4H candle cannot manufacture a CRT sweep candidate',()=>{
+ // 15m API history begins at 04:00. The 00:00 reference is not independently
+ // certified, even though the 04:00 sweep and 08:00 follow-up are certified.
+ const h=[
+  candle(BASE,105,110,100,105,240),
+  candle(BASE+H4,104,109,98.5,104,240),
+  candle(BASE+2*H4,104,106,101,104,240),
+ ];
+ const q=Array.from({length:32},(_,i)=>{
+  const t=BASE+H4+i*Q;
+  return i<16?candle(t,104,108,101,104):candle(t,104,106,101,104);
+ });
+ q[3].high=109;q[7].low=98.5;
+ const source={
+  datasetId:'a'.repeat(64),archiveSha256:'b'.repeat(64),
+  instrument:'NSXUSD-CFD',provider:'owner-authorized-archive',
+  priceSide:'bid' as const,volumeType:'unverified' as const,volumeVerified:false,
+ };
+ const unfiltered=screenCrtHypotheses({fourHour:h,fifteenMinute:q,source});
+ assert.equal(unfiltered.candidates.length,1,'regression fixture has a real-looking but uncertified sweep');
+ const audit=auditCrtCrossTimeframe(h,q);
+ assert.deepEqual(audit.verifiedFourHourStarts,[BASE+H4,BASE+2*H4]);
+ assert.equal(audit.uncheckableFourHourBars,1);
+ const certified=certifiedCrtFourHourBars(h,audit);
+ assert.deepEqual(certified.map(x=>x.time),[BASE+H4,BASE+2*H4]);
+ assert.equal(screenCrtHypotheses({fourHour:certified,fifteenMinute:q,source}).candidates.length,0,
+  'uncheckable 4H reference must never appear in candidate counts');
+});
+test('a tampered or stale certification report cannot be used to select 4H bars',()=>{
+ const {h,q}=fixture();
+ const valid=auditCrtCrossTimeframe(h,q);
+ assert.throws(()=>certifiedCrtFourHourBars(h,{
+  ...valid,verifiedFourHourStarts:[BASE+2*H4,BASE+H4],
+ }),/Certified 4H candle identity/);
+ assert.throws(()=>certifiedCrtFourHourBars(h,{
+  ...valid,checkedFourHourBars:1,
+ }),/Inconsistent 4H\/15m certification/);
 });
