@@ -31,7 +31,7 @@ test('insufficient and pending or void outcomes fail closed',()=>{
 test('non-overlapping horizon-3 phase with continuous outcomes is scored',()=>{
  const data=records(3);
  assert.equal(reviewForwardCalibration(data,identity,'v1',3).status,'REVIEW');
- data[20].baseStart+=60;data[20].targetStart+=60;data[20].resolvedAt=data[20].resolvedAt!+60;
+ data[20].baseStart+=60;data[20].issuedAt+=60;data[20].targetStart+=60;data[20].resolvedAt=data[20].resolvedAt!+60;
  assert.equal(reviewForwardCalibration(data,identity,'v1',3).status,'INSUFFICIENT');
 });
 test('source, version, horizon and duplicate candle isolation',()=>{
@@ -58,5 +58,10 @@ test('rejects invalid settlement time and non-finite probability',()=>{
  const data=records();data[5].resolvedAt=data[5].targetStart;
  assert.throws(()=>reviewForwardCalibration(data,identity,'v1',1),/Malformed/);
  data[5].resolvedAt=data[5].targetStart+60;data[5].probability=NaN;
+ assert.throws(()=>reviewForwardCalibration(data,identity,'v1',1),/Malformed/);
+});
+
+test('rejects forecasts issued after next candle closed',()=>{
+ const data=records();data[1].issuedAt=data[1].baseStart+120;
  assert.throws(()=>reviewForwardCalibration(data,identity,'v1',1),/Malformed/);
 });
