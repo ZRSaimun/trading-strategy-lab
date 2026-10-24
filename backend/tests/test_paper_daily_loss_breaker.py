@@ -78,6 +78,10 @@ def test_strict_money_and_invalid_identity_fail_closed(setup):
         with pytest.raises(ValueError):
             observed(s, reserved=value)
     assert s.load("demo", DAY)["revision"] == 0
+    with pytest.raises(ValueError, match="Aggregate paper loss"):
+        observed(s, realized="-1000000000000000", unrealized="-1000000000000000",
+                 reserved="1000000000000000")
+    assert s.load("demo", DAY)["revision"] == 0
 
 
 def test_isolated_days_and_accounts_and_audit(setup):
