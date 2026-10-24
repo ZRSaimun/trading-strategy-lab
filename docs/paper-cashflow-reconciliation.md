@@ -16,4 +16,4 @@ node --experimental-strip-types --test tests/paper-cashflow-reconciliation.test.
 tsc --noEmit --target es2022 --module nodenext --moduleResolution nodenext --allowImportingTsExtensions --skipLibCheck lib/paper-execution.ts lib/paper-cashflow-reconciliation.ts
 ```
 
-Seven synthetic regression tests cover financing and FX debits, credits posted after closure, duplicate IDs, source/time validation, tamper detection, absent-charge warnings and arithmetic overflow. No live or historical broker profitability is measured.
+Nine synthetic regression tests cover financing and FX debits, credits posted after closure, duplicate IDs, source/time validation, tamper detection, absent-charge warnings and arithmetic overflow. No live or historical broker profitability is measured.
