@@ -72,7 +72,7 @@ export default function Backtesting({api,journal=false}:{api:API;journal?:boolea
   try{
    const saved=run.payload.reports.find(r=>r.strategy===selected);
    if(!saved)throw Error('Selected saved strategy is unavailable');
-   const rows=runCostStress(run.payload.candles,selected as StrategyId,saved.config);
+   const rows=runCostStress(run.payload.candles,saved);
    setCostStress({runId:run.id,strategy:selected as StrategyId,rows});
   }catch(e){setCostStress(null);setError(e instanceof Error?e.message:String(e))}
  }
