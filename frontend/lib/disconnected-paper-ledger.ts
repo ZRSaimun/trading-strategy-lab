@@ -42,7 +42,7 @@ export function replayDisconnectedPaperLedger(
   throw Error('Invalid disconnected paper configuration');
  const sourceId=key(source);
  let lastAt=-1,latest:PaperQuote|null=null,quotes=0,realized=0,fees=0;
- let position:PaperPosition|null=null,peak=policy.startingCash,maxDd=0,unrealized=0,equity=policy.startingCash;
+ let position:PaperPosition|null=null,peak=policy.startingCash,maxDd=0,maxDdPct=0,unrealized=0,equity=policy.startingCash;
  const ids=new Set<string>(),closed:PaperClosedTrade[]=[],snapshots:PaperSnapshot[]=[];
  for(let i=0;i<events.length;i++){
   const e=events[i];
@@ -93,6 +93,7 @@ export function replayDisconnectedPaperLedger(
   if(!Number.isFinite(equity))throw Error('Nonfinite paper equity');
   peak=Math.max(peak,equity);
   maxDd=Math.max(maxDd,peak-equity);
+  maxDdPct=Math.max(maxDdPct,peak>0?(peak-equity)/peak:0);
   snapshots.push({seq:e.seq,at:e.at,equity,realizedNet:realized,
     unrealizedNet:unrealized,drawdownCash:peak-equity});
  }
@@ -100,7 +101,7 @@ export function replayDisconnectedPaperLedger(
   quoteAuthenticated:false,persisted:false,source:{...source},quotes,
   closedTrades:closed.map(t=>({...t})),openPosition:position?{...position}:null,
   realizedNet:realized,unrealizedNet:unrealized,equity,peakEquity:peak,
-  maxDrawdownCash:maxDd,maxDrawdownPct:peak>0?maxDd/peak:0,
+  maxDrawdownCash:maxDd,maxDrawdownPct:maxDdPct,
   winRate:closed.length?closed.filter(t=>t.netPnl>0).length/closed.length:null,
   totalFees:fees,snapshots};
 }
