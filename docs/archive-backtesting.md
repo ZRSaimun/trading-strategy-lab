@@ -25,3 +25,19 @@ This feature does **not** import the owner's full private dataset into Render, m
 
 `frontend/tests/backtest-history.test.ts` covers sorted-page assembly, bounded windows, archive identity/hash preservation, overlap rejection, cursor validation and the refusal to treat live/malformed responses as backtest history.
 
+## Legacy chart pagination boundary
+
+The older authenticated `GET /api/candles/{instrument}` endpoint accepts an optional
+`before` cursor. This is a **raw minute timestamp cutoff**, not an offset
+within an aggregated candle. The cursor must equal the UTC start of a full
+requested timeframe bucket (for example, 10:00 UTC for `1H`, Monday 00:00 UTC
+for `1W`, or the first day of a UTC month for `1M`). The API now returns
+HTTP 422 for negative, out-of-range, or non-aligned cursors rather than
+silently calculating a misleading partial OHLC aggregate.
+
+To page backward safely, use the `time` of the **oldest returned aggregate**
+as the next `before` value; the endpoint uses a strict less-than cutoff.
+The endpoint still returns at most 2,000 aggregates and is not an
+unbounded multi-year backtest feed. This fix does not fill gaps or change
+the archive-backed `/api/history/{dataset_id}/candles` endpoint, which
+already validates aligned cursors.
