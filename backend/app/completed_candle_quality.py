@@ -6,10 +6,27 @@ attestation, execution quote or entitlement verification.
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import math
 
 
 def _utc_iso(epoch: int) -> str:
     return datetime.fromtimestamp(epoch, timezone.utc).isoformat()
+
+
+def _validate_ohlc(row: dict) -> None:
+    """Check normalized candle invariants, not vendor authenticity or price side."""
+    values = []
+    for field in ('open', 'high', 'low', 'close'):
+        value = row.get(field)
+        if type(value) not in (int, float) or not math.isfinite(value):
+            raise ValueError('Each candle requires finite numeric OHLC values')
+        values.append(value)
+    opening, high, low, closing = values
+    if low > min(opening, closing) or high < max(opening, closing) or low > high:
+        raise ValueError('Candle OHLC bounds are inconsistent')
+    volume = row.get('volume')
+    if volume is not None and (type(volume) not in (int, float) or not math.isfinite(volume) or volume < 0):
+        raise ValueError('Candle volume must be nonnegative and finite when present')
 
 
 def assess_completed_m1(rows: list[dict], observed_at: int, *, sample_limit: int = 5) -> dict:
@@ -53,6 +70,7 @@ def assess_completed_m1(rows: list[dict], observed_at: int, *, sample_limit: int
                         'before_utc': _utc_iso(t),
                         'unobserved_minutes': gap_minutes,
                     })
+        _validate_ohlc(row)
         previous = t
 
     last = rows[-1]['time']
@@ -65,6 +83,8 @@ def assess_completed_m1(rows: list[dict], observed_at: int, *, sample_limit: int
         'last_candle_close_utc': _utc_iso(last + 60),
         'seconds_since_last_candle_close': observed_at - last - 60,
         'observed_candles': len(rows),
+        'ohlc_invariants_checked': True,
+        'price_side': 'UNVERIFIED',
         'observed_timestamp_gaps': gaps,
         'unobserved_minutes_between_candles': unobserved,
         'largest_unobserved_span_minutes': largest,
