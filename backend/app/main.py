@@ -301,3 +301,8 @@ from .ai_access import router as ai_router
 from .mcp_server import mcp_app
 app.include_router(ai_router(owner))
 app.mount('/api/mcp',mcp_app)
+
+# Authenticated read-only access to independently imported archive datasets.
+# The tables are installed explicitly by the offline import CLI, not on startup.
+from .historical_api import attach_history
+app.include_router(attach_history(owner, engine))

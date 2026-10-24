@@ -26,7 +26,7 @@ Open http://localhost:3000 and unlock with the password you created. The web por
 4. Choose Level, Zone, Trendline or Note and click chart coordinates. Zones and trendlines require two clicks. Drawings save immediately.
 5. Select a saved drawing to edit its exact epoch-time/price coordinates or label, or delete it. Refresh to verify persistence. Export JSON is available.
 
-**Imports replace the instrument's dataset atomically**, do not append. Back up before replacing a dataset. The current limit is 12 MB / 100,000 one-minute rows per import; ten-year ingestion is a future pipeline task. The source identifier must distinguish the exact venue/proxy. Never import NQ futures or broker CFDs under the NDX cash-index identity.
+**Legacy CSV imports replace the instrument's dataset atomically**, do not append. Back up before replacing one. The existing browser CSV route remains size-limited. An **experimental separate append-only ZIP archive importer** with source-isolated datasets and a read-only Historical Archives view is documented in [HistData import instructions](docs/resumable-histdata-import.md). It requires a reviewed private database schema and is not a cloud ZIP upload or automated ten-year deployment. The source identifier must distinguish the exact venue/proxy. Never import NQ futures or broker CFDs under the NDX cash-index identity.
 
 ## Development without Docker
 
