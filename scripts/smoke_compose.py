@@ -98,7 +98,7 @@ with tempfile.TemporaryDirectory(prefix='tsl-smoke-') as directory:
         if combined:
             schema_sql="SELECT count(*) FROM pg_tables WHERE schemaname='tsl_private' AND rowsecurity=true; SELECT has_schema_privilege('anon','tsl_private','USAGE'),has_schema_privilege('authenticated','tsl_private','USAGE'); SELECT count(*) FROM pg_tables WHERE schemaname='public' AND tablename IN ('records','candles','audit');"
             schema=subprocess.run(compose+['exec','-T','db','psql','-U','lab','-d','lab','-Atc',schema_sql],check=True,capture_output=True,text=True).stdout.strip()
-            assert schema=='4\nf|f\n0','Private schema isolation or RLS did not match'
+            assert schema=='7\nf|f\n0','Private schema isolation or RLS did not match'
             # A restart must preserve data/drawings in Postgres and run migrations idempotently.
             subprocess.run(compose+['restart','web'],check=True)
             for _ in range(60):
