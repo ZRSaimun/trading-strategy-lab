@@ -42,18 +42,21 @@ test('future appended candles cannot change historical labels',()=>{
 test('missing hourly bar resets warmup, never bridges unknown market closure',()=>{
  const b=bars(90);for(let i=45;i<b.length;i++)b[i].time+=H;
  const r=labelCausalHourlyVolatility(b,ID);
- assert.equal(r.labelled,7);
- assert.equal(r.labels.at(-1)?.candleOpenAt,b[44].time);
+ assert.equal(r.labelled,14);
+ assert.equal(r.labels[6].candleOpenAt,b[44].time);
+ assert.equal(r.labels[7].candleOpenAt,b[83].time);
 });
 test('incomplete hourly bar resets warmup and no synthetic fill',()=>{
  const b=bars(90);b[45].observed_minutes=59;
  const r=labelCausalHourlyVolatility(b,ID);
- assert.equal(r.labelled,7);
+ assert.equal(r.labelled,13);
+ assert.equal(r.labels[7].candleOpenAt,b[84].time);
 });
 test('nonpositive price resets warmup and cannot yield normalized ATR',()=>{
  const b=bars(90);b[45]={...b[45],open:0,low:0,close:0};
  const r=labelCausalHourlyVolatility(b,ID);
- assert.equal(r.labelled,7);
+ assert.equal(r.labelled,13);
+ assert.equal(r.labels[7].candleOpenAt,b[84].time);
 });
 test('rejects duplicate, reversed and malformed timestamps',()=>{
  const a=bars();a[5].time=a[4].time;
