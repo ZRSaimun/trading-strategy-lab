@@ -21,7 +21,7 @@ test('a one-sided confirmed swing sweep still emits only after the observation c
  assert.equal(observations.length,1);
  assert.equal(observations[0].kind,'SELL-SIDE SWEEP');
  assert.equal(observations[0].observed_at,bars[5].time+60);
- assert.equal(observations[0].rule_version,'structure-research-v2');
+ assert.equal(observations[0].rule_version,'structure-research-v3');
 });
 
 test('three consecutive complete minutes allow a formation; an unknown gap does not',()=>{
