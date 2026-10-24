@@ -17,24 +17,45 @@ export type PaperCashflowReconciliation = Readonly<{
 const kinds: readonly PaperCashflowKind[] = ['OVERNIGHT_FINANCING','BORROW_FEE','FX_CONVERSION','BROKER_ADJUSTMENT'];
 const validTime = (v:number) => Number.isSafeInteger(v) && v>=0;
 const validText = (v:string,max:number) => typeof v==='string' && v.trim().length>0 && v.length<=max;
+const positive = (v:number) => Number.isFinite(v) && v>0;
+const nonnegative = (v:number) => Number.isFinite(v) && v>=0;
+// Floating-point products are compared at a few ULPs, not with a large
+// absolute currency tolerance that could hide small forged commissions.
+const sameAmount = (a:number,b:number) =>
+  Number.isFinite(a) && Number.isFinite(b) &&
+  Math.abs(a-b) <= 32*Number.EPSILON*Math.max(1,Math.abs(a),Math.abs(b));
 
 /** The result is NOT broker net P&L unless every charge and source is independently reconciled. */
 export function reconcilePaperCashflows(
   identity:PaperIdentity,order:PaperOrder,asOf:number,cashflows:readonly PaperCashflow[]
 ):PaperCashflowReconciliation {
-  if (!validTime(asOf) || identity.priceSide!=='bid-ask' || !Number.isFinite(identity.pointValue) || identity.pointValue<=0 ||
+  if (!validTime(asOf) || identity.priceSide!=='bid-ask' || !positive(identity.pointValue) ||
       !validText(identity.instrument,160) || !validText(identity.provider,160) || !validText(identity.venue,160) ||
       order.status!=='CLOSED' || order.instrument!==identity.instrument ||
-      !validTime(order.entryReceivedAt!) || !validTime(order.exitReceivedAt!) ||
-      order.exitReceivedAt!<order.entryReceivedAt! || asOf<order.exitReceivedAt! ||
-      !Number.isFinite(order.entry) || !Number.isFinite(order.exit) ||
-      !Number.isFinite(order.pnl) || !Number.isFinite(order.costs) ||
-      !Number.isFinite(order.units) || order.units<=0 || order.costs!<0) {
-    throw Error('A closed, source-identified paper order and settlement cutoff are required');
+      !validText(order.clientOrderId,80) || (order.side!=='BUY' && order.side!=='SELL') ||
+      !positive(order.units) || !positive(order.entry!) || !positive(order.exit!) ||
+      !nonnegative(order.commissionPerUnitSide) || !nonnegative(order.costs!) ||
+      !Number.isFinite(order.pnl) ||
+      !validTime(order.submittedAt) || !validTime(order.expiresAt) ||
+      order.expiresAt<=order.submittedAt ||
+      !validTime(order.entryObservedAt!) || !validTime(order.entryReceivedAt!) ||
+      !validTime(order.exitObservedAt!) || !validTime(order.exitReceivedAt!) ||
+      order.entryObservedAt!<=order.submittedAt ||
+      order.entryReceivedAt!<order.entryObservedAt! ||
+      order.entryReceivedAt!>=order.expiresAt ||
+      order.exitObservedAt!<=order.entryObservedAt! ||
+      order.exitReceivedAt!<order.exitObservedAt! ||
+      order.exitReceivedAt!<order.entryReceivedAt! ||
+      asOf<order.exitReceivedAt!) {
+    throw Error('A closed, chronologically valid, source-identified paper order and settlement cutoff are required');
   }
+  // Do not trust caller-supplied commission or net P&L in a detached saved
+  // order. Both must reconcile with the recorded per-side fee schedule.
+  const expectedCosts=2*order.commissionPerUnitSide*order.units;
   const gross=(order.side==='BUY' ? order.exit!-order.entry! : order.entry!-order.exit!)*order.units*identity.pointValue;
-  const expected=gross-order.costs!;
-  if (!Number.isFinite(expected) || Math.abs(expected-order.pnl!)>Math.max(1e-8,Math.abs(expected)*1e-9)) {
+  const expected=gross-expectedCosts;
+  if (!Number.isFinite(expectedCosts) || !Number.isFinite(gross) || !Number.isFinite(expected) ||
+      !sameAmount(order.costs!,expectedCosts) || !sameAmount(order.pnl!,expected)) {
     throw Error('Paper order price, multiplier, commission and P&L do not reconcile');
   }
   const totals:Record<PaperCashflowKind,number>={OVERNIGHT_FINANCING:0,BORROW_FEE:0,FX_CONVERSION:0,BROKER_ADJUSTMENT:0};
