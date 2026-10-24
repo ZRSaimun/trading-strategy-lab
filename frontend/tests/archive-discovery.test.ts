@@ -52,3 +52,26 @@ test('fetcher requests only authenticated same-origin paginated listing and hand
  await assert.rejects(()=>fetchArchiveListingPage((async()=>new Response('No',{status:401})) as typeof fetch,0),/401/);
  await assert.rejects(()=>fetchArchiveListingPage(fetcher,-1),/offset/);
 });
+
+
+test('rejects out-of-order listings and cross-page offset drift even without duplicate IDs',()=>{
+ const valid=Array.from({length:200},(_,i)=>item(i));
+ assert.throws(()=>parseArchiveListing([item(2),item(1)],headers('false'),0),/source order/);
+ const first=parseArchiveListing(valid,headers('true','200'),0);
+ // A concurrent new READY dataset inserted ahead of the cursor may shift the
+ // second page. Even if IDs do not overlap, an out-of-order page must fail.
+ const shifted=parseArchiveListing([item(150),item(201)],headers('false'),200);
+ assert.throws(()=>appendArchiveListing(first.items,shifted),/order changed/);
+ assert.deepEqual(appendArchiveListing(first.items,parseArchiveListing([item(200)],headers('false'),200)).at(-1),item(200));
+});
+
+test('modern paginated discovery requires hash, declared fixed offset and consistent counters',()=>{
+ for(const bad of [
+  {...item(1),archive_sha256:undefined},
+  {...item(1),utc_offset_minutes:undefined},
+  {...item(1),utc_offset_minutes:900},
+  {...item(1),zero_volume:1001},
+ ])assert.throws(()=>parseArchiveListing([bad],headers('false'),0),/provenance|identity/);
+ // Legacy non-paginated servers may not have introduced the provenance fields.
+ assert.equal(parseArchiveListing([{...item(1),archive_sha256:undefined,utc_offset_minutes:undefined}],headers(),0).items.length,1);
+});
