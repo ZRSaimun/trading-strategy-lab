@@ -198,6 +198,21 @@ def calculate_order_gate_preview(body: OrderGatePreview, now_ms: int) -> dict:
         math.isfinite(projected_daily_pnl)
         and projected_daily_pnl > -body.controls.max_daily_loss_cash
     )
+    # Independently cap this single position's stressed cash loss. The daily
+    # cap and percentage-of-equity budget do not replace an explicit per-order
+    # cash ceiling. Missing owner-declared policy fails closed (HTTP stays 200
+    # because this is a non-executing diagnostic, never an order sender).
+    position_cap = body.controls.max_position_loss_cash
+    checks['position_loss_cap_supplied'] = position_cap is not None
+    checks['position_loss_cap_within_daily_limit'] = (
+        position_cap is not None and position_cap <= body.controls.max_daily_loss_cash
+    )
+    checks['position_loss_cap_within_equity'] = (
+        position_cap is not None and position_cap <= body.risk.account_equity
+    )
+    checks['stressed_position_loss_within_cap'] = (
+        position_cap is not None and stress['stressed_loss_if_filled'] <= position_cap
+    )
     checks['documented_account_api_support'] = body.risk.broker != 'Trading212-CFD'
     # Per-order margin/leverage checks cannot account for other positions.
     # This conservative portfolio preview adds owner-declared existing gross
@@ -248,6 +263,8 @@ def calculate_order_gate_preview(body: OrderGatePreview, now_ms: int) -> dict:
         hypothetical_risk={
             'estimated_loss_if_filled_at_stop': stress['estimated_loss_if_filled_at_stop'],
             'stressed_loss_if_filled': stress['stressed_loss_if_filled'],
+            'max_position_loss_cash': position_cap,
+            'position_cap_broker_verified': False,
             'assumed_margin_required': stress['assumed_margin_required'],
             'all_hypothetical_limits_pass': stress['all_hypothetical_limits_pass'],
         },

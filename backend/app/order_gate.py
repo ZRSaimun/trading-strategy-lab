@@ -47,6 +47,9 @@ class OrderGateContext(Strict):
     other_positions_reserved_margin_cash: float = Field(default=0, ge=0)
     other_positions_gross_notional_cash: float = Field(default=0, ge=0)
     max_daily_loss_cash: float = Field(gt=0)
+    # Required for a passing ORDER preview; None preserves schema compatibility
+    # but fails closed until a separate per-position stressed-loss cap is given.
+    max_position_loss_cash: float | None = Field(default=None, gt=0)
     consecutive_losses: int = Field(default=0, ge=0)
     max_consecutive_losses: int = Field(default=3, ge=1, le=100)
     owner_confirmed_this_order: bool = False
