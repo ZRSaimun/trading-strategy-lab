@@ -36,6 +36,12 @@ function ny(t:number){
  const p=Object.fromEntries(fmt.formatToParts(new Date(t*1000)).map(x=>[x.type,x.value]));
  return {date:p.year+'-'+p.month+'-'+p.day,minute:Number(p.hour)*60+Number(p.minute)};
 }
+/** Complete-minute source observations used by the NY regular-session experiment. */
+export function isNyRegularSessionMinute(epochSeconds:number):boolean{
+ if(!Number.isSafeInteger(epochSeconds)||epochSeconds<0||epochSeconds%60!==0)return false;
+ const t=ny(epochSeconds).minute;
+ return t>=9*60+30&&t<16*60;
+}
 function sign(n:number){return n>0?1:n<0?-1:0}
 function median(xs:readonly number[]){
  const v=[...xs].sort((a,b)=>a-b),n=v.length;
