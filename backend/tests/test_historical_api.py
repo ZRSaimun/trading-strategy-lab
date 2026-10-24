@@ -218,3 +218,36 @@ def test_inventory_paging_over_200_and_ready_transition(tmp_path):
     assert len(final.json()) == 3
     assert final.json()[-1]['id'] == f'{202:064x}'
     assert final.headers['x-history-has-more'] == 'false'
+
+
+def test_candle_cursor_rejects_out_of_range_epoch_without_server_error(tmp_path):
+    """Reject impossible cursors before UTC bucket conversion or SQL binding.
+
+    Extremely large integers previously raised OverflowError/ValueError in
+    datetime.fromtimestamp(), causing an HTTP 500 rather than validation 422.
+    """
+    e = create_engine('sqlite:///' + str(tmp_path / 'cursor.db'))
+    create_schema(e)
+    app = FastAPI()
+    app.include_router(attach_history(lambda: 'owner', e))
+    client = TestClient(app)
+    endpoint = '/api/history/' + 'a' * 64 + '/candles'
+
+    for timeframe in ('1m', '1W', '1M'):
+        for before in ('-60', '253402300741', '9223372036854775807',
+                       '9999999999999999999999999999999999999999999999'):
+            response = client.get(endpoint, params={
+                'timeframe': timeframe, 'before': before})
+            assert response.status_code == 422, (timeframe, before, response.text)
+
+    # The last valid UTC minute remains an accepted aligned cursor for 1m.
+    # There is no matching dataset, so routing reaches the expected 404
+    # rather than rejecting a representable epoch or raising a server error.
+    accepted = client.get(endpoint, params={
+        'timeframe': '1m', 'before': '253402300740'})
+    assert accepted.status_code == 404, accepted.text
+
+    # Monthly buckets still reject representable but unaligned dates.
+    unaligned = client.get(endpoint, params={
+        'timeframe': '1M', 'before': '253402300740'})
+    assert unaligned.status_code == 422, unaligned.text
