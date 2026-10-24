@@ -45,8 +45,13 @@ export function comparePaperWithDemoFills(
      paper.status!=='CLOSED'||(paper.side!=='BUY'&&paper.side!=='SELL')||
      !text(paper.clientOrderId,80)||!positive(paper.units)||!positive(paper.entry!)||!positive(paper.exit!)||
      !nonnegative(paper.commissionPerUnitSide)||!nonnegative(paper.costs!)||
-     !Number.isFinite(paper.pnl)||!time(paper.submittedAt)||!time(paper.entryReceivedAt!)||
-     !time(paper.exitReceivedAt!)||paper.entryReceivedAt!<=paper.submittedAt||
+     !Number.isFinite(paper.pnl)||!time(paper.submittedAt)||!time(paper.expiresAt)||
+     !time(paper.entryObservedAt!)||!time(paper.entryReceivedAt!)||
+     !time(paper.exitObservedAt!)||!time(paper.exitReceivedAt!)||
+     paper.expiresAt<=paper.submittedAt||paper.entryObservedAt!<=paper.submittedAt||
+     paper.entryReceivedAt!<paper.entryObservedAt!||paper.entryReceivedAt!>=paper.expiresAt||
+     paper.exitObservedAt!<=paper.entryObservedAt!||
+     paper.exitReceivedAt!<paper.exitObservedAt!||
      paper.exitReceivedAt!<=paper.entryReceivedAt!||!time(asOf)||asOf<paper.exitReceivedAt!||
      !time(maxExecutionSkewSeconds)||!text(source.brokerOrderId,120)||
      !text(source.accountAlias,120)||!text(source.currency,12)||
