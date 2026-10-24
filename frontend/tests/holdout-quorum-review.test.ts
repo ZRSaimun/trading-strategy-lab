@@ -82,7 +82,7 @@ test('freeze signed after validation begins cannot count even before first valid
   assert.equal(out.status,'INSUFFICIENT_QUORUM');
   assert.equal(out.matchingAuthorities,1);
 });
-test('a recorded validation read before freeze attestation disqualifies the freeze',async()=>{
+test('recorded premature validation read rejects signed quorum as contaminated',async()=>{
   const f=await fixture();
   const earlyEntries=await appendHoldoutAuditEvent(f.commitment,[],{
     eventId:'early-validation-read',action:'VALIDATION_ACCESS',archiveId:'source-3',
@@ -94,10 +94,8 @@ test('a recorded validation read before freeze attestation disqualifies the free
   const bHead=await f.b.sign({...f.b0.receipt,sequence:1,
     headDigest:earlyEntries[0].digest,anchoredAt:f.commitment.frozenAt+150,
     reference:'b-early-head'});
-  const out=await reviewHoldoutAnchorQuorum(f.commitment,earlyEntries,
-    [f.a0,f.b0,aHead,bHead],[f.a.trusted,f.b.trusted],2);
-  assert.equal(out.status,'INSUFFICIENT_QUORUM');
-  assert.equal(out.freezeAuthorities,0);
+  await assert.rejects(reviewHoldoutAnchorQuorum(f.commitment,earlyEntries,
+    [f.a0,f.b0,aHead,bHead],[f.a.trusted,f.b.trusted],2),/contamination/);
 });
 test('invalid signature and duplicate signer are rejected',async()=>{
   const f=await fixture();
