@@ -161,7 +161,7 @@ test('malformed or out-of-order boundary aggregates cannot be laundered by trimm
 
 test('a complete next 4H window without a directional shift is a negative, not unavailable data',()=>{
  const x=fixture();
- x.fifteenMinute[32]=make(BASE+32*Q,105,106,104,105,15);
+ Object.assign(x.fifteenMinute[32],make(BASE+32*Q,105,106,104,105,15));
  const s=screenCrtHypotheses(x).candidates[0];
  assert.equal(s.gates.structureShift,'FAIL');
  assert.equal(s.gates.displacement,'INSUFFICIENT_DATA');
@@ -174,7 +174,7 @@ test('missing 15m history at first eligible close prevents cherry-picking a late
  // The first eligible 08:00 bar lacks one of its previous 20 bars. The
  // following 08:15 bar has 20 contiguous prior bars and looks attractive,
  // but an earlier shift could have been hidden by the missing observation.
- x.fifteenMinute.splice(12,1);
+ x.fifteenMinute=x.fifteenMinute.filter((_,i)=>i!==12);
  const later=x.fifteenMinute.find(b=>b.time===BASE+33*Q)!;
  later.open=105;later.close=112;later.high=113;later.low=104;
  const s=screenCrtHypotheses(x).candidates[0];
@@ -185,8 +185,8 @@ test('missing 15m history at first eligible close prevents cherry-picking a late
 
 test('a gap inside the next 4H block cannot be counted as a complete negative',()=>{
  const x=fixture();
- x.fifteenMinute[32]=make(BASE+32*Q,105,106,104,105,15);
- x.fifteenMinute.splice(35,1);
+ Object.assign(x.fifteenMinute[32],make(BASE+32*Q,105,106,104,105,15));
+ x.fifteenMinute=x.fifteenMinute.filter((_,i)=>i!==35);
  const s=screenCrtHypotheses(x).candidates[0];
  assert.equal(s.gates.structureShift,'INSUFFICIENT_DATA');
  assert.equal(s.confirmationCloseAt,null);
@@ -194,7 +194,7 @@ test('a gap inside the next 4H block cannot be counted as a complete negative',(
 
 test('truncated future history cannot turn a partial negative into an observed FAIL',()=>{
  const x=fixture();
- x.fifteenMinute[32]=make(BASE+32*Q,105,106,104,105,15);
+ Object.assign(x.fifteenMinute[32],make(BASE+32*Q,105,106,104,105,15));
  x.fifteenMinute=x.fifteenMinute.slice(0,38);
  const s=screenCrtHypotheses(x).candidates[0];
  assert.equal(s.gates.structureShift,'INSUFFICIENT_DATA');
