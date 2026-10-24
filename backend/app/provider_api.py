@@ -57,7 +57,8 @@ def attach(owner,audit):
             _last_attempt=time.monotonic()
             try:rows,archive=await retrieve(key,body.instrument,body.limit,body.end,now)
             except ProviderError as e:raise HTTPException(e.status,str(e)) from None
-            quality=assess_completed_m1(rows,now)
+            # Record assessment after the provider response, not at request start.
+            quality=assess_completed_m1(rows,int(time.time()))
             digest=hashlib.sha256(archive).hexdigest()
             # Not web-served: archive is a vetted source-field snapshot, never a credential file.
             directory=Path(os.getenv('MARKET_ARCHIVE_DIR','./data/market-archive'))
