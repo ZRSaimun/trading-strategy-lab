@@ -2,7 +2,7 @@
 
 import {useCallback,useEffect,useMemo,useRef,useState} from 'react';
 import {summarizeHistoricalQuality} from '../lib/archive-quality';
-import {appendArchiveListing,ArchiveInventoryChangedError,fetchArchiveListingPage,type ArchiveListing} from '../lib/archive-discovery';
+import {appendArchiveListing,fetchArchiveListingPage,type ArchiveListing} from '../lib/archive-discovery';
 import {createChart,CandlestickSeries,ColorType,type IChartApi,type ISeriesApi,type UTCTimestamp} from 'lightweight-charts';
 
 type Archive=ArchiveListing;
@@ -80,11 +80,12 @@ export default function HistoricalArchives({light,pages}:{light:boolean;pages:bo
    setListingError('');
   }catch(e){
    if(!signal.aborted){
-    if(e instanceof ArchiveInventoryChangedError){
-     // The already loaded pages cannot be trusted after an inventory change.
-     setDatasets([]);setSelected('');setListingMore(false);
-     setListingOffset(null);setListingSnapshot(null);
-    }
+    // Any failed subsequent page (including malformed provenance, overlapping
+    // identities, or a network error) leaves the discovered inventory
+    // incomplete. Fail closed rather than allowing selection of stale rows.
+    setDatasets([]);setSelected('');setListingMore(false);
+    setListingOffset(null);setListingSnapshot(null);
+    setLegacyListingLimit(false);
     setListingError(String(e));
    }
   }finally{
