@@ -115,6 +115,7 @@ export function studyHourlyFvgMidpoint(
   let wickFraction:number|null=null;
   let blind:Markout|null=null,confirmed:Markout|null=null;
   let windowComplete=true;
+  let openingGapThrough=false;
   for(let wait=1;wait<=maxTouchWaitBars;wait++){
    const j=i+wait,b=bars[j],prev=bars[j-1];
    if(!b||b.time-prev.time!==HOUR){windowComplete=false;break;}
@@ -125,6 +126,7 @@ export function studyHourlyFvgMidpoint(
    if(bull?b.open<midpoint:b.open>midpoint){
     // Preserve a physical range intersection without asserting a fill.
     if(b.low<=midpoint&&b.high>=midpoint)touch=j;
+    openingGapThrough=true;
     gates.midpointTouch='INSUFFICIENT_DATA';
     break;
    }
@@ -168,7 +170,7 @@ export function studyHourlyFvgMidpoint(
    }
    break; // FIRST midpoint touch only
   }
-  if(touch===null&&windowComplete)gates.midpointTouch='FAIL';
+  if(touch===null&&windowComplete&&!openingGapThrough)gates.midpointTouch='FAIL';
   observations.push({direction,formationClosedAt:third.time+HOUR,
    gapLow,gapHigh,midpoint,firstTouchClosedAt:touch===null?null:bars[touch].time+HOUR,
    rejectionWickFraction:wickFraction,gates,
