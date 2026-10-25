@@ -67,7 +67,7 @@ def test_four_fixed_cost_scenarios_are_not_executable_quotes():
     r = run(m, p)
     assert [x["additional_round_trip_bps"] for x in r["cost_scenarios"]] == [0, 5, 10, 20]
     assert [x["minimum_leave_one_week_out_mean_lower_net_r"] for x in r["cost_scenarios"]] == [
-        "-0.5", "-0.55", "-0.60", "-0.70"
+        "-0.5", "-0.55", "-0.6", "-0.7"
     ]
 
 
