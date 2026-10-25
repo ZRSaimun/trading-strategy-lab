@@ -30,8 +30,12 @@ def fixture_data():
         "provider": "twelvedata", "provider_symbol": "XAU/USD",
         "hash_scope": "vetted source-field snapshot",
         "rights_confirmation_scope": "owner_assertion_only",
-        "source": source, "retrieved_at": 240, "response_received_at": 300,
-        "request_end": 180, "rows": 2, "start": 60, "end": 180, "gaps": 1,
+        "source": source, "retrieved_at": 240, "request_started_at": 240,
+        "response_received_at": 300, "request_elapsed_ms": 42,
+        "receipt_clock": "server_wall_utc", "elapsed_clock": "server_monotonic",
+        "request_limit": 2, "request_end": 180, "rows": 2,
+        "start": 60, "end": 180, "gaps": 1, "volume_type": "none",
+        "rights_confirmed": True,
         "sha256": hashlib.sha256(archive).hexdigest(),
         "quality": assess_completed_m1(candles, 300),
         "provider_instrument_entitlement_verified": False,
@@ -62,6 +66,16 @@ def test_consistent_staging_inputs_report_only_internal_consistency():
     lambda m, a, c: m.update(gaps=0),
     lambda m, a, c: m.update(request_end=120),
     lambda m, a, c: m.update(response_received_at=240),
+    lambda m, a, c: m.update(request_started_at=241),
+    lambda m, a, c: m.update(request_elapsed_ms=-1),
+    lambda m, a, c: m.update(request_elapsed_ms="42"),
+    lambda m, a, c: m.update(request_limit=1),
+    lambda m, a, c: m.update(request_limit=True),
+    lambda m, a, c: m.update(request_end=181),
+    lambda m, a, c: m.update(receipt_clock="provider_clock"),
+    lambda m, a, c: m.update(elapsed_clock="server_wall_utc"),
+    lambda m, a, c: m.update(volume_type="tick"),
+    lambda m, a, c: m.update(rights_confirmed=False),
     lambda m, a, c: m.update(live=True),
     lambda m, a, c: m.update(provider_instrument_entitlement_verified=True),
     lambda m, a, c: m.update(rights_confirmation_scope="provider_verified"),
@@ -76,6 +90,15 @@ def test_tampered_staging_evidence_fails_closed(change):
     manifest, archive, candles = fixture_data()
     change(manifest, archive, candles)
     with pytest.raises(ValueError):
+        reconcile_staging_dataset(manifest, archive, candles)
+
+
+def test_relabeling_both_manifest_and_rows_does_not_rewrite_source_identity():
+    manifest, archive, candles = fixture_data()
+    manifest["source"] = "Unverified replacement source"
+    for row in candles:
+        row["source"] = manifest["source"]
+    with pytest.raises(ValueError, match="provenance"):
         reconcile_staging_dataset(manifest, archive, candles)
 
 
