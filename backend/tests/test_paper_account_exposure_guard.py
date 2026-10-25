@@ -276,3 +276,42 @@ def test_nonpositive_stressed_equity_never_satisfies_margin_or_leverage():
     assert out['checks']['stressed_gross_leverage_within_cap'] is False
     assert out['status'] == 'HOLD_RECONCILIATION'
     assert out['may_execute_real_order'] is False
+
+
+def test_same_feed_quotes_must_match_even_when_individually_fresh():
+    s = example()
+    second = deepcopy(s['exposures'][0])
+    second['client_order_id'] = 'paper-order-0002'
+    s['exposures'].append(second)
+    baseline = run(s)
+    assert baseline['checks']['consistent_same_source_quotes'] is True
+    assert baseline['status'] == 'ASSUMPTIONS_WITHIN_LIMITS_UNVERIFIED'
+    for field, value in [
+        ('bid', '1998.5'),
+        ('ask', '2001.5'),
+        ('quote_observed_at_ms', NOW - 600),
+        ('quote_received_at_ms', NOW - 350),
+    ]:
+        variant = deepcopy(s)
+        variant['exposures'][1][field] = value
+        out = run(variant)
+        assert out['checks']['all_quotes_fresh_and_uncrossed'] is True
+        assert out['checks']['consistent_same_source_quotes'] is False
+        assert 'consistent_same_source_quotes' in out['failed_checks']
+        assert out['status'] == 'HOLD_RECONCILIATION'
+        assert out['may_execute_paper_order'] is False
+        assert out['may_execute_real_order'] is False
+
+
+def test_distinct_declared_sources_are_not_mistaken_for_authenticated_parity():
+    s = example()
+    second = deepcopy(s['exposures'][0])
+    second['client_order_id'] = 'paper-order-0002'
+    second['provider'] = 'OTHER'
+    second['bid'] = '1998.5'
+    s['exposures'].append(second)
+    out = run(s)
+    assert out['checks']['consistent_same_source_quotes'] is True
+    assert out['quote_authenticated'] is False
+    assert out['broker_account_authenticated'] is False
+    assert out['may_execute_real_order'] is False
