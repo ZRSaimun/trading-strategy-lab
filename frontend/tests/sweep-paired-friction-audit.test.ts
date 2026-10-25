@@ -44,6 +44,7 @@ test('insufficient weeks cannot be hidden by trade count',()=>{
  assert.throws(()=>auditMatchedSweepFriction(fixture(p)),/Duplicate matched sweep/);
  const a=auditMatchedSweepFriction(fixture(Array.from({length:11},(_,i)=>pair(i))));
  assert.equal(a.status,'INSUFFICIENT_EVIDENCE');
+ assert.equal(a.eventWeightedBreakEvenExtraSweepBps,null);
 });
 test('input order cannot change the result',()=>{
  const p=Array.from({length:35},(_,i)=>pair(i,10+i%3,2));
