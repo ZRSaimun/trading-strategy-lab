@@ -78,7 +78,14 @@ def _prepare(archives, observations, protocol, folds, candidates):
               "folds": [{"id": f["id"], "bounds": f["bounds"],
                          "trainIds": sorted(f["trainIds"]), "testIds": sorted(f["testIds"]),
                          "excludedCounts": f["excludedCounts"]} for f in audit["folds"]],
-              "candidates": sorted(candidates, key=lambda c: c["id"])}
+              "candidates": sorted(candidates, key=lambda c: c["id"]),
+              # Bind *all* development timing metadata, including unselected and
+              # excluded observations. IDs/counts alone cannot detect changes to
+              # feature/label availability without changing fold membership.
+              # Never hash validation/holdout observations into selection state.
+              "developmentObservations": sorted(
+                  (dict(o) for o in observations if o["decisionAt"] < audit["protocol"]["developmentEnd"]),
+                  key=lambda o: o["id"])}
     return audit, source_sha, fold_hashes, _hash(frozen)
 
 
