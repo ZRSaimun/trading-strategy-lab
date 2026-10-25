@@ -67,12 +67,43 @@ def test_revision_and_coverage_are_reported_without_prices():
     assert "100.5" not in json.dumps(report)
 
 
+def test_shifted_window_edges_are_not_mislabelled_as_shared_coverage_gaps():
+    prior = fixture_data()  # observed at 60 and 180
+    current = version(prior, times=[60, 240], received=480)
+    report = compare_staging_snapshots(*prior, *current)
+    assert report["observed_range_overlap"] is True
+    assert report["observed_overlap_start_utc"] == "1970-01-01T00:01:00+00:00"
+    assert report["observed_overlap_end_utc"] == "1970-01-01T00:03:00+00:00"
+    assert report["removed_within_observed_overlap"] == 1
+    assert report["added_within_observed_overlap"] == 0
+    assert report["removed_outside_observed_overlap"] == 0
+    assert report["added_outside_observed_overlap"] == 1
+    assert report["overlap_coverage_differs"] is True
+
+
+def test_identical_observed_windows_have_no_coverage_difference():
+    prior = fixture_data()
+    report = compare_staging_snapshots(*prior, *version(prior))
+    assert report["observed_range_overlap"] is True
+    assert report["added_within_observed_overlap"] == 0
+    assert report["removed_within_observed_overlap"] == 0
+    assert report["added_outside_observed_overlap"] == 0
+    assert report["removed_outside_observed_overlap"] == 0
+    assert report["overlap_coverage_differs"] is False
+
+
 def test_no_overlap_does_not_claim_identical():
     prior = fixture_data()
     current = version(prior, times=[300, 360], received=480)
     report = compare_staging_snapshots(*prior, *current)
     assert report["outcome"] == "NO_SHARED_OBSERVED_MINUTES"
     assert report["shared_observed_minutes"] == 0
+    assert report["observed_range_overlap"] is False
+    assert report["observed_overlap_start_utc"] is None
+    assert report["observed_overlap_end_utc"] is None
+    assert report["removed_outside_observed_overlap"] == 2
+    assert report["added_outside_observed_overlap"] == 2
+    assert report["overlap_coverage_differs"] is False
 
 
 def test_revised_timestamp_samples_can_be_suppressed():
