@@ -102,6 +102,8 @@ def evaluate_paper_account_exposure(snapshot: dict, *, now_ms: int) -> dict:
         'symbol_notional_within_cap': True,
         'gross_leverage_within_cap': True,
         'reserved_margin_within_cap': True,
+        'stressed_gross_leverage_within_cap': True,
+        'stressed_reserved_margin_within_cap': True,
         'projected_daily_downside_below_cap': True,
     }
     seen = set()
@@ -181,6 +183,17 @@ def evaluate_paper_account_exposure(snapshot: dict, *, now_ms: int) -> dict:
         # Floating gains cannot offset realized losses or adverse exposure.
         downside = max(Decimal(0), -(realized + min(unrealized, Decimal(0)))) + stressed
         checks['projected_daily_downside_below_cap'] = downside < daily_cap
+        # Current-equity margin/leverage checks alone can look healthy even
+        # when a plausible adverse exit would exhaust the account's headroom.
+        # Recheck BOTH caps after conservatively deducting projected downside.
+        # This is a stress preview, not a broker liquidation model.
+        stressed_equity = equity - downside
+        checks['stressed_gross_leverage_within_cap'] = (
+            stressed_equity > 0 and gross <= stressed_equity * leverage
+        )
+        checks['stressed_reserved_margin_within_cap'] = (
+            stressed_equity > 0 and margin <= stressed_equity * margin_fraction
+        )
     passed = all(checks.values())
     return {
         'status': 'ASSUMPTIONS_WITHIN_LIMITS_UNVERIFIED' if passed else 'HOLD_RECONCILIATION',
@@ -190,6 +203,7 @@ def evaluate_paper_account_exposure(snapshot: dict, *, now_ms: int) -> dict:
         'assumed_reserved_margin_cash': format(margin, 'f'),
         'aggregate_stressed_loss_cash': format(stressed, 'f'),
         'projected_daily_downside_cash': format(downside, 'f'),
+        'stressed_equity_cash': format(stressed_equity, 'f'),
         'symbol_notional_cash': {k: format(v, 'f') for k, v in sorted(per_symbol.items())},
         'exposures': details,
         'broker_account_authenticated': False,
@@ -205,6 +219,7 @@ def evaluate_paper_account_exposure(snapshot: dict, *, now_ms: int) -> dict:
             'Pending and uncertain orders are counted at full quantity; cancellation is not a confirmed release.',
             'Stop losses and stressed exits are scenarios, not guaranteed fills or maximum possible losses.',
             'A breached stop requires broker reconciliation; the current executable side may imply a worse loss than the stressed exit.',
+            'Stress-adjusted equity is a conservative hypothetical headroom, not a verified broker margin balance or liquidation threshold.',
             'All values assume verified point-value and account-currency conversion, which this module cannot verify.',
             'No broker API, persistent reservation, human approval, or order sender is connected.',
         ],
