@@ -72,6 +72,27 @@ test('daily trend uses only completed daily history, never current incomplete da
  const missing=fixture();missing.daily=missing.daily!.slice(0,15);
  assert.equal(screenCrtHypotheses(missing).candidates[0].gates.dailyTrend,'INSUFFICIENT_DATA');
 });
+test('malformed daily metadata cannot certify the completed-day trend gate',()=>{
+ const mutations:Array<(b:Bar)=>void>=[
+  b=>{b.time=-86400;},
+  b=>{b.observed_minutes=1439.5;},
+  b=>{b.volume=Number.POSITIVE_INFINITY;},
+  b=>{b.volume=-1;},
+ ];
+ for(const mutate of mutations){
+  const x=fixture();
+  const daily=x.daily!.map(b=>({...b}));
+  mutate(daily[0]);
+  x.daily=daily;
+  assert.throws(()=>screenCrtHypotheses(x),/Invalid daily research input/);
+ }
+ // A legitimate unknown volume field must not invalidate a price-only
+ // trend proxy; unknown volume is not a positive volume confirmation.
+ const unknown=fixture();
+ unknown.daily=unknown.daily!.map(b=>({...b,volume:null}));
+ assert.equal(screenCrtHypotheses(unknown).candidates[0].gates.dailyTrend,'PASS');
+});
+
 test('an elapsed but partially observed UTC daily bucket cannot satisfy the 20-day trend requirement',()=>{
  const x=fixture();
  // Exactly 20 earlier days: 19 complete and one elapsed-but-partial day.
