@@ -10,8 +10,8 @@ import re
 import urllib.error
 import urllib.request
 
-_TOKEN = re.compile(r"[0-9]{6,15}:[A-Za-z0-9_-]{20,100}\\Z")
-_CHAT = re.compile(r"-?[0-9]{1,20}\\Z")
+_TOKEN = re.compile(r"[0-9]{6,15}:[A-Za-z0-9_-]{20,100}\Z")
+_CHAT = re.compile(r"-?[0-9]{1,20}\Z")
 _MAX_RESPONSE = 16384
 
 
@@ -46,7 +46,7 @@ def send_telegram_once(*, bot_token, chat_id, text, timeout=5, opener=None):
     if not isinstance(chat_id, str) or not _CHAT.fullmatch(chat_id):
         raise ValueError("Invalid Telegram chat ID")
     if not isinstance(text, str) or not 1 <= len(text) <= 1000 or any(
-        ord(c) < 32 and c not in "\\n\\t" for c in text
+        ord(c) < 32 and c not in "\n\t" for c in text
     ):
         raise ValueError("Invalid review alert text")
     if type(timeout) not in (int, float) or not 1 <= timeout <= 10:
