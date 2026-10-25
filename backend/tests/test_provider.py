@@ -1,6 +1,7 @@
 import asyncio
 import json
 from pathlib import Path
+from datetime import datetime, timezone
 import httpx
 import pytest
 from cryptography.fernet import Fernet
@@ -71,6 +72,10 @@ def test_status_authentication_disabled_gate_and_secret_isolation(client,monkeyp
     assert client.get('/api/providers').status_code==401
     unlock(client);status=client.get('/api/providers')
     assert status.json()['credential_configured'];assert not status.json()['enabled'];assert KEY not in status.text
+    assert status.json()['rights_confirmation_scope']=='owner_assertion_only'
+    for field in ('provider_instrument_entitlement_verified','retention_rights_verified',
+                  'display_rights_verified','non_display_rights_verified'):
+        assert status.json()[field] is False
     r=client.post('/api/providers/twelvedata/import',json={'instrument':'XAUUSD-TD','limit':100,'end':NOW-60,'rights_confirmed':True,'replace_confirmed':True})
     assert r.status_code==409
 
@@ -80,14 +85,44 @@ def test_historical_pipeline_persists_charts_manifest_archive_and_audit(client,m
     credentials(monkeypatch,tmp_path);monkeypatch.setenv('TWELVEDATA_ENABLED','true');monkeypatch.setenv('MARKET_ARCHIVE_DIR',str(tmp_path/'archive'))
     monkeypatch.setattr(provider_api,'_last_attempt',-1000)
     async def fake(key,instrument,limit,end,now):
+        await asyncio.sleep(0.03)  # Mock response latency; no provider request.
         assert key==KEY;return normalize(PAYLOAD,instrument,NOW)
     monkeypatch.setattr(provider_api,'retrieve',fake)
     unlock(client)
+    provider_status=client.get('/api/providers').json()
+    assert provider_status['enabled'] is True
+    assert provider_status['credential_configured'] is True
+    assert provider_status['rights_confirmation_scope']=='owner_assertion_only'
+    for field in ('provider_instrument_entitlement_verified','retention_rights_verified',
+                  'display_rights_verified','non_display_rights_verified'):
+        assert provider_status[field] is False
     r=client.post('/api/providers/twelvedata/import',json={'instrument':'XAUUSD-TD','limit':100,'end':NOW-60,'rights_confirmed':True,'replace_confirmed':True})
     assert r.status_code==200,r.text
     assert r.json()['rows']==2;assert not r.json()['live'];assert KEY not in r.text
+    assert 'authorized historical API' not in r.json()['source']
+    assert 'rights unverified' in r.json()['source']
+    assert r.json()['rights_confirmed'] is True  # Legacy owner checkbox, NOT a provider grant.
+    assert r.json()['rights_confirmation_scope']=='owner_assertion_only'
+    for field in ('provider_instrument_entitlement_verified','retention_rights_verified',
+                  'display_rights_verified','non_display_rights_verified'):
+        assert r.json()[field] is False
+    quality=r.json()['quality']
+    assert quality['observed_candles']==2
+    assert quality['observed_timestamp_gaps']==0
+    assert quality['seconds_since_last_candle_close']>=0
+    assert quality['assessment']=='OBSERVED_ONLY_HISTORICAL'
+    assert r.json()['retrieved_at']==r.json()['request_started_at']
+    assert r.json()['response_received_at']>=r.json()['request_started_at']
+    assert r.json()['request_elapsed_ms']>=20
+    assert r.json()['receipt_clock']=='server_wall_utc'
+    assert r.json()['elapsed_clock']=='server_monotonic'
+    assert quality['observed_at_utc']==datetime.fromtimestamp(r.json()['response_received_at'],timezone.utc).isoformat()
+    assert not quality['live'] and not quality['executable_bid_ask_verified']
     result=client.get('/api/candles/XAUUSD-TD?timeframe=1m').json()
     assert result['dataset']['provider_symbol']=='XAU/USD';assert len(result['candles'])==2
+    assert result['dataset']['quality']==quality
+    assert result['dataset']['rights_confirmation_scope']=='owner_assertion_only'
+    assert result['dataset']['provider_instrument_entitlement_verified'] is False
     assert result['quality']['state']=='WAIT'
     assert len(list((tmp_path/'archive').glob('*.json')))==1
     audit=client.get('/api/audit');assert KEY not in audit.text
@@ -119,3 +154,176 @@ def test_free_policy_blocks_even_enabled_provider_before_credentials(client,monk
     response=client.post('/api/providers/twelvedata/import',json={'instrument':'XAUUSD-TD','limit':100,'end':NOW-60,'rights_confirmed':True,'replace_confirmed':True})
     assert response.status_code==409
     assert 'Free-only' in response.json()['detail']
+
+@pytest.mark.parametrize('invalid_case', ['no_completed_rows', 'malformed_ohlc'])
+def test_invalid_completed_set_preserves_existing_import(client,monkeypatch,tmp_path,invalid_case):
+    # Mock only: never contact a paid provider or expose credentials.
+    monkeypatch.setenv('FREE_ONLY','false')
+    credentials(monkeypatch,tmp_path)
+    monkeypatch.setenv('TWELVEDATA_ENABLED','true')
+    archive_dir=tmp_path/'archive'
+    monkeypatch.setenv('MARKET_ARCHIVE_DIR',str(archive_dir))
+    monkeypatch.setattr(provider_api,'_last_attempt',-1000)
+    valid_rows,valid_archive=normalize(PAYLOAD,'XAUUSD-TD',NOW)
+    response_rows=[dict(row) for row in valid_rows]
+    if invalid_case=='no_completed_rows':
+        response_rows=[]
+    else:
+        response_rows[0]['high']=float('nan')
+    call_count=0
+    async def fake(key,instrument,limit,end,now):
+        nonlocal call_count
+        assert key==KEY and instrument=='XAUUSD-TD'
+        call_count+=1
+        return (valid_rows if call_count==1 else response_rows),valid_archive
+    monkeypatch.setattr(provider_api,'retrieve',fake)
+    unlock(client)
+    body={'instrument':'XAUUSD-TD','limit':100,'end':NOW-60,
+          'rights_confirmed':True,'replace_confirmed':True}
+    assert client.post('/api/providers/twelvedata/import',json=body).status_code==200
+    before=client.get('/api/candles/XAUUSD-TD?timeframe=1m').json()
+    files_before=sorted(p.name for p in archive_dir.glob('*.json'))
+    audit_before=client.get('/api/audit').json()
+    monkeypatch.setattr(provider_api,'_last_attempt',-1000)
+    response=client.post('/api/providers/twelvedata/import',json=body)
+    assert response.status_code==502
+    assert response.json()['detail']=='Provider returned no valid completed candle set; existing data unchanged.'
+    assert KEY not in response.text
+    assert client.get('/api/candles/XAUUSD-TD?timeframe=1m').json()==before
+    assert sorted(p.name for p in archive_dir.glob('*.json'))==files_before
+    assert client.get('/api/audit').json()==audit_before
+    assert call_count==2
+
+
+@pytest.mark.parametrize('archive_case', ['corrupt_existing', 'symlink_existing'])
+def test_existing_archive_must_be_verified_before_replacement(client,monkeypatch,tmp_path,archive_case):
+    # Offline mocked response; neither import contacts a provider.
+    monkeypatch.setenv('FREE_ONLY','false')
+    credentials(monkeypatch,tmp_path)
+    monkeypatch.setenv('TWELVEDATA_ENABLED','true')
+    archive_dir=tmp_path/'archive'
+    monkeypatch.setenv('MARKET_ARCHIVE_DIR',str(archive_dir))
+    monkeypatch.setattr(provider_api,'_last_attempt',-1000)
+    rows,archive=normalize(PAYLOAD,'XAUUSD-TD',NOW)
+    calls=0
+    async def fake(key,instrument,limit,end,now):
+        nonlocal calls
+        calls+=1
+        assert key==KEY and instrument=='XAUUSD-TD'
+        return rows,archive
+    monkeypatch.setattr(provider_api,'retrieve',fake)
+    unlock(client)
+    body={'instrument':'XAUUSD-TD','limit':100,'end':NOW-60,
+          'rights_confirmed':True,'replace_confirmed':True}
+    first=client.post('/api/providers/twelvedata/import',json=body)
+    assert first.status_code==200,first.text
+    before_candles=client.get('/api/candles/XAUUSD-TD?timeframe=1m').json()
+    before_audit=client.get('/api/audit').json()
+    target=next(archive_dir.glob('*.json'))
+    if archive_case=='corrupt_existing':
+        target.write_bytes(b'corrupt existing archive')
+    else:
+        target.unlink()
+        outside=tmp_path/'external-source.json'
+        outside.write_bytes(archive)  # Even identical external bytes are not trusted.
+        target.symlink_to(outside)
+    monkeypatch.setattr(provider_api,'_last_attempt',-1000)
+    second=client.post('/api/providers/twelvedata/import',json=body)
+    assert second.status_code==503
+    assert second.json()['detail']=='Cannot verify provider archive; database unchanged.'
+    assert KEY not in second.text
+    assert client.get('/api/candles/XAUUSD-TD?timeframe=1m').json()==before_candles
+    assert client.get('/api/audit').json()==before_audit
+    assert calls==2
+    if archive_case=='corrupt_existing':
+        assert target.read_bytes()==b'corrupt existing archive'
+    else:
+        assert target.is_symlink() and outside.read_bytes()==archive
+
+
+@pytest.mark.parametrize('mismatch', ['archive_ohlc', 'archive_symbol', 'rows_close',
+                                      'duplicate_meta', 'duplicate_candle'])
+def test_snapshot_mismatch_preserves_existing_provider_series(client,monkeypatch,tmp_path,mismatch):
+    # The mocked provider never makes a network call; verify API transaction safety.
+    monkeypatch.setenv('FREE_ONLY','false')
+    credentials(monkeypatch,tmp_path)
+    monkeypatch.setenv('TWELVEDATA_ENABLED','true')
+    archive_dir=tmp_path/'archive'
+    monkeypatch.setenv('MARKET_ARCHIVE_DIR',str(archive_dir))
+    monkeypatch.setattr(provider_api,'_last_attempt',-1000)
+    rows,archive=normalize(PAYLOAD,'XAUUSD-TD',NOW)
+    calls=0
+
+    async def fake(key,instrument,limit,end,now):
+        nonlocal calls
+        calls+=1
+        if calls==1:
+            return rows,archive
+        if mismatch=='rows_close':
+            altered=[dict(r) for r in rows]
+            altered[0]['close']+=0.5  # Valid OHLC, inconsistent snapshot.
+            return altered,archive
+        if mismatch=='duplicate_meta':
+            return rows,archive.replace(b'"symbol":',b'"symbol":"XAG/USD","symbol":',1)
+        if mismatch=='duplicate_candle':
+            return rows,archive.replace(b'"close":',b'"close":"999","close":',1)
+        changed=json.loads(archive)
+        if mismatch=='archive_ohlc':
+            changed['values'][0]['close']='2002.5'
+        else:
+            changed['meta']['symbol']='XAG/USD'
+        return rows,json.dumps(changed).encode()
+
+    monkeypatch.setattr(provider_api,'retrieve',fake)
+    unlock(client)
+    body={'instrument':'XAUUSD-TD','limit':100,'end':NOW-60,
+          'rights_confirmed':True,'replace_confirmed':True}
+    assert client.post('/api/providers/twelvedata/import',json=body).status_code==200
+    candles_before=client.get('/api/candles/XAUUSD-TD?timeframe=1m').json()
+    audit_before=client.get('/api/audit').json()
+    archive_before={p.name:p.read_bytes() for p in archive_dir.glob('*.json')}
+    monkeypatch.setattr(provider_api,'_last_attempt',-1000)
+    response=client.post('/api/providers/twelvedata/import',json=body)
+    assert response.status_code==502
+    assert response.json()['detail']=='Provider returned no valid completed candle set; existing data unchanged.'
+    assert KEY not in response.text
+    assert client.get('/api/candles/XAUUSD-TD?timeframe=1m').json()==candles_before
+    assert client.get('/api/audit').json()==audit_before
+    assert {p.name:p.read_bytes() for p in archive_dir.glob('*.json')}==archive_before
+    assert calls==2
+
+
+def test_snapshot_publication_failure_preserves_existing_series(client, monkeypatch, tmp_path):
+    # End-to-end mocked API regression: publication must precede any DB replacement.
+    monkeypatch.setenv('FREE_ONLY', 'false')
+    credentials(monkeypatch, tmp_path)
+    monkeypatch.setenv('TWELVEDATA_ENABLED', 'true')
+    monkeypatch.setenv('MARKET_ARCHIVE_DIR', str(tmp_path / 'archive'))
+    monkeypatch.setattr(provider_api, '_last_attempt', -1000)
+    rows, archive = normalize(PAYLOAD, 'XAUUSD-TD', NOW)
+
+    async def fake(key, instrument, limit, end, now):
+        assert key == KEY and instrument == 'XAUUSD-TD'
+        return rows, archive
+
+    monkeypatch.setattr(provider_api, 'retrieve', fake)
+    unlock(client)
+    body = {'instrument': 'XAUUSD-TD', 'limit': 100, 'end': NOW-60,
+            'rights_confirmed': True, 'replace_confirmed': True}
+    assert client.post('/api/providers/twelvedata/import', json=body).status_code == 200
+    before_candles = client.get('/api/candles/XAUUSD-TD?timeframe=1m').json()
+    before_audit = client.get('/api/audit').json()
+    before_archive = {p.name: p.read_bytes() for p in (tmp_path / 'archive').glob('*.json')}
+
+    def blocked_publication(*args):
+        raise OSError('synthetic filesystem publication failure')
+
+    monkeypatch.setattr(provider_api, 'publish_verified_snapshot', blocked_publication)
+    monkeypatch.setattr(provider_api, '_last_attempt', -1000)
+    response = client.post('/api/providers/twelvedata/import', json=body)
+    assert response.status_code == 503
+    assert response.json()['detail'] == 'Cannot verify provider archive; database unchanged.'
+    assert KEY not in response.text
+    assert client.get('/api/candles/XAUUSD-TD?timeframe=1m').json() == before_candles
+    assert client.get('/api/audit').json() == before_audit
+    assert {p.name: p.read_bytes() for p in (tmp_path / 'archive').glob('*.json')} == before_archive
