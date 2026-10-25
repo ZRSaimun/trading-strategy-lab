@@ -131,14 +131,17 @@ function trend(bars:readonly Bar[]|undefined,at:number,dir:Direction):Gate{
  return dir==='BULLISH'?(short>long?'PASS':'FAIL'):(short<long?'PASS':'FAIL');
 }
 function zoneGate(zones:readonly Zone[]|undefined,source:Source,
- dir:Direction,at:number,price:number):Gate{
+ dir:Direction,sweepStartAt:number,price:number):Gate{
  if(!zones?.length)return 'INSUFFICIENT_DATA';
  const matching=zones.filter(z=>z.datasetId===source.datasetId&&
   z.archiveSha256===source.archiveSha256&&z.priceSide===source.priceSide&&
   Number.isSafeInteger(z.observedAt)&&Number.isSafeInteger(z.referenceBarTime)&&
   z.referenceBarTime>=0&&z.referenceBarTime%14400===0&&
-  z.observedAt<=at&&z.referenceBarTime+14400<=z.observedAt&&
+  // A zone first recorded during/after manipulation cannot be prior context.
+  // Its reference 4H candle must also have closed before that record.
+  z.observedAt<=sweepStartAt&&z.referenceBarTime+14400<=z.observedAt&&
   z.observedAt-z.referenceBarTime<30*86400&&
+  Number.isFinite(z.low)&&Number.isFinite(z.high)&&
   z.low>0&&z.high>z.low&&z.low<=price&&price<=z.high&&
   z.direction===(dir==='BULLISH'?'DEMAND':'SUPPLY'));
  return matching.length?'PASS':'INSUFFICIENT_DATA';
@@ -250,7 +253,9 @@ export function screenCrtHypotheses(input:Context):ScreenResult{
    notes.push('Prior-20 15-minute median candle range is zero: a multiplicative displacement ratio cannot be verified from flat/stale quotes.');
   }
   if(gates.volume==='INSUFFICIENT_DATA')notes.push('Verified actual volume history is missing; zero-volume HistData placeholders must not pass volume gates.');
-  gates.matchingZone=zoneGate(input.zones,source,observed.direction,sweepCloseAt,confirm?.close??sweep.close);
+  // Evaluate pre-existing 4H context against the sweep's own completed close,
+  // not a later 15m confirmation price that was unknown at sweep close.
+  gates.matchingZone=zoneGate(input.zones,source,observed.direction,sweep.time,sweep.close);
   if(gates.matchingZone==='INSUFFICIENT_DATA')notes.push('No source-linked, causally recorded matching 4H supply/demand reference; no automatic order-block claim.');
   notes.push('No verified timestamped economic calendar, so a 15-minute high-impact news exclusion cannot be confirmed.');
   result.push({direction:observed.direction,sweepCloseAt,referenceAt:ref.time,
