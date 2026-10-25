@@ -123,6 +123,8 @@ export function studyHourlyFvgMidpoint(
    // a later return cannot establish that the original order was filled.
    // Freeze the first gap-through rather than cherry-picking a later touch.
    if(bull?b.open<midpoint:b.open>midpoint){
+    // Preserve a physical range intersection without asserting a fill.
+    if(b.low<=midpoint&&b.high>=midpoint)touch=j;
     gates.midpointTouch='INSUFFICIENT_DATA';
     break;
    }
