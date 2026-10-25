@@ -76,7 +76,7 @@ def test_event_at_exact_negative_boundary_is_included():
 def test_event_one_minute_outside_fifteen_window_still_in_sixty():
     r = audit(c=calendar([event("nfp", 16, -1)]))
     assert window(r, 15)["known_event_observations"] == 0
-    assert window(r, 60)["known_event_observations"] == 1
+    assert window(r, 60)["known_event_observations"] == 2  # also within 60m of the second signal
 
 
 def test_future_published_event_cannot_be_used_at_signal():
@@ -84,7 +84,7 @@ def test_future_published_event_cannot_be_used_at_signal():
     w = window(r, 15)
     assert w["known_event_observations"] == 0
     assert w["later_known_event_observations"] == 1
-    assert w["signals_without_declared_event"] == 0
+    assert w["signals_without_declared_event"] == 2  # later signals are outside the window
 
 
 def test_publication_exactly_at_completed_signal_is_known():
