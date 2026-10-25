@@ -1,0 +1,21 @@
+# Frozen expanding walk-forward schedule — offline timing-only review
+
+`frontend/lib/frozen-walk-forward-plan.ts` is a **pure offline metadata gate**, not a backtest engine or brokerage integration. It consumes a `PurgedPlan` from `planPurgedHoldout`, **exactly** its development-eligible `OutcomeTiming` records, and an explicitly chosen expanding-fold schedule. It never requests or reads prices, realized outcomes, P&L, broker orders, accounts or private licensed archive bytes.
+
+The caller must freeze the source identity, raw archive SHA-256 values, strategy/config version, full fold boundaries, cost scenarios, outcome horizons, label clocks, embargo, minimum sample criteria and reporting schema **before** observing evaluation results. The returned canonical SHA-256 identifies the schedule but does **not** establish when it was created. Anchor it using independently trusted signing/timestamping and enforced row-level read restrictions; never call a locally generated hash proof of preregistration.
+
+## What is enforced
+
+- Single source family from the upstream purged plan, with explicit provider, instrument, venue, quote side, UTC convention and per-archive byte digests. Duplicate archive hashes, overlapping ranges and invalid identity metadata fail closed. These are self-declared fields, **not source authentication**.
+- At least two chronological folds, expanding training start, monotone training end, disjoint test windows, minimum one elapsed calendar year of training and 30 elapsed days of testing per fold, with all fold tests ending **before development ends**. Validation and final holdout outcome records are not accepted.
+- Every supplied observation must be a unique, complete member of the development-eligible ID set and have causal in-archive feature, decision and label-availability clocks. Extra outcome/return fields are rejected.
+- Within each fold, training/test observations are excluded if their feature lookback crosses the fold's start, or their label becomes available at or after the fold's end minus the predeclared embargo. This includes exact boundaries with zero embargo. Counts and exclusions are reported; no missing candles are invented.
+- `TIMING_ONLY` means only that the caller-declared minimum *timing-record counts* were met. `INSUFFICIENT_TIMING_COUNTS` means they were not. Neither state is a statistical test or a permission to trade.
+
+## Limitations and handoff
+
+This helper does not verify source licenses, UTC/DST conventions, exchange sessions, archive authenticity, continuous data coverage, row-level read isolation, actual model fitting, independent outcomes, trade-count independence, data snooping, slippage, executable bid/ask spreads, commission, CFD overnight financing, margin, currency conversion or broker demo fills. It deliberately does not calculate a performance statistic.
+
+For any genuine out-of-sample study, reconcile the upstream plan and signed audit receipts to independently verified raw archives; lock the complete study and execution-cost assumptions; run deterministic causal replay using only observed data; compare source-matched executable bid/ask quotes, financing, commissions and independently authorized demo fills; then release the final holdout only once under audited controls. Keep live-order routing disconnected and require explicit owner confirmation, limits, fresh quotes and supported provider/account/credentials. Do not invent Trading212 CFD API actions.
+
+Synthetic tests: `node --experimental-strip-types --test frontend/tests/frozen-walk-forward-plan.test.ts` (from repo root, Node 22). CI also runs the frontend test suite, strict TypeScript/Next build, backend and Docker/cloud smoke checks.
