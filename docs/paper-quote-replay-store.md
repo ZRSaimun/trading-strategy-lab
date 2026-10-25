@@ -26,3 +26,20 @@ Tests cover restarts, exact source isolation, spread/freshness/delay rejection, 
 **Important:** This component is disconnected, and no authenticated provider data, broker positions, daily-loss latch, order-intent reservation, risk budget, protective stop or owner-specific order approval is integrated. A recorded checkpoint is **not** an authorization. Existing unbound journals are intentionally held for manual reconciliation; do not auto-migrate or silently adopt them. A trusted server clock and authenticated source must be supplied upstream; SHA-256 hashes are not authentication. Rejected observations currently do not persist a rejection audit, so a future authenticated ingestion boundary needs rate-limited durable denial audit and backpressure.
 
 Test locally from `backend` with `PYTHONPATH=. python -m pytest -q tests/test_paper_quote_journal_atomic.py`. The quote PostgreSQL acceptance workflow also exercises two-connection first-writer and revision races plus rollback on audit interruption. These tests cover transaction safety in isolation, **not** an operational end-to-end trading workflow or a process-kill proof. No database migration or deployment is required for this optional module, and production remains unchanged.
+
+
+## Bound-journal write isolation (25 October 2026)
+
+When `AtomicPaperQuoteJournalStore.checkpoint` binds a paper-journal session to a
+hashed quote source/account, `PaperJournalStore.compare_and_swap` now rejects
+standalone writes to that session. Otherwise a second writer could advance
+the journal without advancing the quote marker, silently breaking the atomic
+checkpoint invariant. The check runs in the journal's database transaction;
+unique journal inserts and full-value compare-and-swap continue to arbitrate
+racing initial and revision writers. Unbound standalone paper-replay journals
+remain supported. Synthetic regression coverage checks that rejected bypasses
+leave the quote, journal and audit unchanged.
+
+This prevents one alternate persistence path, **not** a direct database writer
+with table privileges, and it does not integrate the reservation, daily-loss,
+intent, stop or broker reconciliation PRs. No execution authorization is granted.
