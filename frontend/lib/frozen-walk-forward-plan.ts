@@ -209,6 +209,7 @@ export async function planFrozenWalkForward(
   });
   return {schema:'frozen-walk-forward-v1',scheduleSha256,source:{...plan.source},folds:reviews,
     coverage:'UNVERIFIED_METADATA_ONLY',warnings:[
+      ...qualityWarnings.map(w => 'Unverified upstream source/partition caveat: ' + w),
       'Only development timing metadata is examined; validation and final holdout outcomes remain inaccessible to this helper.',
       'Fold counts are timing records, not trade counts or independent observations. Training windows overlap and test windows do not.',
       'Schedule digest binds self-declared quality warnings but cannot authenticate them or detect omitted warnings.',
