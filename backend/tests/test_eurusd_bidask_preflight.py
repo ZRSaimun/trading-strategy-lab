@@ -87,6 +87,29 @@ class PairedM1PreflightTests(unittest.TestCase):
                 self.assertEqual(report['rows'], 1)
                 self.assertFalse(report['approved_for_backtest'])
 
+    def test_quoted_multiline_cells_cannot_hide_physical_rows(self):
+        # csv.reader accepts embedded CR/LF in quoted fields. Without this
+        # guard, .strip() silently erases the line break before validation.
+        for column in ('timestamp', 'open', 'volume'):
+            for newline in ('\n', '\r', '\r\n'):
+                for interval in ('M1', 'H1'):
+                    for side in ('bid', 'ask'):
+                        with self.subTest(column=column, newline=repr(newline),
+                                          interval=interval, side=side):
+                            row = BID if side == 'bid' else ASK
+                            if column == 'timestamp':
+                                token = '2021-01-04T00:00:00Z'
+                                row = row.replace(token, f'"{token}{newline}"')
+                            elif column == 'open':
+                                token = '1.20000' if side == 'bid' else '1.20012'
+                                row = row.replace(token, f'"{token}{newline}"')
+                            else:
+                                row = row.replace(',0\n', f',"0{newline}"\n')
+                            bid = row if side == 'bid' else BID
+                            ask = row if side == 'ask' else ASK
+                            with self.assertRaisesRegex(ValueError, 'embedded line break'):
+                                self.check(bid, ask, interval=interval)
+
     def test_nan_volume_rejected(self):
         with self.assertRaisesRegex(ValueError, 'invalid numeric field'):
             self.check(BID.replace(',0\n', ',nan\n'), ASK)

@@ -38,11 +38,18 @@ def _parse_side(raw, side, interval_seconds):
             raise ValueError(f'{side}: expected original Etc/UTC OHLCV header')
         rows = []
         previous = None
-        for line, fields in enumerate(reader, 2):
+        for fields in reader:
+            # csv.reader may consume multiple physical lines for quoted cells.
+            line = reader.line_num
             if len(rows) >= MAX_ROWS:
                 raise ValueError(f'{side}: row budget exceeded')
             if len(fields) != 6:
                 raise ValueError(f'{side}: row {line}: expected six columns')
+            # Quoted cells can hide embedded physical line breaks. Stripping
+            # whitespace later would otherwise accept a multiline timestamp,
+            # price or volume as one apparently valid candle.
+            if any('\n' in field or '\r' in field for field in fields):
+                raise ValueError(f'{side}: row {line}: embedded line break in CSV field')
             try:
                 timestamp = fields[0].strip()
                 if not TIMESTAMP.fullmatch(timestamp):
