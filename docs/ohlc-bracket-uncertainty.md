@@ -18,7 +18,7 @@ An M1 candle is indexed by its UTC minute-open timestamp. Only future candles be
 - Cost grid is **additional** illustrative round-trip `0/5/10/20 bps` on absolute entry notional. Cost in R is `abs(entry) * bps / 10000 / abs(entry-stop)`. It is not a broker spread, CFD funding, tick-size, exchange fee, or live quote.
 - Signed negative historical oil prices are allowed; a zero entry price is rejected. All arithmetic uses Python `Decimal`.
 
-`audit_paths` requires a single exact source identity and unique path IDs. It reports determinate, ambiguous and censored counts. It withholds **all population means** if *any* path is censored, if fewer than 30 paths exist, or if fewer than 12 distinct ISO UTC weeks are represented. Otherwise it reports **descriptive** mean lower/upper R for the fixed cost grid; these are not confidence intervals or statistical significance tests. The full historical signal population and archive timebase must be verified externally.
+`audit_paths` requires a single exact source identity, a common frozen horizon, unique path IDs and unique completed-signal minute timestamps. It reports determinate, ambiguous and censored counts. It withholds **all population means** if *any* path is censored, if fewer than 30 paths exist, or if fewer than 12 distinct ISO UTC weeks are represented. Otherwise it reports **descriptive** mean lower/upper R for the fixed cost grid; these are not confidence intervals or statistical significance tests. The full historical signal population and archive timebase must be verified externally.
 
 ## Example (synthetic only)
 
