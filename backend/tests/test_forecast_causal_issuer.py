@@ -22,11 +22,18 @@ def env(tmp_path):
     engine.dispose()
 
 
-def _feed_rows(issuer, clock, count):
+def _feed_rows(issuer, clock, count, issue=True):
     for index in range(1, count + 1):
         start = index * 60
         clock[0] = start + 60
-        issuer.accept(start, 100 + (index % 7))
+        if issue:
+            issuer.accept(start, 100 + (index % 7))
+        else:
+            current = issuer.store.load("issuer-1")
+            assert issuer.store.append("issuer-1", FEED, 120,
+                                       current["sequence"] if current else 0,
+                                       {"kind": "CANDLE", "start": start,
+                                        "close": 100 + (index % 7)})
 
 
 def test_fixed_phase_training_never_crosses_gap():
@@ -61,11 +68,13 @@ def test_minimum_history_and_recovery_idempotence(env):
 
 def test_all_horizons_after_enough_prospective_observations(env):
     issuer, clock, _ = env
-    _feed_rows(issuer, clock, 380)
+    _feed_rows(issuer, clock, 379, issue=False)
+    clock[0] = 380 * 60 + 60
+    issuer.accept(380 * 60, 102)
     snapshot = issuer.store.load("issuer-1")
     forecasts = snapshot["forecasts"]
     assert {f["horizon"] for f in forecasts} == {1, 3, 12}
-    assert all(f["modelVersion"] == MODEL_VERSION for f in forecasts)
+    assert all(f["modelVersion"] == issuer.model_version for f in forecasts)
     assert all(0 < f["probability"] < 1 for f in forecasts)
     assert all(f["issuedAt"] >= f["baseStart"] + 60 for f in forecasts)
 
@@ -111,7 +120,7 @@ def test_no_retroactive_recovery_after_deadline(env):
 
 def test_partial_issuance_crash_recover_within_window(env):
     issuer, clock, _ = env
-    _feed_rows(issuer, clock, 380)
+    _feed_rows(issuer, clock, 380, issue=False)
     start = 381 * 60
     clock[0] = start + 60
     assert issuer.store.append("issuer-1", FEED, 120, issuer.store.load("issuer-1")["sequence"],

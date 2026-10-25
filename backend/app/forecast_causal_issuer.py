@@ -46,6 +46,7 @@ class CausalForecastIssuer:
         self.identity = identity.copy()
         self.max_lag_seconds = max_lag_seconds
         self.min_samples = min_samples
+        self.model_version = f"{MODEL_VERSION}-n{min_samples}"
 
     def accept(self, start: int, close: float):
         if type(start) is not int or start < 0 or type(close) not in (float, int) or \
@@ -81,12 +82,12 @@ class CausalForecastIssuer:
             if n < self.min_samples:
                 continue
             probabilities[horizon] = (wins + 0.5) / (n + 1)
-            if (MODEL_VERSION, horizon, start) in issued:
+            if (self.model_version, horizon, start) in issued:
                 continue
             fid = "jf_" + hashlib.sha256(
-                f"{self.session_id}:{MODEL_VERSION}:{start}:{horizon}".encode("utf-8")
+                f"{self.session_id}:{self.model_version}:{start}:{horizon}".encode("utf-8")
             ).hexdigest()[:32]
-            action = {"kind": "FORECAST", "id": fid, "modelVersion": MODEL_VERSION,
+            action = {"kind": "FORECAST", "id": fid, "modelVersion": self.model_version,
                       "horizon": horizon, "probability": probabilities[horizon],
                       "baseStart": start}
             if not self.store.append(self.session_id, self.identity, self.max_lag_seconds,
@@ -96,5 +97,5 @@ class CausalForecastIssuer:
         return {"status": "UNAUTHENTICATED_DISCONNECTED_RESEARCH", "live": False,
                 "alertsEnabled": False, "ordersSubmitted": 0,
                 "sequence": snapshot["sequence"], "baseStart": start,
-                "modelVersion": MODEL_VERSION, "sampleCounts": sample_counts,
+                "modelVersion": self.model_version, "sampleCounts": sample_counts,
                 "probabilities": probabilities}
