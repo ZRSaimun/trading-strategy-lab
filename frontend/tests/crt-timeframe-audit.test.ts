@@ -133,11 +133,11 @@ test('a stale 4H/15m audit cannot certify edited historical OHLC',()=>{
  const x=fixture();
  const report=auditCrtCrossTimeframe(x.h,x.q);
  x.h[0].close+=0.01; // Still a valid 4H candle, but no longer agrees with 15m.
- assert.throws(()=>certifiedCrtFourHourBars(x.h,x.q,report),/OHLC mismatch/);
+ assert.throws(()=>certifiedCrtFourHourBars(x.h,x.q,report),/Stale or inconsistent 4H\/15m certification report/);
  const y=fixture();
  const old=auditCrtCrossTimeframe(y.h,y.q);
  y.q[0].open+=0.01; // Valid 15m candle; invalidates the previously checked open.
- assert.throws(()=>certifiedCrtFourHourBars(y.h,y.q,old),/OHLC mismatch/);
+ assert.throws(()=>certifiedCrtFourHourBars(y.h,y.q,old),/Stale or inconsistent 4H\/15m certification report/);
 });
 
 test('a forged audit cannot substitute an existing uncheckable 4H reference',()=>{
