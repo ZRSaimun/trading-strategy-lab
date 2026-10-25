@@ -104,6 +104,40 @@ test('an opening gap through midpoint is not a verified blind limit fill',()=>{
  assert.equal(x.blindMidpointTouch,null);
  assert.equal(x.confirmedNextOpen,null);
 });
+test('opening gap entirely below bullish midpoint blocks a later attractive return',()=>{
+ const bars=fixture();
+ bars[33]=candle(33,100,101,99,100,200); // jumped below 102 without touching
+ bars[34]=candle(34,105,106,101,105.5,200); // later tempting wick rejection
+ const x=target(bars);
+ assert.equal(x.gates.midpointTouch,'INSUFFICIENT_DATA');
+ assert.equal(x.firstTouchClosedAt,null); // no observed midpoint touch
+ assert.equal(x.gates.strictCandidate,'INSUFFICIENT_DATA');
+ assert.equal(x.blindMidpointTouch,null);
+ assert.equal(x.confirmedNextOpen,null);
+});
+test('gap-through after an initially untouched hour still freezes the candidate',()=>{
+ const bars=fixture();
+ bars[33]=candle(33,105,106,104,105,200); // no touch, correct side
+ bars[34]=candle(34,100,101,99,100,200); // crossed midpoint between bars
+ bars[35]=candle(35,105,106,101,105.5,200); // later tempting touch
+ const x=target(bars);
+ assert.equal(x.gates.midpointTouch,'INSUFFICIENT_DATA');
+ assert.equal(x.firstTouchClosedAt,null);
+ assert.equal(x.blindMidpointTouch,null);
+});
+test('bearish opening gap entirely above midpoint blocks a later return',()=>{
+ const bars=fixture();
+ bars[33]=candle(33,100,101,99,100,200);
+ bars[34]=candle(34,105,106,101,105.5,200);
+ const bearish=bars.map(b=>({...b,open:220-b.open,high:220-b.low,
+  low:220-b.high,close:220-b.close}));
+ const x=target(bearish);
+ assert.equal(x.direction,'BEARISH');
+ assert.equal(x.gates.midpointTouch,'INSUFFICIENT_DATA');
+ assert.equal(x.firstTouchClosedAt,null);
+ assert.equal(x.blindMidpointTouch,null);
+ assert.equal(x.confirmedNextOpen,null);
+});
 test('hypothetical costs are deducted identically and cannot be confused with broker quotes',()=>{
  const x=target(fixture());
  for(const result of [x.blindMidpointTouch,x.confirmedNextOpen]){
