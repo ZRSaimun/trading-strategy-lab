@@ -140,10 +140,10 @@ def _bounded_source_lines(stream, max_chars=1024):
         if not prefix:
             return
         overlong = len(prefix) > max_chars
-        if overlong and not prefix.endswith("\\n"):
+        if overlong and not prefix.endswith("\n"):
             while True:
                 chunk = stream.readline(max_chars + 1)
-                if not chunk or chunk.endswith("\\n"):
+                if not chunk or chunk.endswith("\n"):
                     break
         yield prefix, overlong
 
