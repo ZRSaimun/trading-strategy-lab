@@ -309,3 +309,47 @@ def test_enabled_zero_cap_persisted_state_fails_closed_even_with_matching_checks
         s.engage_kill_switch("paper-acct-0001")
     with setup[1]() as db:
         assert len(db.scalars(select(Audit)).all()) == audit_count
+
+
+def test_oversized_persisted_risk_envelope_fails_closed_without_audit(setup):
+    """Whitespace can inflate a valid-checksum JSON envelope beyond the safe bound."""
+    from app.paper_risk_reservations import _MAX_ENVELOPE_BYTES
+    s = store(setup)
+    assert s.initialize("paper-acct-0001")
+    key = s._key("paper-acct-0001")
+    with setup[1].begin() as db:
+        row = db.get(Record, key)
+        # JSON whitespace is legal and leaves the inner state SHA-256 valid.
+        row.value = (" " * _MAX_ENVELOPE_BYTES) + row.value
+    with setup[1]() as db:
+        audit_before = len(db.scalars(select(Audit)).all())
+    with pytest.raises(ValueError, match="corrupt"):
+        s.load("paper-acct-0001")
+    with pytest.raises(ValueError, match="corrupt"):
+        s.reserve("paper-acct-0001", 0, client_order_id="order-00001", risk_cash="1")
+    with pytest.raises(ValueError, match="corrupt"):
+        s.engage_kill_switch("paper-acct-0001")
+    with setup[1]() as db:
+        assert len(db.scalars(select(Audit)).all()) == audit_before
+
+
+def test_maximum_valid_reservation_count_fits_envelope_budget():
+    """The size guard must not reject the supported 500-ID account state."""
+    import hashlib
+    from decimal import Decimal
+    from app.paper_risk_reservations import (
+        _MAX_ENVELOPE_BYTES, _MAX_RESERVATIONS, _decode, _encode
+    )
+    state = {
+        "version": 2, "revision": 500, "kill_switch": True,
+        "emergency_latched": False, "limit_cash": "1",
+        "reservations": {
+            hashlib.sha256(f"synthetic-order-{i:08d}".encode()).hexdigest(): "0.00000001"
+            for i in range(_MAX_RESERVATIONS)
+        },
+    }
+    raw = _encode(state)
+    assert len(raw.encode("utf-8")) <= _MAX_ENVELOPE_BYTES
+    restored, reserved = _decode(raw)
+    assert restored == state
+    assert reserved == Decimal("0.00000500")
