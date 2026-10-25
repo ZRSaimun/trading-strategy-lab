@@ -1,0 +1,13 @@
+# Frozen 1H volatility × confluence paired-week audit (offline research)
+
+This disconnected helper consumes the **existing** source-matched, independently validated causal 1H ATR-rank volatility labels and completed confluence stop/target paths. It adds no market feed, endpoint, broker, database migration, paid API, signal tuning, or execution authority.
+
+**Predeclared before any new data:** three contrasts in net R at the existing illustrative 5 bps round-trip cost: LOW−NORMAL, HIGH−NORMAL, HIGH−LOW. A contrast uses only UTC weeks in which both regimes have completed paths. Within each such week, average each regime's net R, subtract, then give each shared week equal weight. This avoids counting dense weeks as independent trades. Unmatched weeks are *not* silently treated as zero or extrapolated.
+
+**Withholding:** Require all path and volatility checks to pass, zero unlabelled paths globally, at least 12 shared UTC weeks and at least 30 paths in **each** compared regime across those shared weeks. Otherwise report sample accounting and an explicit withholding reason, never an interval or effect. No best-regime selection.
+
+**Uncertainty:** For eligible contrasts, deterministic 3,000-replicate paired-week bootstrap with a fixed seed, keeping all within-week observations together. The three fixed comparisons use Bonferroni 0.05/3, yielding 98.333...% marginal percentile intervals. These are **descriptive sensitivity ranges**, not valid prospective p-values, formal simultaneous coverage guarantees, or evidence of profitability. Shared-week restriction changes the estimand: it is *not* the all-trades pooled effect. No data-driven hypothesis selection, direction switching, or tuning is permitted.
+
+**Important limitations:** Existing archives have already been inspected. Dataset IDs, claimed freeze times, labels, source hashes and event clocks are not independently authenticated by this helper. 5 bps is not a verified CFD spread, slippage, commission, swap or funding cost. BID-only OHLC stop/target fills are hypothetical. Multiple archives may duplicate market history. Prospective validation needs independently attested preregistration, purged chronological holdouts, authenticated executable bid/ask quotes, full broker-specific costs, and separately verified demo fills. Always eligibleForLiveTrading: false. No real orders.
+
+Run the project frontend npm test and npm run typecheck plus backend, Docker and free-cloud CI on the exact PR head before considering merge. Keep draft and undeployed until owner-confirmed Render workspace, backup/restore, rollback and health checks are independently verified.
