@@ -21,6 +21,12 @@ TIMESTAMP = re.compile(
     r'[0-9]{4}-[0-9]{2}-[0-9]{2}[T ][0-9]{2}:[0-9]{2}:[0-9]{2}'
     r'(?:\.[0-9]{1,6})?(?:Z|[+-][0-9]{2}:[0-9]{2})?'
 )
+# float() accepts underscores and Unicode digits (e.g. 1_200 or １.２００),
+# which are not unambiguous source CSV decimal lexemes. Preserve optional
+# ASCII scientific notation, but never normalize malformed price evidence.
+DECIMAL_FIELD = re.compile(
+    r'[+-]?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)(?:[eE][+-]?[0-9]+)?'
+)
 
 
 def _parse_side(raw, side, interval_seconds):
@@ -57,6 +63,8 @@ def _parse_side(raw, side, interval_seconds):
                     raise ValueError('timestamp not aligned to declared interval')
                 if previous is not None and stamp <= previous:
                     raise ValueError('duplicate or backward timestamp')
+                if any(not DECIMAL_FIELD.fullmatch(field.strip()) for field in fields[1:]):
+                    raise ValueError('invalid numeric field syntax; expected ASCII decimal')
                 o, h, l, c, v = map(float, fields[1:])
                 if (not all(math.isfinite(x) for x in (o,h,l,c,v)) or
                     min(o,h,l,c) <= 0 or v < 0 or l > min(o,c) or h < max(o,c) or l > h):
