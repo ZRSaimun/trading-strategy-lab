@@ -87,3 +87,27 @@ ingestion. This is **not** a full proof against arbitrary database tampering or
 an authorization to place orders. Manual offline reconciliation remains
 mandatory; do not silently create a reverse owner, bypass the hold, or
 enable live execution.
+
+
+### Atomic journal initial-source adoption quarantine (25 October 2026)
+
+A new atomic journal must **not** silently inherit a standalone
+`paper-quote:` marker that was previously advanced without a bound journal.
+If a quote marker exists but the requested journal does not, the atomic writer
+now returns `HOLD_RECONCILIATION /
+UNBOUND_QUOTE_MARKER_REQUIRES_RECONCILIATION`. The quote marker, journal and
+audit are unchanged. An existing, fully bound atomic journal can still advance
+through the normal revision-CAS path. Manual offline reconciliation is required
+before any future migration; do not delete or fabricate quote history to
+force a first checkpoint.
+
+Likewise, if the reverse source-owner record is absent but **any** surviving
+`paper-journal-source:` forward binding references that source, a new atomic
+session returns `HOLD_RECONCILIATION / QUOTE_SOURCE_BINDING_INCOMPLETE`.
+This closes the legacy-orphan case in which a second journal could otherwise
+adopt the quote source while an older journal still claimed it. The read-only
+forward-binding scan is conservative and unindexed by value; an indexed
+ownership migration and concurrency review are needed before high-volume
+production use. SQLite regression and disposable PostgreSQL acceptance cover
+both cases; these checks do not authenticate a broker, verify stops or fills,
+enable paper execution, or authorize live orders.
