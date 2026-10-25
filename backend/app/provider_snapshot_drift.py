@@ -69,7 +69,7 @@ def compare_staging_snapshots(
     # Keep the legacy outcome for existing consumers, but give reviewers a
     # narrower triage result that does not confuse edge changes with drift
     # inside the shared observed range. No classification authorizes imports.
-    shared_interval_review_required = bool(revised or added_inside or removed_inside)
+    shared_interval_review_required = bool(common) and bool(revised or added_inside or removed_inside)
     if not common:
         comparison_class = "NO_SHARED_OBSERVED_MINUTES"
     elif shared_interval_review_required:
