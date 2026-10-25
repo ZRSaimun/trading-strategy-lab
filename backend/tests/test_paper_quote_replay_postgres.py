@@ -152,3 +152,81 @@ def test_postgres_audit_failure_rolls_back_insert_and_update(pg_store):
             select(Audit.action).where(Audit.action == "paper.quote.observe")
         ).all()
     assert len(actions) == 2
+
+
+# Atomic quote-marker + journal acceptance (same isolated PostgreSQL schema).
+from app.paper_quote_journal_atomic import AtomicPaperQuoteJournalStore
+from app.paper_journal_store import PaperJournalStore
+import json
+
+
+JOURNAL_IDENTITY = {
+    "instrument": "XAUUSD-TEST", "provider": "SyntheticProvider",
+    "venue": "TEST-OTC", "priceSide": "bid-ask", "pointValue": 1,
+}
+
+
+def _checkpoint_json(sequence):
+    return json.dumps({
+        "version": 1, "identity": JOURNAL_IDENTITY,
+        "actions": [f"synthetic-{sequence}"], "orders": [], "events": [],
+    }, separators=(",", ":"))
+
+
+def _atomic_checkpoint(store, sequence, expected_revision=None):
+    return store.checkpoint(
+        SOURCE, quote(sequence), "pg-atomic-journal", JOURNAL_IDENTITY,
+        expected_revision, 0 if expected_revision is None else expected_revision + 1,
+        _checkpoint_json(sequence),
+        now_ms=NOW + (sequence - 1) * 100 + 30,
+    )
+
+
+def test_postgres_atomic_quote_journal_first_writer_race(pg_store):
+    quote_store, engine, factory = pg_store
+    atomic = AtomicPaperQuoteJournalStore(factory)
+    results = _race(engine, lambda: _atomic_checkpoint(atomic, 1))
+    assert sorted(x["status"] for x in results) == [
+        "CHECKPOINT_RECORDED_UNVERIFIED", "HOLD_RECONCILIATION",
+    ]
+    assert all(not x["paper_order_permitted"] and not x["live_order_permitted"] for x in results)
+    assert quote_store.load_marker(SOURCE)["revision"] == 0
+    assert PaperJournalStore(factory).load("pg-atomic-journal")["revision"] == 0
+    with factory() as session:
+        assert len(session.scalars(select(Audit)).all()) == 1
+        assert len(session.scalars(select(Record)).all()) == 3
+
+
+def test_postgres_atomic_quote_journal_revision_race(pg_store):
+    quote_store, engine, factory = pg_store
+    atomic = AtomicPaperQuoteJournalStore(factory)
+    assert _atomic_checkpoint(atomic, 1)["status"] == "CHECKPOINT_RECORDED_UNVERIFIED"
+    results = _race(engine, lambda: _atomic_checkpoint(atomic, 2, 0))
+    assert sorted(x["status"] for x in results) == [
+        "CHECKPOINT_RECORDED_UNVERIFIED", "HOLD_RECONCILIATION",
+    ]
+    assert quote_store.load_marker(SOURCE)["revision"] == 1
+    assert PaperJournalStore(factory).load("pg-atomic-journal")["revision"] == 1
+    with factory() as session:
+        assert len(session.scalars(select(Audit)).all()) == 2
+
+
+def test_postgres_atomic_quote_journal_audit_failure_rolls_back_all(pg_store):
+    quote_store, engine, factory = pg_store
+    atomic = AtomicPaperQuoteJournalStore(factory)
+
+    def fail_audit(_connection, _cursor, statement, _params, _context, _many):
+        if statement.lstrip().upper().startswith("INSERT INTO AUDIT"):
+            raise RuntimeError("synthetic atomic audit interruption")
+
+    event.listen(engine, "before_cursor_execute", fail_audit)
+    try:
+        with pytest.raises(RuntimeError, match="atomic audit interruption"):
+            _atomic_checkpoint(atomic, 1)
+    finally:
+        event.remove(engine, "before_cursor_execute", fail_audit)
+    assert quote_store.load_marker(SOURCE) is None
+    assert PaperJournalStore(factory).load("pg-atomic-journal") is None
+    with factory() as session:
+        assert session.scalars(select(Record)).all() == []
+        assert session.scalars(select(Audit)).all() == []
