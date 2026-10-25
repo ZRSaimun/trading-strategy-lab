@@ -44,6 +44,8 @@ def scan_archive_collisions(path, *, data_format, instrument, provider,
     first = {}
     repeated_rows = conflicting_repeated_rows = collision_minutes = conflict_minutes = 0
     samples = []
+    collision_days = {}
+    first_collision_ordinal = last_collision_ordinal = None
     iterator = _records(path, data_format, counters, max_rows=max_rows,
                         max_uncompressed_bytes=max_uncompressed_bytes)
     try:
@@ -55,13 +57,28 @@ def scan_archive_collisions(path, *, data_format, instrument, provider,
                 first[minute] = [ordinal, prices, False, False]
                 continue
             repeated_rows += 1
+            if first_collision_ordinal is None:
+                first_collision_ordinal = ordinal
+            last_collision_ordinal = ordinal
+            wall_day = minute.strftime('%Y-%m-%d')
+            if wall_day not in collision_days:
+                if len(collision_days) >= 3660:
+                    raise ParityInputError('Collision day report budget exceeded; no partial report')
+                collision_days[wall_day] = dict(repeated_rows=0, conflicting_repeated_rows=0,
+                                                distinct_collision_minutes=0,
+                                                distinct_conflicting_minutes=0)
+            day = collision_days[wall_day]
+            day['repeated_rows'] += 1
             if not observed[2]:
+                day['distinct_collision_minutes'] += 1
                 collision_minutes += 1
                 observed[2] = True
             conflict = prices != observed[1]
             if conflict:
                 conflicting_repeated_rows += 1
+                day['conflicting_repeated_rows'] += 1
                 if not observed[3]:
+                    day['distinct_conflicting_minutes'] += 1
                     conflict_minutes += 1
                     observed[3] = True
             if len(samples) < sample_limit:
@@ -84,6 +101,11 @@ def scan_archive_collisions(path, *, data_format, instrument, provider,
         'adjacent_duplicate_minutes': counters['adjacent_duplicate_minutes'],
         'vendor_status_report_present': counters['vendor_status_report_present'],
         'sampled_collision_locations': samples,
+        'first_collision_row_ordinal': first_collision_ordinal,
+        'last_collision_row_ordinal': last_collision_ordinal,
+        'collision_counts_by_unverified_wall_day': [
+            {'wall_day_unverified': key, **collision_days[key]} for key in sorted(collision_days)
+        ],
         'first_observation_policy': 'Forensic comparison only; no canonical price selected',
         'timebase_verified': False, 'authenticity_verified': False,
         'usage_rights_verified': False, 'research_ready': False,
