@@ -188,7 +188,16 @@ def ingest(engine, path, *, instrument, provider, file_format="ascii",
                     state="IMPORTING", seen=0, accepted=0, rejected=0,
                     zero_volume=0, checkpoint_member=0, checkpoint_line=0))
             elif old["state"] == "READY":
+                # Older imports could label an archive READY after dropping bad rows.
+                # Never affirm such a partial series as research-complete.
+                if old["rejected"] != 0 or old["accepted"] <= 0 or old["seen"] != old["accepted"]:
+                    raise ValueError("Existing READY archive has rejected or incomplete rows; research blocked")
                 return {"dataset_id": identity, "state": "READY", "already_complete": True,
+                        "accepted": old["accepted"], "rejected": old["rejected"]}
+            elif old["state"] == "QUARANTINED":
+                # Preserve immutable source identity and rejected-row evidence.
+                # A corrected archive must have a different content digest.
+                return {"dataset_id": identity, "state": "QUARANTINED", "already_complete": True,
                         "accepted": old["accepted"], "rejected": old["rejected"]}
         with engine.connect() as connection:
             state = connection.execute(select(datasets).where(datasets.c.id == identity)).mappings().one()
@@ -258,7 +267,16 @@ def ingest(engine, path, *, instrument, provider, file_format="ascii",
                         checkpoint_member=member_idx+1, checkpoint_line=0))
                 cp_line = 0
             with engine.begin() as connection:
-                connection.execute(datasets.update().where(datasets.c.id == identity).values(state="READY", error=None))
+                totals = connection.execute(select(
+                    datasets.c.seen, datasets.c.accepted, datasets.c.rejected
+                ).where(datasets.c.id == identity)).mappings().one()
+                complete = (totals["rejected"] == 0 and totals["accepted"] > 0
+                            and totals["seen"] == totals["accepted"])
+                # Never publish a silently truncated/empty series as READY.
+                # Retain accepted rows and issue evidence for private review.
+                connection.execute(datasets.update().where(datasets.c.id == identity).values(
+                    state="READY" if complete else "QUARANTINED",
+                    error=None if complete else "Excluded or empty source rows; research blocked"))
         except Exception as exc:
             # Partial data is never presented as READY; checkpoint enables retry.
             with engine.begin() as connection:
