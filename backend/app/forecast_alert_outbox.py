@@ -156,6 +156,33 @@ class ForecastAlertOutbox:
                 if state["status"] != "QUEUED" or now >= state["expiresAt"]:
                     return None
                 if action == "claim":
+                    # Revalidate the journal *at claim time*: a previously queued
+                    # forecast can be voided by an intervening candle gap. Lock
+                    # the journal row on PostgreSQL to order this read against
+                    # concurrent forecast-settlement writes.
+                    journal_raw = db.scalar(
+                        select(Record.value).where(
+                            Record.key == ForecastEventStore._key(session_id)
+                        ).with_for_update()
+                    )
+                    if journal_raw is None:
+                        raise ValueError("Forecast journal missing; alert claim denied")
+                    journal, forecasts = ForecastEventStore._unpack(journal_raw, now)
+                    forecast = next(
+                        (f for f in forecasts if f["id"] == forecast_id), None
+                    )
+                    issued = next(
+                        (e for e in journal["events"]
+                         if e["kind"] == "FORECAST" and e["id"] == forecast_id), None
+                    )
+                    if (journal["identity"] != state["identity"]
+                            or forecast is None or forecast["status"] != "PENDING"
+                            or issued is None or issued["seq"] != state["issueSeq"]
+                            or issued["modelVersion"] != state["modelVersion"]
+                            or issued["horizon"] != state["horizon"]
+                            or issued["baseStart"] != state["baseStart"]
+                            or issued["receivedAt"] != state["issuedAt"]):
+                        return None
                     state.update(status="IN_FLIGHT_UNCERTAIN", claimId=secrets.token_hex(16), claimedAt=now)
                 else:
                     state["status"] = "CANCELLED"
