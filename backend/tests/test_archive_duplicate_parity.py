@@ -96,6 +96,46 @@ class DuplicateParityTests(unittest.TestCase):
         with self.assertRaises(ParityInputError):
             compare_duplicate_archives(self.a, self.b, instrument='XAUUSD', provider='HistData')
 
+    def test_actual_histdata_layout_csv_plus_status_txt(self):
+        archive(self.a, self.a_rows, 'ascii')
+        archive(self.b, self.b_rows, 'mt')
+        for path in (self.a, self.b):
+            with zipfile.ZipFile(path, 'a') as z:
+                z.writestr('DAT_XAUUSD_M1_202610.txt',
+                           'Gap of 3600s found between unverified vendor ticks.\n')
+        result = compare_duplicate_archives(self.a, self.b,
+                                            instrument='XAUUSD', provider='HistData')
+        self.assertEqual(result['result'], 'EXACT_ROW_SEQUENCE_WITH_ANOMALIES')
+        self.assertTrue(result['ascii']['vendor_status_report_present'])
+        self.assertTrue(result['mt']['vendor_status_report_present'])
+        self.assertIs(result['research_ready'], False)
+
+    def test_oversized_vendor_status_txt_rejected(self):
+        archive(self.a, self.a_rows, 'ascii')
+        with zipfile.ZipFile(self.a, 'a') as z:
+            z.writestr('status.txt', 'x' * 32769)
+        archive(self.b, self.b_rows, 'mt')
+        with self.assertRaises(ParityInputError):
+            compare_duplicate_archives(self.a, self.b,
+                                       instrument='XAUUSD', provider='HistData')
+
+    def test_nested_vendor_status_txt_rejected(self):
+        archive(self.a, self.a_rows, 'ascii')
+        with zipfile.ZipFile(self.a, 'a') as z:
+            z.writestr('reports/status.txt', 'untrusted')
+        archive(self.b, self.b_rows, 'mt')
+        with self.assertRaises(ParityInputError):
+            compare_duplicate_archives(self.a, self.b,
+                                       instrument='XAUUSD', provider='HistData')
+
+    def test_txt_only_zip_rejected(self):
+        with zipfile.ZipFile(self.a, 'w') as z:
+            z.writestr('status.txt', 'no candle data')
+        archive(self.b, self.b_rows, 'mt')
+        with self.assertRaises(ParityInputError):
+            compare_duplicate_archives(self.a, self.b,
+                                       instrument='XAUUSD', provider='HistData')
+
     def test_multiple_members_rejected(self):
         archive(self.a, self.a_rows, 'ascii')
         with zipfile.ZipFile(self.a, 'a') as z:
