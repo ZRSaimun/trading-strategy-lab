@@ -110,6 +110,46 @@ class PairedM1PreflightTests(unittest.TestCase):
                             with self.assertRaisesRegex(ValueError, 'embedded line break'):
                                 self.check(bid, ask, interval=interval)
 
+    def test_sub_float_precision_crossed_bid_ask_is_rejected(self):
+        # Both opens round to the same IEEE-754 float, but the original BID
+        # decimal is greater than ASK. Source evidence must not be rounded
+        # into an apparently non-crossed quote.
+        bid = BID.replace('1.20000', '1.20012000000000002')
+        ask = ASK.replace('1.20012', '1.20012000000000001')
+        self.assertEqual(float('1.20012000000000002'),
+                         float('1.20012000000000001'))
+        for interval in ('M1', 'H1'):
+            with self.subTest(interval=interval):
+                with self.assertRaisesRegex(ValueError, 'crossed BID/ASK'):
+                    self.check(bid, ask, interval=interval)
+
+    def test_sub_float_precision_internal_ohlc_violation_is_rejected(self):
+        # A completed candle close is one source-decimal unit above its high.
+        # The difference is smaller than a binary float ULP at EUR/USD scale.
+        bad_bid = ('2021-01-04T00:00:00Z,1.20000,'
+                   '1.20010000000000001,1.19990,1.20010000000000002,0\\n')
+        bad_ask = ('2021-01-04T00:00:00Z,1.20012,'
+                   '1.20022000000000001,1.20002,1.20022000000000002,0\\n')
+        self.assertEqual(float('1.20010000000000001'),
+                         float('1.20010000000000002'))
+        for interval in ('M1', 'H1'):
+            for side in ('bid', 'ask'):
+                with self.subTest(interval=interval, side=side):
+                    with self.assertRaisesRegex(ValueError, 'invalid OHLC'):
+                        self.check(bad_bid if side == 'bid' else BID,
+                                   bad_ask if side == 'ask' else ASK,
+                                   interval=interval)
+
+    def test_valid_sub_float_precision_spread_does_not_claim_execution(self):
+        bid = BID.replace('1.20000', '1.20012000000000001')
+        ask = ASK.replace('1.20012', '1.20012000000000002')
+        for interval in ('M1', 'H1'):
+            with self.subTest(interval=interval):
+                report = self.check(bid, ask, interval=interval)
+                self.assertEqual(report['rows'], 1)
+                self.assertFalse(report['broker_executable_quotes'])
+                self.assertFalse(report['approved_for_backtest'])
+
     def test_nan_volume_rejected(self):
         with self.assertRaisesRegex(ValueError, 'invalid numeric field'):
             self.check(BID.replace(',0\n', ',nan\n'), ASK)
