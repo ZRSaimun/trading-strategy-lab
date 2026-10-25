@@ -118,6 +118,24 @@ def triage_histdata_audit(report: dict) -> dict:
         first, last = (_utc_timestamp(item.get(key), key) for key in ("first_utc", "last_utc"))
         if first > last:
             raise ValueError("Reversed observed UTC range")
+        # The source scanner's gap count is defined over the sorted set of
+        # observed, minute-aligned timestamps, not market-open expectations.
+        # Its arithmetic must reconcile with the declared endpoint range.
+        if any(t.second or t.microsecond for t in (first, last)):
+            raise ValueError("Observed UTC endpoints must be minute-aligned")
+        span_minutes = int((last - first).total_seconds() // 60)
+        unique = counts["unique_timestamps"]
+        missing = counts["unobserved_minutes_between_rows"]
+        events = counts["observed_gap_events"]
+        largest = counts["largest_gap_minutes"]
+        if unique < 1 or unique > span_minutes + 1 or missing != span_minutes + 1 - unique:
+            raise ValueError("Observed timestamp span and gap counts disagree")
+        if events > unique - 1 or events > missing:
+            raise ValueError("Impossible observed gap event count")
+        if (events == 0 and (missing or largest)) or (
+            events > 0 and not (2 <= largest <= missing + 1)
+        ):
+            raise ValueError("Impossible largest observed gap")
         for prefix, instant in (("first", first), ("last", last)):
             local = item.get(f"{prefix}_local_EST")
             if not isinstance(local, str) or len(local) > 32:
