@@ -23,7 +23,8 @@ export type ForwardWindowReview = Readonly<{
   testingIds: readonly string[];
   trainingExcluded: number;
   testingExcluded: number;
-  status: 'TIMING_ONLY' | 'INSUFFICIENT_TIMING_COUNTS';
+  archiveCoverageGaps: number;
+  status: 'TIMING_ONLY' | 'INSUFFICIENT_TIMING_COUNTS' | 'UNVERIFIED_ARCHIVE_GAP';
 }>;
 export type FrozenForwardReview = Readonly<{
   schema: 'frozen-walk-forward-v1';
@@ -195,6 +196,11 @@ export async function planFrozenWalkForward(
   const bytes = await globalThis.crypto.subtle.digest('SHA-256',new TextEncoder().encode(JSON.stringify(canonical)));
   const scheduleSha256 = [...new Uint8Array(bytes)].map(x=>x.toString(16).padStart(2,'0')).join('');
   ordered.sort((a,b)=>a.decisionAt-b.decisionAt || a.id.localeCompare(b.id));
+  // Archive metadata intervals are not a trading-session calendar. A fold
+  // crossing an uncovered declared interval cannot receive a clean timing
+  // status, even if its observed timing-record counts happen to be sufficient.
+  const archiveCoverageGaps = lineage.slice(1).flatMap((a,i) =>
+    a.start > lineage[i].end ? [{start:lineage[i].end,end:a.start}] : []);
   const reviews = windows.map(f=>{
     const train = ordered.filter(o=>o.decisionAt>=f.trainingStart && o.decisionAt<f.trainingEnd);
     const test = ordered.filter(o=>o.decisionAt>=f.testingStart && o.decisionAt<f.testingEnd);
@@ -202,14 +208,21 @@ export async function planFrozenWalkForward(
       o.labelAvailableAt<f.trainingEnd-spec.embargoSeconds).map(o=>o.id);
     const testIds = test.filter(o=>o.featureStart>=f.testingStart &&
       o.labelAvailableAt<f.testingEnd-spec.embargoSeconds).map(o=>o.id);
+    const archiveGapCount = archiveCoverageGaps.filter(g =>
+      (g.start < f.trainingEnd && g.end > f.trainingStart) ||
+      (g.start < f.testingEnd && g.end > f.testingStart)).length;
     return {id:f.id,trainingIds:trainIds,testingIds:testIds,
       trainingExcluded:train.length-trainIds.length,testingExcluded:test.length-testIds.length,
-      status:trainIds.length>=spec.minTrainingObservations && testIds.length>=spec.minTestingObservations ?
-        'TIMING_ONLY' as const : 'INSUFFICIENT_TIMING_COUNTS' as const};
+      archiveCoverageGaps:archiveGapCount,
+      status:archiveGapCount > 0 ? 'UNVERIFIED_ARCHIVE_GAP' as const :
+        trainIds.length>=spec.minTrainingObservations && testIds.length>=spec.minTestingObservations ?
+          'TIMING_ONLY' as const : 'INSUFFICIENT_TIMING_COUNTS' as const};
   });
   return {schema:'frozen-walk-forward-v1',scheduleSha256,source:{...plan.source},folds:reviews,
     coverage:'UNVERIFIED_METADATA_ONLY',warnings:[
       ...qualityWarnings.map(w => 'Unverified upstream source/partition caveat: ' + w),
+      ...reviews.filter(f=>f.archiveCoverageGaps>0).map(f=>
+        `Fold ${f.id} intersects ${f.archiveCoverageGaps} declared archive coverage gap(s); no missing trading sessions are inferred.`),
       'Only development timing metadata is examined; validation and final holdout outcomes remain inaccessible to this helper.',
       'Fold counts are timing records, not trade counts or independent observations. Training windows overlap and test windows do not.',
       'Schedule digest binds self-declared quality warnings but cannot authenticate them or detect omitted warnings.',
