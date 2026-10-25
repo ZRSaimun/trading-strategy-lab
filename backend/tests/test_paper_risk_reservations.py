@@ -284,3 +284,28 @@ def test_emergency_latch_freezes_even_disabled_policy_mutations_and_audit(setup)
     assert store(setup).load("paper-acct-0001") == before
     with setup[1]() as db:
         assert len(db.scalars(select(Audit)).all()) == count_before
+
+def test_enabled_zero_cap_persisted_state_fails_closed_even_with_matching_checksum(setup):
+    """A recomputed corruption checksum cannot authorize a zero-cap enabled policy."""
+    import hashlib
+    s = store(setup)
+    assert s.initialize("paper-acct-0001")
+    key = s._key("paper-acct-0001")
+    with setup[1].begin() as db:
+        row = db.get(Record, key)
+        envelope = json.loads(row.value)
+        envelope["state"]["kill_switch"] = False
+        # Simulate a malformed imported snapshot whose checksum was recomputed.
+        canonical = json.dumps(envelope["state"], sort_keys=True, separators=(",", ":"))
+        envelope["sha256"] = hashlib.sha256(canonical.encode()).hexdigest()
+        row.value = json.dumps(envelope)
+    with setup[1]() as db:
+        audit_count = len(db.scalars(select(Audit)).all())
+    with pytest.raises(ValueError, match="corrupt"):
+        s.load("paper-acct-0001")
+    with pytest.raises(ValueError, match="corrupt"):
+        s.reserve("paper-acct-0001", 0, client_order_id="order-00001", risk_cash="1")
+    with pytest.raises(ValueError, match="corrupt"):
+        s.engage_kill_switch("paper-acct-0001")
+    with setup[1]() as db:
+        assert len(db.scalars(select(Audit)).all()) == audit_count
