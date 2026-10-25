@@ -127,9 +127,9 @@ class PairedM1PreflightTests(unittest.TestCase):
         # A completed candle close is one source-decimal unit above its high.
         # The difference is smaller than a binary float ULP at EUR/USD scale.
         bad_bid = ('2021-01-04T00:00:00Z,1.20000,'
-                   '1.20010000000000001,1.19990,1.20010000000000002,0\\n')
+                   '1.20010000000000001,1.19990,1.20010000000000002,0\n')
         bad_ask = ('2021-01-04T00:00:00Z,1.20012,'
-                   '1.20022000000000001,1.20002,1.20022000000000002,0\\n')
+                   '1.20022000000000001,1.20002,1.20022000000000002,0\n')
         self.assertEqual(float('1.20010000000000001'),
                          float('1.20010000000000002'))
         for interval in ('M1', 'H1'):
