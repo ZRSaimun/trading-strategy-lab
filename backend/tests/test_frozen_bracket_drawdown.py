@@ -40,7 +40,7 @@ def test_full_population_worst_case_drawdown_and_fixed_costs():
     assert [s['additional_round_trip_bps'] for s in report['cost_scenarios']] == [0, 5, 10, 20]
     assert report['cost_scenarios'][0]['maximum_possible_additive_drawdown_r'] == '18.0'
     assert report['cost_scenarios'][0]['all_upper_path_drawdown_r'] == '18.0'
-    assert report['cost_scenarios'][1]['maximum_possible_additive_drawdown_r'] == '19.800'
+    assert report['cost_scenarios'][1]['maximum_possible_additive_drawdown_r'] == '19.80'
     assert report['verified_profitability'] is False
     assert report['executable_broker_fills'] is False
 
