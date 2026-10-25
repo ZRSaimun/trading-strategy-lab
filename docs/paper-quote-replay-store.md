@@ -64,3 +64,26 @@ manual offline inspection/reconciliation before any repair. Do not silently
 rewrite or delete legacy markers, invent broker confirmations, or use a fresh
 session to bypass the hold. The source ownership key is a coordination marker,
 **not** a verified broker identity or an authorization token.
+
+
+### Legacy forward-binding quarantine for standalone quote writers (25 October 2026)
+
+A journal/source can retain its `paper-journal-source:` forward binding
+while its `paper-quote-journal-owner:` reverse binding is absent (for
+example, an incomplete older checkpoint or damaged metadata). Previously the
+standalone `PaperQuoteReplayStore.observe` checked only the reverse marker;
+it could therefore advance the quote replay marker while leaving the bound
+journal unchanged. The observer now also checks surviving forward bindings
+before a quote write and returns `HOLD_RECONCILIATION` with
+`QUOTE_SOURCE_BINDING_INCOMPLETE` if it finds an orphan. No quote marker,
+journal checkpoint or audit record is changed by the rejection.
+
+SQLite and disposable PostgreSQL regression coverage exercise this
+incomplete-ownership case. Unbound independent quote sources remain supported.
+The forward-binding lookup is a conservative scan over the existing Record
+table; monitor its performance as the number of journal sessions grows, and
+replace it with a reviewed indexed ownership model before production-scale
+ingestion. This is **not** a full proof against arbitrary database tampering or
+an authorization to place orders. Manual offline reconciliation remains
+mandatory; do not silently create a reverse owner, bypass the hold, or
+enable live execution.
