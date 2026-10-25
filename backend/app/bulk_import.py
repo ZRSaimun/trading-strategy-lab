@@ -212,6 +212,18 @@ def ingest(engine, path, *, instrument, provider, file_format="ascii",
                 # Never affirm such a partial series as research-complete.
                 if old["rejected"] != 0 or old["accepted"] <= 0 or old["seen"] != old["accepted"]:
                     raise ValueError("Existing READY archive has rejected or incomplete rows; research blocked")
+                stored = connection.scalar(select(func.count()).select_from(candles).where(
+                    candles.c.dataset_id == identity)) or 0
+                if stored != old["accepted"]:
+                    # An earlier import may have lost rows after its checkpoint.
+                    # Downgrade the existing READY dataset atomically; do not
+                    # repair, reimport, or present it as research-complete.
+                    connection.execute(datasets.update().where(datasets.c.id == identity).values(
+                        state="QUARANTINED",
+                        error="Stored candle count disagrees with accepted checkpoint; research blocked"))
+                    return {"dataset_id": identity, "state": "QUARANTINED",
+                            "already_complete": True, "accepted": old["accepted"],
+                            "rejected": old["rejected"]}
                 return {"dataset_id": identity, "state": "READY", "already_complete": True,
                         "accepted": old["accepted"], "rejected": old["rejected"]}
             elif old["state"] == "QUARANTINED":
@@ -296,13 +308,20 @@ def ingest(engine, path, *, instrument, provider, file_format="ascii",
                 totals = connection.execute(select(
                     datasets.c.seen, datasets.c.accepted, datasets.c.rejected
                 ).where(datasets.c.id == identity)).mappings().one()
+                stored = connection.scalar(select(func.count()).select_from(candles).where(
+                    candles.c.dataset_id == identity)) or 0
                 complete = (totals["rejected"] == 0 and totals["accepted"] > 0
-                            and totals["seen"] == totals["accepted"])
-                # Never publish a silently truncated/empty series as READY.
-                # Retain accepted rows and issue evidence for private review.
+                            and totals["seen"] == totals["accepted"]
+                            and stored == totals["accepted"])
+                # Conflict-ignored inserts, interrupted storage, or missing
+                # rows must not publish a READY dataset merely because the
+                # checkpoint counters appear consistent.
+                error = None if complete else (
+                    "Stored candle count disagrees with accepted checkpoint; research blocked"
+                    if stored != totals["accepted"]
+                    else "Excluded or empty source rows; research blocked")
                 connection.execute(datasets.update().where(datasets.c.id == identity).values(
-                    state="READY" if complete else "QUARANTINED",
-                    error=None if complete else "Excluded or empty source rows; research blocked"))
+                    state="READY" if complete else "QUARANTINED", error=error))
         except Exception as exc:
             # Partial data is never presented as READY; checkpoint enables retry.
             with engine.begin() as connection:
