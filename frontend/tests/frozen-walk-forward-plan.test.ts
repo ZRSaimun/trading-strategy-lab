@@ -197,6 +197,8 @@ test('quality-warning changes alter the frozen digest while warning order does n
  dropped.warnings=[];
  assert.notEqual((await run(dropped)).scheduleSha256,baseline.scheduleSha256);
  assert.ok(flaggedReview.warnings.some(w=>w.includes('cannot authenticate')));
+ assert.ok(flaggedReview.warnings.some(w=>w.includes('Unverified upstream source/partition caveat: Archive coverage has gaps')));
+ assert.ok(!baseline.warnings.some(w=>w.includes('Archive coverage has gaps')));
 });
 
 test('malformed, duplicated and excessive quality-warning manifests fail closed',async()=>{
