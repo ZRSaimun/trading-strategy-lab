@@ -61,6 +61,8 @@ class PairedM1PreflightTests(unittest.TestCase):
         report = self.check(BID+BID.replace('00:00:00', '00:03:00'),
                             ASK+ASK.replace('00:00:00', '00:03:00'))
         self.assertEqual(report['observed_gaps_over_interval'], 1)
+        self.assertEqual(report['observed_unrepresented_interval_slots'], 2)
+        self.assertEqual(report['largest_observed_gap_seconds'], 180)
         self.assertEqual(report['rows'], 2)
 
     def test_non_minute_rejected(self):
@@ -79,6 +81,8 @@ class PairedM1PreflightTests(unittest.TestCase):
         self.assertEqual(report['interval'], 'H1')
         self.assertEqual(report['interval_seconds'], 3600)
         self.assertEqual(report['observed_gaps_over_interval'], 0)
+        self.assertEqual(report['observed_unrepresented_interval_slots'], 0)
+        self.assertEqual(report['largest_observed_gap_seconds'], 0)
         self.assertFalse(report['approved_for_backtest'])
 
     def test_hourly_weekend_gap_is_observed_not_filled(self):
@@ -87,6 +91,19 @@ class PairedM1PreflightTests(unittest.TestCase):
         report = self.check(bid, ask, interval='H1')
         self.assertEqual(report['rows'], 2)
         self.assertEqual(report['observed_gaps_over_interval'], 1)
+        self.assertEqual(report['observed_unrepresented_interval_slots'], 48)
+        self.assertEqual(report['largest_observed_gap_seconds'], 49 * 3600)
+        self.assertFalse(report['approved_for_backtest'])
+
+    def test_multiple_gaps_report_slots_without_inventing_market_activity(self):
+        bid = BID + BID.replace('00:00:00', '00:03:00') + BID.replace('00:00:00', '00:08:00')
+        ask = ASK + ASK.replace('00:00:00', '00:03:00') + ASK.replace('00:00:00', '00:08:00')
+        report = self.check(bid, ask)
+        self.assertEqual(report['rows'], 3)
+        self.assertEqual(report['observed_gaps_over_interval'], 2)
+        self.assertEqual(report['observed_unrepresented_interval_slots'], 6)
+        self.assertEqual(report['largest_observed_gap_seconds'], 300)
+        self.assertFalse(report['approved_for_backtest'])
 
     def test_hourly_half_hour_candle_rejected(self):
         with self.assertRaisesRegex(ValueError, 'not aligned'):

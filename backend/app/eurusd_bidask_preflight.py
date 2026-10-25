@@ -82,6 +82,7 @@ def inspect_eurusd_pair(bid_raw, ask_raw, *, interval):
     if len(bid) != len(ask):
         raise ValueError('BID/ASK candle counts differ; no synthetic alignment')
     min_spread, max_spread, gaps = math.inf, -math.inf, 0
+    unrepresented_slots, largest_gap_seconds = 0, 0
     for index, (b, a) in enumerate(zip(bid, ask)):
         if b[0] != a[0]:
             raise ValueError(f'BID/ASK timestamp mismatch at paired row {index+1}')
@@ -91,8 +92,14 @@ def inspect_eurusd_pair(bid_raw, ask_raw, *, interval):
             spread = a[i] - b[i]
             min_spread = min(min_spread, spread)
             max_spread = max(max_spread, spread)
-        if index and b[0] - bid[index-1][0] > interval_seconds:
-            gaps += 1
+        if index:
+            elapsed_seconds = b[0] - bid[index-1][0]
+            if elapsed_seconds > interval_seconds:
+                gaps += 1
+                # Counts unrepresented time slots, NOT missing market candles:
+                # weekends and closed sessions can legitimately span slots.
+                unrepresented_slots += elapsed_seconds // interval_seconds - 1
+                largest_gap_seconds = max(largest_gap_seconds, elapsed_seconds)
     return {
         'instrument': 'EUR/USD', 'interval': interval, 'interval_seconds': interval_seconds,
         'declared_timebase': 'Etc/UTC',
@@ -100,6 +107,8 @@ def inspect_eurusd_pair(bid_raw, ask_raw, *, interval):
         'first_utc': datetime.fromtimestamp(bid[0][0], timezone.utc).isoformat(),
         'last_utc': datetime.fromtimestamp(bid[-1][0], timezone.utc).isoformat(),
         'observed_gaps_over_interval': gaps,
+        'observed_unrepresented_interval_slots': unrepresented_slots,
+        'largest_observed_gap_seconds': largest_gap_seconds,
         'bid_sha256': hashlib.sha256(bid_raw).hexdigest(),
         'ask_sha256': hashlib.sha256(ask_raw).hexdigest(),
         'observed_open_close_spread_min_pips': round(min_spread * 10000, 6),
@@ -114,6 +123,7 @@ def inspect_eurusd_pair(bid_raw, ask_raw, *, interval):
             'Independent source authenticity and usage-rights review required',
             'OHLC spreads are observations, not broker executable fill costs',
             'Observed gaps are not necessarily missing market sessions',
+            'Unrepresented interval slots can include scheduled market closures, not missing tradeable candles',
             'Declared interval is not authenticated against original export identity',
             'Volume class and first-available news timestamps unverified',
             'No strategy, profitability or trading authorization',
