@@ -72,7 +72,7 @@ class PairedM1PreflightTests(unittest.TestCase):
                                 '1.20000' if side == 'bid' else '1.20012',
                                 replacement)
                         else:
-                            original = original.replace(',0\\n', f',{replacement}\\n')
+                            original = original.replace(',0\n', f',{replacement}\n')
                         bid = original if side == 'bid' else BID
                         ask = original if side == 'ask' else ASK
                         with self.assertRaisesRegex(ValueError, 'invalid numeric field'):
