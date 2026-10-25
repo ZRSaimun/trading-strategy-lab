@@ -149,3 +149,30 @@ def test_gap_event_count_and_largest_gap_reconcile(events, missing, largest):
                largest_gap_minutes=largest)
     with pytest.raises(ValueError):
         triage_histdata_audit(report)
+
+
+@pytest.mark.parametrize("largest,valid", [
+    (2, False),  # Four missing minutes cannot fit two gaps of size one.
+    (3, True),   # Two gaps each omit two minutes.
+    (4, True),   # One gap omits three minutes and the other one.
+    (5, False),  # A four-minute omission leaves no second gap.
+])
+def test_multiple_gap_events_constrain_largest_gap(largest, valid):
+    report = fixture_report()
+    row = report["archives"][0]
+    # Five observed minutes over a nine-minute inclusive span: four
+    # unobserved minutes distributed across exactly two observed gaps.
+    row.update(rows=5, unique_timestamps=5, zero_volume_rows=5,
+               last_local_EST="2026-10-01T00:08:00",
+               last_utc="2026-10-01T05:08:00+00:00",
+               observed_gap_events=2,
+               unobserved_minutes_between_rows=4,
+               largest_gap_minutes=largest)
+    report["summary"]["rows"] = 5
+    if valid:
+        result = triage_histdata_audit(report)
+        assert result["archives"][0]["research_ready"] is False
+        assert result["archives"][0]["can_auto_import"] is False
+    else:
+        with pytest.raises(ValueError, match="largest observed gap"):
+            triage_histdata_audit(report)
