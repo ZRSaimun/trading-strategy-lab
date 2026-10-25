@@ -282,3 +282,31 @@ def test_postgres_source_rejects_second_journal_binding(pg_store):
     assert PaperJournalStore(factory).load("another-pg-journal") is None
     with factory() as db:
         assert len(db.scalars(select(Audit)).all()) == 1
+
+
+def test_postgres_orphaned_reverse_owner_quarantines_standalone_quote(pg_store):
+    quotes, _engine, factory = pg_store
+    atomic = AtomicPaperQuoteJournalStore(factory)
+    journal = PaperJournalStore(factory)
+    assert _atomic_checkpoint(atomic, 1)["status"] == "CHECKPOINT_RECORDED_UNVERIFIED"
+
+    # Simulate legacy/incomplete source ownership: keep the forward binding
+    # and journal, but remove only the reverse owner. No automatic repair.
+    from sqlalchemy import delete
+    source_hash = PaperQuoteReplayStore._key(SOURCE).split(":", 1)[1]
+    with factory.begin() as db:
+        db.execute(delete(Record).where(
+            Record.key == "paper-quote-journal-owner:" + source_hash
+        ))
+
+    rejected = quotes.observe(SOURCE, quote(2), now_ms=NOW + 130)
+    assert rejected["status"] == "HOLD_RECONCILIATION"
+    assert rejected["reason"] == "QUOTE_SOURCE_BINDING_INCOMPLETE"
+    assert not rejected["paper_order_permitted"] and not rejected["live_order_permitted"]
+    assert quotes.load_marker(SOURCE)["revision"] == 0
+    assert journal.load("pg-atomic-journal")["revision"] == 0
+    with factory() as db:
+        assert len(db.scalars(select(Audit)).all()) == 1
+
+    # Even the atomic writer must hold until ownership is reconciled.
+    assert _atomic_checkpoint(atomic, 2, 0)["reason"] == "QUOTE_SOURCE_BINDING_INCOMPLETE"
