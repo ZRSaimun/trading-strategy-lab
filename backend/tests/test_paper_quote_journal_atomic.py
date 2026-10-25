@@ -173,3 +173,42 @@ def test_concurrent_revision_writers_only_one_wins(stores):
     assert journal.load("paper-session-a")["revision"] == 1
     with factory() as db:
         assert len(db.scalars(select(Audit)).all()) == 2
+
+
+def test_standalone_journal_cas_cannot_bypass_atomic_binding(stores):
+    atomic, quotes, journal, _, factory = stores
+    assert append(atomic)["status"] == "CHECKPOINT_RECORDED_UNVERIFIED"
+    with factory() as db:
+        original_audits = len(db.scalars(select(Audit)).all())
+
+    # Both stale-revision and otherwise-valid standalone writers must fail
+    # closed: only the atomic quote+journal path may advance a bound session.
+    assert journal.compare_and_swap(
+        "paper-session-a", IDENTITY, 0, 1, checkpoint("bypass")
+    ) is False
+    assert journal.compare_and_swap(
+        "paper-session-a", IDENTITY, None, 0, checkpoint("reinitialize")
+    ) is False
+    assert quotes.load_marker(SOURCE)["revision"] == 0
+    assert journal.load("paper-session-a")["revision"] == 0
+    with factory() as db:
+        assert len(db.scalars(select(Audit)).all()) == original_audits
+
+    # The owner of the bound journal can still atomically advance both records.
+    assert append(atomic, 2, expected=0)["status"] == "CHECKPOINT_RECORDED_UNVERIFIED"
+    assert quotes.load_marker(SOURCE)["revision"] == 1
+    assert journal.load("paper-session-a")["revision"] == 1
+
+
+def test_unbound_journal_still_supports_standalone_paper_replay(stores):
+    atomic, quotes, journal, _, _ = stores
+    assert append(atomic)["status"] == "CHECKPOINT_RECORDED_UNVERIFIED"
+    assert journal.compare_and_swap(
+        "independent-paper-session", IDENTITY, None, 0, checkpoint("initial")
+    ) is True
+    assert journal.compare_and_swap(
+        "independent-paper-session", IDENTITY, 0, 1, checkpoint("next")
+    ) is True
+    assert journal.load("independent-paper-session")["revision"] == 1
+    assert journal.load("paper-session-a")["revision"] == 0
+    assert quotes.load_marker(SOURCE)["revision"] == 0
