@@ -53,8 +53,34 @@ class PairedM1PreflightTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'invalid OHLC'):
             self.check(BID.replace('1.20020', '1.19900'), ASK)
 
+    def test_python_float_permissive_numeric_lexemes_are_rejected(self):
+        # float() accepts underscores and non-ASCII digits. Neither belongs
+        # in an authenticated-looking price/volume export.
+        for original, replacement in (
+            ('1.20000', '1.2_0000'),
+            ('1.20000', '１.２００００'),
+            ('1.20000', '1_20000e-5'),
+            (',0\\n', ',０\\n'),
+        ):
+            for interval in ('M1', 'H1'):
+                for side in ('bid', 'ask'):
+                    with self.subTest(replacement=replacement, interval=interval, side=side):
+                        bid = BID.replace(original, replacement) if side == 'bid' else BID
+                        ask = ASK.replace(original, replacement) if side == 'ask' else ASK
+                        with self.assertRaisesRegex(ValueError, 'invalid numeric field'):
+                            self.check(bid, ask, interval=interval)
+
+    def test_ascii_scientific_notation_remains_supported(self):
+        bid = BID.replace('1.20000', '1.20000e0').replace(',0\\n', ',0e0\\n')
+        ask = ASK.replace('1.20012', '1.20012E+0').replace(',0\\n', ',0e0\\n')
+        for interval in ('M1', 'H1'):
+            with self.subTest(interval=interval):
+                report = self.check(bid, ask, interval=interval)
+                self.assertEqual(report['rows'], 1)
+                self.assertFalse(report['approved_for_backtest'])
+
     def test_nan_volume_rejected(self):
-        with self.assertRaisesRegex(ValueError, 'invalid OHLC'):
+        with self.assertRaisesRegex(ValueError, 'invalid numeric field'):
             self.check(BID.replace(',0\n', ',nan\n'), ASK)
 
     def test_observed_gap_not_forward_filled(self):
