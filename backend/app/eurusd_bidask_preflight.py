@@ -8,6 +8,7 @@ import hashlib
 import io
 import math
 import re
+from decimal import Decimal
 from datetime import datetime, timezone
 
 HEADER = ['Etc/UTC', 'Open', 'High', 'Low', 'Close', 'Volume']
@@ -73,12 +74,20 @@ def _parse_side(raw, side, interval_seconds):
                 if any(not DECIMAL_FIELD.fullmatch(field.strip()) for field in fields[1:]):
                     raise ValueError('invalid numeric field syntax; expected ASCII decimal')
                 o, h, l, c, v = map(float, fields[1:])
-                if (not all(math.isfinite(x) for x in (o,h,l,c,v)) or
-                    min(o,h,l,c) <= 0 or v < 0 or l > min(o,c) or h < max(o,c) or l > h):
+                if not all(math.isfinite(x) for x in (o, h, l, c, v)):
+                    raise ValueError('invalid OHLC or volume')
+                # IEEE-754 rounding can erase a source-level crossed quote or
+                # a high/low violation when two decimals differ below one ULP.
+                # Keep the original decimal values for exact integrity checks;
+                # floats remain descriptive-only report values.
+                exact = tuple(Decimal(field.strip()) for field in fields[1:])
+                eo, eh, el, ec, ev = exact
+                if (min(eo, eh, el, ec) <= 0 or ev < 0 or
+                    el > min(eo, ec) or eh < max(eo, ec) or el > eh):
                     raise ValueError('invalid OHLC or volume')
             except (ValueError, OverflowError) as exc:
                 raise ValueError(f'{side}: row {line}: {exc}') from exc
-            rows.append((stamp, o, h, l, c, v))
+            rows.append((stamp, o, h, l, c, v, exact))
             previous = stamp
     except (UnicodeError, csv.Error) as exc:
         raise ValueError(f'{side}: malformed UTF-8 CSV') from exc
@@ -106,7 +115,7 @@ def inspect_eurusd_pair(bid_raw, ask_raw, *, interval):
     for index, (b, a) in enumerate(zip(bid, ask)):
         if b[0] != a[0]:
             raise ValueError(f'BID/ASK timestamp mismatch at paired row {index+1}')
-        if any(b[i] > a[i] for i in (1, 2, 3, 4)):
+        if any(b[6][i] > a[6][i] for i in range(4)):
             raise ValueError(f'crossed BID/ASK OHLC at paired row {index+1}')
         for i in (1, 4):
             spread = a[i] - b[i]
