@@ -110,6 +110,27 @@ class DuplicateParityTests(unittest.TestCase):
         with self.assertRaises(ParityInputError):
             self.check(left=rows)
 
+    def test_megabyte_single_line_rejected(self):
+        # Regression: a line-length check after "for line in stream" is
+        # too late to prevent allocation of an attacker-controlled line.
+        rows = self.a_rows.copy()
+        rows[0] += '9' * 1_000_000
+        with self.assertRaises(ParityInputError):
+            self.check(left=rows)
+
+    def test_multiline_quoted_record_rejected(self):
+        # HistData is plain unquoted CSV; quoted multiline fields must not
+        # accumulate an arbitrarily large logical record.
+        rows = self.a_rows.copy()
+        rows[0] = '"' + rows[0] + '\n' + rows[1] + '"'
+        with self.assertRaises(ParityInputError):
+            self.check(left=rows)
+
+    def test_crlf_plain_records_still_supported(self):
+        result = self.check(left=[r + '\r' for r in self.a_rows],
+                            right=[r + '\r' for r in self.b_rows])
+        self.assertEqual(result['result'], 'EXACT_ROW_SEQUENCE_WITH_ANOMALIES')
+
     def test_budget_rejected(self):
         archive(self.a, self.a_rows, 'ascii')
         archive(self.b, self.b_rows, 'mt')
