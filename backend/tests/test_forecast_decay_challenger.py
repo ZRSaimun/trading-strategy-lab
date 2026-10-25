@@ -168,3 +168,37 @@ def test_ignores_partial_forecast_without_reissuing():
     issuer.issue_for_latest(380 * 60)
     assert store.calls == 2
     assert sum(e.get("horizon") == 12 for e in store.snapshot["events"]) == 1
+
+
+def test_real_sqlite_store_atomic_issuance_and_restart(tmp_path):
+    """Integration with the real CAS/audit journal; synthetic data only."""
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import sessionmaker
+    from app.db import Base
+    from app.forecast_event_store import ForecastEventStore
+
+    engine = create_engine("sqlite:///" + str(tmp_path / "decay-challenger.db"))
+    try:
+        Base.metadata.create_all(engine)
+        clock = [60]
+        store = ForecastEventStore(sessionmaker(engine), lambda: clock[0])
+        session = "decay-integration"
+        for index in range(35):
+            start = index * 60
+            clock[0] = start + 60
+            before = store.load(session)
+            expected = before["sequence"] if before else 0
+            assert store.append(session, IDENTITY, 120, expected,
+                                {"kind": "CANDLE", "start": start,
+                                 "close": float(100 + index)})
+        issuer = CausalDecayChallenger(store, session, IDENTITY, 120)
+        first = issuer.issue_for_latest(34 * 60)
+        assert set(first["probabilities"]) == {1}
+        persisted = store.load(session)
+        assert persisted["sequence"] == 36
+        assert len(persisted["forecasts"]) == 1
+        assert persisted["forecasts"][0]["modelVersion"] == MODEL_VERSION
+        assert persisted["forecasts"][0]["status"] == "PENDING"
+        assert issuer.issue_for_latest(34 * 60)["sequence"] == 36
+    finally:
+        engine.dispose()
