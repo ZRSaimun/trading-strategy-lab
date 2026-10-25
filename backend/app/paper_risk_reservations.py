@@ -67,6 +67,10 @@ def _validate(state):
     reservations = state["reservations"]
     if not isinstance(reservations, dict) or len(reservations) > _MAX_RESERVATIONS:
         raise ValueError("Invalid paper reservation collection")
+    # IDs are never released or pruned; each was added by its own revision.
+    # A snapshot with more IDs than committed revisions is impossible here.
+    if len(reservations) > state["revision"]:
+        raise ValueError("Paper reservation count exceeds state revision")
     reserved = Decimal(0)
     for digest, amount in reservations.items():
         if not isinstance(digest, str) or not re.fullmatch(r"[0-9a-f]{64}", digest):
