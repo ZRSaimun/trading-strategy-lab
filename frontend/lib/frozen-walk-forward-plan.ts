@@ -82,13 +82,14 @@ function checkPlan(plan: PurgedPlan): void {
       throw Error('Invalid or duplicate partition observation ID');
   }
   const allIds = [...plan.eligible.development,...plan.eligible.validation,...plan.eligible.holdout];
-  if (new Set(allIds).size !== allIds.length) throw Error('Observation appears in multiple chronological partitions');
+  const eligibleIds = new Set(allIds);
+  if (eligibleIds.size !== allIds.length) throw Error('Observation appears in multiple chronological partitions');
   // An excluded observation must never be simultaneously marked eligible.
   // Validate this manifest even though its observations are never read here.
   const excludedIds = new Set<string>();
   for (const e of plan.excluded) {
     exact(e, ['id','reason'], 'excluded observation');
-    if (!nonblank(e.id) || excludedIds.has(e.id) || allIds.includes(e.id) ||
+    if (!nonblank(e.id) || excludedIds.has(e.id) || eligibleIds.has(e.id) ||
         !['EMBARGO_OR_UNSETTLED','CROSS_BOUNDARY_FEATURES','OUTSIDE_PERIOD'].includes(e.reason))
       throw Error('Invalid, duplicate or eligible excluded observation');
     excludedIds.add(e.id);
