@@ -122,8 +122,7 @@ def test_duplicate_id_and_confirmation_close_rejected():
     b["path_id"] = a["path_id"]
     with pytest.raises(ValueError, match="Duplicate candidate"):
         compile(a, b)
-    b["path_id"] = "two"
-    b["confirmation_close_at"] = a["confirmation_close_at"]
+    b = candidate("two", T)
     with pytest.raises(ValueError, match="Duplicate candidate"):
         compile(a, b)
 
@@ -165,6 +164,7 @@ def test_evidence_hash_binds_prior_candles_even_when_bracket_unchanged():
 def test_manifest_hash_is_canonical_across_signal_input_order():
     a, b = candidate(), candidate("two", T + 7 * 86400)
     assert compile(a, b)["manifest_sha256"] == compile(b, a)["manifest_sha256"]
+    assert compile(a, b)["pre_signal_evidence_sha256"] == compile(b, a)["pre_signal_evidence_sha256"]
 
 
 def test_source_identity_is_bound_to_both_hashes():
