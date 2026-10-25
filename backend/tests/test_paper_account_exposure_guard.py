@@ -237,3 +237,42 @@ def test_quote_age_exact_boundary_is_accepted_but_no_execution():
     out = run(s)
     assert out['checks']['all_quotes_fresh_and_uncrossed']
     assert not out['may_execute_real_order']
+
+
+def test_stressed_margin_headroom_fails_before_current_margin_cap():
+    s = example()
+    # Current margin = 100.1, current cap = 101.0; after downside
+    # stressed equity = 9813 and cap = 99.1113.
+    s['max_margin_fraction'] = '0.0101'
+    out = run(s)
+    assert out['checks']['reserved_margin_within_cap'] is True
+    assert out['checks']['stressed_reserved_margin_within_cap'] is False
+    assert out['checks']['stressed_gross_leverage_within_cap'] is True
+    assert out['stressed_equity_cash'] == '9813'
+    assert out['status'] == 'HOLD_RECONCILIATION'
+    assert out['may_execute_paper_order'] is False
+    assert out['may_execute_real_order'] is False
+
+
+def test_stressed_leverage_headroom_fails_before_current_leverage_cap():
+    s = example()
+    # Current gross = 2002 <= 2020; stressed cap = 9813 * .202.
+    s['max_gross_leverage'] = '0.202'
+    out = run(s)
+    assert out['checks']['gross_leverage_within_cap'] is True
+    assert out['checks']['stressed_gross_leverage_within_cap'] is False
+    assert out['checks']['stressed_reserved_margin_within_cap'] is True
+    assert 'stressed_gross_leverage_within_cap' in out['failed_checks']
+    assert out['status'] == 'HOLD_RECONCILIATION'
+
+
+def test_nonpositive_stressed_equity_never_satisfies_margin_or_leverage():
+    s = example()
+    s['max_daily_loss_cash'] = '10000'
+    s['daily_realized_pnl_cash'] = '-10000'
+    out = run(s)
+    assert out['stressed_equity_cash'] == '-37'
+    assert out['checks']['stressed_reserved_margin_within_cap'] is False
+    assert out['checks']['stressed_gross_leverage_within_cap'] is False
+    assert out['status'] == 'HOLD_RECONCILIATION'
+    assert out['may_execute_real_order'] is False
