@@ -80,17 +80,31 @@ test('an elapsed but partially observed UTC daily bucket cannot satisfy the 20-d
  assert.equal(s.gates.dailyTrend,'INSUFFICIENT_DATA');
 });
 
-test('an extreme close from a past partial daily bucket cannot reverse a completed-day trend',()=>{
+test('a partial most-recent elapsed day cannot be skipped to borrow older trend context',()=>{
  const x=fixture();
- const baseline=screenCrtHypotheses(x).candidates[0].gates.dailyTrend;
- assert.equal(baseline,'PASS');
- // The last elapsed UTC day was observed for only 600 of 1440 minutes.
- // It must not become a valid bearish outlier in the daily context.
+ assert.equal(screenCrtHypotheses(x).candidates[0].gates.dailyTrend,'PASS');
+ // An elapsed day with only 600/1440 minutes is missing context, even
+ // when twenty older complete days remain and would produce a PASS.
  x.daily=[...x.daily!.slice(0,-1),
   make(BASE-24*H,1,2,0.5,1.2,600)];
  const r=screenCrtHypotheses(x).candidates[0];
- assert.equal(r.gates.dailyTrend,baseline);
+ assert.equal(r.gates.dailyTrend,'INSUFFICIENT_DATA');
+ assert.equal(r.gates.structureShift,'PASS');
  assert.equal(r.eligibleForLiveTrading,false);
+});
+
+test('an internal partial day inside the 20-session lookback cannot be laundered by older complete days',()=>{
+ const x=fixture();
+ x.daily=x.daily!.map((b,i)=>i===18?{...b,observed_minutes:600}:b);
+ const r=screenCrtHypotheses(x).candidates[0];
+ assert.equal(r.gates.dailyTrend,'INSUFFICIENT_DATA');
+ assert.equal(r.gates.structureShift,'PASS');
+});
+
+test('a partial day strictly before the selected 20 complete daily bars does not contaminate current context',()=>{
+ const x=fixture();
+ x.daily=x.daily!.map((b,i)=>i===0?{...b,observed_minutes:600}:b);
+ assert.equal(screenCrtHypotheses(x).candidates[0].gates.dailyTrend,'PASS');
 });
 
 test('stale daily history cannot produce a positive 5/20 trend signal for a newer CRT sweep',()=>{
