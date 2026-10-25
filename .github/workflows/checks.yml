@@ -53,3 +53,29 @@ jobs:
           python-version: '3.12'
       - run: pip install -r backend/requirements.txt
       - run: python scripts/smoke_compose.py --combined
+  postgres-risk-acceptance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: trading_lab_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d trading_lab_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      TSL_PG_RISK_TEST_URL: postgresql+psycopg://postgres:postgres@127.0.0.1:5432/trading_lab_test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install -r backend/requirements-dev.txt
+      - run: cd backend && PYTHONPATH=. pytest -q tests/test_paper_daily_loss_postgres.py
