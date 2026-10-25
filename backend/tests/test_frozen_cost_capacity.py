@@ -205,6 +205,7 @@ def test_tampered_upstream_costs_rejected():
     audit = audit_frozen_bracket_population(
         manifest, paths, fingerprint_population_manifest(manifest))
     audit["outcome_audit"]["paths"][0]["cost_scenarios"][0]["lower_net_r"] = "999"
+    audit["outcome_audit"]["paths"][0]["cost_scenarios"][0]["upper_net_r"] = "999"
     with pytest.raises(ValueError, match="linear cost"):
         summarize_frozen_cost_capacity(audit, manifest)
 
