@@ -136,3 +136,29 @@ research suitability have been independently verified. A large but
 syntactically valid number of rows can still require substantial time and
 disk space; run only on isolated authorised infrastructure. No original
 historical ZIP is changed or approved by this update.
+
+
+## Stored-row checkpoint reconciliation (25 October 2026)
+
+At finalization, the importer now counts the actual stored `historical_candles`
+rows for the exact dataset identity inside the same transaction that decides
+`READY`. It requires this count to equal the importer `accepted` checkpoint
+counter, in addition to requiring zero rejected rows and a nonempty complete
+source. A skipped/conflict-ignored insert or a missing checkpoint row therefore
+leaves the dataset `QUARANTINED`, with its source and existing private rows
+preserved. Re-running an already-`READY` archive also checks the stored row
+count; if it differs, the dataset is atomically downgraded to `QUARANTINED`
+rather than silently reaffirmed. Identical quarantined imports are not
+automatically repaired.
+
+Synthetic regressions cover clean imports, skipped inserts, lost rows during
+pause/resume, and a previously READY archive with missing stored rows:
+`cd backend && PYTHONPATH=. pytest -q tests/test_bulk_import_row_reconciliation.py`.
+
+**Limits:** A matching row count does not prove that the stored OHLC values
+match the ZIP, that timestamps are correct, that the provider is authentic, or
+that source use is licensed. A READY archive changed externally *after* this
+check can still require the separate offline quality audit. This does not
+replace an authorized disposable PostgreSQL staging acceptance or justify
+deployment. No historical prices, broker credentials, feeds, or orders are
+changed by the test suite.
