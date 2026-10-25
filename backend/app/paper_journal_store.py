@@ -142,6 +142,15 @@ class PaperJournalStore:
                                 separators=(",", ":"), allow_nan=False)
         with self.session_factory() as db:
             try:
+                # An atomic quote+journal session owns its checkpoint path.
+                # Standalone CAS must not bypass its source/account binding or
+                # advance a journal without advancing the quote replay marker.
+                # This read shares the write transaction. A concurrent initial
+                # atomic insert is still arbitrated by the journal's unique key;
+                # concurrent updates are arbitrated by full-value CAS.
+                binding_key = "paper-journal-source:" + key.split(":", 1)[1]
+                if db.scalar(select(Record.value).where(Record.key == binding_key)) is not None:
+                    return False
                 if expected_revision is None:
                     # A unique primary key arbitrates competing first writers.
                     db.execute(insert(Record).values(key=key, value=next_value))
