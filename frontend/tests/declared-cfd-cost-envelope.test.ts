@@ -82,3 +82,22 @@ test('source objects remain unmodified and no network is required',()=>{
   run();
   assert.deepEqual({qScope,orders,quotes,fills,fScope,receipts,stress},before);
 });
+
+test('cost envelope rejects a quote snapshot before declared financing close',()=>{
+  assert.throws(()=>run({...qScope,asOf:1499}),/predates/);
+});
+test('cost envelope rejects fills from outside the declared financed position interval',()=>{
+  const earlyQuotes=quotes.map(q=>({...q,observedAt:910}));
+  const earlyFills=fills.map(f=>({...f,filledAt:950}));
+  const earlyOrders=orders.map(o=>({...o,submittedAt:900}));
+  assert.throws(()=>run(qScope,earlyOrders,earlyQuotes,earlyFills),/outside/);
+  const lateQuotes=quotes.map(q=>({...q,observedAt:1550}));
+  const lateFills=fills.map(f=>({...f,filledAt:1600}));
+  assert.throws(()=>run(qScope,orders,lateQuotes,lateFills),/outside/);
+});
+test('cost envelope rejects orders submitted after the declared position closed',()=>{
+  const lateOrders=orders.map(o=>({...o,submittedAt:1600}));
+  const lateQuotes=quotes.map(q=>({...q,observedAt:1610}));
+  const lateFills=fills.map(f=>({...f,filledAt:1650}));
+  assert.throws(()=>run(qScope,lateOrders,lateQuotes,lateFills),/after/);
+});
