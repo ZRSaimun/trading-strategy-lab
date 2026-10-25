@@ -267,3 +267,51 @@ def test_missing_reverse_source_binding_fails_closed(stores):
     assert quotes.load_marker(SOURCE)["revision"] == 0
     with factory() as db:
         assert len(db.scalars(select(Audit)).all()) == 1
+
+
+def test_atomic_refuses_to_adopt_standalone_quote_marker(stores):
+    atomic, quotes, journal, _, factory = stores
+    assert quotes.observe(SOURCE, quote(1), now_ms=NOW + 30)["status"] == "ACCEPTED_UNVERIFIED"
+    before = quotes.load_marker(SOURCE)
+    result = append(atomic, 2)
+    assert result["status"] == "HOLD_RECONCILIATION"
+    assert result["reason"] == "UNBOUND_QUOTE_MARKER_REQUIRES_RECONCILIATION"
+    assert result["paper_order_permitted"] is result["live_order_permitted"] is False
+    assert quotes.load_marker(SOURCE) == before
+    assert journal.load("paper-session-a") is None
+    with factory() as db:
+        assert len(db.scalars(select(Audit)).all()) == 1
+        assert len(db.scalars(select(Record)).all()) == 1
+
+
+def test_atomic_refuses_legacy_forward_binding_without_reverse_owner(stores):
+    atomic, quotes, journal, _, factory = stores
+    source_hash = PaperQuoteReplayStore._key(SOURCE).split(":", 1)[1]
+    with factory.begin() as db:
+        db.add(Record(key="paper-journal-source:" + "a" * 64, value=source_hash))
+    result = append(atomic)
+    assert result["status"] == "HOLD_RECONCILIATION"
+    assert result["reason"] == "QUOTE_SOURCE_BINDING_INCOMPLETE"
+    assert quotes.load_marker(SOURCE) is None
+    assert journal.load("paper-session-a") is None
+    with factory() as db:
+        assert len(db.scalars(select(Audit)).all()) == 0
+        assert len(db.scalars(select(Record)).all()) == 1
+
+
+def test_missing_reverse_owner_cannot_be_rebound_to_new_atomic_journal(stores):
+    atomic, quotes, journal, _, factory = stores
+    assert append(atomic)["status"] == "CHECKPOINT_RECORDED_UNVERIFIED"
+    from sqlalchemy import delete
+    owner_key = "paper-quote-journal-owner:" + PaperQuoteReplayStore._key(SOURCE).split(":", 1)[1]
+    with factory.begin() as db:
+        db.execute(delete(Record).where(Record.key == owner_key))
+    result = append(atomic, 2, session_id="paper-session-b")
+    assert result["status"] == "HOLD_RECONCILIATION"
+    assert result["reason"] == "QUOTE_SOURCE_BINDING_INCOMPLETE"
+    assert journal.load("paper-session-b") is None
+    assert journal.load("paper-session-a")["revision"] == 0
+    assert quotes.load_marker(SOURCE)["revision"] == 0
+    with factory() as db:
+        assert len(db.scalars(select(Audit)).all()) == 1
+        assert len(db.scalars(select(Record)).all()) == 3
