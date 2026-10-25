@@ -109,6 +109,9 @@ def inspect_eurusd_pair(bid_raw, ask_raw, *, interval):
     # Only paired, actually observed candle-close spreads enter the quantiles.
     # High/low extrema on two OHLC bars need not occur simultaneously.
     close_spreads_pips = []
+    # Source-decimal extrema retain positive sub-ULP spreads lost by float subtraction.
+    min_exact_close_spread_pips = None
+    max_exact_close_spread_pips = None
     unrepresented_slots, largest_gap_seconds = 0, 0
     # Bounded diagnostic evidence, not a calendar classification or imputation.
     gap_samples = []
@@ -122,6 +125,11 @@ def inspect_eurusd_pair(bid_raw, ask_raw, *, interval):
             min_spread = min(min_spread, spread)
             max_spread = max(max_spread, spread)
         close_spreads_pips.append((a[4] - b[4]) * 10000)
+        exact_close_spread_pips = (a[6][3] - b[6][3]) * Decimal('10000')
+        if min_exact_close_spread_pips is None or exact_close_spread_pips < min_exact_close_spread_pips:
+            min_exact_close_spread_pips = exact_close_spread_pips
+        if max_exact_close_spread_pips is None or exact_close_spread_pips > max_exact_close_spread_pips:
+            max_exact_close_spread_pips = exact_close_spread_pips
         if index:
             elapsed_seconds = b[0] - bid[index-1][0]
             if elapsed_seconds > interval_seconds:
@@ -159,6 +167,8 @@ def inspect_eurusd_pair(bid_raw, ask_raw, *, interval):
         'observed_open_close_spread_min_pips': round(min_spread * 10000, 6),
         'observed_open_close_spread_max_pips': round(max_spread * 10000, 6),
         'observed_close_spread_sample_count': len(close_spreads_pips),
+        'observed_close_spread_min_exact_pips': str(min_exact_close_spread_pips),
+        'observed_close_spread_max_exact_pips': str(max_exact_close_spread_pips),
         'observed_close_spread_p50_pips': observed_percentile(0.50),
         'observed_close_spread_p95_pips': observed_percentile(0.95),
         'volume_classification': 'unverified_source_volume',

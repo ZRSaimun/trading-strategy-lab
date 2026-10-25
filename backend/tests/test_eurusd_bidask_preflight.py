@@ -1,5 +1,6 @@
 """Synthetic regression fixtures; never market-history or profitability evidence."""
 import unittest
+from decimal import Decimal
 from app.eurusd_bidask_preflight import inspect_eurusd_pair
 
 HEADER = 'Etc/UTC,Open,High,Low,Close,Volume\n'
@@ -147,6 +148,27 @@ class PairedM1PreflightTests(unittest.TestCase):
             with self.subTest(interval=interval):
                 report = self.check(bid, ask, interval=interval)
                 self.assertEqual(report['rows'], 1)
+                self.assertFalse(report['broker_executable_quotes'])
+                self.assertFalse(report['approved_for_backtest'])
+
+    def test_exact_close_spread_extrema_survive_float_rounding(self):
+        # A sub-ULP positive close spread must not become a source-level zero.
+        bid_first = BID.replace('1.20010,0', '1.20010000000000001,0')
+        ask_first = ASK.replace('1.20022,0', '1.20010000000000002,0')
+        self.assertEqual(float('1.20010000000000001'),
+                         float('1.20010000000000002'))
+        bid_second = BID.replace('00:00:00', '01:00:00')
+        ask_second = ASK.replace('00:00:00', '01:00:00')
+        for interval in ('M1', 'H1'):
+            with self.subTest(interval=interval):
+                report = self.check(bid_first + bid_second,
+                                    ask_first + ask_second, interval=interval)
+                self.assertEqual(report['rows'], 2)
+                self.assertEqual(Decimal(report['observed_close_spread_min_exact_pips']),
+                                 Decimal('0.0000000000001'))
+                self.assertEqual(Decimal(report['observed_close_spread_max_exact_pips']),
+                                 Decimal('1.2'))
+                self.assertEqual(report['observed_close_spread_p50_pips'], 0)
                 self.assertFalse(report['broker_executable_quotes'])
                 self.assertFalse(report['approved_for_backtest'])
 
