@@ -1,0 +1,13 @@
+# Frozen next-open market intent — offline research protocol v1
+
+This disconnected, pure Python research helper addresses a causal defect in a different, older exact-entry research schema: **the next M1 open is not known when a signal closes**. Do not preregister the subsequently observed open as an already-known order price.
+
+`fingerprint_next_open_intents(manifest)` hashes exact, source-isolated, pre-outcome **intents** (`path_id`, UTC `signal_at` minute-open, `direction`, absolute `stop`, absolute `target`), declared pre-signal exclusions and a fixed source/horizon. There is intentionally **no entry field**. Retain the SHA-256 externally with an independently verifiable timestamp **before** outcome bars arrive. A self-supplied hash alone does not establish preregistration. The source includes instrument, provider, venue, archive SHA-256, BID/ASK/MID price side and a common 1–1440 minute horizon.
+
+`audit_next_open_intents(manifest, observations, expected_manifest_sha256)` requires exactly one observation (`path_id`, `bars`) for every eligible intent. It rejects supplied entry prices, duplicate/extra/missing IDs, unknown fields, malformed/unsorted/out-of-window M1 OHLC and mutated manifests. The engine derives a **hypothetical** entry from the observed following M1 opening price only. It reuses the existing conservative M1 bracket outcome engine for observed, inside-bracket opens, including unknown intraminute stop/target touch order and adverse stop gaps. An unobserved next open or an opening outside the frozen stop/target bracket is **unresolved**, not a removed loser, a confirmed cancellation, or an executable market fill. A gap-through market order might have been filled before a stop could execute; the engine does not guess that outcome.
+
+The whole declared population is counted. Means at **additional** 0/5/10/20 bps are withheld for any missing/open-gap/censored path, declared exclusion, fewer than 30 intents or fewer than 12 active UTC weeks. Reported bounds are descriptive additive-R proxies, **not** calibrated significance, tradable profits, broker fills, actual bid/ask costs or independent untouched holdouts. Historical BID-only candles cannot verify executable ASK quotes, spreads, slippage, financing, rights or vendor UTC provenance.
+
+This protocol is intentionally separate from `frozen_bracket_population` and its exact-entry schema; do not silently translate it into that schema or claim backward compatibility. No API route, broker adapter, order submission, paid provider, persistence, production data writes or real-money authority is included.
+
+Run synthetic tests from `backend`: `python -m pytest -q tests/test_frozen_next_open_intent.py`.
