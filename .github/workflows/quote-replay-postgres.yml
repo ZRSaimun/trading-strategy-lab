@@ -5,6 +5,7 @@ on:
     paths:
       - 'backend/app/paper_quote_replay_store.py'
       - 'backend/app/paper_quote_journal_atomic.py'
+      - 'backend/app/paper_journal_store.py'
       - 'backend/tests/test_paper_quote_replay_postgres.py'
       - 'backend/tests/test_paper_quote_journal_atomic.py'
       - '.github/workflows/quote-replay-postgres.yml'
@@ -14,6 +15,7 @@ on:
     paths:
       - 'backend/app/paper_quote_replay_store.py'
       - 'backend/app/paper_quote_journal_atomic.py'
+      - 'backend/app/paper_journal_store.py'
       - 'backend/tests/test_paper_quote_replay_postgres.py'
       - 'backend/tests/test_paper_quote_journal_atomic.py'
       - '.github/workflows/quote-replay-postgres.yml'
