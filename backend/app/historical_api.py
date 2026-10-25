@@ -38,7 +38,10 @@ def attach_history(owner, engine):
         count = 0
         with engine.connect() as connection:
             stream = connection.execution_options(stream_results=True).execute(
-                select(*fields).where(datasets.c.state == 'READY').order_by(
+                select(*fields).where(
+                    datasets.c.state == 'READY', datasets.c.rejected == 0,
+                    datasets.c.accepted > 0, datasets.c.seen == datasets.c.accepted
+                ).order_by(
                     datasets.c.instrument, datasets.c.provider, datasets.c.id
                 )
             ).mappings()
@@ -82,7 +85,9 @@ def attach_history(owner, engine):
             raise HTTPException(422, 'before must be a complete timeframe bucket boundary')
         with engine.connect() as connection:
             item = connection.execute(select(datasets).where(
-                datasets.c.id == dataset_id, datasets.c.state == 'READY')).mappings().first()
+                datasets.c.id == dataset_id, datasets.c.state == 'READY',
+                datasets.c.rejected == 0, datasets.c.accepted > 0,
+                datasets.c.seen == datasets.c.accepted)).mappings().first()
             if item is None:
                 raise HTTPException(404, 'Completed dataset not found')
             stmt = select(candles).where(candles.c.dataset_id == dataset_id)
