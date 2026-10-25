@@ -144,3 +144,42 @@ def test_reject_incomplete_fold_before_scoring():
     o[:] = [o[0]]
     with pytest.raises(ValueError, match="Insufficient"):
         audit(a, o, p, f, c, r, t, s)
+
+
+def test_manifest_binds_unused_development_observations_outside_folds():
+    a, o, p, f, c, r, t, s = fixture()
+    before = candidate_registration_digest(a, o, p, f, c)
+    # Day 900 is development data, but is not in either fold's train/test.
+    o.append({"id": "unselected-dev", "archiveId": "a2",
+              "featureStart": START+900*DAY, "decisionAt": START+900*DAY,
+              "labelAvailableAt": START+901*DAY})
+    assert candidate_registration_digest(a, o, p, f, c) != before
+    with pytest.raises(ValueError, match="Registration"):
+        audit(a, o, p, f, c, r, t, s)
+
+
+def test_manifest_binds_selected_label_clock_without_changing_fold_membership():
+    a, o, p, f, c, r, t, s = fixture()
+    before = candidate_registration_digest(a, o, p, f, c)
+    # Both old and new label clocks remain eligible for the same test fold.
+    o[1]["labelAvailableAt"] += 3600
+    from app.walkforward_fold_audit import audit_development_walkforward
+    assert audit_development_walkforward(a, o, p, f)["folds"][0]["testIds"] == ["t1"]
+    assert candidate_registration_digest(a, o, p, f, c) != before
+    with pytest.raises(ValueError, match="Registration"):
+        audit(a, o, p, f, c, r, t, s)
+
+
+def test_manifest_is_order_invariant_for_development_observations():
+    a, o, p, f, c, r, t, s = fixture()
+    o.reverse()
+    assert candidate_registration_digest(a, o, p, f, c) == r["manifestSha256"]
+    assert audit(a, o, p, f, c, r, t, s)["selectedCandidateId"] == "B"
+
+
+def test_validation_and_holdout_timing_do_not_enter_selection_digest():
+    a, o, p, f, c, r, t, s = fixture()
+    o[3]["labelAvailableAt"] += 3600
+    o[4]["labelAvailableAt"] += 3600
+    assert candidate_registration_digest(a, o, p, f, c) == r["manifestSha256"]
+    assert audit(a, o, p, f, c, r, t, s)["validationHoldoutAccess"] is False
