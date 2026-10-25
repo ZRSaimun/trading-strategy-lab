@@ -1,0 +1,19 @@
+# Loop 5: offline forecast calibration review candidates (24 October 2026)
+
+`frontend/lib/forecast-review-outbox.ts` is an isolated, pure research component built on the forward forecast record shape already in `main`. It is **not connected** to the authenticated UI, a live or delayed vendor feed, Render, a broker, a notification channel, or persistent storage. Do not present the output as a delivered live alert or a profitable trading signal.
+
+The evaluator requires exact instrument/provider/venue/source/price-side/timeframe identity and an exact model version plus horizon (1, 3 or 12 candles). It selects a fixed UTC-aligned phase of non-overlapping forecasts (baseStart / candleSeconds divisible by horizon) so h>1 outcomes are not automatically treated as independent. It compares two consecutive windows of 20 *settled* non-overlapping outcomes by default. Pending or gap-voided outcomes, missing aligned observations, source mixing, invalid issuance/settlement timestamps and duplicate base candles fail closed. It does not interpolate or count missing outcomes as losses.
+
+A `REVIEW` candidate is created when recent Brier loss deteriorates by >=0.02 or exceeds the fixed 0.25 Brier of a 50% reference. These are **heuristic descriptive flags**, not significance tests, validated model drift or trade advice. Non-overlapping outcomes can still be correlated due to market regimes, and selection/model/version effects are not corrected. No trading P&L, financing, spread, slippage, drawdown, real quote, return, or model superiority was measured.
+
+The in-memory `ForecastReviewOutbox` produces deterministic candidate IDs scoped to feed, model, horizon and latest settled target close, and suppresses repeat evaluation in the same process. The candidate explicitly says `UNVERIFIED_LOCAL_RESEARCH`, `live=false`, `delivery=NOT_CONNECTED`, `execution=NONE`, and `quoteTimestamp=null`. A restart resets its deduplication state: this is **not** a durable outbox or a functioning alert transport.
+
+Verification: `cd frontend && node --experimental-strip-types --test tests/forecast-review-outbox.test.ts` (8 synthetic tests). The standalone library passes TypeScript strict compilation with the existing forward-ledger type contract. This code changes no data, routes, secrets, accounts, broker permissions or production services.
+
+## Loop 1 handoff / activation prerequisites
+
+Provide a licensed and authorized source-identifiable completed-candle feed, server-owned monotonic receipt time, and append-only transactional journal with atomic forecast issuance/settlement/outbox event commit and durable deduplication. Verify session calendar handling, clock skew, provenance, retention, crash recovery, feed entitlement and an authenticated notification destination. Test actual delivery retries and false positives before activation. No real-money orders without a supported broker, account eligibility, current executable quote, defined hard risk limits and owner confirmation for each specific order.
+
+## Prospective timing gate (24 October 2026)
+
+The review evaluator and its in-memory outbox now require an explicit `asOf` epoch-second timestamp. A settled record must have a causal issue time and a resolution time at or after the target close, no later than `asOf`. Pending records must have no resolution or outcome; void records must carry a valid resolution timestamp and no outcome. Overdue unresolved forecasts fail closed. Future-dated settlements, invalid base prices and malformed status transitions are rejected. This prevents synthetic or delayed future observations from silently becoming review candidates. The supplied clock is **not authenticated**, so the evaluator remains disconnected, `UNVERIFIED_LOCAL_RESEARCH`, and unsuitable for live alerts. The caller must not replace it with an untrusted browser clock for real forward monitoring.
