@@ -255,3 +255,15 @@ def test_missing_reverse_source_binding_fails_closed(stores):
     assert result["reason"] == "QUOTE_SOURCE_BINDING_INCOMPLETE"
     assert journal.load("paper-session-a")["revision"] == 0
     assert quotes.load_marker(SOURCE)["revision"] == 0
+
+    # A missing reverse marker must not reopen the standalone quote writer.
+    # The surviving forward binding proves that this source is still owned.
+    rejected = quotes.observe(SOURCE, quote(2), now_ms=NOW + 130)
+    assert rejected["status"] == "HOLD_RECONCILIATION"
+    assert rejected["reason"] == "QUOTE_SOURCE_BINDING_INCOMPLETE"
+    assert rejected["paper_order_permitted"] is False
+    assert rejected["live_order_permitted"] is False
+    assert journal.load("paper-session-a")["revision"] == 0
+    assert quotes.load_marker(SOURCE)["revision"] == 0
+    with factory() as db:
+        assert len(db.scalars(select(Audit)).all()) == 1
