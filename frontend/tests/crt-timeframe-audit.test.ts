@@ -149,3 +149,34 @@ test('a forged audit cannot substitute an existing uncheckable 4H reference',()=
  assert.throws(()=>certifiedCrtFourHourBars(h,partial,forged),
   /Stale or inconsistent 4H\/15m certification report/);
 });
+
+test('certification rejects coordinated post-audit edits even when both timeframes still reconcile',()=>{
+ const x=fixture();
+ const report=auditCrtCrossTimeframe(x.h,x.q);
+ assert.deepEqual(certifiedCrtFourHourBars(x.h,x.q,report),x.h,
+  'unchanged audited candles remain eligible');
+ // Both aggregates are changed together: a fresh cross-timeframe audit still
+ // succeeds, but the old report must not certify these replacement prices.
+ x.h[0].open+=0.01;
+ x.q[0].open+=0.01;
+ assert.equal(auditCrtCrossTimeframe(x.h,x.q).checkedFourHourBars,2);
+ assert.throws(()=>certifiedCrtFourHourBars(x.h,x.q,report),
+  /Stale or inconsistent 4H\/15m certification report/);
+
+ const y=fixture();
+ y.q.forEach(b=>{b.volume=5;});
+ y.h.forEach(b=>{b.volume=80;});
+ const volumeReport=auditCrtCrossTimeframe(y.h,y.q);
+ y.q[0].volume=6;
+ y.h[0].volume=81;
+ assert.equal(auditCrtCrossTimeframe(y.h,y.q).checkedFourHourBars,2);
+ assert.throws(()=>certifiedCrtFourHourBars(y.h,y.q,volumeReport),
+  /Stale or inconsistent 4H\/15m certification report/);
+});
+
+test('a copied audit report without its issued snapshot cannot certify candle inputs',()=>{
+ const x=fixture();
+ const report=auditCrtCrossTimeframe(x.h,x.q);
+ assert.throws(()=>certifiedCrtFourHourBars(x.h,x.q,{...report}),
+  /Stale or inconsistent 4H\/15m certification report/);
+});
