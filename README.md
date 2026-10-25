@@ -1,3 +1,7 @@
+https://trading-strategy-lab-private.onrender.com/  
+
+https://zrsaimun.github.io/trading-strategy-lab/
+
 # Trading Strategy Lab
 
 Private, local-first historical trading research. **Phase 1 foundation; not a complete trading platform.** No live feeds, AI connector, confirmed signals or orders are enabled. Basic completed-bar research observations and replay are available. No historical market data or credentials are distributed.
