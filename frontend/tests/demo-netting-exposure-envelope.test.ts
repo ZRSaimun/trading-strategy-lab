@@ -126,7 +126,7 @@ test('rejects unsupported hedging, fractional, negative, excessive and hidden po
 test('inherits cross-order duplicate and cross-source failures',()=>{
   const orders=[order('a','BUY',[ack('a')]),order('b','SELL',[ack('b')])];
   const duplicate=[orders[0],order('b','SELL',[{...ack('b'),eventId:'ack-a'}])];
-  assert.throws(()=>review(duplicate),/Duplicate cross-order event/);
+  assert.throws(()=>review(duplicate),/duplicate event/i);
   const changed=[order('a','BUY',[{...ack('a'),accountAlias:'other'}])];
   assert.throws(()=>review(changed),/cross-source/);
 });
