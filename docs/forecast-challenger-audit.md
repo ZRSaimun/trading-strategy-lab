@@ -1,0 +1,15 @@
+# Loop 5: paired prospective challenger audit
+
+This additive, disconnected Python research primitive compares **two previously issued model versions** on exactly the same completed-candle base timestamps and horizon (1, 3 or 12). It uses the existing `ForecastEventStore.load` snapshot; it does not issue forecasts, connect a provider, deliver alerts, simulate fills or submit orders.
+
+`compare_prospective_models(snapshot, incumbent="...", challenger="...", horizon=1, as_of=server_epoch, min_pairs=30)` replays **all** journal events with the existing causal replay validator and checks the derived forecast projection byte-for-byte in Python data terms. Any unmatched model/base candle, pending or gap-voided outcome withholds **all** paired scores; fewer than 30 settled pairs also withhold scores. Other model versions are replay-validated but are not included in the comparison. Each horizon is scored separately.
+
+When complete, the function reports paired Brier losses, challenger minus incumbent mean Brier loss (negative favours challenger), descriptive Brier skill relative to incumbent, worst single excess probability loss, mean probability disagreement, and worst positive excursion of cumulative excess probability loss from its previous minimum. The latter is **not trading drawdown**. If incumbent Brier is exactly zero, the relative skill ratio is unavailable. No p-values, confidence claims or automatic winner selection are produced.
+
+The journal uses an injected server clock in tests. Its `evidence` remains `UNAUTHENTICATED_DISCONNECTED_SERVER_JOURNAL`: a locally constructed or persisted event is **not** an authenticated provider receipt. `as_of` and model-version selection are caller-declared and not independently preregistered. Models may share training data, target horizons may overlap, and comparisons may be serially dependent. The sample count does not establish statistical significance, profitable expectancy, executable spreads or genuine forward performance.
+
+**Safety:** no routes, DB migrations, keys, paid data, notifications, paper orders, live orders or production changes. Both order-permission flags are always false. This module must never relabel historical BID bars, quarantined archives, or synthetic tests as live executable quotes.
+
+**Acceptance:** run `cd backend && pytest -q tests/test_forecast_challenger_audit.py`, then exact-head full backend/frontend/PostgreSQL/Docker/free-cloud CI. Keep PR draft/unmerged until current-main conflict review and independently verified backup restore, rollback and post-release health readiness.
+
+**Loop 1 handoff:** provide legally entitled authenticated prospective completed-candle receipts, immutable source/side/provider identifiers, server-owned issue and receipt timestamps, market-session gap policy, and complete forecast/outcome census. Only after independent provider authentication and forward journal acceptance should a read-only shadow comparison be considered for operational research. Broker executable bid/ask and paper fills require separate validation.
