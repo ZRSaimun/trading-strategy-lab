@@ -41,7 +41,7 @@ const nonblank = (v: unknown): v is string => typeof v === 'string' && v.length 
 function exact(value: unknown, fields: readonly string[], kind: string): void {
   if (!value || typeof value !== 'object' || Array.isArray(value) ||
       Object.keys(value).length !== fields.length || Object.keys(value).some(k => !fields.includes(k)))
-    throw Error(\`Invalid \${kind} schema: extra outcome fields and missing metadata are forbidden\`);
+    throw Error(`Invalid ${kind} schema: extra outcome fields and missing metadata are forbidden`);
 }
 function checkPlan(plan: PurgedPlan): void {
   exact(plan, ['source','archiveLineage','protocol','eligible','excluded','warnings'], 'purged plan');
