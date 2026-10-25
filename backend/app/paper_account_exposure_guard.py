@@ -96,6 +96,7 @@ def evaluate_paper_account_exposure(snapshot: dict, *, now_ms: int) -> dict:
         'no_uncertain_order_outcomes': True,
         'all_quotes_fresh_and_uncrossed': True,
         'all_stops_and_stress_sides_valid': True,
+        'no_breached_protective_stops': True,
         'all_position_losses_within_cap': True,
         'orders_per_symbol_within_cap': True,
         'symbol_notional_within_cap': True,
@@ -148,7 +149,12 @@ def evaluate_paper_account_exposure(snapshot: dict, *, now_ms: int) -> dict:
             checks['all_stops_and_stress_sides_valid'] &= stop_ok
             # Include the potential give-back of current open unrealized gains.
             mark = bid if is_long else ask
-            distance = (max(entry, mark) - exit_price) if is_long else (exit_price - min(entry, mark))
+            # A quote already through the stop requires broker reconciliation:
+            # the requested stop is not evidence of a protective fill.
+            checks['no_breached_protective_stops'] &= (mark > stop if is_long else mark < stop)
+            # The currently executable side can be WORSE than the supplied
+            # stressed exit. Never understate losses after a gap through it.
+            distance = (max(entry, mark) - min(exit_price, mark)) if is_long else (max(exit_price, mark) - min(entry, mark))
             loss = max(Decimal(0), distance) * qty * point + fees
             # Do not let a cheap historic entry understate current gross exposure.
             notional = max(entry, ask) * qty * point
@@ -166,6 +172,7 @@ def evaluate_paper_account_exposure(snapshot: dict, *, now_ms: int) -> dict:
                 'assumed_margin_cash': format(assumed_margin, 'f'),
                 'quote_policy_pass': bool(time_ok and spread_ok),
                 'stop_policy_pass': bool(stop_ok),
+                'protective_stop_unbreached': bool(mark > stop if is_long else mark < stop),
             })
         checks['orders_per_symbol_within_cap'] = all(n <= max_per_symbol for n in counts.values())
         checks['symbol_notional_within_cap'] = all(v <= symbol_cap for v in per_symbol.values())
@@ -197,6 +204,7 @@ def evaluate_paper_account_exposure(snapshot: dict, *, now_ms: int) -> dict:
             'Caller-declared portfolio is not broker-reconciled; omitted orders/positions can invalidate every limit.',
             'Pending and uncertain orders are counted at full quantity; cancellation is not a confirmed release.',
             'Stop losses and stressed exits are scenarios, not guaranteed fills or maximum possible losses.',
+            'A breached stop requires broker reconciliation; the current executable side may imply a worse loss than the stressed exit.',
             'All values assume verified point-value and account-currency conversion, which this module cannot verify.',
             'No broker API, persistent reservation, human approval, or order sender is connected.',
         ],
