@@ -129,7 +129,7 @@ def test_negative_historical_price_uses_absolute_notional():
         path["bars"][0].update(open="-35", high="-33", low="-36", close="-34")
     result = run(manifest, paths)
     assert result["gross_total_lower_r"] == "18.0"
-    assert result["additional_notional_cost_r_per_bps"] == "0.0630"
+    assert result["additional_notional_cost_r_per_bps"] == "0.06300"
     assert result["zero_mean_lower_bound_cost_bps_floor_6dp"] == "285.714285"
 
 
