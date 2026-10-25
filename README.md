@@ -124,3 +124,10 @@ The project now defaults to `FREE_ONLY=true`, blocking the external historical-d
 ## Single-service free hosting preparation
 
 A combined Next.js/FastAPI Docker image, explicitly free Render Blueprint and private Postgres schema are available. See [setup, enforced limits and cloud activation checks](docs/free-cloud-deployment.md). This prepares deployment; it does not create or activate cloud resources.
+
+## Native Gold CSV research
+
+The private **Gold CSV Research** page saves original UTC hourly/minute BID or
+ASK exports, validates coverage, and charts/replays their native candles without
+feeding hourly data into minute-based backtests. See [format, limits and source
+caveats](docs/gold-csv-research.md). Uploaded prices are not bundled with the code.
