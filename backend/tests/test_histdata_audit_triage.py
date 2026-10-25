@@ -45,7 +45,8 @@ def test_conflicting_duplicates_require_quarantine():
     row = report["archives"][0]
     row.update(unique_timestamps=2, duplicate_timestamps=1,
                conflicting_duplicate_ohlc=1, backward_timestamp_jumps=1,
-               status="QUARANTINE_REVIEW")
+               observed_gap_events=1, unobserved_minutes_between_rows=1,
+               largest_gap_minutes=2, status="QUARANTINE_REVIEW")
     report["summary"].update(duplicate_timestamps=1, conflicting_duplicate_ohlc=1,
                              backward_timestamp_jumps=1, format_ok_no_collisions=0,
                              quarantine_review=1)
