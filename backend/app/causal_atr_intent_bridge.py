@@ -137,8 +137,12 @@ def compile_causal_atr_intents(source, candidates):
     manifest = dict(protocol="frozen-next-open-intent-v1", source=dict(source),
                     eligible_intents=eligible, excluded_signals=excluded)
     digest = fingerprint_next_open_intents(manifest)  # Existing strict schema validation.
-    canonical = dict(policy=_POLICY, source=source, manifest=manifest,
-                     candidates=sorted(candidates, key=lambda c: (c["confirmation_close_at"], c["path_id"])))
+    canonical = dict(
+        policy=_POLICY, source=source,
+        manifest=dict(manifest,
+                      eligible_intents=sorted(eligible, key=lambda x: (x["signal_at"], x["path_id"])),
+                      excluded_signals=sorted(excluded, key=lambda x: (x["signal_at"], x["path_id"]))),
+        candidates=sorted(candidates, key=lambda c: (c["confirmation_close_at"], c["path_id"])))
     payload = json.dumps(canonical, sort_keys=True, separators=(",", ":"), ensure_ascii=True, allow_nan=False)
     evidence_sha = hashlib.sha256(payload.encode("utf-8")).hexdigest()
     return dict(policy=_POLICY, manifest=manifest, manifest_sha256=digest,
