@@ -194,7 +194,7 @@ def test_postgres_atomic_quote_journal_first_writer_race(pg_store):
     assert PaperJournalStore(factory).load("pg-atomic-journal")["revision"] == 0
     with factory() as session:
         assert len(session.scalars(select(Audit)).all()) == 1
-        assert len(session.scalars(select(Record)).all()) == 3
+        assert len(session.scalars(select(Record)).all()) == 4
 
 
 def test_postgres_atomic_quote_journal_revision_race(pg_store):
@@ -251,3 +251,34 @@ def test_postgres_bound_atomic_journal_rejects_standalone_cas(pg_store):
     assert _atomic_checkpoint(atomic, 2, 0)["status"] == "CHECKPOINT_RECORDED_UNVERIFIED"
     assert journal.load("pg-atomic-journal")["revision"] == 1
     assert quote_store.load_marker(SOURCE)["revision"] == 1
+
+
+def test_postgres_atomic_source_blocks_standalone_quote_writer(pg_store):
+    quotes, _engine, factory = pg_store
+    atomic = AtomicPaperQuoteJournalStore(factory)
+    journal = PaperJournalStore(factory)
+    assert _atomic_checkpoint(atomic, 1)["status"] == "CHECKPOINT_RECORDED_UNVERIFIED"
+    result = quotes.observe(SOURCE, quote(2), now_ms=NOW + 130)
+    assert result["reason"] == "ATOMIC_JOURNAL_OWNS_QUOTE_SOURCE"
+    assert result["status"] == "HOLD_RECONCILIATION"
+    assert quotes.load_marker(SOURCE)["revision"] == 0
+    assert journal.load("pg-atomic-journal")["revision"] == 0
+    with factory() as db:
+        assert len(db.scalars(select(Audit)).all()) == 1
+    assert _atomic_checkpoint(atomic, 2, 0)["status"] == "CHECKPOINT_RECORDED_UNVERIFIED"
+
+
+def test_postgres_source_rejects_second_journal_binding(pg_store):
+    quotes, _engine, factory = pg_store
+    atomic = AtomicPaperQuoteJournalStore(factory)
+    assert _atomic_checkpoint(atomic, 1)["status"] == "CHECKPOINT_RECORDED_UNVERIFIED"
+    result = atomic.checkpoint(
+        SOURCE, quote(2), "another-pg-journal", JOURNAL_IDENTITY,
+        None, 0, _checkpoint_json(2), now_ms=NOW + 130,
+    )
+    assert result["status"] == "HOLD_RECONCILIATION"
+    assert result["reason"] == "QUOTE_SOURCE_ALREADY_BOUND_TO_OTHER_JOURNAL"
+    assert quotes.load_marker(SOURCE)["revision"] == 0
+    assert PaperJournalStore(factory).load("another-pg-journal") is None
+    with factory() as db:
+        assert len(db.scalars(select(Audit)).all()) == 1
