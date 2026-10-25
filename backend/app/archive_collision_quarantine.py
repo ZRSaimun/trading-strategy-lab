@@ -7,16 +7,37 @@ from __future__ import annotations
 
 import argparse
 import csv
+import hashlib
 import json
 from pathlib import Path
+import re
 import zipfile
 
 from .archive_duplicate_parity import ParityInputError, _records
 
 
+def _archive_fingerprint(path, *, max_archive_bytes):
+    """Stream compressed ZIP bytes; fail if a file exceeds the explicit budget."""
+    size = Path(path).stat().st_size
+    if size <= 0 or size > max_archive_bytes:
+        raise ParityInputError('Compressed archive byte budget exceeded')
+    digest = hashlib.sha256()
+    consumed = 0
+    with open(path, 'rb') as stream:
+        while chunk := stream.read(1024 * 1024):
+            consumed += len(chunk)
+            if consumed > max_archive_bytes:
+                raise ParityInputError('Compressed archive byte budget exceeded')
+            digest.update(chunk)
+    if consumed != size:
+        raise ParityInputError('Archive changed during fingerprinting')
+    return consumed, digest.hexdigest()
+
+
 def scan_archive_collisions(path, *, data_format, instrument, provider,
                             max_unique_minutes=500_000, max_rows=20_000_000,
-                            max_uncompressed_bytes=2_000_000_000, sample_limit=30):
+                            max_uncompressed_bytes=2_000_000_000, sample_limit=30,
+                            max_archive_bytes=2_000_000_000, expected_sha256=None):
     """Return bounded metadata, never prices; reject if exact tracking exceeds budget.
 
     The first OHLC observation for each naive wall minute is held in memory
@@ -31,11 +52,18 @@ def scan_archive_collisions(path, *, data_format, instrument, provider,
             ch.isalnum() or ch in '._- ' for ch in provider):
         raise ParityInputError('Invalid provider identity')
     if (any(type(n) is not int or n <= 0 for n in
-            (max_unique_minutes, max_rows, max_uncompressed_bytes))
+            (max_unique_minutes, max_rows, max_uncompressed_bytes, max_archive_bytes))
             or type(sample_limit) is not int or not 0 <= sample_limit <= 50):
         raise ParityInputError('Invalid resource budget')
     if not Path(path).is_file():
         raise ParityInputError('ZIP file not found')
+    if expected_sha256 is not None and (not isinstance(expected_sha256, str)
+                                        or not re.fullmatch(r'[0-9a-f]{64}', expected_sha256)):
+        raise ParityInputError('Invalid expected archive SHA-256')
+    original_size, original_sha256 = _archive_fingerprint(
+        path, max_archive_bytes=max_archive_bytes)
+    if expected_sha256 is not None and original_sha256 != expected_sha256:
+        raise ParityInputError('Archive SHA-256 differs from expected identity')
 
     counters = dict(rows=0, adjacent_duplicate_minutes=0,
                     conflicting_adjacent_duplicate_ohlc=0, backward_jumps=0,
@@ -89,10 +117,17 @@ def scan_archive_collisions(path, *, data_format, instrument, provider,
     finally:
         iterator.close()
 
+    # Bind the forensic result to the same compressed bytes read during the scan.
+    # This is an integrity check, not provider authentication or a license grant.
+    final_size, final_sha256 = _archive_fingerprint(path, max_archive_bytes=max_archive_bytes)
+    if (final_size, final_sha256) != (original_size, original_sha256):
+        raise ParityInputError('Archive changed during collision scan')
     needs_quarantine = bool(repeated_rows or counters['backward_jumps'])
     return {
         'result': 'QUARANTINE_REQUIRED' if needs_quarantine else 'FORMAT_CHECK_ONLY_UNVERIFIED',
         'instrument': instrument, 'provider': provider, 'format': data_format,
+        'archive_sha256': original_sha256, 'archive_size_bytes': original_size,
+        'archive_integrity': 'MATCHED_BEFORE_AND_AFTER_SCAN',
         'source_order_rows': counters['rows'], 'distinct_wall_minutes': len(first),
         'repeated_rows': repeated_rows, 'collision_minutes': collision_minutes,
         'conflicting_repeated_rows_vs_first': conflicting_repeated_rows,
@@ -120,11 +155,15 @@ def main(argv=None):
     parser.add_argument('--instrument', required=True)
     parser.add_argument('--provider', required=True)
     parser.add_argument('--max-unique-minutes', type=int, default=500_000)
+    parser.add_argument('--max-archive-bytes', type=int, default=2_000_000_000)
+    parser.add_argument('--expected-sha256')
     args = parser.parse_args(argv)
     try:
         report = scan_archive_collisions(args.archive, data_format=args.format,
                                          instrument=args.instrument, provider=args.provider,
-                                         max_unique_minutes=args.max_unique_minutes)
+                                         max_unique_minutes=args.max_unique_minutes,
+                                         max_archive_bytes=args.max_archive_bytes,
+                                         expected_sha256=args.expected_sha256)
     except (ParityInputError, OSError, ValueError, UnicodeError, csv.Error,
             zipfile.BadZipFile, RuntimeError):
         print(json.dumps({'result': 'REJECTED', 'research_ready': False,
