@@ -230,3 +230,24 @@ def test_postgres_atomic_quote_journal_audit_failure_rolls_back_all(pg_store):
     with factory() as session:
         assert session.scalars(select(Record)).all() == []
         assert session.scalars(select(Audit)).all() == []
+
+
+def test_postgres_bound_atomic_journal_rejects_standalone_cas(pg_store):
+    quote_store, _engine, factory = pg_store
+    atomic = AtomicPaperQuoteJournalStore(factory)
+    journal = PaperJournalStore(factory)
+    assert _atomic_checkpoint(atomic, 1)["status"] == "CHECKPOINT_RECORDED_UNVERIFIED"
+
+    # A separate writer must not advance the journal without advancing its
+    # bound quote replay marker; rejected attempts must not add an audit.
+    assert journal.compare_and_swap(
+        "pg-atomic-journal", JOURNAL_IDENTITY, 0, 1, _checkpoint_json(2)
+    ) is False
+    assert journal.load("pg-atomic-journal")["revision"] == 0
+    assert quote_store.load_marker(SOURCE)["revision"] == 0
+    with factory() as session:
+        assert len(session.scalars(select(Audit)).all()) == 1
+
+    assert _atomic_checkpoint(atomic, 2, 0)["status"] == "CHECKPOINT_RECORDED_UNVERIFIED"
+    assert journal.load("pg-atomic-journal")["revision"] == 1
+    assert quote_store.load_marker(SOURCE)["revision"] == 1
