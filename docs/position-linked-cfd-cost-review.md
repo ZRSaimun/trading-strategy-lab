@@ -1,0 +1,11 @@
+# Offline position-linked CFD cost review (opt-in)
+
+`reviewPositionLinkedDeclaredCfdCosts` wraps the existing quote/fill execution audit, CFD financing audit, temporal consistency check and incremental cost-envelope stress scenarios. It **first** requires an explicit, exact-coverage mapping of every declared order and every declared fill to the same declared financed `positionId`. Unlinked, duplicate, foreign, cross-position, cross-account, cross-instrument, source-digest-mismatched, backdated and future-dated mappings are rejected. A partial fill or missing financing event still withholds the entire base and stressed cost totals.
+
+The linkage includes a declared execution-statement SHA-256, the quote-batch SHA-256 and financing-statement SHA-256. These strings are identifiers only. This offline function **does not read or hash statement bytes, verify a broker signature, certify completeness of exported orders, or prove that a mapped fill belongs to the position**. Both `PAPER_LEDGER` and `BROKER_EXPORT` are explicitly unverified labels. It cannot establish immutable pre-outcome registration: a caller can fabricate a consistent manifest after seeing outcomes. The returned status is `COMPLETE_SELF_DECLARED_POSITION_LINKAGE`, never authenticated.
+
+This is a stricter **opt-in** API; it intentionally does not silently change legacy `reviewDeclaredCfdCostEnvelope` callers. Before promoting this to a required evaluation gate, integrate independently sourced, immutable, position-specific broker or demo-ledger receipts with signed or otherwise independently verifiable provenance, a complete order/fill population and time-of-capture attestations. Test multi-position and partial-fill reconciliation against a supported broker's actual demo export. Freeze evaluation windows and costs before looking at untouched holdouts.
+
+Research-only; no broker API, real/demo order submission, trade authorization, P&L estimate, risk limit, deployment, licensing assertion or profitable-edge claim. The declared cost budget remains a **cost tolerance**, not a maximum trading loss.
+
+Run synthetic regressions from `frontend` with `npm test`; validate the full project through GitHub Actions at the exact branch head. Do not merge or deploy the diverged Loop 3 draft until branch reconciliation and release rollback/health evidence are verified.
