@@ -149,3 +149,37 @@ test('fold embargo cannot weaken the upstream preregistered embargo',async()=>{
  await assert.rejects(run(p,sample,{...spec,embargoSeconds:0}),/Invalid predeclared/);
  assert.equal((await run(p,sample,{...spec,embargoSeconds:2*d})).folds.length,3);
 });
+
+
+test('frozen digest binds validation/holdout partition IDs and exclusion reasons without reading outcomes',async()=>{
+ const baseline=await run();
+ const val=makePlan();val.eligible.validation.push('validation-metadata-only');
+ const valReview=await run(val);
+ assert.notEqual(valReview.scheduleSha256,baseline.scheduleSha256);
+ const hold=makePlan();hold.eligible.holdout.push('holdout-metadata-only');
+ assert.notEqual((await run(hold)).scheduleSha256,baseline.scheduleSha256);
+ const excluded=makePlan();excluded.excluded.push({id:'excluded-metadata-only',reason:'OUTSIDE_PERIOD'});
+ const excludedReview=await run(excluded);
+ assert.notEqual(excludedReview.scheduleSha256,baseline.scheduleSha256);
+ const changed=makePlan();changed.excluded.push({id:'excluded-metadata-only',reason:'CROSS_BOUNDARY_FEATURES'});
+ assert.notEqual((await run(changed)).scheduleSha256,excludedReview.scheduleSha256);
+ // The same manifest is independent of caller ordering.
+ const ordered=makePlan();ordered.eligible.validation=['v-a','v-b'];
+ ordered.eligible.holdout=['h-a','h-b'];
+ ordered.excluded=[{id:'e-a',reason:'OUTSIDE_PERIOD'},{id:'e-b',reason:'CROSS_BOUNDARY_FEATURES'}];
+ const reversed=structuredClone(ordered);
+ reversed.eligible.validation.reverse();reversed.eligible.holdout.reverse();reversed.excluded.reverse();
+ assert.equal((await run(ordered)).scheduleSha256,(await run(reversed)).scheduleSha256);
+ assert.equal('holdoutOutcome' in valReview,false);
+});
+
+test('rejects excluded IDs colliding with eligible partitions, duplicates and malformed reasons',async()=>{
+ const overlap=makePlan();overlap.excluded.push({id:'t0',reason:'OUTSIDE_PERIOD'});
+ await assert.rejects(run(overlap),/eligible excluded/);
+ const duplicate=makePlan();duplicate.excluded=[
+  {id:'not-eligible',reason:'OUTSIDE_PERIOD'},
+  {id:'not-eligible',reason:'EMBARGO_OR_UNSETTLED'}];
+ await assert.rejects(run(duplicate),/eligible excluded/);
+ const malformed=makePlan();malformed.excluded.push({id:'excluded',reason:'UNRECOGNIZED'} as never);
+ await assert.rejects(run(malformed),/eligible excluded/);
+});
