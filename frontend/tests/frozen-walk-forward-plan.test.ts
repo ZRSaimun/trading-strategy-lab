@@ -7,7 +7,7 @@ const yr=(y:number)=>Math.floor(Date.UTC(y,0,1)/1000);
 const d=86400;
 const source={provider:'SyntheticOnly',instrument:'XAUUSD',venue:'test',priceSide:'bid' as const,utcConvention:'UTC' as const};
 const archiveLineage=[2020,2021,2022,2023,2024].map((y,i)=>({
- id:\`a-\${y}\`,archiveSha256:String(i+1).repeat(64),start:yr(y),end:yr(y+1)
+ id:`a-${y}`,archiveSha256:String(i+1).repeat(64),start:yr(y),end:yr(y+1)
 }));
 const protocol={developmentEnd:yr(2023),validationEnd:yr(2024),holdoutEnd:yr(2025),
  embargoSeconds:0,strategyVersion:'frozen-v1',configSha256:'a'.repeat(64)};
