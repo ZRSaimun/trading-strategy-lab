@@ -126,3 +126,9 @@ test('does not mutate caller source, observations or schedule',async()=>{
  await run(p,o,s);
  assert.deepEqual({p,o,s},before);
 });
+
+test('fold embargo cannot weaken the upstream preregistered embargo',async()=>{
+ const p=makePlan();p.protocol.embargoSeconds=2*d;
+ await assert.rejects(run(p,sample,{...spec,embargoSeconds:0}),/Invalid predeclared/);
+ assert.equal((await run(p,sample,{...spec,embargoSeconds:2*d})).folds.length,3);
+});
