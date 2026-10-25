@@ -63,6 +63,12 @@ class PairedM1PreflightTests(unittest.TestCase):
         self.assertEqual(report['observed_gaps_over_interval'], 1)
         self.assertEqual(report['observed_unrepresented_interval_slots'], 2)
         self.assertEqual(report['largest_observed_gap_seconds'], 180)
+        self.assertEqual(report['observed_gap_samples_first_10'], [{
+            'previous_observed_utc': '2021-01-04T00:00:00+00:00',
+            'next_observed_utc': '2021-01-04T00:03:00+00:00',
+            'unrepresented_interval_slots': 2,
+        }])
+        self.assertFalse(report['observed_gap_samples_truncated'])
         self.assertEqual(report['rows'], 2)
 
     def test_non_minute_rejected(self):
@@ -108,6 +114,8 @@ class PairedM1PreflightTests(unittest.TestCase):
         self.assertEqual(report['observed_gaps_over_interval'], 0)
         self.assertEqual(report['observed_unrepresented_interval_slots'], 0)
         self.assertEqual(report['largest_observed_gap_seconds'], 0)
+        self.assertEqual(report['observed_gap_samples_first_10'], [])
+        self.assertFalse(report['observed_gap_samples_truncated'])
         self.assertFalse(report['approved_for_backtest'])
 
     def test_hourly_weekend_gap_is_observed_not_filled(self):
@@ -118,6 +126,8 @@ class PairedM1PreflightTests(unittest.TestCase):
         self.assertEqual(report['observed_gaps_over_interval'], 1)
         self.assertEqual(report['observed_unrepresented_interval_slots'], 48)
         self.assertEqual(report['largest_observed_gap_seconds'], 49 * 3600)
+        self.assertEqual(report['observed_gap_samples_first_10'][0]['unrepresented_interval_slots'], 48)
+        self.assertFalse(report['observed_gap_samples_truncated'])
         self.assertFalse(report['approved_for_backtest'])
 
     def test_multiple_gaps_report_slots_without_inventing_market_activity(self):
@@ -128,6 +138,20 @@ class PairedM1PreflightTests(unittest.TestCase):
         self.assertEqual(report['observed_gaps_over_interval'], 2)
         self.assertEqual(report['observed_unrepresented_interval_slots'], 6)
         self.assertEqual(report['largest_observed_gap_seconds'], 300)
+        self.assertFalse(report['approved_for_backtest'])
+
+    def test_gap_samples_bounded_without_suppressing_full_counts(self):
+        # Twelve separate 3-minute jumps, each hiding two unrepresented slots.
+        times = [f'00:{i * 3:02d}:00' for i in range(13)]
+        bid = ''.join(BID.replace('00:00:00', time) for time in times)
+        ask = ''.join(ASK.replace('00:00:00', time) for time in times)
+        report = self.check(bid, ask)
+        self.assertEqual(report['observed_gaps_over_interval'], 12)
+        self.assertEqual(report['observed_unrepresented_interval_slots'], 24)
+        self.assertEqual(len(report['observed_gap_samples_first_10']), 10)
+        self.assertEqual(report['observed_gap_samples_first_10'][-1]['next_observed_utc'],
+                         '2021-01-04T00:30:00+00:00')
+        self.assertTrue(report['observed_gap_samples_truncated'])
         self.assertFalse(report['approved_for_backtest'])
 
     def test_hourly_half_hour_candle_rejected(self):
