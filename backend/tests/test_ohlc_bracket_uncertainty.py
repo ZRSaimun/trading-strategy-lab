@@ -109,4 +109,11 @@ def test_duplicate_and_mixed_source_rejected():
     with pytest.raises(ValueError,match='Duplicate'):
         audit_paths([path(),path()])
     with pytest.raises(ValueError,match='Mixed source'):
-        audit_paths([path(),path(path_id='q',provider='other')])
+        audit_paths([path(),path(path_id='q',provider='other',signal_at=T+60,entry_at=T+120,bars=[bar(T+120)])])
+
+def test_duplicate_signal_clock_and_mixed_horizons_rejected():
+    with pytest.raises(ValueError,match='Duplicate completed-signal'):
+        audit_paths([path(),path(path_id='q')])
+    with pytest.raises(ValueError,match='Mixed source'):
+        audit_paths([path(),path(path_id='q',signal_at=T+60,entry_at=T+120,
+                                 horizon_minutes=2,bars=[bar(T+120),bar(T+180)])])
