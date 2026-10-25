@@ -43,6 +43,9 @@ def test_disjoint_development_folds_do_not_inspect_validation_or_holdout():
     assert [f["trainIds"] for f in result["folds"]] == [["train"], ["train", "test1"]]
     assert result["validationHoldoutAccess"] is False and result["mayExecuteOrder"] is False
     assert result["archiveCount"] == 5
+    assert result["archiveLineage"][0]["archiveSha256"] == f"{1:064x}"
+    assert result["protocol"]["developmentEnd"] == START+3*YEAR
+    assert result["folds"][0]["bounds"]["testStart"] == START+403*D
 
 
 def test_future_holdout_metadata_does_not_change_fold_results():
