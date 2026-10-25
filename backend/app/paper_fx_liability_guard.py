@@ -11,9 +11,9 @@ from hashlib import sha256
 import json
 import re
 
-_AMOUNT = re.compile(r"-?(?:0|[1-9][0-9]{0,14})(?:\\.[0-9]{1,8})?\\Z")
-_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:/+-]{0,79}\\Z")
-_CCY = re.compile(r"[A-Z]{3}\\Z")
+_AMOUNT = re.compile(r"-?(?:0|[1-9][0-9]{0,14})(?:\.[0-9]{1,8})?\Z")
+_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:/+-]{0,79}\Z")
+_CCY = re.compile(r"[A-Z]{3}\Z")
 _MAX_TIME = 8_640_000_000_000_000
 _ACCOUNT_FIELDS = {
     'account_currency', 'equity_cash', 'daily_realized_pnl_cash',
