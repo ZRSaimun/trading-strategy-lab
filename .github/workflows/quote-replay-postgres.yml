@@ -4,14 +4,18 @@ on:
   pull_request:
     paths:
       - 'backend/app/paper_quote_replay_store.py'
+      - 'backend/app/paper_quote_journal_atomic.py'
       - 'backend/tests/test_paper_quote_replay_postgres.py'
+      - 'backend/tests/test_paper_quote_journal_atomic.py'
       - '.github/workflows/quote-replay-postgres.yml'
   push:
     branches:
       - 'risk/durable-paper-quote-replay-20261025'
     paths:
       - 'backend/app/paper_quote_replay_store.py'
+      - 'backend/app/paper_quote_journal_atomic.py'
       - 'backend/tests/test_paper_quote_replay_postgres.py'
+      - 'backend/tests/test_paper_quote_journal_atomic.py'
       - '.github/workflows/quote-replay-postgres.yml'
 
 permissions:
@@ -44,5 +48,5 @@ jobs:
         with:
           python-version: '3.12'
       - run: python -m pip install -r backend/requirements-dev.txt
-      - name: PostgreSQL quote replay concurrency and rollback
+      - name: PostgreSQL quote replay and atomic journal acceptance
         run: cd backend && PYTHONPATH=. python -m pytest -q tests/test_paper_quote_replay_postgres.py
