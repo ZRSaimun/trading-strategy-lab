@@ -86,6 +86,8 @@ def inspect_eurusd_pair(bid_raw, ask_raw, *, interval):
     # High/low extrema on two OHLC bars need not occur simultaneously.
     close_spreads_pips = []
     unrepresented_slots, largest_gap_seconds = 0, 0
+    # Bounded diagnostic evidence, not a calendar classification or imputation.
+    gap_samples = []
     for index, (b, a) in enumerate(zip(bid, ask)):
         if b[0] != a[0]:
             raise ValueError(f'BID/ASK timestamp mismatch at paired row {index+1}')
@@ -104,6 +106,14 @@ def inspect_eurusd_pair(bid_raw, ask_raw, *, interval):
                 # weekends and closed sessions can legitimately span slots.
                 unrepresented_slots += elapsed_seconds // interval_seconds - 1
                 largest_gap_seconds = max(largest_gap_seconds, elapsed_seconds)
+                if len(gap_samples) < 10:
+                    gap_samples.append({
+                        'previous_observed_utc': datetime.fromtimestamp(
+                            bid[index-1][0], timezone.utc).isoformat(),
+                        'next_observed_utc': datetime.fromtimestamp(
+                            b[0], timezone.utc).isoformat(),
+                        'unrepresented_interval_slots': elapsed_seconds // interval_seconds - 1,
+                    })
     close_spreads_pips.sort()
     # Nearest-rank percentiles select observed samples, not interpolated quotes.
     def observed_percentile(percent):
@@ -118,6 +128,8 @@ def inspect_eurusd_pair(bid_raw, ask_raw, *, interval):
         'observed_gaps_over_interval': gaps,
         'observed_unrepresented_interval_slots': unrepresented_slots,
         'largest_observed_gap_seconds': largest_gap_seconds,
+        'observed_gap_samples_first_10': gap_samples,
+        'observed_gap_samples_truncated': gaps > len(gap_samples),
         'bid_sha256': hashlib.sha256(bid_raw).hexdigest(),
         'ask_sha256': hashlib.sha256(ask_raw).hexdigest(),
         'observed_open_close_spread_min_pips': round(min_spread * 10000, 6),
