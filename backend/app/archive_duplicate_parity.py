@@ -43,11 +43,21 @@ def _records(path, fmt, counts, *, max_rows, max_uncompressed_bytes):
         with archive.open(member) as raw:
             with io.TextIOWrapper(raw, encoding='utf-8-sig', errors='strict', newline='') as stream:
                 def bounded_lines():
-                    for line in stream:
-                        if len(line) > 1024:
+                    # Iterating over TextIOWrapper allocates an entire physical
+                    # line before checking its length. Bound the read itself.
+                    while True:
+                        line = stream.readline(1025)
+                        if not line:
+                            break
+                        if len(line) > 1024 or (len(line) == 1024 and
+                                               not line.endswith(('\n', '\r'))):
                             raise ParityInputError('CSV line exceeds limit')
                         yield line
-                reader = csv.reader(bounded_lines(), delimiter=';' if fmt == 'ascii' else ',')
+                # HistData is unquoted CSV. Disallow multiline quoted fields,
+                # which otherwise evade the per-physical-line size budget.
+                reader = csv.reader(bounded_lines(),
+                                    delimiter=';' if fmt == 'ascii' else ',',
+                                    quoting=csv.QUOTE_NONE, strict=True)
                 for line_number, row in enumerate(reader, 1):
                     counts['rows'] += 1
                     if counts['rows'] > max_rows:
