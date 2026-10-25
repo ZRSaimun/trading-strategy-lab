@@ -1,0 +1,11 @@
+# Development candidate fold-removal sensitivity (offline research only)
+
+`app.development_candidate_sensitivity.audit_development_candidate_sensitivity(archives, observations, protocol, folds, candidates, registration, trials, selection)` consumes the **same declared inputs** as `audit_development_candidate_census`. It **reruns** the full source-aware chronological/candidate-census validation; it never trusts a previously supplied audit result.
+
+It returns a deterministic `postOutcomeReceiptSha256` over the full declared trial population (including exact score strings and observation timestamps), selected candidate and development registration digest. Reordering trials does not change the receipt; modifying a score or declared trial clock does. **This digest is created after outcomes, is not an external timestamped preregistration, and does not authenticate scores or establish that every experiment was disclosed.** Archive SHA strings remain unverified caller claims.
+
+For each development fold, the diagnostic reports the declared winner using only that fold and the winner after excluding that fold. It reports the selected candidate's worst declared fold score and mean score margin against the strongest other candidate. All calculations use Python `Decimal`; ties are broken by lexicographic candidate ID. A result with fewer than three folds is `INSUFFICIENT_FOLDS`; one candidate is `INSUFFICIENT_COMPARATORS`. With at least three folds and multiple candidates, the status is either `WINNER_PERSISTS_WITH_FOLD_REMOVAL` or `WINNER_CHANGES_WITH_FOLD_REMOVAL`. These statuses are **descriptive only**, not claims of statistical stability, causal inference, multiple-comparison adjustment, net-of-cost performance or profitability.
+
+No holdout outcomes, market candles, broker quotes, CFD financing, order placement, API calls, account credentials, network calls or production writes are used. Both `mayExecutePaperOrder` and `mayExecuteLiveOrder` remain false. Use authenticated source and executable-cost evidence, an independent pre-outcome research registration, and a genuinely untouched holdout before any performance claim. Do not publish licensed archives.
+
+Synthetic tests: `cd backend && PYTHONPATH=. python -m pytest -q tests/test_development_candidate_sensitivity.py`. They demonstrate only code behavior, not multi-year market performance.
