@@ -83,6 +83,16 @@ function checkPlan(plan: PurgedPlan): void {
   }
   const allIds = [...plan.eligible.development,...plan.eligible.validation,...plan.eligible.holdout];
   if (new Set(allIds).size !== allIds.length) throw Error('Observation appears in multiple chronological partitions');
+  // An excluded observation must never be simultaneously marked eligible.
+  // Validate this manifest even though its observations are never read here.
+  const excludedIds = new Set<string>();
+  for (const e of plan.excluded) {
+    exact(e, ['id','reason'], 'excluded observation');
+    if (!nonblank(e.id) || excludedIds.has(e.id) || allIds.includes(e.id) ||
+        !['EMBARGO_OR_UNSETTLED','CROSS_BOUNDARY_FEATURES','OUTSIDE_PERIOD'].includes(e.reason))
+      throw Error('Invalid, duplicate or eligible excluded observation');
+    excludedIds.add(e.id);
+  }
 }
 
 /**
@@ -158,8 +168,19 @@ export async function planFrozenWalkForward(
     .sort((a,b)=>a.id.localeCompare(b.id))
     .map(o=>({id:o.id,archiveId:o.archiveId,featureStart:o.featureStart,
       decisionAt:o.decisionAt,labelAvailableAt:o.labelAvailableAt}));
+  // Commit the complete upstream partition manifest, not just development clocks.
+  // Otherwise validation/holdout membership or exclusion reasons could change
+  // while retaining the same apparent frozen research schedule fingerprint.
+  // This binds IDs/reasons only: no holdout prices, labels or outcomes are read.
+  const partitionManifest = {
+    development:[...plan.eligible.development].sort(),
+    validation:[...plan.eligible.validation].sort(),
+    holdout:[...plan.eligible.holdout].sort(),
+    excluded:plan.excluded.map(e=>({id:e.id,reason:e.reason}))
+      .sort((a,b)=>a.id.localeCompare(b.id) || a.reason.localeCompare(b.reason))
+  };
   const canonical = {schema:'frozen-walk-forward-v1',source,
-    archiveLineage:lineage,protocol,observationTiming,
+    archiveLineage:lineage,protocol,observationTiming,partitionManifest,
     specification:{folds:windows.map(f=>({id:f.id,trainingStart:f.trainingStart,trainingEnd:f.trainingEnd,
       testingStart:f.testingStart,testingEnd:f.testingEnd})),embargoSeconds:spec.embargoSeconds,
       minTrainingObservations:spec.minTrainingObservations,
