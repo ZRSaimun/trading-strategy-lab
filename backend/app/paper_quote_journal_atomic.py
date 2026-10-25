@@ -52,6 +52,9 @@ class AtomicPaperQuoteJournalStore:
         source_hash = _source(source)
         quote_key = "paper-quote:" + source_hash
         journal_key = PaperJournalStore._key(session_id)
+        # One authoritative paper journal per quote source/account. Without this
+        # reverse binding, a second session could reuse the same quote marker.
+        source_binding_key = "paper-quote-journal-owner:" + source_hash
         binding_key = "paper-journal-source:" + hashlib.sha256(
             session_id.encode("ascii")
         ).hexdigest()
@@ -99,11 +102,16 @@ class AtomicPaperQuoteJournalStore:
                 quote_raw = db.scalar(select(Record.value).where(Record.key == quote_key))
                 journal_raw = db.scalar(select(Record.value).where(Record.key == journal_key))
                 binding = db.scalar(select(Record.value).where(Record.key == binding_key))
+                source_owner = db.scalar(select(Record.value).where(Record.key == source_binding_key))
                 previous_quote = decode_quote(quote_raw, source_hash) if quote_raw is not None else None
                 previous_journal = PaperJournalStore._decode(journal_raw) if journal_raw is not None else None
 
                 if binding is not None and binding != source_hash:
                     return _decision("JOURNAL_ACCOUNT_BINDING_MISMATCH")
+                if source_owner is not None and source_owner != journal_key:
+                    return _decision("QUOTE_SOURCE_ALREADY_BOUND_TO_OTHER_JOURNAL")
+                if (binding is None) != (source_owner is None):
+                    return _decision("QUOTE_SOURCE_BINDING_INCOMPLETE")
                 if (journal_raw is None) != (binding is None):
                     return _decision("JOURNAL_BINDING_INCOMPLETE")
                 if journal_raw is not None and quote_raw is None:
@@ -153,6 +161,7 @@ class AtomicPaperQuoteJournalStore:
                 if journal_raw is None:
                     db.execute(insert(Record).values(key=journal_key, value=journal_next))
                     db.execute(insert(Record).values(key=binding_key, value=source_hash))
+                    db.execute(insert(Record).values(key=source_binding_key, value=journal_key))
                 else:
                     changed = db.execute(update(Record).where(
                         Record.key == journal_key, Record.value == journal_raw
