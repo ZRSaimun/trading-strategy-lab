@@ -98,3 +98,21 @@ audit previously imported data and retain backups before considering any merge.
 This does not implement source signatures, entitlement verification, session-aware
 gap classification, or production restore/rollback certification. Source archives
 with ambiguous repeated timestamps remain quarantined.
+
+
+## Completed-import archive identity check
+
+Before changing an import to `READY`, the importer now recomputes SHA-256
+over the original **compressed ZIP bytes** and compares it with the digest
+recorded before parsing. A mismatch raises an error and leaves the dataset
+`FAILED`, not visible to research, while preserving its private accepted
+rows and checkpoint for investigation. The same check applies after a
+paused import resumes and reaches completion. A deliberately paused
+`IMPORTING` dataset is never exposed as `READY`.
+
+This check does **not** authenticate the provider, verify licensing or source
+timestamps, guarantee a stable filesystem against malicious concurrent
+writers, prove completeness, or authorise orders. Run ingestion against
+immutable owner-controlled local copies, one process per dataset, and
+confirm permitted source use before a staging import. The original ZIP is
+not repaired or overwritten by this safeguard.
