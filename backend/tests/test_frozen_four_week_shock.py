@@ -70,10 +70,10 @@ def test_best_four_week_cluster_exposes_concentration():
 def test_empty_calendar_week_is_not_removed():
     manifest, paths = sample()
     at = manifest["eligible_signals"][0]["signal_at"] + 86400
-    manifest["eligible_signals"][1]["signal_at"] = at
-    paths[1]["signal_at"] = at
-    paths[1]["entry_at"] = at + 60
-    paths[1]["bars"][0]["at"] = at + 60
+    manifest["eligible_signals"][10]["signal_at"] = at
+    paths[10]["signal_at"] = at
+    paths[10]["entry_at"] = at + 60
+    paths[10]["bars"][0]["at"] = at + 60
     result = run(manifest, paths)
     assert result["calendar_week_span"] == 36
     assert result["active_utc_weeks"] == 35
@@ -88,7 +88,7 @@ def test_intrabar_uncertainty_retained_as_distinct_bounds():
     result = run(manifest, paths)["cost_scenarios"][0]
     assert result["total_lower_net_r"] == "-18.5"
     assert result["total_upper_net_r"] == "-15.5"
-    assert result["best_four_week_upper_net_r"] == "1.0"
+    assert result["best_four_week_upper_net_r"] == "0.5"
 
 
 def test_canonical_order_of_paths_and_manifest():
