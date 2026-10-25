@@ -87,8 +87,8 @@ test('link evidence cannot be future-dated or outside both audit snapshots',()=>
 });
 test('rejects hidden fields and unsupported evidence source',()=>{
   assert.throws(()=>run({...links,realizedProfit:'100'} as DeclaredPositionLinkage),/schema/);
-  assert.throws(()=>run({...links,evidenceSource:'AUTHENTICATED'} as DeclaredPositionLinkage),/provenance/);
-  assert.throws(()=>run({...links,fillLinks:[{...links.fillLinks[0],pnl:'5'}]} as DeclaredPositionLinkage),/schema/);
+  assert.throws(()=>run({...links,evidenceSource:'AUTHENTICATED'} as unknown as DeclaredPositionLinkage),/provenance/);
+  assert.throws(()=>run({...links,fillLinks:[{...links.fillLinks[0],pnl:'5'}]} as unknown as DeclaredPositionLinkage),/schema/);
 });
 test('partial fill and missing financing still withhold all totals',()=>{
   const partial=run(links,orders,[{...fills[0],filledContracts:1}]);
