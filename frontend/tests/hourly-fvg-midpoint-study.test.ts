@@ -101,6 +101,7 @@ test('an opening gap through midpoint is not a verified blind limit fill',()=>{
  bars[33]=candle(33,101,106,100,105.5,200);
  const x=target(bars);
  assert.equal(x.gates.midpointTouch,'INSUFFICIENT_DATA');
+ assert.equal(x.firstTouchClosedAt,BASE+34*H); // physical touch, not executable fill
  assert.equal(x.blindMidpointTouch,null);
  assert.equal(x.confirmedNextOpen,null);
 });
