@@ -132,9 +132,15 @@ def triage_histdata_audit(report: dict) -> dict:
             raise ValueError("Observed timestamp span and gap counts disagree")
         if events > unique - 1 or events > missing:
             raise ValueError("Impossible observed gap event count")
-        if (events == 0 and (missing or largest)) or (
-            events > 0 and not (2 <= largest <= missing + 1)
-        ):
+        # With E nonempty gaps and M missing minutes, each gap consumes
+        # at least one missing minute. The largest observed separation L
+        # must therefore satisfy ceil(M/E)+1 <= L <= M-E+2.
+        # This is an existence bound, not proof of the individual timestamps.
+        if events == 0:
+            if missing or largest:
+                raise ValueError("Impossible largest observed gap")
+        elif not ((missing + events - 1) // events + 1
+                  <= largest <= missing - events + 2):
             raise ValueError("Impossible largest observed gap")
         for prefix, instant in (("first", first), ("last", last)):
             local = item.get(f"{prefix}_local_EST")
