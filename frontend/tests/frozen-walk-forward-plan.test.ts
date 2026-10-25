@@ -215,3 +215,34 @@ test('malformed, duplicated and excessive quality-warning manifests fail closed'
  oversized.warnings=['x'.repeat(201)];
  await assert.rejects(run(oversized),/Invalid source, archive, partition or protocol identity/);
 });
+
+
+test('declared archive gap intersecting a fold quarantines timing-only status even with sufficient counts',async()=>{
+ const p=makePlan();
+ p.archiveLineage[1].start+=5*d; // Synthetic uncovered calendar interval, not proven missing sessions.
+ const review=await run(p);
+ assert.equal(review.folds[0].archiveCoverageGaps,1);
+ assert.equal(review.folds[0].status,'UNVERIFIED_ARCHIVE_GAP');
+ assert.deepEqual(review.folds[0].trainingIds,['t0']);
+ assert.deepEqual(review.folds[0].testingIds,['v1']);
+ assert.ok(review.warnings.some(w=>w.includes('Fold fold-1 intersects 1 declared archive coverage gap')));
+ const clean=await run();
+ assert.equal(clean.folds[0].archiveCoverageGaps,0);
+ assert.equal(clean.folds[0].status,'TIMING_ONLY');
+ assert.notEqual(review.scheduleSha256,clean.scheduleSha256);
+});
+
+test('archive gaps outside a fold or strictly between train and test do not contaminate that fold',async()=>{
+ const p=makePlan();
+ p.archiveLineage[1].start+=5*d;
+ const shifted=folds.map(f=>({...f}));
+ shifted[0].testingStart+=10*d; // Gap ends before testing; training ended before gap.
+ const review=await run(p,sample,{...spec,folds:shifted});
+ assert.equal(review.folds[0].archiveCoverageGaps,0);
+ assert.equal(review.folds[0].status,'TIMING_ONLY');
+ assert.equal(review.folds[1].status,'UNVERIFIED_ARCHIVE_GAP');
+ const later=makePlan();
+ later.archiveLineage[3].start+=5*d; // Validation-era archive gap, outside all development folds.
+ const clean=await run(later);
+ assert.ok(clean.folds.every(f=>f.archiveCoverageGaps===0 && f.status==='TIMING_ONLY'));
+});
