@@ -147,7 +147,9 @@ function zoneGate(zones:readonly Zone[]|undefined,source:Source,
   // A zone first recorded during/after manipulation cannot be prior context.
   // Its reference 4H candle must also have closed before that record.
   z.observedAt<=sweepStartAt&&z.referenceBarTime+14400<=z.observedAt&&
-  z.observedAt-z.referenceBarTime<30*86400&&
+  // A prompt observation is not evidence that a years-old zone remains valid.
+  // Bound age at the sweep decision, not merely at the zone's recording.
+  sweepStartAt-z.referenceBarTime<30*86400&&
   Number.isFinite(z.low)&&Number.isFinite(z.high)&&
   z.low>0&&z.high>z.low&&z.low<=price&&price<=z.high&&
   z.direction===(dir==='BULLISH'?'DEMAND':'SUPPLY'));

@@ -196,6 +196,25 @@ test('4H zone known exactly at sweep open may use its fully closed prior candle'
  assert.equal(screenCrtHypotheses(x).candidates[0].gates.matchingZone,'PASS');
 });
 
+test('promptly recorded but stale 4H zone cannot confirm a much later sweep',()=>{
+ const x=fixture();
+ // Previously PASS: the zone was recorded four hours after its reference,
+ // but that reference is 31 calendar days before the sweep.
+ const staleReference=BASE-31*24*H;
+ x.zones=[{...x.zones![0],referenceBarTime:staleReference,
+  observedAt:staleReference+4*H}];
+ const r=screenCrtHypotheses(x).candidates[0];
+ assert.equal(r.gates.matchingZone,'INSUFFICIENT_DATA');
+ assert.equal(r.gates.structureShift,'PASS','independent 15m evidence is unchanged');
+});
+test('pre-observed zone with a reference inside the 30-day horizon remains eligible',()=>{
+ const x=fixture();
+ const recentReference=BASE-29*24*H;
+ x.zones=[{...x.zones![0],referenceBarTime:recentReference,
+  observedAt:recentReference+4*H}];
+ assert.equal(screenCrtHypotheses(x).candidates[0].gates.matchingZone,'PASS');
+});
+
 test('nonfinite zone bounds cannot be treated as verified historical context',()=>{
  const x=fixture();
  x.zones=[{...x.zones![0],high:Number.POSITIVE_INFINITY}];
