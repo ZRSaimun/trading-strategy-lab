@@ -42,6 +42,10 @@ def _parse_side(raw, side, interval_seconds):
                 if not TIMESTAMP.fullmatch(timestamp):
                     raise ValueError('expected full calendar timestamp YYYY-MM-DD HH:MM:SS '
                                      'with optional microseconds and UTC offset')
+                # RFC 3339 -00:00 means the source's UTC offset is unknown,
+                # not a verified zero offset; never certify it as UTC.
+                if timestamp.endswith('-00:00'):
+                    raise ValueError('unknown UTC offset -00:00; cannot certify UTC')
                 dt = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
                 # Naive time is UTC only because the exact header declares Etc/UTC.
                 if dt.tzinfo is None:

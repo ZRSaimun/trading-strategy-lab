@@ -116,6 +116,17 @@ class PairedM1PreflightTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'full calendar timestamp'):
             self.check(BID.replace('00:00:00Z', '00:00:00.0000001Z'), ASK)
 
+    def test_negative_zero_offset_is_unknown_not_verified_utc(self):
+        # RFC 3339 reserves -00:00 for an unknown offset; datetime.fromisoformat
+        # normalizes it to UTC, which would silently erase that uncertainty.
+        for interval in ('M1', 'H1'):
+            for side in ('bid', 'ask', 'both'):
+                with self.subTest(interval=interval, side=side):
+                    bid = BID.replace('Z', '-00:00') if side != 'ask' else BID
+                    ask = ASK.replace('Z', '-00:00') if side != 'bid' else ASK
+                    with self.assertRaisesRegex(ValueError, 'unknown UTC offset'):
+                        self.check(bid, ask, interval=interval)
+
     def test_complete_timestamp_formats_retain_utc_semantics(self):
         for timestamp in ('2021-01-04T00:00:00Z', '2021-01-04 00:00:00',
                           '2021-01-04T00:00:00+00:00',
