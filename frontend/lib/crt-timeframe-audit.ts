@@ -19,6 +19,18 @@ export type CrossoverAudit={
 };
 const MIN15=900, FOUR_HOUR=14400, BARS_PER_4H=16;
 
+// Keep an exact, private-in-memory snapshot for each issued report. Re-auditing
+// only the counts and timestamps cannot detect coordinated edits to BOTH 4H
+// and 15m bars that still reconcile after the report was issued. This is a
+// local mutation guard, NOT a cryptographic source-authentication receipt.
+const issuedSnapshots=new WeakMap<CrossoverAudit,string>();
+function candleSnapshot(fourHour:readonly Bar[],fifteenMinute:readonly Bar[]):string{
+ const rows=(bars:readonly Bar[])=>bars.map(b=>[
+  b.time,b.open,b.high,b.low,b.close,b.volume,b.observed_minutes,
+ ]);
+ return JSON.stringify([rows(fourHour),rows(fifteenMinute)]);
+}
+
 function assertComplete(b:Bar,seconds:number){
  if(!Number.isSafeInteger(b.time)||b.time<0||b.time%seconds!==0||
   b.observed_minutes!==seconds/60||
@@ -88,8 +100,10 @@ export function auditCrtCrossTimeframe(
   verifiedFourHourStarts.push(h4.time);
   index+=BARS_PER_4H;
  }
- return {checkedFourHourBars:checked,uncheckableFourHourBars:uncheckable,
+ const report={checkedFourHourBars:checked,uncheckableFourHourBars:uncheckable,
   verifiedFourHourStarts};
+ issuedSnapshots.set(report,candleSnapshot(fourHour,fifteenMinute));
+ return report;
 }
 
 /**
@@ -102,8 +116,13 @@ export function auditCrtCrossTimeframe(
 export function certifiedCrtFourHourBars(
  fourHour:readonly Bar[],fifteenMinute:readonly Bar[],audit:CrossoverAudit,
 ):Bar[]{
+ // A coherent change to both timeframe arrays can pass a fresh OHLC audit
+ // while invalidating the original evidence snapshot. Never certify it with
+ // a stale (or independently fabricated) report.
+ if(!audit||issuedSnapshots.get(audit)!==candleSnapshot(fourHour,fifteenMinute))
+  throw Error('Stale or inconsistent 4H/15m certification report');
  const current=auditCrtCrossTimeframe(fourHour,fifteenMinute);
- if(!audit||!Array.isArray(audit.verifiedFourHourStarts)||
+ if(!Array.isArray(audit.verifiedFourHourStarts)||
   current.checkedFourHourBars!==audit.checkedFourHourBars||
   current.uncheckableFourHourBars!==audit.uncheckableFourHourBars||
   current.verifiedFourHourStarts.length!==audit.verifiedFourHourStarts.length||
