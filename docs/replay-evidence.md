@@ -15,3 +15,7 @@ Reviewed [Jake Schincariol's day-trader-skill](https://github.com/Jakeschincario
 ## Regression checks
 
 `node --experimental-strip-types --test tests/replay-evidence.test.ts` covers empty state, prefix stability under future mutation, rewind, partial coverage, unknown gaps, malformed data, duplicate times and calendar-month adjacency. Full frontend tests and production build remain required before review.
+
+## Component verification follow-up
+
+Four rendered-component/wiring regressions verify empty state, unavailable provenance, HTML-escaped exact source identity, long dataset hash, UTC opening bounds, insufficient-data warnings and the terminal's revealed-prefix wiring. Local frontend suite: 609 passed; TypeScript checking passed. These server-rendered checks do not prove interactive browser layout. Full-page desktop/mobile visual verification is blocked in this sandbox: Next development startup raises `ENOENT uv_resident_set_memory`, matching the earlier local build limitation. Do not claim screenshot or browser acceptance from these tests; run visual acceptance on an isolated development environment before removing the draft designation.
