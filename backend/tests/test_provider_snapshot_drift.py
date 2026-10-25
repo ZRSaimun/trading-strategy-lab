@@ -172,3 +172,43 @@ def test_cli_rejects_symlink_and_ambiguous_manifest(tmp_path, capsys):
     args[args.index(str(archive))] = str(link)
     assert main(args) == 2
     assert json.loads(capsys.readouterr().out)["may_replace_dataset"] is False
+
+
+def test_shifted_edges_only_are_not_flagged_as_shared_interval_drift():
+    prior = fixture_data()  # minutes 60, 180
+    current = version(prior, times=[180, 240], received=480)
+    report = compare_staging_snapshots(*prior, *current)
+    assert report["outcome"] == "OBSERVED_VALUE_OR_COVERAGE_DRIFT"
+    assert report["comparison_class"] == "WINDOW_BOUNDARY_DIFFERENCE_ONLY"
+    assert report["shared_interval_review_required"] is False
+    assert report["window_boundary_only_difference"] is True
+    assert report["removed_outside_observed_overlap"] == 1
+    assert report["added_outside_observed_overlap"] == 1
+    assert report["may_replace_dataset"] is False
+
+
+def test_shared_revision_requires_review_even_when_windows_shift():
+    prior = fixture_data()
+    current = version(prior, times=[60, 240], change_close=True, received=480)
+    report = compare_staging_snapshots(*prior, *current)
+    assert report["comparison_class"] == "REVIEW_SHARED_INTERVAL_DRIFT"
+    assert report["shared_interval_review_required"] is True
+    assert report["window_boundary_only_difference"] is False
+    assert report["may_execute_order"] is False
+
+
+def test_no_shared_minutes_is_not_window_only_classification():
+    prior = fixture_data()
+    current = version(prior, times=[300, 360], received=480)
+    report = compare_staging_snapshots(*prior, *current)
+    assert report["comparison_class"] == "NO_SHARED_OBSERVED_MINUTES"
+    assert report["shared_interval_review_required"] is False
+    assert report["window_boundary_only_difference"] is False
+
+
+def test_identical_window_has_no_review_or_edge_difference():
+    prior = fixture_data()
+    report = compare_staging_snapshots(*prior, *version(prior))
+    assert report["comparison_class"] == "IDENTICAL_OBSERVED_WINDOW"
+    assert report["shared_interval_review_required"] is False
+    assert report["window_boundary_only_difference"] is False
