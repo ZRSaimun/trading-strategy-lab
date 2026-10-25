@@ -117,6 +117,13 @@ function trend(bars:readonly Bar[]|undefined,at:number,dir:Direction):Gate{
  const prior=bars.filter(b=>b.time+86400<=at&&b.observed_minutes===1440);
  if(prior.length<20)return 'INSUFFICIENT_DATA';
  const window=prior.slice(-20);
+ // A known partial elapsed day inside the lookback is missing evidence,
+ // not a session we can silently skip to borrow an older completed close.
+ // Actual shortened trading sessions require an authorized calendar.
+ const oldestSelectedClose=window[0].time+86400;
+ if(bars.some(b=>b.time+86400>oldestSelectedClose&&
+  b.time+86400<=at&&b.observed_minutes!==1440))
+  return 'INSUFFICIENT_DATA';
  // A completed candle can be from months or years before this sweep.
  // With no certified exchange calendar, use a conservative freshness
  // ceiling and a bounded 20-session span. This does NOT infer whether
