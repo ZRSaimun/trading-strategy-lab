@@ -18,6 +18,8 @@ from .db import Audit, Record, Session
 _ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{7,79}\Z")
 _CASH = re.compile(r"(?:0|[1-9][0-9]{0,11})(?:\.[0-9]{1,8})?\Z")
 _MAX_RESERVATIONS = 500
+# Hard bound on persisted envelopes before parsing untrusted/corrupt JSON.
+_MAX_ENVELOPE_BYTES = 64 * 1024
 _MAX_REVISION = 2**53 - 1
 
 
@@ -78,11 +80,17 @@ def _validate(state):
 def _encode(state):
     _validate(state)
     serialized = _canonical(state)
-    return _canonical({"state": state, "sha256": hashlib.sha256(serialized.encode()).hexdigest()})
+    envelope = _canonical({"state": state, "sha256": hashlib.sha256(serialized.encode()).hexdigest()})
+    if len(envelope.encode("utf-8")) > _MAX_ENVELOPE_BYTES:
+        raise ValueError("Paper risk-state envelope exceeds size limit")
+    return envelope
 
 
 def _decode(raw):
     try:
+        if (not isinstance(raw, str) or len(raw) > _MAX_ENVELOPE_BYTES
+                or len(raw.encode("utf-8")) > _MAX_ENVELOPE_BYTES):
+            raise ValueError("Invalid paper risk-state envelope size")
         doc = _unique_json(raw)
         if not isinstance(doc, dict) or set(doc) != {"state", "sha256"}:
             raise ValueError("Invalid risk envelope")
