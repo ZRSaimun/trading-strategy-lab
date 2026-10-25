@@ -266,6 +266,12 @@ def ingest(engine, path, *, instrument, provider, file_format="ascii",
                     connection.execute(datasets.update().where(datasets.c.id == identity).values(
                         checkpoint_member=member_idx+1, checkpoint_line=0))
                 cp_line = 0
+            # A ZIP can change after the initial identity hash while its members
+            # are being streamed. Never publish READY from changed source bytes.
+            # This protects completed/resumed imports; a cooperative pause
+            # remains IMPORTING and rechecks the identity when resumed.
+            if sha256_file(path) != digest:
+                raise ValueError("Archive bytes changed during import; research blocked")
             with engine.begin() as connection:
                 totals = connection.execute(select(
                     datasets.c.seen, datasets.c.accepted, datasets.c.rejected
