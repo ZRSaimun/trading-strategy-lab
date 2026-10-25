@@ -161,7 +161,10 @@ export function studyHourlyFvgMidpoint(
    }
    if(contiguous&&exit){
     const exitAt=exit.time+HOUR;
-    blind=markout(b.time,midpoint,exitAt,exit.close,direction,costs);
+    // OHLC can establish a midpoint intersection only when the touch bar
+    // closes. Its open timestamp is NOT an observed intrabar fill time.
+    // The hypothetical limit price remains unchanged; no fill is certified.
+    blind=markout(b.time+HOUR,midpoint,exitAt,exit.close,direction,costs);
     if(gates.wickRejection==='PASS'){
      const next=bars[j+1];
      confirmed=markout(next.time,next.open,exitAt,exit.close,direction,costs);
