@@ -213,3 +213,15 @@ def test_identical_window_has_no_review_or_edge_difference():
     assert report["comparison_class"] == "IDENTICAL_OBSERVED_WINDOW"
     assert report["shared_interval_review_required"] is False
     assert report["window_boundary_only_difference"] is False
+
+
+def test_interleaved_no_common_minutes_remains_inconclusive():
+    prior = fixture_data()  # minutes 60 and 180
+    current = version(prior, times=[120, 240], received=480)
+    report = compare_staging_snapshots(*prior, *current)
+    assert report["observed_range_overlap"] is True
+    assert report["shared_observed_minutes"] == 0
+    assert report["comparison_class"] == "NO_SHARED_OBSERVED_MINUTES"
+    assert report["shared_interval_review_required"] is False
+    assert report["window_boundary_only_difference"] is False
+    assert report["may_replace_dataset"] is False
