@@ -98,10 +98,10 @@ test('a tampered or stale certification report cannot be used to select 4H bars'
  const valid=auditCrtCrossTimeframe(h,q);
  assert.throws(()=>certifiedCrtFourHourBars(h,q,{
   ...valid,verifiedFourHourStarts:[BASE+2*H4,BASE+H4],
- }),/Certified 4H candle identity/);
+ }),/Stale or inconsistent 4H\/15m certification report/);
  assert.throws(()=>certifiedCrtFourHourBars(h,q,{
   ...valid,checkedFourHourBars:1,
- }),/Inconsistent 4H\/15m certification/);
+ }),/Stale or inconsistent 4H\/15m certification report/);
 });
 
 test('a stale 4H/15m audit cannot certify edited historical OHLC',()=>{
