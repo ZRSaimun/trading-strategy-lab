@@ -183,3 +183,33 @@ test('rejects excluded IDs colliding with eligible partitions, duplicates and ma
  const malformed=makePlan();malformed.excluded.push({id:'excluded',reason:'UNRECOGNIZED'} as never);
  await assert.rejects(run(malformed),/eligible excluded/);
 });
+
+test('quality-warning changes alter the frozen digest while warning order does not',async()=>{
+ const baseline=await run();
+ const flagged=makePlan();
+ flagged.warnings.push('Archive coverage has gaps; no candles or trading sessions were inferred.');
+ const flaggedReview=await run(flagged);
+ assert.notEqual(flaggedReview.scheduleSha256,baseline.scheduleSha256);
+ const reordered=structuredClone(flagged);
+ reordered.warnings.reverse();
+ assert.equal((await run(reordered)).scheduleSha256,flaggedReview.scheduleSha256);
+ const dropped=makePlan();
+ dropped.warnings=[];
+ assert.notEqual((await run(dropped)).scheduleSha256,baseline.scheduleSha256);
+ assert.ok(flaggedReview.warnings.some(w=>w.includes('cannot authenticate')));
+});
+
+test('malformed, duplicated and excessive quality-warning manifests fail closed',async()=>{
+ const malformed=makePlan();
+ malformed.warnings=['  unverifiable  '];
+ await assert.rejects(run(malformed),/Invalid source, archive, partition or protocol identity/);
+ const duplicate=makePlan();
+ duplicate.warnings.push(duplicate.warnings[0]);
+ await assert.rejects(run(duplicate),/Invalid source, archive, partition or protocol identity/);
+ const excessive=makePlan();
+ excessive.warnings=Array.from({length:1001},(_,i)=>'quality-'+i);
+ await assert.rejects(run(excessive),/Invalid source, archive, partition or protocol identity/);
+ const oversized=makePlan();
+ oversized.warnings=['x'.repeat(201)];
+ await assert.rejects(run(oversized),/Invalid source, archive, partition or protocol identity/);
+});
