@@ -163,3 +163,115 @@ def test_postgres_existing_ready_missing_row_downgrades_on_recheck(pg_history):
         row = conn.execute(select(bulk_import.datasets)).mappings().one()
         assert row["state"] == "QUARANTINED"
     assert _client(engine).get("/api/history/datasets").json() == []
+
+
+def test_postgres_history_dump_restore_and_rollback_in_disposable_database(pg_history):
+    """Exercise real pg_dump/pg_restore on synthetic archives, never owner data.
+
+    The existing fixture has already validated loopback and *_test, and uses
+    a randomly named isolated schema. The restore database is newly created
+    with a random *_test name and is dropped in a finally block.
+    """
+    import shutil
+    import subprocess
+
+    if not shutil.which("pg_dump") or not shutil.which("pg_restore"):
+        pytest.fail("PostgreSQL client pg_dump/pg_restore required for recovery acceptance")
+
+    engine, tmp_path = pg_history
+    source = make_url(os.environ["TSL_PG_HISTORY_TEST_URL"])
+    assert source.host in ("127.0.0.1", "localhost", "::1")
+    assert source.database.endswith("_test")
+    with engine.connect() as connection:
+        schema = connection.exec_driver_sql("SELECT current_schema()").scalar_one()
+    assert schema.startswith("history_accept_")
+
+    clean = _ingest(engine, _archive(tmp_path, CLEAN, name="clean.zip"))
+    bad = _ingest(engine, _archive(
+        tmp_path, CLEAN + "20261001 090100;8;9;7;8.5;0\n", name="conflict.zip"))
+    assert clean["state"] == "READY" and bad["state"] == "QUARANTINED"
+
+    def snapshot(target):
+        with target.connect() as connection:
+            return {
+                "datasets": [tuple(row) for row in connection.execute(
+                    select(bulk_import.datasets).order_by(bulk_import.datasets.c.id))],
+                "candles": [tuple(row) for row in connection.execute(
+                    select(bulk_import.candles).order_by(
+                        bulk_import.candles.c.dataset_id, bulk_import.candles.c.time))],
+                "issues": [tuple(row) for row in connection.execute(
+                    select(bulk_import.issues).order_by(
+                        bulk_import.issues.c.dataset_id, bulk_import.issues.c.line))],
+            }
+
+    expected = snapshot(engine)
+    assert len(expected["datasets"]) == 2
+    assert len(expected["candles"]) == 4
+    assert len(expected["issues"]) == 1
+
+    # Password is only supplied through subprocess environment, never argv.
+    pg_env = os.environ.copy()
+    pg_env.update(PGHOST=source.host, PGPORT=str(source.port or 5432),
+                  PGUSER=source.username or "postgres", PGPASSWORD=source.password or "")
+    dump = tmp_path / "synthetic-history.dump"
+    def pg_command(*args):
+        result = subprocess.run(args, env=pg_env, capture_output=True, timeout=45,
+                                check=False)
+        if result.returncode:
+            # Do not expose pg_dump stderr or connection credentials in CI.
+            pytest.fail("Disposable PostgreSQL dump/restore command failed")
+
+    pg_command("pg_dump", "--format=custom", "--no-owner", "--no-acl",
+               "--schema=" + schema, "--file=" + str(dump), source.database)
+    assert dump.is_file() and dump.stat().st_size > 0
+    dump.chmod(0o600)
+
+    restore_name = "history_restore_" + uuid4().hex + "_test"
+    restore_url = source.set(database=restore_name).render_as_string(hide_password=False)
+    admin = create_engine(os.environ["TSL_PG_HISTORY_TEST_URL"])
+    restored = None
+    created = False
+    try:
+        with admin.connect().execution_options(isolation_level="AUTOCOMMIT") as connection:
+            connection.exec_driver_sql(f'CREATE DATABASE "{restore_name}"')
+        created = True
+        pg_command("pg_restore", "--exit-on-error", "--single-transaction",
+                   "--no-owner", "--no-acl", "--dbname=" + restore_name, str(dump))
+        restored = create_engine(restore_url,
+                                 connect_args={"options": f"-csearch_path={schema}"})
+        assert snapshot(restored) == expected
+        assert [item["id"] for item in _client(restored).get(
+            "/api/history/datasets").json()] == [clean["dataset_id"]]
+        assert _client(restored).get(
+            f'/api/history/{bad["dataset_id"]}/candles').status_code == 404
+        assert _client(restored, authenticated=False).get(
+            "/api/history/datasets").status_code == 401
+
+        # Deliberately corrupt only the newly created disposable restore DB.
+        with restored.begin() as connection:
+            connection.execute(bulk_import.datasets.update().where(
+                bulk_import.datasets.c.id == clean["dataset_id"]
+            ).values(state="QUARANTINED"))
+            connection.execute(delete(bulk_import.candles).where(
+                bulk_import.candles.c.dataset_id == clean["dataset_id"]))
+        assert snapshot(restored) != expected
+        assert _client(restored).get("/api/history/datasets").json() == []
+        restored.dispose()
+        restored = None
+
+        # A second restore acts as a rollback to the immutable backup.
+        pg_command("pg_restore", "--clean", "--if-exists", "--exit-on-error",
+                   "--single-transaction", "--no-owner", "--no-acl",
+                   "--dbname=" + restore_name, str(dump))
+        restored = create_engine(restore_url,
+                                 connect_args={"options": f"-csearch_path={schema}"})
+        assert snapshot(restored) == expected
+        assert [item["id"] for item in _client(restored).get(
+            "/api/history/datasets").json()] == [clean["dataset_id"]]
+    finally:
+        if restored is not None:
+            restored.dispose()
+        if created:
+            with admin.connect().execution_options(isolation_level="AUTOCOMMIT") as connection:
+                connection.exec_driver_sql(f'DROP DATABASE "{restore_name}" WITH (FORCE)')
+        admin.dispose()
