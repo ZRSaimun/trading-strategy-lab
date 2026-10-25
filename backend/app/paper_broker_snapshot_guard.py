@@ -14,7 +14,7 @@ from typing import Any
 
 
 MAX_MS = 8_640_000_000_000_000
-ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:/-]{0,79}\\Z")
+ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:/-]{0,79}\Z")
 BROKERS = {"Trading212-Invest", "Trading212-StocksISA", "Trading212-CFD"}
 
 
@@ -38,7 +38,7 @@ def _integer(value: Any, label: str) -> int:
 
 def _money(value: Any, label: str, *, positive: bool = False) -> Decimal:
     # Strings only: reject float imprecision, booleans, NaN/Infinity and huge exponents.
-    if type(value) is not str or not re.fullmatch(r"-?(?:0|[1-9]\\d{0,15})(?:\\.\\d{1,8})?", value):
+    if type(value) is not str or not re.fullmatch(r"-?(?:0|[1-9]\d{0,15})(?:\.\d{1,8})?", value):
         raise ValueError(f"Invalid {label}")
     try:
         amount = Decimal(value)
