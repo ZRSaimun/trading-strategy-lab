@@ -244,3 +244,60 @@ class ForecastEventStore:
                 if old_raw is None:
                     return False
                 raise
+
+
+    def append_forecasts_atomic(self, session_id, identity, max_lag_seconds,
+                                expected_sequence, actions):
+        """Atomically append 1-3 same-base/model forecasts with audit records.
+
+        A completed candle must already exist. No delivery or execution occurs.
+        """
+        key, now = self._key(session_id), self._now()
+        _feed(identity)
+        if (type(max_lag_seconds) is not int or not 0 <= max_lag_seconds <= 3600
+                or type(expected_sequence) is not int
+                or not 0 <= expected_sequence <= MAX_EVENTS
+                or type(actions) is not list or not 1 <= len(actions) <= 3):
+            raise ValueError("Invalid atomic forecast batch bounds")
+        required = {"kind", "id", "modelVersion", "horizon", "probability", "baseStart"}
+        for action in actions:
+            if type(action) is not dict or set(action) != required or action["kind"] != "FORECAST":
+                raise ValueError("Invalid atomic forecast batch action")
+        # Validate hashability and types before grouping; _replay checks all
+        # further constraints, including the strict prospective issuance clock.
+        if any(type(a["modelVersion"]) is not str or type(a["baseStart"]) is not int
+               or type(a["horizon"]) is not int for a in actions):
+            raise ValueError("Invalid atomic forecast batch identity")
+        if (len({(a["modelVersion"], a["baseStart"]) for a in actions}) != 1
+                or len({a["horizon"] for a in actions}) != len(actions)):
+            raise ValueError("Mixed base/model or duplicate horizon in forecast batch")
+        with self.session_factory() as db:
+            old_raw = db.scalar(select(Record.value).where(Record.key == key))
+            if old_raw is None:
+                raise ValueError("Atomic forecast batch requires a persisted candle")
+            payload, _ = self._unpack(old_raw, now)
+            if payload["identity"] != identity or payload["maxLagSeconds"] != max_lag_seconds:
+                raise ValueError("Stored forecast source or lag identity mismatch")
+            if len(payload["events"]) != expected_sequence:
+                return False
+            events = [{**action, "seq": expected_sequence + index, "receivedAt": now}
+                      for index, action in enumerate(actions, start=1)]
+            updated = {**payload, "events": [*payload["events"], *events]}
+            _replay(updated, now)
+            packed = self._pack(updated)
+            result = db.execute(
+                update(Record).where(Record.key == key, Record.value == old_raw)
+                .values(value=packed))
+            if result.rowcount != 1:
+                db.rollback()
+                return False
+            for item in events:
+                db.add(Audit(
+                    time=now, actor="system", action="forecast.events.append",
+                    detail=json.dumps({
+                        "session_hash": key.split(":", 1)[1],
+                        "sequence": item["seq"], "kind": "FORECAST",
+                        "sha256": hashlib.sha256(packed.encode()).hexdigest(),
+                        "batchSize": len(events)})))
+            db.commit()
+            return True

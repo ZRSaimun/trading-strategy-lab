@@ -76,6 +76,7 @@ class CausalForecastIssuer:
                   for e in events if e["kind"] == "FORECAST"}
         probabilities = {}
         sample_counts = {}
+        actions = []
         for horizon in HORIZONS:
             wins, n = _training(candles, self.identity["seconds"], horizon)
             sample_counts[horizon] = n
@@ -90,8 +91,11 @@ class CausalForecastIssuer:
             action = {"kind": "FORECAST", "id": fid, "modelVersion": self.model_version,
                       "horizon": horizon, "probability": probabilities[horizon],
                       "baseStart": start}
-            if not self.store.append(self.session_id, self.identity, self.max_lag_seconds,
-                                     snapshot["sequence"], action):
+            actions.append(action)
+        if actions:
+            if not self.store.append_forecasts_atomic(
+                    self.session_id, self.identity, self.max_lag_seconds,
+                    snapshot["sequence"], actions):
                 raise RuntimeError("Forecast issuance CAS conflict; reload and reconcile")
             snapshot = self.store.load(self.session_id)
         return {"status": "UNAUTHENTICATED_DISCONNECTED_RESEARCH", "live": False,
