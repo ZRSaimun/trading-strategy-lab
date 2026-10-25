@@ -62,7 +62,9 @@ function checkPlan(plan: PurgedPlan): void {
       !Array.isArray(plan.eligible.development) || !Array.isArray(plan.eligible.validation) ||
       !Array.isArray(plan.eligible.holdout) || !Array.isArray(plan.excluded) ||
       !Array.isArray(plan.warnings) || !Array.isArray(plan.archiveLineage) ||
-      plan.archiveLineage.length < 1 || plan.archiveLineage.length > 10000)
+      plan.archiveLineage.length < 1 || plan.archiveLineage.length > 10000 ||
+      plan.warnings.length > 1000 || plan.warnings.some(w => !nonblank(w)) ||
+      new Set(plan.warnings).size !== plan.warnings.length)
     throw Error('Invalid source, archive, partition or protocol identity');
   const archiveIds = new Set<string>(), hashes = new Set<string>();
   let lastEnd = -1;
@@ -180,8 +182,11 @@ export async function planFrozenWalkForward(
     excluded:plan.excluded.map(e=>({id:e.id,reason:e.reason}))
       .sort((a,b)=>a.id.localeCompare(b.id) || a.reason.localeCompare(b.reason))
   };
+  // Bind caller-declared data-quality caveats to the same frozen schedule.
+  // A hash cannot authenticate warnings or prove that none were omitted.
+  const qualityWarnings = [...plan.warnings].sort();
   const canonical = {schema:'frozen-walk-forward-v1',source,
-    archiveLineage:lineage,protocol,observationTiming,partitionManifest,
+    archiveLineage:lineage,protocol,observationTiming,partitionManifest,qualityWarnings,
     specification:{folds:windows.map(f=>({id:f.id,trainingStart:f.trainingStart,trainingEnd:f.trainingEnd,
       testingStart:f.testingStart,testingEnd:f.testingEnd})),embargoSeconds:spec.embargoSeconds,
       minTrainingObservations:spec.minTrainingObservations,
@@ -206,6 +211,7 @@ export async function planFrozenWalkForward(
     coverage:'UNVERIFIED_METADATA_ONLY',warnings:[
       'Only development timing metadata is examined; validation and final holdout outcomes remain inaccessible to this helper.',
       'Fold counts are timing records, not trade counts or independent observations. Training windows overlap and test windows do not.',
+      'Schedule digest binds self-declared quality warnings but cannot authenticate them or detect omitted warnings.',
       'Schedule digest is not a trusted timestamp, source authentication, access-control proof, or preregistration evidence.',
       'No observed bid/ask spreads, slippage, CFD financing, margin, demo fills, strategy returns or profitability are measured.'
     ]};
