@@ -116,3 +116,23 @@ writers, prove completeness, or authorise orders. Run ingestion against
 immutable owner-controlled local copies, one process per dataset, and
 confirm permitted source use before a staging import. The original ZIP is
 not repaired or overwritten by this safeguard.
+
+## Bounded physical-line ingestion (25 October 2026)
+
+The resumable ZIP importer now reads source text through a 1,025-character
+bounded `readline` budget instead of materializing an arbitrarily long CSV
+line. Rows exceeding the existing 1,024-character limit are consumed in
+bounded chunks, rejected as `row too long`, and counted **once** at their
+original source-line ordinal. Later valid rows retain their line numbers and
+restart checkpoints. Universal newline translation avoids treating a CRLF
+split at the length boundary as a second empty row. Rejected archives remain
+`QUARANTINED`, never `READY`; private bounded issue samples are preserved.
+
+Synthetic tests cover a million-character line followed by a valid row,
+CR/LF/CRLF, bounded read sizes, and paused/resumed imports. This is a
+resource-safety improvement, **not** proof that all ZIP decompression,
+database concurrency, provider identity, licensing, timestamps, gaps or
+research suitability have been independently verified. A large but
+syntactically valid number of rows can still require substantial time and
+disk space; run only on isolated authorised infrastructure. No original
+historical ZIP is changed or approved by this update.
