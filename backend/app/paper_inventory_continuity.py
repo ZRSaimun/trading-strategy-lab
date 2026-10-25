@@ -54,7 +54,8 @@ def audit_paper_inventory_continuity(previous: dict, current: dict, *,
         'risk_policy_unchanged': all(previous[key] == current[key] for key in policy_keys),
         'emergency_latch_not_cleared': not (previous['emergency_latched'] and not current['emergency_latched']),
         'cash_and_realized_pnl_unchanged': (previous['equity_cash'] == current['equity_cash']
-                                           and previous['daily_realized_pnl_cash'] == current['daily_realized_pnl_cash']),
+                                           and previous['daily_realized_pnl_cash'] == current['daily_realized_pnl_cash']
+                                           and previous['daily_unrealized_pnl_cash'] == current['daily_unrealized_pnl_cash']),
         'observation_interval_within_60s': now_ms - previous_now_ms <= 60_000,
         'unique_order_ids_in_both': (len(prior_rows) == len(previous['exposures'])
                                       and len(new_rows) == len(current['exposures'])),
