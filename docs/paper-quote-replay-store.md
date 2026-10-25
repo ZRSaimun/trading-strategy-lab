@@ -43,3 +43,24 @@ leave the quote, journal and audit unchanged.
 This prevents one alternate persistence path, **not** a direct database writer
 with table privileges, and it does not integrate the reservation, daily-loss,
 intent, stop or broker reconciliation PRs. No execution authorization is granted.
+
+
+### Exclusive atomic quote-source ownership (25 October 2026)
+
+The atomic quote+journal checkpoint now records **both** session-to-source and
+source-to-session bindings in the same database transaction. A quote source
+(account/provider/venue/instrument) may belong to only one atomic paper journal.
+A second journal using that source is quarantined; standalone
+`PaperQuoteReplayStore.observe` is denied after the source is bound. This closes
+the independent quote-marker advancement path that could otherwise leave the
+bound paper journal behind the accepted quote revision. Source-owner inserts,
+quote marker changes, journal checkpoint updates and the audit entry commit
+or roll back together. Neither function grants permission to trade.
+
+**Compatibility / fail-closed recovery:** Pre-existing bound checkpoints created
+before the reverse source binding was introduced do not acquire a fabricated
+owner automatically. They return `QUOTE_SOURCE_BINDING_INCOMPLETE` and require
+manual offline inspection/reconciliation before any repair. Do not silently
+rewrite or delete legacy markers, invent broker confirmations, or use a fresh
+session to bypass the hold. The source ownership key is a coordination marker,
+**not** a verified broker identity or an authorization token.
