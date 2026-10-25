@@ -15,7 +15,7 @@ const base=(id:string)=>({clientOrderId:id,provider:'Demo',venue:'paper',
   instrument:'XAUUSD-CFD',accountAlias:'research',statementSha256:'a'.repeat(64)});
 const ack=(id:string):DemoLifecycleEvent=>({...base(id),eventId:'ack-'+id,kind:'ACK',
   brokerOrderId:'broker-'+id,at:1010,recordedAt:1011});
-const fill=(id:string,contracts=1):DemoLifecycleEvent=>({...base(id),eventId:'evt-'+id,
+const fill=(id:string,contracts=1):Extract<DemoLifecycleEvent,{kind:'FILL'}>=>({...base(id),eventId:'evt-'+id,
   kind:'FILL',fillId:'fill-'+id,contracts,price:'100.100000',
   commissionCurrency:'0.20',quoteId:'quote-'+id,quoteObservedAt:1020,
   quoteBid:'99.900000',quoteAsk:'100.000000',
@@ -116,7 +116,7 @@ test('extra observed records also suppress within-cap conclusion',()=>{
 });
 test('rejects unsupported hedging, fractional, negative, excessive and hidden policy fields',()=>{
   const orders=[order('buy','BUY',[])];
-  assert.throws(()=>review(orders,{...policy,positionMode:'HEDGING'} as DeclaredNettingPolicy),/mode/);
+  assert.throws(()=>review(orders,{...policy,positionMode:'HEDGING'} as unknown as DeclaredNettingPolicy),/mode/);
   assert.throws(()=>review(orders,{...policy,maxAbsContracts:0}),/cap/);
   assert.throws(()=>review(orders,{...policy,maxAbsContracts:1.5}),/cap/);
   assert.throws(()=>review(orders,{...policy,startingNetContracts:Infinity}),/cap/);
