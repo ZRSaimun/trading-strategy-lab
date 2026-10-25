@@ -113,7 +113,7 @@ class ForecastAlertOutbox:
                 Record.key == ForecastEventStore._key(session_id)))
             if journal_raw is None:
                 raise ValueError("No persisted forecast journal")
-            journal, forecasts = ForecastEventStore._unpack(journal_raw, now)
+            journal, forecasts = ForecastEventStore._unpack(journal_record.value, now)
             if journal["identity"] != identity:
                 raise ValueError("Forecast alert source mismatch")
             found = next((f for f in forecasts if f["id"] == forecast_id), None)
@@ -160,12 +160,12 @@ class ForecastAlertOutbox:
                     # forecast can be voided by an intervening candle gap. Lock
                     # the journal row on PostgreSQL to order this read against
                     # concurrent forecast-settlement writes.
-                    journal_raw = db.scalar(
-                        select(Record.value).where(
+                    journal_record = db.scalar(
+                        select(Record).where(
                             Record.key == ForecastEventStore._key(session_id)
                         ).with_for_update()
                     )
-                    if journal_raw is None:
+                    if journal_record is None:
                         raise ValueError("Forecast journal missing; alert claim denied")
                     journal, forecasts = ForecastEventStore._unpack(journal_raw, now)
                     forecast = next(
