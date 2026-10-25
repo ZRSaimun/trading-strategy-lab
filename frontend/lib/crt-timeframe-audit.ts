@@ -75,6 +75,15 @@ export function auditCrtCrossTimeframe(
   if(!samePrice(h4.open,observed.open)||!samePrice(h4.high,observed.high)||
    !samePrice(h4.low,observed.low)||!samePrice(h4.close,observed.close))
    throw Error('4H/15m OHLC mismatch for same historical archive');
+  // When both responses actually report volume, inconsistent aggregation
+  // is an archive-integrity failure. This does NOT authenticate volume
+  // provenance: null values remain unknown, never zero-filled or certified.
+  if(h4.volume!==null&&subset.every(b=>b.volume!==null)){
+   const total=subset.reduce((sum,b)=>sum+(b.volume??0),0);
+   const tolerance=64*Number.EPSILON*Math.max(1,Math.abs(h4.volume),Math.abs(total));
+   if(!Number.isFinite(total)||Math.abs(h4.volume-total)>tolerance)
+    throw Error('4H/15m volume mismatch for same historical archive');
+  }
   checked++;
   verifiedFourHourStarts.push(h4.time);
   index+=BARS_PER_4H;

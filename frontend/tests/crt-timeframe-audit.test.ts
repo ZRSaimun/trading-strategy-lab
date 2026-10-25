@@ -30,6 +30,31 @@ test('fails closed when source-identical timeframe response has inconsistent OHL
   assert.throws(()=>auditCrtCrossTimeframe(h,q),/OHLC mismatch/);
  }
 });
+test('fully reported 4H volume must equal the sixteen observed 15m volumes',()=>{
+ const {h,q}=fixture();
+ q.forEach((b,i)=>{b.volume=i%2===0?2.25:10.5;});
+ h.forEach((b,i)=>{
+  b.volume=q.slice(i*16,(i+1)*16).reduce((sum,v)=>sum+(v.volume??0),0);
+ });
+ assert.equal(auditCrtCrossTimeframe(h,q).checkedFourHourBars,2);
+ // Price aggregates still agree: inconsistent numeric volume must not be
+ // silently accepted as the same source's complete 4H observation.
+ h[0].volume!+=1;
+ assert.throws(()=>auditCrtCrossTimeframe(h,q),/volume mismatch/);
+});
+test('null constituent or aggregate volume stays unknown, not fabricated zero',()=>{
+ const x=fixture();
+ x.q.forEach(b=>{b.volume=5;});
+ // A null 4H volume is unknown; price-only OHLC audit remains possible.
+ assert.equal(auditCrtCrossTimeframe(x.h,x.q).checkedFourHourBars,2);
+ const y=fixture();
+ y.q.forEach(b=>{b.volume=5;});
+ y.h.forEach(b=>{b.volume=80;});
+ y.q[3].volume=null;
+ assert.equal(auditCrtCrossTimeframe(y.h,y.q).checkedFourHourBars,2);
+ // This checked count certifies price aggregation only, not real volume
+ // source identity or a volume confirmation gate.
+});
 test('missing interior 15m observations never certify an apparently complete 4H bar',()=>{
  const {h,q}=fixture();
  q.splice(5,1);
