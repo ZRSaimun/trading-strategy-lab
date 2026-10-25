@@ -1,0 +1,13 @@
+# Disconnected paper protective-stop amendment review
+
+`app.paper_stop_amendment_guard.evaluate_stop_amendment(position, request, quote, controls, now_ms=trusted_server_clock)` is a **pure, offline diagnostic**. It accepts only exact-schema JSON-like dictionaries and bounded plain-decimal strings. It does not submit or cancel stops, authenticate broker receipts, write a journal, reserve risk, or authorize paper/live execution. All supplied quotes, account values and stop states are **untrusted declarations**.
+
+The guard detects stop widening, no-op repeats, unexpected quantity/account/position changes, stale/replayed quotes, mismatched feeds, crossed quotes, pending/unknown broker stop states, rate-limit breaches, daily/position loss overruns and latched circuit breakers. It uses executable BID for long exits and ASK for short exits. An already-breached original stop is quarantined, **not** treated as filled. Worst-of-declared-stress/current-executable pricing is used for downside diagnostics; this is not a guaranteed maximum loss. A trailing stop above long entry (or below short entry) is allowed only when it is still on the safe side of the executable quote.
+
+Results are `HOLD_RECONCILIATION` on any failed check or `REVIEW_ONLY_UNVERIFIED` if declared checks pass. Both explicitly return `may_execute_paper_order: false` and `may_execute_real_order: false`. The SHA-256 digest is only a correlation identifier, not a signature, durable idempotency lock, broker acknowledgement, or human approval.
+
+## Integration gates not implemented
+
+Before allowing any actual **paper** amendment: obtain authenticated broker/ledger state, verify stop-order lifecycle with provider-specific semantics, atomically reserve/account for exposure and write a durable idempotency/audit record, re-fetch fresh executable quotes, and reconcile an uncertain cancel/replace outcome after crashes. Stop replacement may temporarily leave the position unprotected; do not implement cancel-then-create as if atomic. A real-money order or stop amendment additionally requires a supported broker API, secure provider credentials, and **positive owner confirmation of that specific action**. Trading 212's documented Public API supports Invest and Stocks ISA, not CFD execution (official docs: https://docs.trading212.com/api; verified 25 October 2026). Do not infer CFD order support from the demo environment.
+
+Run `PYTHONPATH=backend pytest -q backend/tests/test_paper_stop_amendment_guard.py` for synthetic regression tests. This module is intentionally not wired into a route or brokerage adapter. Production rollout requires PostgreSQL concurrency/crash recovery, restorable backups, rollback and health verification.
