@@ -60,6 +60,8 @@ def _validate(state):
     if state["emergency_latched"] and not state["kill_switch"]:
         raise ValueError("Emergency-latched paper risk state cannot be enabled")
     limit = _money(state["limit_cash"])
+    if not state["kill_switch"] and limit <= 0:
+        raise ValueError("Enabled paper reservations require a positive cash cap")
     reservations = state["reservations"]
     if not isinstance(reservations, dict) or len(reservations) > _MAX_RESERVATIONS:
         raise ValueError("Invalid paper reservation collection")
