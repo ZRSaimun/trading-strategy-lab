@@ -66,6 +66,7 @@ def test_stable_inventory_with_fresh_quotes_never_authorizes_orders():
     (lambda p: p.update(max_gross_leverage='3'), 'risk_policy_unchanged'),
     (lambda p: p.update(equity_cash='11000'), 'cash_and_realized_pnl_unchanged'),
     (lambda p: p.update(daily_realized_pnl_cash='0'), 'cash_and_realized_pnl_unchanged'),
+    (lambda p: p.update(daily_unrealized_pnl_cash='1000'), 'cash_and_realized_pnl_unchanged'),
 ])
 def test_changed_declared_inventory_requires_reconciliation(mutation, check):
     before, after = pair()
