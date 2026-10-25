@@ -85,7 +85,7 @@ test('consensus direction cannot contradict probabilities or status',()=>{
   assert.throws(()=>vetoOfflineCrossHorizon(g,at));
 });
 test('untrusted flags, malformed source and age policy fail closed',()=>{
-  const f=fixture();f.alertsEnabled=true;
+  const f=fixture();(f as unknown as {alertsEnabled:boolean}).alertsEnabled=true;
   assert.throws(()=>vetoOfflineCrossHorizon(f,at));
   const g=fixture();g.identity.sourceId='';
   assert.throws(()=>vetoOfflineCrossHorizon(g,at));
