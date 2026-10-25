@@ -128,6 +128,53 @@ def test_stop_gap_and_pending_entry_direction_block():
     assert 'all_stops_and_stress_sides_valid' in run(s)['failed_checks']
 
 
+
+@pytest.mark.parametrize('side,bid,ask,expected_loss', [
+    ('LONG', '1960', '1961', '47'),
+    ('SHORT', '2049', '2050', '57'),
+])
+def test_gap_through_stressed_exit_uses_worse_executable_quote_and_holds(side, bid, ask, expected_loss):
+    s = example(); p = s['exposures'][0]
+    p['state'] = 'OPEN'
+    if side == 'SHORT':
+        p.update(side='SHORT', entry_price='1998', stop_price='2020',
+                 stressed_exit_price='2030')
+    p['bid'] = bid; p['ask'] = ask
+    out = run(s)
+    assert out['status'] == 'HOLD_RECONCILIATION'
+    assert 'no_breached_protective_stops' in out['failed_checks']
+    assert out['checks']['all_stops_and_stress_sides_valid']
+    assert out['checks']['all_quotes_fresh_and_uncrossed']
+    assert out['aggregate_stressed_loss_cash'] == expected_loss
+    assert out['exposures'][0]['protective_stop_unbreached'] is False
+    assert out['may_execute_paper_order'] is False
+    assert out['may_execute_real_order'] is False
+
+
+@pytest.mark.parametrize('side,bid,ask', [
+    ('LONG', '1980', '1981'),
+    ('SHORT', '2019', '2020'),
+])
+def test_stop_touch_alone_requires_reconciliation_even_without_gap(side, bid, ask):
+    s = example(); p = s['exposures'][0]
+    p['state'] = 'OPEN'
+    if side == 'SHORT':
+        p.update(side='SHORT', entry_price='1998', stop_price='2020',
+                 stressed_exit_price='2030')
+    p['bid'] = bid; p['ask'] = ask
+    out = run(s)
+    assert 'no_breached_protective_stops' in out['failed_checks']
+    assert out['aggregate_stressed_loss_cash'] == '37'
+
+
+def test_fresh_unbreached_stop_is_not_a_broker_fill_attestation():
+    out = run(example())
+    assert out['checks']['no_breached_protective_stops']
+    assert out['exposures'][0]['protective_stop_unbreached'] is True
+    assert out['protective_stops_broker_verified'] is False
+    assert out['may_execute_real_order'] is False
+
+
 def test_short_uses_ask_and_giveback_of_unrealized_gain():
     s = example(); p = s['exposures'][0]
     p.update(side='SHORT', entry_price='1998', stop_price='2020',
