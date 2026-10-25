@@ -57,7 +57,7 @@ def test_first_checkpoint_is_atomic_unverified_and_never_executes(stores):
     with factory() as db:
         rows = db.scalars(select(Record)).all()
         audits = db.scalars(select(Audit)).all()
-    assert len(rows) == 3
+    assert len(rows) == 4
     assert len(audits) == 1
     assert audits[0].action == "paper.quote_journal.atomic"
     assert "4000.00" not in audits[0].detail
@@ -210,5 +210,48 @@ def test_unbound_journal_still_supports_standalone_paper_replay(stores):
         "independent-paper-session", IDENTITY, 0, 1, checkpoint("next")
     ) is True
     assert journal.load("independent-paper-session")["revision"] == 1
+    assert journal.load("paper-session-a")["revision"] == 0
+    assert quotes.load_marker(SOURCE)["revision"] == 0
+
+
+def test_bound_source_refuses_standalone_quote_observation(stores):
+    atomic, quotes, journal, _, factory = stores
+    assert append(atomic)["status"] == "CHECKPOINT_RECORDED_UNVERIFIED"
+    result = quotes.observe(SOURCE, quote(2), now_ms=NOW + 130)
+    assert result["status"] == "HOLD_RECONCILIATION"
+    assert result["reason"] == "ATOMIC_JOURNAL_OWNS_QUOTE_SOURCE"
+    assert result["paper_order_permitted"] is result["live_order_permitted"] is False
+    assert quotes.load_marker(SOURCE)["revision"] == 0
+    assert journal.load("paper-session-a")["revision"] == 0
+    with factory() as db:
+        assert len(db.scalars(select(Audit)).all()) == 1
+    assert append(atomic, 2, expected=0)["status"] == "CHECKPOINT_RECORDED_UNVERIFIED"
+
+
+def test_same_source_cannot_bind_second_paper_journal(stores):
+    atomic, quotes, journal, _, factory = stores
+    assert append(atomic)["status"] == "CHECKPOINT_RECORDED_UNVERIFIED"
+    result = append(atomic, 2, session_id="paper-session-b")
+    assert result["status"] == "HOLD_RECONCILIATION"
+    assert result["reason"] == "QUOTE_SOURCE_ALREADY_BOUND_TO_OTHER_JOURNAL"
+    assert journal.load("paper-session-b") is None
+    assert journal.load("paper-session-a")["revision"] == 0
+    assert quotes.load_marker(SOURCE)["revision"] == 0
+    with factory() as db:
+        assert len(db.scalars(select(Audit)).all()) == 1
+        assert len(db.scalars(select(Record)).all()) == 4
+
+
+def test_missing_reverse_source_binding_fails_closed(stores):
+    atomic, quotes, journal, _, factory = stores
+    assert append(atomic)["status"] == "CHECKPOINT_RECORDED_UNVERIFIED"
+    from sqlalchemy import delete
+    from app.paper_quote_replay_store import PaperQuoteReplayStore
+    owner_key = "paper-quote-journal-owner:" + PaperQuoteReplayStore._key(SOURCE).split(":", 1)[1]
+    with factory.begin() as db:
+        db.execute(delete(Record).where(Record.key == owner_key))
+    result = append(atomic, 2, expected=0)
+    assert result["status"] == "HOLD_RECONCILIATION"
+    assert result["reason"] == "QUOTE_SOURCE_BINDING_INCOMPLETE"
     assert journal.load("paper-session-a")["revision"] == 0
     assert quotes.load_marker(SOURCE)["revision"] == 0
