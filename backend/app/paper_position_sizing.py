@@ -81,9 +81,19 @@ def size_paper_position(*, side, account_equity_cash, max_position_loss_cash,
         per_unit_stress = abs(v["entry_price"] - v["stressed_exit_price"]) * v["point_value_cash"]
         per_unit_notional = v["entry_price"] * v["point_value_cash"]
         per_unit_margin = per_unit_notional * v["margin_requirement_percent"] / Decimal(100)
-        free_gross_notional = v["account_equity_cash"] * v["max_leverage"] - v["other_gross_notional_cash"]
-        free_margin = v["account_equity_cash"] - v["other_reserved_margin_cash"]
+        # Existing reservations and the proposed fixed cost consume equity before
+        # any new position is sized. Solve the stressed leverage/margin inequalities
+        # algebraically, including the proposed per-unit downside on BOTH sides.
+        # Current-equity-only sizing can otherwise over-allocate at the loss limit.
+        stressed_base_equity = (v["account_equity_cash"]
+                                - v["other_reserved_loss_cash"]
+                                - v["estimated_fixed_cost_cash"])
+        free_gross_notional = (stressed_base_equity * v["max_leverage"]
+                               - v["other_gross_notional_cash"])
+        free_margin = stressed_base_equity - v["other_reserved_margin_cash"]
         blockers = []
+        if stressed_base_equity <= 0:
+            blockers.append("stressed_equity_exhausted")
         if cash_budget <= v["estimated_fixed_cost_cash"]:
             blockers.append("loss_budget_exhausted")
         if free_gross_notional <= 0:
@@ -95,8 +105,8 @@ def size_paper_position(*, side, account_equity_cash, max_position_loss_cash,
         else:
             raw_max = min(
                 (cash_budget - v["estimated_fixed_cost_cash"]) / per_unit_stress,
-                free_gross_notional / per_unit_notional,
-                free_margin / per_unit_margin,
+                free_gross_notional / (per_unit_notional + v["max_leverage"] * per_unit_stress),
+                free_margin / (per_unit_margin + per_unit_stress),
                 v["maximum_quantity"],
             )
             quantity = (raw_max / v["quantity_step"]).to_integral_value(rounding=ROUND_FLOOR) * v["quantity_step"]
@@ -106,10 +116,15 @@ def size_paper_position(*, side, account_equity_cash, max_position_loss_cash,
         loss = per_unit_stress * quantity + (v["estimated_fixed_cost_cash"] if quantity > 0 else Decimal(0))
         notional = per_unit_notional * quantity
         margin = per_unit_margin * quantity
-        # Recheck after floor quantization; no upward rounding is ever allowed.
+        stressed_equity = (v["account_equity_cash"]
+                           - v["other_reserved_loss_cash"] - loss)
+        # Recheck the actual stressed portfolio after flooring. The fixed cost
+        # is charged only for a nonzero hypothetical order.
         if quantity > 0 and not (
-            loss <= cash_budget and notional <= free_gross_notional
-            and margin <= free_margin and quantity <= v["maximum_quantity"]
+            loss <= cash_budget and stressed_equity > 0
+            and v["other_gross_notional_cash"] + notional <= stressed_equity * v["max_leverage"]
+            and v["other_reserved_margin_cash"] + margin <= stressed_equity
+            and quantity <= v["maximum_quantity"]
         ):
             raise ArithmeticError("Sizing invariant violated; do not place an order")
         return {
@@ -118,6 +133,7 @@ def size_paper_position(*, side, account_equity_cash, max_position_loss_cash,
             "stressed_loss_cash": str(loss),
             "gross_notional_cash": str(notional),
             "margin_cash": str(margin),
+            "stressed_equity_after_loss_cash": str(stressed_equity),
             "available_stressed_loss_budget_cash": str(max(Decimal(0), cash_budget)),
             "daily_loss_headroom_cash": str(max(Decimal(0), daily_remaining)),
             "failed_checks": blockers,
@@ -131,6 +147,7 @@ def size_paper_position(*, side, account_equity_cash, max_position_loss_cash,
                 "Owner-declared inputs only; this is not broker buying power or an executable quote.",
                 "Stressed exits, costs and stop losses cannot cap real gap or liquidation losses.",
                 "Fixed cost must bound all quantity-dependent commissions/slippage externally.",
+                "Sizing uses equity after declared existing risk and hypothetical new downside; it is not a guaranteed broker liquidation or margin threshold.",
                 "No broker execution, durable reservation or human order approval exists here.",
             ],
         }
