@@ -34,7 +34,7 @@ No profitability claim is made.
 
 ## Opt-in PostgreSQL acceptance (new)
 
-The additional `backend/tests/test_paper_risk_reservations_postgres.py` harness is intentionally skipped in ordinary CI. To exercise it, provision a **disposable local PostgreSQL database** whose name begins with `test_`, with a local host (`localhost`, `127.0.0.1`, or Docker host `db`) and no URL query options. Run:
+The additional `backend/tests/test_paper_risk_reservations_postgres.py` harness requires a disposable PostgreSQL service; this branch's `postgres-reservations-acceptance` GitHub Actions job now supplies one. To exercise it, provision a **disposable local PostgreSQL database** whose name begins with `test_`, with a local host (`localhost`, `127.0.0.1`, or Docker host `db`) and no URL query options. Run:
 
 ```sh
 cd backend
@@ -67,10 +67,10 @@ The emergency latch now freezes **every** policy mutation, including a seemingly
 
 A read-only snapshot retains `remaining_risk_capacity_cash` as the arithmetic difference between cap and reservations, but adds `reservable_risk_capacity_cash` equal to **zero** whenever the kill switch is active. This prevents consumers from mistaking a disabled account's positive accounting headroom for currently reservable cash risk. Even a positive reservable snapshot is **not** broker-verified buying power or permission to place an order; both execution flags remain false.
 
-Two new isolated SQLite regressions cover disabled-account snapshots, rejected new reservations, restart consistency, emergency policy immutability and no misleading audit event for rejected changes. The isolated SQLite suite now has **17 tests**. The disposable PostgreSQL concurrency acceptance remains unverified. No broker calls, order sender, migration, route, credentials, production data or paid services are introduced. Keep this PR draft until the existing release gates are met.
+Two new isolated SQLite regressions cover disabled-account snapshots, rejected new reservations, restart consistency, emergency policy immutability and no misleading audit event for rejected changes. The isolated SQLite suite now has **17 tests**. The isolated PostgreSQL race/rollback harness passed in branch CI on 25 October 2026; crash/recovery, production rollback and broker reconciliation remain unverified. No broker calls, order sender, migration, route, credentials, production data or paid services are introduced. Keep this PR draft until the existing release gates are met.
 
 ## Enabled-policy persisted-state invariant (25 October 2026)
 
 An enabled (`kill_switch: false`) paper reservation state must have a **strictly positive cash cap**, including when loaded from storage. A zero-cap enabled record is rejected as corrupt even when its unkeyed SHA-256 envelope checksum has been recomputed. The default initialized disabled state with a zero cap remains valid. This protects against contradictory persisted policy snapshots; a matching checksum is not authentication, and a positive cap is never execution permission.
 
-One additional SQLite regression verifies fail-closed load, reservation and emergency-stop operations and absence of a misleading success audit when such a malformed snapshot is present. The isolated SQLite suite now contains **18 tests**. PostgreSQL concurrency, signed broker observations, account/day loss enforcement, production backup/rollback and journal integration remain unverified; **keep this PR draft, unmerged and undeployed**.
+One additional SQLite regression verifies fail-closed load, reservation and emergency-stop operations and absence of a misleading success audit when such a malformed snapshot is present. The isolated SQLite suite now contains **18 tests**. The isolated disposable PostgreSQL race/rollback test **passed (1 test)** in [GitHub Actions run 40189063532](https://github.com/ZRSaimun/trading-strategy-lab/actions/runs/40189063532), alongside backend **196 passed / 2 skipped**, frontend build/tests and both smoke jobs. This does not establish crash/recovery, broker reconciliation, signed quotes, daily account loss controls or production backup/rollback. **Keep this PR draft, unmerged and undeployed**.
