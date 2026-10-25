@@ -80,3 +80,25 @@ def test_bad_metadata_fails_closed(mutate):
     mutate(report)
     with pytest.raises(ValueError):
         summarize_archive_lineage(report)
+
+
+def test_cli_runs_existing_strict_triage_before_lineage(tmp_path, capsys):
+    # Reuse the complete, valid scanner-metadata fixture from Loop 1.
+    from test_histdata_audit_triage import fixture_report
+    from app.archive_inventory_lineage import main
+
+    path = tmp_path / "audit.json"
+    report = fixture_report()
+    path.write_text(json.dumps(report))
+    assert main([str(path)]) == 0
+    out = json.loads(capsys.readouterr().out)
+    assert out["summary"]["canonical_digest_missing"] == 1
+    assert out["result"] == "UNTRUSTED_ARCHIVE_LINEAGE_OBSERVATIONS"
+
+    # A malformed scanner summary must be rejected before lineage reporting.
+    report["summary"]["rows"] = 999
+    path.write_text(json.dumps(report))
+    assert main([str(path)]) == 2
+    denied = json.loads(capsys.readouterr().out)
+    assert denied["result"] == "REJECTED"
+    assert denied["can_auto_import"] is False
