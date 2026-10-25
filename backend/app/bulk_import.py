@@ -128,6 +128,26 @@ def _bulk_insert(connection, rows, table):
     connection.execute(stmt, rows)
 
 
+def _bounded_source_lines(stream, max_chars=1024):
+    """Yield bounded (prefix, overlong) pairs for physical source rows.
+
+    Overlong rows are consumed in bounded reads without materializing the
+    remaining text. The stream must normalize newlines (newline=None) so
+    CRLF at the length boundary cannot become a spurious extra row.
+    """
+    while True:
+        prefix = stream.readline(max_chars + 1)
+        if not prefix:
+            return
+        overlong = len(prefix) > max_chars
+        if overlong and not prefix.endswith("\\n"):
+            while True:
+                chunk = stream.readline(max_chars + 1)
+                if not chunk or chunk.endswith("\\n"):
+                    break
+        yield prefix, overlong
+
+
 def _flush(engine, dataset_id, accepted, rejected, zero, member, line, latest, candle_batch, issue_batch):
     # Store checkpoint and its imported candles atomically. A crash before
     # commit replays the same rows safely on restart.
@@ -215,11 +235,11 @@ def ingest(engine, path, *, instrument, provider, file_format="ascii",
                     continue
                 current_member = member_idx
                 with archive.open(member) as raw:
-                    with io.TextIOWrapper(raw, encoding="utf-8-sig", errors="strict", newline="") as stream:
-                        for line_num, line in enumerate(stream, start=1):
+                    with io.TextIOWrapper(raw, encoding="utf-8-sig", errors="strict", newline=None) as stream:
+                        for line_num, (line, overlong) in enumerate(_bounded_source_lines(stream), start=1):
                             if member_idx == cp_member and line_num <= cp_line:
                                 continue
-                            if len(line) > 1024:
+                            if overlong:
                                 record = None
                                 reason = "row too long"
                             else:
