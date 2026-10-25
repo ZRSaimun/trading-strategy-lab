@@ -132,6 +132,31 @@ def test_snapshot_receipt_future_rejected():
     assert 'snapshot_fresh' in result(mut_o=lambda o:o.update(received_at_ms=NOW+1))['failed_checks']
 
 
+def test_quote_received_after_snapshot_is_not_causal():
+    # Quote is individually fresh, but it arrived AFTER the claimed snapshot.
+    r = result(mut_o=lambda o: o['quotes'][0].update(received_at_ms=NOW-50))
+    assert r['checks']['ABC:quote_fresh'] is True
+    assert 'ABC:quote_snapshot_causal' in r['failed_checks']
+    assert r['status'] == 'HOLD_RECONCILIATION'
+    assert r['may_execute_real_order'] is False
+
+
+def test_replayed_quote_inside_age_limit_is_quarantined():
+    # A new snapshot sequence cannot make a prior-snapshot quote fresh.
+    def stale_from_prior(o):
+        o['quotes'][0].update(observed_at_ms=NOW-3000, received_at_ms=NOW-2500)
+    r = result(mut_o=stale_from_prior)
+    assert r['checks']['ABC:quote_fresh'] is True
+    assert 'ABC:quote_snapshot_causal' in r['failed_checks']
+    assert r['status'] == 'HOLD_RECONCILIATION'
+
+
+def test_clean_quote_causal_check_passes():
+    r = result()
+    assert r['checks']['ABC:quote_snapshot_causal'] is True
+    assert r['status'] == 'CONSISTENT_UNVERIFIED'
+
+
 def test_wrong_stop_side_rejected():
     e,o=inputs();e['positions'][0]['stop']='101'
     with pytest.raises(ValueError,match='Invalid long'):
