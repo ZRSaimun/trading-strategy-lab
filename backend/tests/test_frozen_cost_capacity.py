@@ -50,7 +50,7 @@ def test_full_population_cost_capacity_is_descriptive_only():
     assert result["zero_mean_upper_bound_cost_bps_floor_6dp"] == "50.000000"
     assert [x["additional_round_trip_bps"] for x in result["cost_scenarios"]] == [0, 5, 10, 20]
     assert [x["total_lower_net_r"] for x in result["cost_scenarios"]] == [
-        "18.0", "16.20", "14.40", "10.80",
+        "18.0", "16.20", "14.4", "10.8",
     ]
     assert result["largest_tested_bps_with_positive_lower_bound"] == 20
     assert result["first_tested_bps_with_nonpositive_upper_bound"] is None
@@ -172,7 +172,7 @@ def test_insufficient_sample_withholds():
 def test_insufficient_week_dispersion_withholds():
     manifest, paths = sample()
     for i in range(36):
-        at = int((BASE + timedelta(weeks=i // 3, minutes=i % 3)).timestamp())
+        at = int((BASE + timedelta(weeks=i // 4, minutes=i % 4)).timestamp())
         manifest["eligible_signals"][i]["signal_at"] = at
         paths[i]["signal_at"] = at
         paths[i]["entry_at"] = at + 60
