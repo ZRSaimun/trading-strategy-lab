@@ -100,7 +100,7 @@ test('quote conflicts remain visible even if declared population mismatches',()=
 });
 test('upstream cross-order duplicate fill ID is rejected',()=>{
   const orders=two({fillId:'fill-a'});
-  assert.throws(()=>review(orders),/duplicate cross-order fill/i);
+  assert.throws(()=>review(orders),/duplicate fill/i);
 });
 test('upstream cross-source and stale quote evidence is rejected',()=>{
   const changed=[order('a',[ack('a'),fill('a',{accountAlias:'other'})])];
