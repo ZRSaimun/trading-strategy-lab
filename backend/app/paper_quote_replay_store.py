@@ -168,6 +168,19 @@ class PaperQuoteReplayStore:
                 owner_key = "paper-quote-journal-owner:" + key.split(":", 1)[1]
                 if db.scalar(select(Record.value).where(Record.key == owner_key)) is not None:
                     return _result("ATOMIC_JOURNAL_OWNS_QUOTE_SOURCE")
+                # Older atomic checkpoints may have a session-to-source
+                # binding but no reverse owner marker. A missing reverse key
+                # is NOT proof that the source is unowned: otherwise a
+                # standalone observer could advance the quote without its
+                # journal. Inspect legacy forward bindings before writing.
+                # This is intentionally read-only and fail-closed; repair
+                # requires offline reconciliation, never automatic adoption.
+                forward_binding = db.scalar(select(Record.key).where(
+                    Record.key.like("paper-journal-source:%"),
+                    Record.value == key.split(":", 1)[1],
+                ).limit(1))
+                if forward_binding is not None:
+                    return _result("QUOTE_SOURCE_BINDING_INCOMPLETE")
                 previous_raw = db.scalar(select(Record.value).where(Record.key == key))
                 previous = _decode(previous_raw, identity_sha) if previous_raw is not None else None
                 if previous is not None:
