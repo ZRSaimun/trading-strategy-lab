@@ -7,12 +7,20 @@ import csv
 import hashlib
 import io
 import math
+import re
 from datetime import datetime, timezone
 
 HEADER = ['Etc/UTC', 'Open', 'High', 'Low', 'Close', 'Volume']
 MAX_BYTES = 25_000_000
 MAX_ROWS = 300_000
 INTERVAL_SECONDS = {'M1': 60, 'H1': 3600}
+# Require explicitly observed calendar date AND time down to seconds.
+# fromisoformat alone supplies omitted time components and truncates fractions
+# beyond microseconds, which can manufacture an apparently aligned candle.
+TIMESTAMP = re.compile(
+    r'[0-9]{4}-[0-9]{2}-[0-9]{2}[T ][0-9]{2}:[0-9]{2}:[0-9]{2}'
+    r'(?:\.[0-9]{1,6})?(?:Z|[+-][0-9]{2}:[0-9]{2})?'
+)
 
 
 def _parse_side(raw, side, interval_seconds):
@@ -30,7 +38,11 @@ def _parse_side(raw, side, interval_seconds):
             if len(fields) != 6:
                 raise ValueError(f'{side}: row {line}: expected six columns')
             try:
-                dt = datetime.fromisoformat(fields[0].strip().replace('Z', '+00:00'))
+                timestamp = fields[0].strip()
+                if not TIMESTAMP.fullmatch(timestamp):
+                    raise ValueError('expected full calendar timestamp YYYY-MM-DD HH:MM:SS '
+                                     'with optional microseconds and UTC offset')
+                dt = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
                 # Naive time is UTC only because the exact header declares Etc/UTC.
                 if dt.tzinfo is None:
                     dt = dt.replace(tzinfo=timezone.utc)
