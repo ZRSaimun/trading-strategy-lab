@@ -65,9 +65,25 @@ def compare_staging_snapshots(
         outcome = "OBSERVED_VALUE_OR_COVERAGE_DRIFT"
     else:
         outcome = "SAME_OBSERVED_VALUES_AND_COVERAGE"
+    # A shifted request window is not by itself a revision of shared bars.
+    # Keep the legacy outcome for existing consumers, but give reviewers a
+    # narrower triage result that does not confuse edge changes with drift
+    # inside the shared observed range. No classification authorizes imports.
+    shared_interval_review_required = bool(revised or added_inside or removed_inside)
+    if not common:
+        comparison_class = "NO_SHARED_OBSERVED_MINUTES"
+    elif shared_interval_review_required:
+        comparison_class = "REVIEW_SHARED_INTERVAL_DRIFT"
+    elif added or removed:
+        comparison_class = "WINDOW_BOUNDARY_DIFFERENCE_ONLY"
+    else:
+        comparison_class = "IDENTICAL_OBSERVED_WINDOW"
     return {
         "result": "OFFLINE_HISTORICAL_DRIFT_OBSERVATION_ONLY",
         "outcome": outcome,
+        "comparison_class": comparison_class,
+        "shared_interval_review_required": shared_interval_review_required,
+        "window_boundary_only_difference": comparison_class == "WINDOW_BOUNDARY_DIFFERENCE_ONLY",
         "provider": "twelvedata",
         "provider_symbol": "XAU/USD",
         "previous_archive_sha256": old["archive_sha256"],
