@@ -45,3 +45,34 @@ This workflow is separate from the existing PostgreSQL **paper-risk** CI job;
 neither job is a production acceptance test. Before any merge that could
 auto-deploy, reconcile the branch with fresh `main`, review concurrent PRs,
 and independently verify production restore/rollback and post-deploy health.
+
+## Disposable PostgreSQL dump, restore and rollback drill (25 October 2026)
+
+The historical acceptance suite additionally creates two synthetic source
+archives (one clean, one with a conflicting timestamp) in a unique isolated
+PostgreSQL schema. It takes a real custom-format `pg_dump` of that schema,
+restores it using `pg_restore` into a **new random `*_test` database** on
+loopback, and verifies the exact dataset, candle and quarantine rows. The
+authenticated API must show only the clean historical archive, return 404 for
+the quarantined archive and reject an unauthenticated inventory request.
+
+The test then deliberately alters **only the disposable restored database**,
+confirms the historical API no longer exposes the modified READY dataset, and
+restores the original dump with `--clean --if-exists --single-transaction`.
+It checks byte-for-byte-equivalent SQL row values and READY visibility after
+this rollback. The temporary database is dropped in teardown. The source
+fixture requires a loopback PostgreSQL URL whose database ends in `_test`;
+a separate randomly named restore database also ends in `_test`. The dump
+lives in a temporary directory, has mode 0600, and is never committed.
+
+This drill requires local `pg_dump` and `pg_restore` executables compatible
+with the disposable PostgreSQL server. It fails rather than silently skipping
+if they are missing. The CI job runs with read-only GitHub permissions and
+synthetic prices only.
+
+**Scope boundary:** This validates isolated historical-table backup/restore
+and rollback logic, not a production database recovery, full application
+schema migration, Render/Supabase disaster recovery, restored session/AI-token
+invalidation, actual archive licensing, or HTTPS health after deployment.
+Production merge/deploy remains blocked until independent owner-environment
+backup, restore, rollback, authentication and health checks succeed.
