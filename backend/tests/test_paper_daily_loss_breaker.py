@@ -1,4 +1,5 @@
 """Synthetic SQLite tests. PostgreSQL concurrency must be separately accepted."""
+import json
 import pytest
 from sqlalchemy import create_engine, event, select
 from sqlalchemy.orm import sessionmaker
@@ -136,3 +137,47 @@ def test_missing_policy_never_initializes_implicitly(setup):
     with pytest.raises(ValueError, match="not initialized"):
         observed(s)
     assert s.load("demo", DAY) is None
+
+
+@pytest.mark.parametrize("changes", [
+    {"day": "2026-10-25"},
+    {"sequence": 1},
+    {"observed_ms": T0 + 1000},
+    {"realized": "1"},
+])
+def test_initial_record_substitution_and_fake_observation_fail_closed(setup, changes):
+    _, factory = setup
+    store = PaperDailyLossBreaker(factory)
+    assert store.initialize("demo", DAY, "GBP", "100")
+    with factory.begin() as db:
+        record = db.get(Record, store._key("demo", DAY))
+        state = json.loads(record.value)
+        state.update(changes)
+        record.value = json.dumps(state)
+    with pytest.raises(ValueError, match="Corrupt"):
+        store.load("demo", DAY)
+    with pytest.raises(ValueError, match="Corrupt"):
+        observed(store)
+
+
+@pytest.mark.parametrize("changes", [
+    {"day": "2026-10-25"},
+    {"revision": 2},
+    {"sequence": 0},
+    {"observed_ms": 0},
+    {"observed_ms": T0 + 86_400_000},
+])
+def test_observed_record_corruption_cannot_clear_breaker(setup, changes):
+    _, factory = setup
+    store = PaperDailyLossBreaker(factory)
+    assert store.initialize("demo", DAY, "GBP", "100")
+    assert observed(store, reserved="40")["latched"]
+    with factory.begin() as db:
+        record = db.get(Record, store._key("demo", DAY))
+        state = json.loads(record.value)
+        state.update(changes)
+        record.value = json.dumps(state)
+    with pytest.raises(ValueError, match="Corrupt"):
+        store.load("demo", DAY)
+    with pytest.raises(ValueError, match="Corrupt"):
+        observed(store, sequence=2, observed_ms=T0 + 2000, now_ms=T0 + 2100)

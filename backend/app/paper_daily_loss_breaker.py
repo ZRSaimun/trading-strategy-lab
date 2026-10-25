@@ -47,7 +47,7 @@ def _day(value):
     return value
 
 
-def _decode(raw):
+def _decode(raw, *, expected_day=None):
     try:
         def unique(pairs):
             out = {}
@@ -60,6 +60,8 @@ def _decode(raw):
         if not isinstance(data, dict) or set(data) != _FIELDS or data["version"] != 1:
             raise ValueError()
         _day(data["day"])
+        if expected_day is not None and data["day"] != expected_day:
+            raise ValueError("Policy day does not match record key")
         if not isinstance(data["currency"], str) or not _CURRENCY.fullmatch(data["currency"]):
             raise ValueError()
         for key in ("cap", "peak_loss", "reserved"):
@@ -74,6 +76,25 @@ def _decode(raw):
         current_loss = max(Decimal(0), -(_money(data["realized"]) + min(_money(data["unrealized"]), Decimal(0)) - _money(data["reserved"])))
         if _money(data["peak_loss"]) < current_loss or data["latched"] != (_money(data["peak_loss"]) >= _money(data["cap"])):
             raise ValueError()
+        # A valid record is either a pristine initialization or an observed
+        # revision. Reject forged resets and timestamp/sequence discontinuities
+        # rather than allowing a corrupt record to appear unlatched.
+        if data["revision"] == 0:
+            if (data["sequence"] != 0 or data["observed_ms"] != 0
+                or any(_money(data[k]) != 0 for k in
+                       ("realized", "unrealized", "reserved", "peak_loss"))):
+                raise ValueError("Invalid initial state")
+        else:
+            if data["sequence"] < data["revision"] or data["observed_ms"] == 0:
+                raise ValueError("Invalid observed state")
+            try:
+                observed_day = datetime.fromtimestamp(
+                    data["observed_ms"] / 1000, tz=timezone.utc
+                ).date().isoformat()
+            except (ValueError, OverflowError, OSError) as exc:
+                raise ValueError("Invalid stored observation timestamp") from exc
+            if observed_day != data["day"]:
+                raise ValueError("Stored observation belongs to a different UTC day")
         return data
     except (ValueError, TypeError, RecursionError, OverflowError) as exc:
         raise ValueError("Corrupt paper daily-loss state; manual recovery required") from exc
@@ -107,7 +128,7 @@ class PaperDailyLossBreaker:
         key = self._key(account_id, day)
         with self.session_factory() as db:
             raw = db.scalar(select(Record.value).where(Record.key == key))
-            return None if raw is None else self._public(_decode(raw))
+            return None if raw is None else self._public(_decode(raw, expected_day=day))
 
     def initialize(self, account_id, day, currency, cap):
         key = self._key(account_id, day)
@@ -154,7 +175,7 @@ class PaperDailyLossBreaker:
             raw = db.scalar(select(Record.value).where(Record.key == key))
             if raw is None:
                 raise ValueError("Paper loss policy not initialized")
-            old = _decode(raw)
+            old = _decode(raw, expected_day=day)
             if sequence <= old["sequence"] or observed_ms <= old["observed_ms"]:
                 raise ValueError("Replay or out-of-order paper loss observation")
             if old["revision"] == _MAX_SEQ:
