@@ -48,6 +48,25 @@ test('first bullish midpoint touch has a hypothetical blind limit and later next
  assert.ok((x.blindMidpointTouch?.grossBps??0)>(x.confirmedNextOpen?.grossBps??0));
  assert.equal(x.eligibleForLiveTrading,false);
 });
+test('blind midpoint observation is timestamped at touch close, never at bar open',()=>{
+ for(const bars of [fixture(),fixture().map(b=>({...b,
+  open:220-b.open,high:220-b.low,low:220-b.high,close:220-b.close}))]){
+  const x=target(bars);
+  assert.equal(x.gates.midpointTouch,'PASS');
+  assert.equal(x.blindMidpointTouch?.entryObservedAt,x.firstTouchClosedAt);
+  assert.equal(x.blindMidpointTouch?.entryObservedAt,BASE+34*H);
+  assert.notEqual(x.blindMidpointTouch?.entryObservedAt,bars[33].time,
+   'a touch cannot be inferred from a completed hourly range at its opening');
+ }
+ // The same causal timestamp applies to a failed rejection: the blind
+ // comparator must not borrow information from a later attractive touch.
+ const failed=fixture();
+ failed[33]=candle(33,105,106,101,102.5,200);
+ const x=target(failed);
+ assert.equal(x.gates.wickRejection,'FAIL');
+ assert.equal(x.blindMidpointTouch?.entryObservedAt,x.firstTouchClosedAt);
+});
+
 test('a failed first touch cannot be replaced by a prettier later rejection',()=>{
  const bars=fixture();
  bars[33]=candle(33,105,106,101,102.5,200); // 1st touch, closes lower
