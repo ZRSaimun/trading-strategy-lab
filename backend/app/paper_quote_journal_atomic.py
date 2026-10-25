@@ -17,8 +17,7 @@ from .paper_quote_replay_store import (
     _digest, _integer, _money, _quote, _source,
 )
 from .paper_journal_store import (
-    PaperJournalStore, _checkpoint, _decode as decode_journal,
-    _identity, _revision,
+    PaperJournalStore, _checkpoint, _identity, _revision,
 )
 
 
@@ -101,7 +100,7 @@ class AtomicPaperQuoteJournalStore:
                 journal_raw = db.scalar(select(Record.value).where(Record.key == journal_key))
                 binding = db.scalar(select(Record.value).where(Record.key == binding_key))
                 previous_quote = decode_quote(quote_raw, source_hash) if quote_raw is not None else None
-                previous_journal = decode_journal(journal_raw) if journal_raw is not None else None
+                previous_journal = PaperJournalStore._decode(journal_raw) if journal_raw is not None else None
 
                 if binding is not None and binding != source_hash:
                     return _decision("JOURNAL_ACCOUNT_BINDING_MISMATCH")
