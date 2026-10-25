@@ -5,6 +5,7 @@ import {auditDeclaredQuoteExecutions, type QuoteExecutionScope, type DeclaredOrd
   type DeclaredQuote, type DeclaredFill} from './declared-quote-execution-audit.ts';
 import {auditDeclaredCfdFinancing, type FinancingScope,
   type FinancingReceipt} from './declared-cfd-financing-audit.ts';
+import {assertDeclaredCfdTemporalConsistency} from './declared-cfd-temporal-consistency.ts';
 
 export type CostStress = Readonly<{
   id:string;
@@ -72,6 +73,7 @@ export function reviewDeclaredCfdCostEnvelope(
      quoteScope.accountAlias!==financingScope.accountAlias ||
      quoteScope.quoteCurrency!==financingScope.settlementCurrency)
     throw Error('Cross-source or cross-currency CFD cost evidence cannot be combined');
+  assertDeclaredCfdTemporalConsistency(quoteScope,orders,fills,financingScope);
   const budget=cashCents(declaredCostBudgetCurrency,'budget');
   if(!Array.isArray(stresses)||stresses.length===0||stresses.length>12)
     throw Error('A bounded nonempty stress grid is required');
@@ -107,6 +109,7 @@ export function reviewDeclaredCfdCostEnvelope(
       'Quote/fill/rollover evidence and source identities are caller declarations, not authenticated broker records.',
       'One-sided fill friction already includes half-spread, slippage and commission; stresses must not double-count base costs.',
       'No trading P&L, margin, FX, market liquidity, real risk cap, broker schedule completeness or profitability is measured.',
-      'Incomplete fill or rollover evidence withholds ALL base and stressed totals; no zero-cost substitution.'
+      'Incomplete fill or rollover evidence withholds ALL base and stressed totals; no zero-cost substitution.',
+      'Temporal checks only constrain declared order/fill times to the declared position window; they do not prove orders belong to that position.'
     ]};
 }
