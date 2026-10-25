@@ -189,6 +189,13 @@ def _evaluate_snapshot(expected: dict, observed: dict, now_ms: int) -> dict:
             and q["received_at_ms"] - q["observed_at_ms"] <= max_lag
             and q["observed_at_ms"] <= observed_ms
         )
+        # A snapshot cannot contain a quote received after the snapshot was
+        # received. A quote older than the prior persisted snapshot is not
+        # fresh evidence merely because a new snapshot ID was supplied.
+        checks[prefix + "quote_snapshot_causal"] = (
+            q["received_at_ms"] <= received_ms
+            and q["observed_at_ms"] > prior_time
+        )
         mark = q["bid"] if p["side"] == "LONG" else q["ask"]
         checks[prefix + "stop_not_breached"] = mark > p["stop"] if p["side"] == "LONG" else mark < p["stop"]
         stress_loss = abs(p["entry"] - p["stress_exit"]) * p["quantity"] * p["point_value"]
