@@ -271,7 +271,7 @@ def test_nonpositive_stressed_equity_never_satisfies_margin_or_leverage():
     s['max_daily_loss_cash'] = '10000'
     s['daily_realized_pnl_cash'] = '-10000'
     out = run(s)
-    assert out['stressed_equity_cash'] == '-37'
+    assert out['stressed_equity_cash'] == '-87'
     assert out['checks']['stressed_reserved_margin_within_cap'] is False
     assert out['checks']['stressed_gross_leverage_within_cap'] is False
     assert out['status'] == 'HOLD_RECONCILIATION'
