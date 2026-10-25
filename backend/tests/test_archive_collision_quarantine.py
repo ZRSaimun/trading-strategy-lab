@@ -94,5 +94,36 @@ class CollisionQuarantineTests(unittest.TestCase):
         self.assertEqual(r['conflicting_collision_minutes'], 1)
 
 
+    def test_day_counts_reconcile_distinct_minutes(self):
+        a = '20261001 120000;100;101;99;100;0'
+        b = '20261001 120100;100;101;99;100;0'
+        c = '20261001 120000;100;102;99;101;0'
+        d = '20261002 120000;100;101;99;100;0'
+        e = '20261002 120100;100;101;99;100;0'
+        r = self.scan([a, b, a, c, d, e, d])
+        self.assertEqual(r['first_collision_row_ordinal'], 3)
+        self.assertEqual(r['last_collision_row_ordinal'], 7)
+        self.assertEqual(r['collision_counts_by_unverified_wall_day'], [
+            {'wall_day_unverified': '2026-10-01', 'repeated_rows': 2,
+             'conflicting_repeated_rows': 1, 'distinct_collision_minutes': 1,
+             'distinct_conflicting_minutes': 1},
+            {'wall_day_unverified': '2026-10-02', 'repeated_rows': 1,
+             'conflicting_repeated_rows': 0, 'distinct_collision_minutes': 1,
+             'distinct_conflicting_minutes': 0},
+        ])
+        self.assertEqual(sum(d['repeated_rows'] for d in
+                             r['collision_counts_by_unverified_wall_day']), r['repeated_rows'])
+        self.assertEqual(sum(d['distinct_conflicting_minutes'] for d in
+                             r['collision_counts_by_unverified_wall_day']),
+                         r['conflicting_collision_minutes'])
+
+    def test_clean_archive_has_no_collision_days(self):
+        r = self.scan(['20261001 120000;100;101;99;100;0'])
+        self.assertEqual(r['collision_counts_by_unverified_wall_day'], [])
+        self.assertIsNone(r['first_collision_row_ordinal'])
+        self.assertIsNone(r['last_collision_row_ordinal'])
+
+
+
 if __name__ == '__main__':
     unittest.main()
