@@ -101,3 +101,50 @@ def test_cli_success_is_read_only(tmp_path, capsys):
     out = json.loads(capsys.readouterr().out)
     assert out["summary"]["archives"] == 1
     assert path.read_text() == raw
+
+
+def test_observed_gap_arithmetic_accepts_only_consistent_minute_span():
+    report = fixture_report()
+    row = report["archives"][0]
+    row.update(last_local_EST="2026-10-01T00:03:00",
+               last_utc="2026-10-01T05:03:00+00:00",
+               observed_gap_events=1,
+               unobserved_minutes_between_rows=1,
+               largest_gap_minutes=2)
+    result = triage_histdata_audit(report)
+    assert result["archives"][0]["triage"] == "FORMAT_ONLY_RIGHTS_UNVERIFIED"
+    assert not result["can_auto_import"]
+
+
+@pytest.mark.parametrize("edit", [
+    lambda a: a.update(unobserved_minutes_between_rows=1),
+    lambda a: a.update(largest_gap_minutes=2),
+    lambda a: a.update(observed_gap_events=1),
+    lambda a: a.update(first_local_EST="2026-10-01T00:00:30",
+                       first_utc="2026-10-01T05:00:30+00:00"),
+    lambda a: a.update(last_local_EST="2026-10-01T00:02:00",
+                       last_utc="2026-10-01T05:02:00.500000+00:00"),
+])
+def test_impossible_observed_gap_metadata_fails_closed(edit):
+    report = fixture_report()
+    edit(report["archives"][0])
+    with pytest.raises(ValueError):
+        triage_histdata_audit(report)
+
+
+@pytest.mark.parametrize("events,missing,largest", [
+    (0, 1, 0),
+    (2, 1, 2),
+    (1, 1, 1),
+    (1, 1, 3),
+])
+def test_gap_event_count_and_largest_gap_reconcile(events, missing, largest):
+    report = fixture_report()
+    row = report["archives"][0]
+    row.update(last_local_EST="2026-10-01T00:03:00",
+               last_utc="2026-10-01T05:03:00+00:00",
+               observed_gap_events=events,
+               unobserved_minutes_between_rows=missing,
+               largest_gap_minutes=largest)
+    with pytest.raises(ValueError):
+        triage_histdata_audit(report)
