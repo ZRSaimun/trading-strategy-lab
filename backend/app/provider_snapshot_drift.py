@@ -48,6 +48,17 @@ def compare_staging_snapshots(
     removed = sorted(before.keys() - after.keys())
     added = sorted(after.keys() - before.keys())
     unchanged = len(common) - len(revised)
+    # Compare coverage only within the intersection of observed endpoint ranges.
+    # Differences outside this overlap can be caused simply by shifting the
+    # requested historical window. Endpoints are observations, NOT a verified
+    # market calendar or a claim that every intervening minute should trade.
+    overlap_start = max(min(before), min(after))
+    overlap_end = min(max(before), max(after))
+    has_overlap = overlap_start <= overlap_end
+    added_inside = [t for t in added if has_overlap and overlap_start <= t <= overlap_end]
+    removed_inside = [t for t in removed if has_overlap and overlap_start <= t <= overlap_end]
+    added_outside = len(added) - len(added_inside)
+    removed_outside = len(removed) - len(removed_inside)
     if not common:
         outcome = "NO_SHARED_OBSERVED_MINUTES"
     elif revised or removed or added:
@@ -68,6 +79,14 @@ def compare_staging_snapshots(
         "revised_shared_minutes": len(revised),
         "removed_observed_minutes": len(removed),
         "added_observed_minutes": len(added),
+        "observed_range_overlap": has_overlap,
+        "observed_overlap_start_utc": _utc(overlap_start) if has_overlap else None,
+        "observed_overlap_end_utc": _utc(overlap_end) if has_overlap else None,
+        "added_within_observed_overlap": len(added_inside),
+        "removed_within_observed_overlap": len(removed_inside),
+        "added_outside_observed_overlap": added_outside,
+        "removed_outside_observed_overlap": removed_outside,
+        "overlap_coverage_differs": bool(added_inside or removed_inside),
         "revised_utc_samples": [_utc(t) for t in revised[:sample_limit]],
         "removed_utc_samples": [_utc(t) for t in removed[:sample_limit]],
         "added_utc_samples": [_utc(t) for t in added[:sample_limit]],
