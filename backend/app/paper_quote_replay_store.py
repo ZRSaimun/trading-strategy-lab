@@ -162,6 +162,12 @@ class PaperQuoteReplayStore:
         quote_sha = _digest({"source": identity_sha, "quote_id": quote["quote_id"]})
         with self.session_factory() as db:
             try:
+                # Atomic quote+journal sessions exclusively own their source.
+                # A standalone observer must not advance its quote marker while
+                # leaving the bound journal at an older checkpoint revision.
+                owner_key = "paper-quote-journal-owner:" + key.split(":", 1)[1]
+                if db.scalar(select(Record.value).where(Record.key == owner_key)) is not None:
+                    return _result("ATOMIC_JOURNAL_OWNS_QUOTE_SOURCE")
                 previous_raw = db.scalar(select(Record.value).where(Record.key == key))
                 previous = _decode(previous_raw, identity_sha) if previous_raw is not None else None
                 if previous is not None:
