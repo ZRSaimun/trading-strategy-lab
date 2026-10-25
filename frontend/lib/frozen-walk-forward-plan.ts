@@ -98,6 +98,7 @@ export async function planFrozenWalkForward(
   exact(spec, ['folds','embargoSeconds','minTrainingObservations','minTestingObservations'], 'forward specification');
   if (!Array.isArray(spec.folds) || spec.folds.length < 2 || spec.folds.length > 24 ||
       !epoch(spec.embargoSeconds) || spec.embargoSeconds > 30 * 86400 ||
+      spec.embargoSeconds < plan.protocol.embargoSeconds ||
       !Number.isSafeInteger(spec.minTrainingObservations) || spec.minTrainingObservations < 1 ||
       !Number.isSafeInteger(spec.minTestingObservations) || spec.minTestingObservations < 1)
     throw Error('Invalid predeclared fold count, embargo or minimum timing counts');
