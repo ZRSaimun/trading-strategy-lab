@@ -67,6 +67,10 @@ See [architecture](docs/architecture.md), [status and acceptance](docs/status.md
 
 The authenticated Backtesting screen can now select one ready source-isolated historical ZIP archive and fetch up to 20,000 aggregate candles via the existing paginated history API, with dataset hash checks and explicit window/cost limitations. No archive is uploaded or merged automatically, and BID-only history is not broker-executable data. See [archive-backed backtesting](docs/archive-backtesting.md).
 
+## Experimental 4H CRT / ICT confirmation research
+
+Authenticated **CRT / ICT Research** now screens source-isolated 4H sweep/reclaim candles, a configurable 40% manipulation-wick hypothesis, and causal next-block 15m structure/displacement with a previous-20-bar median. It reports absent verified volume, formal order-block evidence, and event calendars as **insufficient data**, never as permission to trade. Results are observational, not a profitability backtest. See [complete methodology](docs/crt-quant-research.md).
+
 ## Source-isolated NY close momentum research
 
 The authenticated **NY Close Research** screen adds a read-only, historical US equity-session hypothesis using completed M1 BID-only candles from exactly one imported archive, a 20-prior-complete-session volatility gate, and 0×/1×/2×/3× illustrative friction comparisons. It uses America/New_York clock rules and deliberately refuses incomplete regular sessions. This is not a live or verified CFD edge; ETF academic results cannot be assumed to hold for Nasdaq CFD, Gold or WTI proxies. See [full research protocol and limitations](docs/ny-close-cfd-research.md).
