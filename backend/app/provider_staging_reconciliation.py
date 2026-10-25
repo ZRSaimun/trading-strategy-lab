@@ -28,21 +28,36 @@ def reconcile_staging_dataset(manifest: dict, archive: bytes, candles: list[dict
         "provider_symbol": "XAU/USD",
         "hash_scope": "vetted source-field snapshot",
         "rights_confirmation_scope": "owner_assertion_only",
+        "source": "Twelve Data · XAU/USD · historical API (rights unverified)",
+        "volume_type": "none",
+        "receipt_clock": "server_wall_utc",
+        "elapsed_clock": "server_monotonic",
     }
     if any(manifest.get(key) != value for key, value in expected.items()):
         raise ValueError("Manifest provider or provenance mismatch")
-    if not isinstance(manifest.get("source"), str) or not manifest["source"]:
-        raise ValueError("Missing historical source label")
+    if manifest.get("rights_confirmed") is not True:
+        raise ValueError("Missing explicit owner rights assertion")
     if manifest.get("live") is not False:
         raise ValueError("Historical dataset must not claim to be live")
     for key in ("provider_instrument_entitlement_verified", "retention_rights_verified",
                 "display_rights_verified", "non_display_rights_verified"):
         if manifest.get(key) is not False:
             raise ValueError("Unverified provider rights must remain explicit")
-    for key in ("retrieved_at", "response_received_at", "rows", "start", "end",
+    for key in ("retrieved_at", "request_started_at", "response_received_at",
+                "request_elapsed_ms", "request_limit", "rows", "start", "end",
                 "gaps", "request_end"):
         if type(manifest.get(key)) is not int:
             raise ValueError("Missing or invalid integer manifest field")
+    # These fields describe the server request, not a provider-signed timestamp.
+    # Do not compare wall-clock duration to monotonic elapsed time: the server
+    # clock can jump between request and receipt.
+    if (manifest["request_started_at"] != manifest["retrieved_at"]
+            or manifest["request_started_at"] < 60
+            or manifest["request_elapsed_ms"] < 0
+            or not 1 <= manifest["request_limit"] <= 5000
+            or manifest["rows"] > manifest["request_limit"]
+            or not 0 <= manifest["request_end"] <= manifest["request_started_at"] - 60):
+        raise ValueError("Manifest request and receipt provenance mismatch")
     if not 1 <= len(candles) <= 5000 or manifest["rows"] != len(candles):
         raise ValueError("Persisted candle count mismatch")
     if not isinstance(archive, bytes) or not 0 < len(archive) <= 3_000_000:
