@@ -310,3 +310,44 @@ def test_postgres_orphaned_reverse_owner_quarantines_standalone_quote(pg_store):
 
     # Even the atomic writer must hold until ownership is reconciled.
     assert _atomic_checkpoint(atomic, 2, 0)["reason"] == "QUOTE_SOURCE_BINDING_INCOMPLETE"
+
+
+def test_postgres_atomic_refuses_unbound_standalone_quote_marker(pg_store):
+    quotes, _engine, factory = pg_store
+    atomic = AtomicPaperQuoteJournalStore(factory)
+    assert quotes.observe(SOURCE, quote(1), now_ms=NOW + 30)["status"] == "ACCEPTED_UNVERIFIED"
+    before = quotes.load_marker(SOURCE)
+    result = _atomic_checkpoint(atomic, 2)
+    assert result["status"] == "HOLD_RECONCILIATION"
+    assert result["reason"] == "UNBOUND_QUOTE_MARKER_REQUIRES_RECONCILIATION"
+    assert not result["paper_order_permitted"] and not result["live_order_permitted"]
+    assert quotes.load_marker(SOURCE) == before
+    assert PaperJournalStore(factory).load("pg-atomic-journal") is None
+    with factory() as db:
+        assert len(db.scalars(select(Audit)).all()) == 1
+        assert len(db.scalars(select(Record)).all()) == 1
+
+
+def test_postgres_orphaned_owner_cannot_rebind_second_journal(pg_store):
+    quotes, _engine, factory = pg_store
+    atomic = AtomicPaperQuoteJournalStore(factory)
+    journal = PaperJournalStore(factory)
+    assert _atomic_checkpoint(atomic, 1)["status"] == "CHECKPOINT_RECORDED_UNVERIFIED"
+    from sqlalchemy import delete
+    source_hash = PaperQuoteReplayStore._key(SOURCE).split(":", 1)[1]
+    with factory.begin() as db:
+        db.execute(delete(Record).where(
+            Record.key == "paper-quote-journal-owner:" + source_hash
+        ))
+    result = atomic.checkpoint(
+        SOURCE, quote(2), "second-pg-atomic-journal", JOURNAL_IDENTITY,
+        None, 0, _checkpoint_json(2), now_ms=NOW + 130,
+    )
+    assert result["status"] == "HOLD_RECONCILIATION"
+    assert result["reason"] == "QUOTE_SOURCE_BINDING_INCOMPLETE"
+    assert journal.load("second-pg-atomic-journal") is None
+    assert journal.load("pg-atomic-journal")["revision"] == 0
+    assert quotes.load_marker(SOURCE)["revision"] == 0
+    with factory() as db:
+        assert len(db.scalars(select(Audit)).all()) == 1
+        assert len(db.scalars(select(Record)).all()) == 3
