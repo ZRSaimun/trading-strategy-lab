@@ -353,3 +353,37 @@ def test_maximum_valid_reservation_count_fits_envelope_budget():
     restored, reserved = _decode(raw)
     assert restored == state
     assert reserved == Decimal("0.00000500")
+
+
+def test_impossible_reservation_count_revision_fails_closed_with_matching_checksum(setup):
+    """Every retained reservation requires its own committed revision."""
+    import hashlib
+    from app.paper_risk_reservations import _encode
+    s = store(setup)
+    enabled(s)
+    assert s.reserve("paper-acct-0001", 1, client_order_id="order-00001", risk_cash="1")
+    assert s.reserve("paper-acct-0001", 2, client_order_id="order-00002", risk_cash="1")
+    assert store(setup).load("paper-acct-0001")["revision"] == 3
+    key = s._key("paper-acct-0001")
+    with setup[1].begin() as db:
+        row = db.get(Record, key)
+        envelope = json.loads(row.value)
+        assert len(envelope["state"]["reservations"]) == 2
+        envelope["state"]["revision"] = 1
+        # Even a recomputed (unkeyed) checksum cannot make this state valid.
+        canonical = json.dumps(envelope["state"], sort_keys=True, separators=(",", ":"))
+        envelope["sha256"] = hashlib.sha256(canonical.encode()).hexdigest()
+        with pytest.raises(ValueError, match="revision"):
+            _encode(envelope["state"])
+        row.value = json.dumps(envelope)
+    with setup[1]() as db:
+        audit_before = len(db.scalars(select(Audit)).all())
+    for operation in (
+        lambda: s.load("paper-acct-0001"),
+        lambda: s.reserve("paper-acct-0001", 1, client_order_id="order-00003", risk_cash="1"),
+        lambda: s.engage_kill_switch("paper-acct-0001"),
+    ):
+        with pytest.raises(ValueError, match="corrupt"):
+            operation()
+    with setup[1]() as db:
+        assert len(db.scalars(select(Audit)).all()) == audit_before
