@@ -189,10 +189,12 @@ export function screenCrtHypotheses(input:Context):ScreenResult{
   if(!Array.isArray(daily)||daily.length>20000)throw Error('Invalid daily research input');
   for(let i=0;i<daily.length;i++){
    const b=daily[i];
-   if(!Number.isSafeInteger(b.time)||b.time%86400!==0||
+   if(!Number.isSafeInteger(b.time)||b.time<0||b.time%86400!==0||
     ![b.open,b.high,b.low,b.close].every(x=>Number.isFinite(x)&&x>0)||
     b.low>Math.min(b.open,b.close)||b.high<Math.max(b.open,b.close)||
-    b.observed_minutes<1||b.observed_minutes>1440||
+    !Number.isSafeInteger(b.observed_minutes)||b.observed_minutes<1||
+    b.observed_minutes>1440||
+    (b.volume!==null&&(!Number.isFinite(b.volume)||b.volume<0))||
     (i>0&&b.time<=daily[i-1].time))
     throw Error('Invalid daily research input');
   }
