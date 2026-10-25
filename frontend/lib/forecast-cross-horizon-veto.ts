@@ -34,8 +34,8 @@ function checkHorizon(r:AgreementHorizon,expected:1|3|12):void{
      r.ewmaEffectiveSamples>r.frequencySamples+1e-8)
     throw Error('Invalid or reordered horizon evidence');
   const a=r.frequencyProbability,b=r.ewmaProbability;
-  if((a===null)!==(b===null))throw Error('Partially missing model probabilities');
-  if(a===null){
+  if(a===null||b===null){
+    if(a!==null||b!==null)throw Error('Partially missing model probabilities');
     if(r.status!=='ABSTAIN_INSUFFICIENT'||r.direction!==null||
        r.absoluteDisagreement!==null||r.probabilityRange!==null)
       throw Error('Malformed insufficient horizon evidence');
