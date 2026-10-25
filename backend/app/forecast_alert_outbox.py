@@ -113,7 +113,7 @@ class ForecastAlertOutbox:
                 Record.key == ForecastEventStore._key(session_id)))
             if journal_raw is None:
                 raise ValueError("No persisted forecast journal")
-            journal, forecasts = ForecastEventStore._unpack(journal_record.value, now)
+            journal, forecasts = ForecastEventStore._unpack(journal_raw, now)
             if journal["identity"] != identity:
                 raise ValueError("Forecast alert source mismatch")
             found = next((f for f in forecasts if f["id"] == forecast_id), None)
@@ -167,7 +167,7 @@ class ForecastAlertOutbox:
                     )
                     if journal_record is None:
                         raise ValueError("Forecast journal missing; alert claim denied")
-                    journal, forecasts = ForecastEventStore._unpack(journal_raw, now)
+                    journal, forecasts = ForecastEventStore._unpack(journal_record.value, now)
                     forecast = next(
                         (f for f in forecasts if f["id"] == forecast_id), None
                     )
