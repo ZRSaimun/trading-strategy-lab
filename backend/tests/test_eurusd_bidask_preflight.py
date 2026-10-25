@@ -74,6 +74,32 @@ class PairedM1PreflightTests(unittest.TestCase):
             inspect_eurusd_pair((HEADER.replace('Etc/UTC','Local')+BID).encode(),
                                 (HEADER+ASK).encode(), interval='M1')
 
+    def test_close_spread_percentiles_use_observed_closes_not_intrabar_extrema(self):
+        # Five causal, same-time synthetic closes: 1, 2, 3, 4 and 5 pips.
+        # The ASK high is intentionally far above every close; OHLC high/low
+        # spreads cannot be treated as simultaneous executable quotes.
+        bid = ''.join(BID.replace('00:00:00', f'00:0{i}:00') for i in range(5))
+        ask = ''.join(
+            ASK.replace('00:00:00', f'00:0{i}:00')
+               .replace('1.20032', '1.20150')
+               .replace('1.20022', f'{1.20010 + i * 0.00010:.5f}')
+            for i in range(1, 6)
+        )
+        # The timestamps must match; separate spread magnitudes from bar index.
+        bid = ''.join(BID.replace('00:00:00', f'00:0{i}:00') for i in range(1, 6))
+        report = self.check(bid, ask)
+        self.assertEqual(report['observed_close_spread_sample_count'], 5)
+        self.assertEqual(report['observed_close_spread_p50_pips'], 3.0)
+        self.assertEqual(report['observed_close_spread_p95_pips'], 5.0)
+        self.assertFalse(report['broker_executable_quotes'])
+        self.assertFalse(report['approved_for_backtest'])
+
+    def test_single_close_spread_is_not_invented_into_a_distribution(self):
+        report = self.check()
+        self.assertEqual(report['observed_close_spread_sample_count'], 1)
+        self.assertEqual(report['observed_close_spread_p50_pips'], 1.2)
+        self.assertEqual(report['observed_close_spread_p95_pips'], 1.2)
+
     def test_hourly_pair_uses_hourly_cadence(self):
         bid = BID + BID.replace('00:00:00', '01:00:00')
         ask = ASK + ASK.replace('00:00:00', '01:00:00')

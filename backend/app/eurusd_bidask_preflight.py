@@ -82,6 +82,9 @@ def inspect_eurusd_pair(bid_raw, ask_raw, *, interval):
     if len(bid) != len(ask):
         raise ValueError('BID/ASK candle counts differ; no synthetic alignment')
     min_spread, max_spread, gaps = math.inf, -math.inf, 0
+    # Only paired, actually observed candle-close spreads enter the quantiles.
+    # High/low extrema on two OHLC bars need not occur simultaneously.
+    close_spreads_pips = []
     unrepresented_slots, largest_gap_seconds = 0, 0
     for index, (b, a) in enumerate(zip(bid, ask)):
         if b[0] != a[0]:
@@ -92,6 +95,7 @@ def inspect_eurusd_pair(bid_raw, ask_raw, *, interval):
             spread = a[i] - b[i]
             min_spread = min(min_spread, spread)
             max_spread = max(max_spread, spread)
+        close_spreads_pips.append((a[4] - b[4]) * 10000)
         if index:
             elapsed_seconds = b[0] - bid[index-1][0]
             if elapsed_seconds > interval_seconds:
@@ -100,6 +104,11 @@ def inspect_eurusd_pair(bid_raw, ask_raw, *, interval):
                 # weekends and closed sessions can legitimately span slots.
                 unrepresented_slots += elapsed_seconds // interval_seconds - 1
                 largest_gap_seconds = max(largest_gap_seconds, elapsed_seconds)
+    close_spreads_pips.sort()
+    # Nearest-rank percentiles select observed samples, not interpolated quotes.
+    def observed_percentile(percent):
+        return round(close_spreads_pips[math.ceil(percent * len(close_spreads_pips)) - 1], 6)
+
     return {
         'instrument': 'EUR/USD', 'interval': interval, 'interval_seconds': interval_seconds,
         'declared_timebase': 'Etc/UTC',
@@ -113,6 +122,9 @@ def inspect_eurusd_pair(bid_raw, ask_raw, *, interval):
         'ask_sha256': hashlib.sha256(ask_raw).hexdigest(),
         'observed_open_close_spread_min_pips': round(min_spread * 10000, 6),
         'observed_open_close_spread_max_pips': round(max_spread * 10000, 6),
+        'observed_close_spread_sample_count': len(close_spreads_pips),
+        'observed_close_spread_p50_pips': observed_percentile(0.50),
+        'observed_close_spread_p95_pips': observed_percentile(0.95),
         'volume_classification': 'unverified_source_volume',
         'provider_authenticity': 'unverified_user_supplied_export',
         'broker_executable_quotes': False,
@@ -122,6 +134,7 @@ def inspect_eurusd_pair(bid_raw, ask_raw, *, interval):
         'limitations': [
             'Independent source authenticity and usage-rights review required',
             'OHLC spreads are observations, not broker executable fill costs',
+            'Close-only p50/p95 describe sampled candle closes, not tick spreads or Fusion Zero fills',
             'Observed gaps are not necessarily missing market sessions',
             'Unrepresented interval slots can include scheduled market closures, not missing tradeable candles',
             'Declared interval is not authenticated against original export identity',
