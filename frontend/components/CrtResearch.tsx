@@ -77,7 +77,7 @@ export default function CrtResearch({api,pages}:{api:API;pages:boolean}){
    // compare two adjacent 4H bars if BOTH were independently reconciled to
    // all sixteen source-matched, completed 15m candles. An uncheckable edge
    // may otherwise create a false CRT sweep against a verified bar.
-   const certifiedH4=certifiedCrtFourHourBars(h4,audit);
+   const certifiedH4=certifiedCrtFourHourBars(h4,fifteen,audit);
    const report=screenCrtHypotheses({
     source:{datasetId:selected,archiveSha256:pages[0].dataset.archive_sha256,
      instrument:archive.instrument,provider:archive.provider,priceSide:'bid',

@@ -88,7 +88,7 @@ test('uncheckable archive-edge 4H candle cannot manufacture a CRT sweep candidat
  const audit=auditCrtCrossTimeframe(h,q);
  assert.deepEqual(audit.verifiedFourHourStarts,[BASE+H4,BASE+2*H4]);
  assert.equal(audit.uncheckableFourHourBars,1);
- const certified=certifiedCrtFourHourBars(h,audit);
+ const certified=certifiedCrtFourHourBars(h,q,audit);
  assert.deepEqual(certified.map(x=>x.time),[BASE+H4,BASE+2*H4]);
  assert.equal(screenCrtHypotheses({fourHour:certified,fifteenMinute:q,source}).candidates.length,0,
   'uncheckable 4H reference must never appear in candidate counts');
@@ -96,10 +96,31 @@ test('uncheckable archive-edge 4H candle cannot manufacture a CRT sweep candidat
 test('a tampered or stale certification report cannot be used to select 4H bars',()=>{
  const {h,q}=fixture();
  const valid=auditCrtCrossTimeframe(h,q);
- assert.throws(()=>certifiedCrtFourHourBars(h,{
+ assert.throws(()=>certifiedCrtFourHourBars(h,q,{
   ...valid,verifiedFourHourStarts:[BASE+2*H4,BASE+H4],
  }),/Certified 4H candle identity/);
- assert.throws(()=>certifiedCrtFourHourBars(h,{
+ assert.throws(()=>certifiedCrtFourHourBars(h,q,{
   ...valid,checkedFourHourBars:1,
  }),/Inconsistent 4H\/15m certification/);
+});
+
+test('a stale 4H/15m audit cannot certify edited historical OHLC',()=>{
+ const x=fixture();
+ const report=auditCrtCrossTimeframe(x.h,x.q);
+ x.h[0].close+=0.01; // Still a valid 4H candle, but no longer agrees with 15m.
+ assert.throws(()=>certifiedCrtFourHourBars(x.h,x.q,report),/OHLC mismatch/);
+ const y=fixture();
+ const old=auditCrtCrossTimeframe(y.h,y.q);
+ y.q[0].open+=0.01; // Valid 15m candle; invalidates the previously checked open.
+ assert.throws(()=>certifiedCrtFourHourBars(y.h,y.q,old),/OHLC mismatch/);
+});
+
+test('a forged audit cannot substitute an existing uncheckable 4H reference',()=>{
+ const {h,q}=fixture();
+ const partial=q.slice(16); // 00:00 4H is uncheckable; 04:00 is verified.
+ const report=auditCrtCrossTimeframe(h,partial);
+ assert.deepEqual(report.verifiedFourHourStarts,[BASE+H4]);
+ const forged={...report,verifiedFourHourStarts:[BASE]};
+ assert.throws(()=>certifiedCrtFourHourBars(h,partial,forged),
+  /Stale or inconsistent 4H\/15m certification report/);
 });

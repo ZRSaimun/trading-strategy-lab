@@ -85,19 +85,21 @@ export function auditCrtCrossTimeframe(
 
 /**
  * Keep only 4H buckets independently reconciled to complete source-matched
- * 15m OHLC. An uncheckable edge bucket must NEVER be a CRT reference or sweep,
- * even when some other 4H buckets in the response passed the audit.
+ * 15m OHLC. Re-audit the CURRENT candle inputs: a previous report alone is
+ * not proof, because prices or coverage may have changed since it was made.
+ * In particular, a forged report can substitute an uncheckable 4H timestamp
+ * while preserving its verified/uncheckable counts.
  */
 export function certifiedCrtFourHourBars(
- fourHour:readonly Bar[],audit:CrossoverAudit,
+ fourHour:readonly Bar[],fifteenMinute:readonly Bar[],audit:CrossoverAudit,
 ):Bar[]{
- const verified=new Set(audit.verifiedFourHourStarts);
- if(verified.size!==audit.checkedFourHourBars||
-  audit.checkedFourHourBars+audit.uncheckableFourHourBars!==fourHour.length||
-  fourHour.some(b=>verified.has(b.time)&&!Number.isSafeInteger(b.time)))
-  throw Error('Inconsistent 4H/15m certification report');
- const result=fourHour.filter(b=>verified.has(b.time));
- if(result.length!==audit.checkedFourHourBars)
-  throw Error('Certified 4H candle identity missing from input window');
- return result;
+ const current=auditCrtCrossTimeframe(fourHour,fifteenMinute);
+ if(!audit||!Array.isArray(audit.verifiedFourHourStarts)||
+  current.checkedFourHourBars!==audit.checkedFourHourBars||
+  current.uncheckableFourHourBars!==audit.uncheckableFourHourBars||
+  current.verifiedFourHourStarts.length!==audit.verifiedFourHourStarts.length||
+  current.verifiedFourHourStarts.some((time,i)=>time!==audit.verifiedFourHourStarts[i]))
+  throw Error('Stale or inconsistent 4H/15m certification report');
+ const verified=new Set(current.verifiedFourHourStarts);
+ return fourHour.filter(b=>verified.has(b.time));
 }
