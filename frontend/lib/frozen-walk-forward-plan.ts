@@ -150,8 +150,16 @@ export async function planFrozenWalkForward(
   const protocol = {developmentEnd:plan.protocol.developmentEnd,validationEnd:plan.protocol.validationEnd,
     holdoutEnd:plan.protocol.holdoutEnd,embargoSeconds:plan.protocol.embargoSeconds,
     strategyVersion:plan.protocol.strategyVersion,configSha256:plan.protocol.configSha256};
+  // Bind the entire eligible development observation manifest to the digest.
+  // Otherwise a caller could silently revise label clocks/feature lookbacks and
+  // reuse the same schedule hash despite different fold membership or purging.
+  // Only timing metadata is committed: never realized labels or P&L.
+  const observationTiming = [...ordered]
+    .sort((a,b)=>a.id.localeCompare(b.id))
+    .map(o=>({id:o.id,archiveId:o.archiveId,featureStart:o.featureStart,
+      decisionAt:o.decisionAt,labelAvailableAt:o.labelAvailableAt}));
   const canonical = {schema:'frozen-walk-forward-v1',source,
-    archiveLineage:lineage,protocol,
+    archiveLineage:lineage,protocol,observationTiming,
     specification:{folds:windows.map(f=>({id:f.id,trainingStart:f.trainingStart,trainingEnd:f.trainingEnd,
       testingStart:f.testingStart,testingEnd:f.testingEnd})),embargoSeconds:spec.embargoSeconds,
       minTrainingObservations:spec.minTrainingObservations,
