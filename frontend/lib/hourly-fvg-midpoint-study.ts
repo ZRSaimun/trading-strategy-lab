@@ -118,6 +118,14 @@ export function studyHourlyFvgMidpoint(
   for(let wait=1;wait<=maxTouchWaitBars;wait++){
    const j=i+wait,b=bars[j],prev=bars[j-1];
    if(!b||b.time-prev.time!==HOUR){windowComplete=false;break;}
+   // A bar that OPENS beyond the midpoint has already jumped across the
+   // proposed limit price. Even if its entire range stays beyond that level,
+   // a later return cannot establish that the original order was filled.
+   // Freeze the first gap-through rather than cherry-picking a later touch.
+   if(bull?b.open<midpoint:b.open>midpoint){
+    gates.midpointTouch='INSUFFICIENT_DATA';
+    break;
+   }
    if(b.low>midpoint||b.high<midpoint)continue;
    touch=j;
    // An opening gap THROUGH the midpoint is not evidence that a hypothetical
