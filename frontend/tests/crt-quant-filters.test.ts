@@ -148,6 +148,46 @@ test('wrong BID side or fabricated 4H zone reference timestamp cannot validate a
  fractional.zones=[{...fractional.zones![0],observedAt:BASE+0.5}];
  assert.equal(screenCrtHypotheses(fractional).candidates[0].gates.matchingZone,'INSUFFICIENT_DATA');
 });
+test('zone first recorded during the sweep cannot certify pre-existing 4H context',()=>{
+ const x=fixture();
+ // Reference bar closed at 04:00, but the zone was first recorded at 06:00,
+ // after the 04:00 sweep began and before its 08:00 close.
+ x.zones=[{...x.zones![0],referenceBarTime:BASE,observedAt:BASE+6*H}];
+ const s=screenCrtHypotheses(x).candidates[0];
+ assert.equal(s.gates.matchingZone,'INSUFFICIENT_DATA');
+ assert.equal(s.gates.structureShift,'PASS','other gates retain their own causal evidence');
+});
+
+test('self-referential sweep candle cannot be used as its own prior zone',()=>{
+ const x=fixture();
+ // Previously this zone passed: the sweep bar closed at 08:00 and the
+ // zone was recorded at exactly that close, then backfilled as context.
+ x.zones=[{...x.zones![0],referenceBarTime:BASE+4*H,observedAt:BASE+8*H}];
+ assert.equal(screenCrtHypotheses(x).candidates[0].gates.matchingZone,'INSUFFICIENT_DATA');
+});
+
+test('zone match is frozen at sweep close rather than future 15m confirmation price',()=>{
+ const x=fixture();
+ // Sweep closes at 104; future 15m shift closes at 109. Only the future
+ // price touches this zone. It must not retroactively validate the sweep.
+ x.zones=[{...x.zones![0],low:108,high:110}];
+ const s=screenCrtHypotheses(x).candidates[0];
+ assert.equal(s.confirmationPrice,109);
+ assert.equal(s.gates.matchingZone,'INSUFFICIENT_DATA');
+});
+
+test('4H zone known exactly at sweep open may use its fully closed prior candle',()=>{
+ const x=fixture();
+ x.zones=[{...x.zones![0],referenceBarTime:BASE,observedAt:BASE+4*H}];
+ assert.equal(screenCrtHypotheses(x).candidates[0].gates.matchingZone,'PASS');
+});
+
+test('nonfinite zone bounds cannot be treated as verified historical context',()=>{
+ const x=fixture();
+ x.zones=[{...x.zones![0],high:Number.POSITIVE_INFINITY}];
+ assert.equal(screenCrtHypotheses(x).candidates[0].gates.matchingZone,'INSUFFICIENT_DATA');
+});
+
 test('the range median uses only 20 preceding contiguous 15m candles, not future volatility',()=>{
  const x=fixture();
  const before=screenCrtHypotheses(x).candidates[0];
