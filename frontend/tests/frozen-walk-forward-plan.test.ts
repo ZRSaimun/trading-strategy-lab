@@ -120,6 +120,23 @@ test('digest is canonical across metadata order, and source and fold changes alt
  const altered=folds.map(f=>({...f}));altered[2].testingEnd-=d;
  assert.notEqual((await run(makePlan(),sample,{...spec,folds:altered})).scheduleSha256,first.scheduleSha256);
 });
+test('schedule digest commits all eligible development timing clocks and archive IDs',async()=>{
+ const baseline=await run();
+ const labelShift=sample.map(o=>o.id==='t0'?{...o,labelAvailableAt:o.labelAvailableAt+d}:o);
+ const shiftedLabel=await run(makePlan(labelShift),labelShift);
+ assert.notEqual(shiftedLabel.scheduleSha256,baseline.scheduleSha256);
+ // A small causal feature-window change may leave fold membership unchanged;
+ // the digest must still bind the exact declared research inputs.
+ const lookbackShift=sample.map(o=>o.id==='v2'?{...o,featureStart:o.featureStart+d}:o);
+ const shiftedLookback=await run(makePlan(lookbackShift),lookbackShift);
+ assert.deepEqual(shiftedLookback.folds,baseline.folds);
+ assert.notEqual(shiftedLookback.scheduleSha256,baseline.scheduleSha256);
+ const decisionShift=sample.map(o=>o.id==='v3'?{...o,decisionAt:o.decisionAt+d}:o);
+ assert.notEqual((await run(makePlan(decisionShift),decisionShift)).scheduleSha256,baseline.scheduleSha256);
+ const renamed=sample.map(o=>o.id==='v3'?{...o,id:'v3-renamed'}:o);
+ assert.notEqual((await run(makePlan(renamed),renamed)).scheduleSha256,baseline.scheduleSha256);
+});
+
 test('does not mutate caller source, observations or schedule',async()=>{
  const p=makePlan(),o=structuredClone(sample),s=structuredClone(spec);
  const before=structuredClone({p,o,s});
