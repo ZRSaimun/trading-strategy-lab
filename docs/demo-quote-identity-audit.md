@@ -1,0 +1,14 @@
+# Declared demo quote identity consistency — offline research gate
+
+`frontend/lib/demo-quote-identity-audit.ts` checks whether a **single quote ID within one caller-declared quote batch** is reused with inconsistent bid, ask, or observation timestamp across multiple demo-order fills. It runs the existing strict single-order lifecycle and cross-order statement-population audit first. All quote prices are normalized to six decimal places before comparing equivalent representations such as `99.9` and `99.900000`.
+
+- `CONFLICTING_DECLARED_QUOTE_ID`: at least one repeated quote ID refers to incompatible declared snapshots; investigate before relying on those fills for execution-cost or risk analysis. Conflicting IDs and the first pair of event IDs are reported without raw licensed quote archives.
+- `DECLARED_POPULATION_MISMATCH`: the caller's expected statement IDs disagree with supplied order/event/fill records. Do not infer a complete brokerage record.
+- `NO_DECLARED_FILLS`: no fill evidence was supplied. This is **not** evidence of zero fills, zero costs, zero exposure, or a successful cancellation.
+- `CONSISTENT_DECLARED_QUOTE_IDS_UNVERIFIED`: supplied repeated IDs are internally consistent; this does **not** authenticate the quote feed, executable liquidity, the broker statement, completeness, account risk, or profit.
+
+Distinct quote IDs may legitimately have different bid/ask values. A shared quote ID may be used by opposing orders if the declared source snapshot is exactly the same. The gate inherits upstream quote freshness, identity, order state, duplicate fill/event ID and statement-manifest validation. Conflicts are reported even when the manifest also mismatches. Its scope is a single provider, venue, instrument, account alias, statement SHA-256 and quote-batch SHA-256. Caller-supplied hashes are identifiers, not trusted attestations.
+
+This module is **not wired to a live or paper broker endpoint** and never submits/cancels orders, stores credentials, calculates financing, performs currency conversion, proves source authenticity or estimates P&L. It always returns `mayExecuteOrder:false`. Trading 212 CFD API order actions are neither implemented nor implied.
+
+Run the synthetic tests using `cd frontend && node --experimental-strip-types --test tests/demo-quote-identity-audit.test.ts`; full frontend tests with `npm test`, typecheck with `npm run typecheck`. Before a real demo-adapter integration, independently verify provider API support, statement completeness, source/batch provenance, executable bid/ask timestamps and quote-ID uniqueness semantics, then reconcile observed fills and costs against permissioned broker exports. Keep real-money execution blocked pending owner-confirmed trade details, explicit risk caps, supported account/provider, fresh executable quotes and secure credentials.
