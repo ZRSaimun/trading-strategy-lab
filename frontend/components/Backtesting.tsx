@@ -1,13 +1,13 @@
 'use client';
-import {useEffect,useState} from 'react';
+import {useEffect,useRef,useState} from 'react';
 import {compare,STRATEGIES,DEFAULTS,type Config,type Report,type Trade,type StrategyId} from '../lib/backtest';
 import {runCostStress,type CostStressRow} from '../lib/cost-stress';
 import {loadArchiveWindow,type ArchivePage} from '../lib/backtest-history';
+import {advanceArchiveInventory,type ArchiveInventory} from '../lib/archive-discovery';
 import type {Bar} from '../lib/research';
 type Run={id:string;title:string;created_at:number;payload:{instrument:string;source:string;datasetHash:string;window:{start:number;end:number;bars:number};candles:Bar[];reports:Report[];splits:{name:string;reports:Report[]}[];notes:string}};
 type JournalEntry={id:string;title:string;created_at:number;payload:{instrument:string;trade:Trade;runId:string;notes:string;entryStatus:'SIMULATED ONLY'|'USER-REPORTED DEMO ENTRY'}};
 type API=(path:string,init?:RequestInit)=>Promise<any>;
-type Archive={id:string;provider:string;instrument:string;format:string;state:string;accepted:number;rejected:number};
 type SourceMode='legacy'|'archive';
 const json=(body:unknown)=>({headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
 const fmt=(n:number|null,d=2)=>n===null?'—':n.toLocaleString('en-GB',{maximumFractionDigits:d});
@@ -15,7 +15,10 @@ const date=(t:number)=>new Date(t*1000).toISOString();
 function exportJSON(name:string,data:unknown){const url=URL.createObjectURL(new Blob([JSON.stringify(data,null,2)],{type:'application/json'}));const a=document.createElement('a');a.href=url;a.download=name;a.click();URL.revokeObjectURL(url)}
 export default function Backtesting({api,journal=false}:{api:API;journal?:boolean}){
  const [instrument,setInstrument]=useState('XAUUSD-IMPORT'),[frame,setFrame]=useState('5m'),[config,setConfig]=useState<Config>({...DEFAULTS});
- const [sourceMode,setSourceMode]=useState<SourceMode>('legacy'),[archives,setArchives]=useState<Archive[]>([]),[archiveId,setArchiveId]=useState(''),[archivesError,setArchivesError]=useState('');
+ const [sourceMode,setSourceMode]=useState<SourceMode>('legacy'),[archiveInventory,setArchiveInventory]=useState<ArchiveInventory|null>(null),[archiveId,setArchiveId]=useState(''),[archivesError,setArchivesError]=useState('');
+ const [archiveListingBusy,setArchiveListingBusy]=useState(false),[archiveListingRevision,setArchiveListingRevision]=useState(0);
+ const archiveListingController=useRef<AbortController|null>(null);
+ const archives=archiveInventory?.items??[];
  const [run,setRun]=useState<Run|null>(null),[runs,setRuns]=useState<Run[]>([]),[entries,setEntries]=useState<JournalEntry[]>([]),[selected,setSelected]=useState('A');
  const [error,setError]=useState(''),[message,setMessage]=useState(''),[busy,setBusy]=useState(false),[scope,setScope]=useState('Full sample');
  const [costStress,setCostStress]=useState<{runId:string;strategy:StrategyId;rows:CostStressRow[]}|null>(null);
@@ -23,15 +26,41 @@ export default function Backtesting({api,journal=false}:{api:API;journal?:boolea
  useEffect(()=>{refresh().catch(e=>setError(e.message))},[]);
  useEffect(()=>{
   if(journal||sourceMode!=='archive')return;
-  let active=true;
-  api('/history/datasets').then((data:Archive[])=>{
-   if(!active)return;
-   setArchives(data);
-   setArchiveId(old=>data.some(d=>d.id===old)?old:data[0]?.id||'');
-   setArchivesError('');
-  }).catch(e=>{if(active){setArchives([]);setArchivesError(e instanceof Error?e.message:String(e));}});
-  return ()=>{active=false};
- },[journal,sourceMode]);
+  const controller=new AbortController();
+  archiveListingController.current=controller;
+  setArchiveInventory(null);setArchiveId('');setArchivesError('');
+  setArchiveListingBusy(true);
+  advanceArchiveInventory(fetch,null,controller.signal).then(inventory=>{
+   if(controller.signal.aborted)return;
+   setArchiveInventory(inventory);
+   setArchiveId(inventory.items[0]?.id??'');
+  }).catch(e=>{
+   if(!controller.signal.aborted){
+    setArchiveInventory(null);setArchiveId('');
+    setArchivesError(e instanceof Error?e.message:String(e));
+   }
+  }).finally(()=>{if(!controller.signal.aborted)setArchiveListingBusy(false)});
+  return ()=>{
+   controller.abort();
+   if(archiveListingController.current===controller)archiveListingController.current=null;
+  };
+ },[journal,sourceMode,archiveListingRevision]);
+ async function loadMoreArchives(){
+  const controller=archiveListingController.current;
+  if(!controller||controller.signal.aborted||archiveListingBusy||!archiveInventory?.hasMore)return;
+  setArchiveListingBusy(true);
+  try{
+   const next=await advanceArchiveInventory(fetch,archiveInventory,controller.signal);
+   if(controller.signal.aborted)return;
+   setArchiveInventory(next);setArchivesError('');
+  }catch(e){
+   if(!controller.signal.aborted){
+    // A failed subsequent page invalidates the selectable inventory.
+    setArchiveInventory(null);setArchiveId('');
+    setArchivesError(e instanceof Error?e.message:String(e));
+   }
+  }finally{if(!controller.signal.aborted)setArchiveListingBusy(false)}
+ }
  function change(key:keyof Config,value:number){setConfig(c=>({...c,[key]:value}))}
  async function execute(){setBusy(true);setError('');setMessage('');try{
   let p:{candles:Bar[];dataset?:{source:string;sha256:string};has_more?:boolean};
@@ -94,8 +123,17 @@ export default function Backtesting({api,journal=false}:{api:API;journal?:boolea
    <div className="backtest-settings">
     {process.env.NEXT_PUBLIC_DEPLOYMENT!=='pages'&&<label>Historical data source<select value={sourceMode} onChange={e=>setSourceMode(e.target.value as SourceMode)}><option value="legacy">Current CSV / legacy chart data</option><option value="archive">Imported historical ZIP archive (read-only)</option></select></label>}
     {sourceMode==='archive'?<label>Exact source-isolated archive<select value={archiveId} onChange={e=>setArchiveId(e.target.value)}><option value="">Select completed archive</option>{archives.map(a=><option key={a.id} value={a.id}>{a.instrument} · {a.provider} · {a.format.toUpperCase()} · {a.id.slice(0,8)}</option>)}</select></label>:<label>Exact instrument<select value={instrument} onChange={e=>setInstrument(e.target.value)}><option value="XAUUSD-IMPORT">Gold · XAUUSD CSV</option><option value="NDX-IMPORT">Nasdaq-100 · cash-index CSV</option>{process.env.NEXT_PUBLIC_DEPLOYMENT!=='pages'&&<option value="XAUUSD-TD">Gold · Twelve Data historical API</option>}</select></label>}<label>Simulation candles<select value={frame} onChange={e=>setFrame(e.target.value)}>{['1m','5m','15m','1H'].map(f=><option key={f}>{f}</option>)}</select></label>{fields.map(([key,label])=><label key={key}>{label}<input type="number" step="any" value={config[key]} onChange={e=>change(key,+e.target.value)}/></label>)}</div>
+   {sourceMode==='archive'&&<div role="status">
+    <p>{archives.length.toLocaleString()} completed archive datasets discovered{archiveInventory?.hasMore?' · more available':''}.
+    {archiveListingBusy?' Loading archive inventory…':''}</p>
+    {archiveInventory?.hasMore&&<button type="button" disabled={archiveListingBusy} onClick={()=>void loadMoreArchives()}>
+     {archiveListingBusy?'Loading datasets…':'Load more archive datasets'}
+    </button>}
+    <button type="button" disabled={archiveListingBusy} onClick={()=>setArchiveListingRevision(n=>n+1)}>Refresh archive inventory</button>
+    {archiveInventory?.legacyPossiblyTruncated&&<p>Only the first 200 datasets can be verified with this older server. Upgrade the private backend before paging.</p>}
+   </div>}
    {sourceMode==='archive'&&<p>READ-ONLY ARCHIVE RESEARCH: {archives.find(a=>a.id===archiveId)?.accepted.toLocaleString()||'0'} imported minute candles in selected archive. Each run pages up to 20,000 aggregate candles from ONE source identity; older bars may remain outside the run. BID-only history does not contain executable asks or actual transaction costs. {archivesError&&<span role="alert">Archive unavailable: {archivesError}</span>}</p>}
-   <p>Cost defaults are illustrative assumptions. Set source-specific costs and point value before interpreting results. Fractional research units are used, with one open position per strategy. Stops win ambiguous stop/target candles. Trading across unknown gaps is restricted.</p><button className="primary" disabled={busy} onClick={execute}>{busy?'Running historical simulations…':'Run all five research variants'}</button>
+   <p>Cost defaults are illustrative assumptions. Set source-specific costs and point value before interpreting results. Fractional research units are used, with one open position per strategy. Stops win ambiguous stop/target candles. Trading across unknown gaps is restricted.</p><button className="primary" disabled={busy||(sourceMode==='archive'&&(archiveListingBusy||!archives.length||!!archivesError))} onClick={execute}>{busy?'Running historical simulations…':'Run all five research variants'}</button>
    <details className="rule-definitions"><summary>Exact strategy definitions</summary>{STRATEGIES.map(s=><p key={s.id}><b>{s.name} · {s.version}</b><br/>{s.definition}</p>)}</details>
    {run&&<><div className="report-actions"><button onClick={save}>Save report</button><button onClick={()=>exportJSON(`backtest-${run.id}.json`,run)}>Export reproducible JSON</button><select aria-label="Report sample" value={scope} onChange={e=>setScope(e.target.value)}><option>Full sample</option>{run.payload.splits.map(s=><option key={s.name}>{s.name}</option>)}</select></div><p>Instrument: {run.payload.instrument} · Source: {run.payload.source}<br/>Sample: {run.payload.window.bars} bars · {date(run.payload.window.start)} to {date(run.payload.window.end)}<br/>Source dataset SHA-256: <code>{run.payload.datasetHash}</code><br/>{run.payload.notes}</p>
    <div className="table-wrap"><table><thead><tr><th>Variant</th><th>Trades</th><th>Win %</th><th>Profit factor</th><th>Expectancy</th><th>Net return %</th><th>Max DD %</th><th>Average R</th><th>Rejected</th></tr></thead><tbody>{reports?.map(r=><tr key={r.strategy} onClick={()=>setSelected(r.strategy)} className={selected===r.strategy?'selected-row':''}><td>{r.strategy}</td><td>{r.metrics.trades}</td><td>{fmt(r.metrics.winRate)}</td><td>{fmt(r.metrics.profitFactor)}</td><td>{fmt(r.metrics.expectancy)}</td><td>{fmt(r.metrics.netReturn)}</td><td>{fmt(r.metrics.maxDrawdownPercent)}</td><td>{fmt(r.metrics.averageR)}</td><td>{r.metrics.rejected}</td></tr>)}</tbody></table></div>
