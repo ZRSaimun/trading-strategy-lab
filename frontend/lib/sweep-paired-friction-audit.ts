@@ -118,6 +118,6 @@ export function auditMatchedSweepFriction(comparison:MatchedSweepComparison):Pai
  return {datasetId:comparison.datasetId,instrument:comparison.instrument,frame:comparison.frame,
   horizonBars:comparison.horizonBars,seed:comparison.seed,matched:n,activeUtcWeeks:weeks,
   baselineCostBps:comparison.costBps,status:n>=30&&weeks>=12?'DESCRIPTIVE_ONLY':'INSUFFICIENT_EVIDENCE',
-  rows,eventWeightedBreakEvenExtraSweepBps:n&&diffSum/n>0?diffSum/n:null,
+  rows,eventWeightedBreakEvenExtraSweepBps:n>=30&&weeks>=12&&diffSum/n>0?diffSum/n:null,
   warning:'Offline, retrospective, fixed additive round-trip bps sensitivity only. Identical added costs cancel in matched differences; asymmetric costs may not. Does not reprice fills, stops, position size, financing, slippage tails or quote latency. Equal-week and event means are descriptive, not calibrated inference. Unverified data provenance/timebase, matched selection, overlapping outcomes and repeated research prevent claims of edge or executable profit.'};
 }
