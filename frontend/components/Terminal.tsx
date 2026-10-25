@@ -14,6 +14,7 @@ import NyCloseResearch from './NyCloseResearch';
 import CrtResearch from './CrtResearch';
 import StrategyReview from './StrategyReview';
 import HistoricalArchives from './HistoricalArchives';
+import GoldCsvResearch from './GoldCsvResearch';
 import {localAPI} from '../lib/local-api';
 import {analyze,replayPrefix} from '../lib/research';
 import {useCallback,useEffect,useMemo,useRef,useState} from 'react';
@@ -26,7 +27,7 @@ type Dataset={source:string;rows:number;start:number;end:number;gaps:number;volu
 type Payload={candles:Bar[];has_more?:boolean;dataset:Dataset|null;quality:{state:string;message?:string}};
 const FRAMES=['1m','3m','5m','15m','30m','1H','2H','4H','1D','1W','1M'];
 const PAGES=process.env.NEXT_PUBLIC_DEPLOYMENT==='pages';
-const NAV=['Market Charts','Charts','Historical Archives','Backtesting','NY Close Research','CRT / ICT Research','Strategy Robustness','Forecast Calibration','Trading Journal','Research Alerts','Watchlist','Data Sources','Data Connection','Broker Readiness','Audit Log','AI Chart Assistant'];
+const NAV=['Market Charts','Charts','Historical Archives','Gold CSV Research','Backtesting','NY Close Research','CRT / ICT Research','Strategy Robustness','Forecast Calibration','Trading Journal','Research Alerts','Watchlist','Data Sources','Data Connection','Broker Readiness','Audit Log','AI Chart Assistant'];
 async function api(path:string,init?:RequestInit){if(PAGES)return localAPI(path,init);const res=await fetch('/api'+path,init);if(!res.ok){let msg=await res.text();try{msg=JSON.parse(msg).detail}catch{}throw Error(typeof msg==='string'?msg:JSON.stringify(msg))}return res.json()}
 const json=(body:unknown)=>({headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
 const stamp=(t:number)=>new Date(t*1000).toLocaleString('en-GB',{timeZone:'Europe/London',timeZoneName:'short'});
@@ -132,6 +133,7 @@ export default function Terminal(){
   {page!=='Market Charts'&&<div className="market-strip"><div><small>RESEARCH INSTRUMENT</small><strong>{instrument.startsWith('XAUUSD')?'XAU / USD':'NASDAQ 100'}</strong></div><div><small>LAST IMPORTED CLOSE</small><strong>{last?.close.toLocaleString('en-GB',{maximumFractionDigits:2})??'—'}</strong></div><div><small>DATA STATUS</small><strong className="amber">{payload.quality.state}</strong></div><div><small>EXECUTION</small><strong>Disabled</strong></div></div>}
   {page==='Market Charts'&&<MarketCharts light={light} onResearch={()=>setPage('Charts')}/>}
   {page==='Historical Archives'&&<HistoricalArchives light={light} pages={PAGES}/>}
+  {page==='Gold CSV Research'&&<GoldCsvResearch light={light} pages={PAGES}/>}
   {page==='Charts'&&<div className="chart-layout"><section className="chart-card"><div className="toolbar"><select aria-label="Instrument" value={instrument} onChange={e=>{changeInstrument(e.target.value);setFirst(null);setTool(null)}}><option value="XAUUSD-IMPORT">Gold · XAUUSD · CSV</option><option value="NDX-IMPORT">Nasdaq-100 · cash index · CSV</option>{!PAGES&&<option value="XAUUSD-TD">Gold · Twelve Data historical API</option>}</select><div className="timeframes">{FRAMES.map(f=><button className={f===frame?'chosen':''} key={f} onClick={()=>changeFrame(f)}>{f}</button>)}</div></div>
   <div className="drawing-tools">{(['horizontal','trendline','rectangle','note'] as const).map(t=><button key={t} className={tool===t?'chosen':''} onClick={()=>{setTool(tool===t?null:t);setFirst(null)}}>{t==='rectangle'?'▱ Zone':t==='horizontal'?'― Level':t==='trendline'?'╱ Trendline':'T Note'}</button>)}<button onClick={()=>{setTool(null);setFirst(null)}}>Pointer</button><button onClick={()=>chart.current?.timeScale().fitContent()}>Fit chart</button><button onClick={exportDrawings}>Export JSON</button></div>
   <details className="study-controls"><summary>Indicators · {studies.length} selected</summary><div>{STUDIES.map(name=><label key={name}><input type="checkbox" checked={studies.includes(name)} disabled={(name==='VWAP'||name==='Volume')&&!validVolume} onChange={e=>setStudies(old=>e.target.checked?[...old,name]:old.filter(s=>s!==name))}/>{name}</label>)}</div><p>Observed imported bars only; gaps are not filled. Incomplete aggregation buckets are not execution confirmations. SMA/EMA 20 · Bollinger 20 ± 2 population SD · Wilder RSI/ATR 14 · MACD 12/26/9. VWAP resets at London midnight and needs classified, complete volume; tick VWAP is a tick-weighted proxy. Volume/VWAP unavailable when volume is absent. These studies do not confirm a trade.</p></details>
