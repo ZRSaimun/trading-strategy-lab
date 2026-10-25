@@ -138,12 +138,15 @@ function trend(bars:readonly Bar[]|undefined,at:number,dir:Direction):Gate{
  return dir==='BULLISH'?(short>long?'PASS':'FAIL'):(short<long?'PASS':'FAIL');
 }
 function zoneGate(zones:readonly Zone[]|undefined,source:Source,
- dir:Direction,sweepStartAt:number,price:number):Gate{
+ referenceStarts:ReadonlySet<number>,dir:Direction,sweepStartAt:number,price:number):Gate{
  if(!zones?.length)return 'INSUFFICIENT_DATA';
  const matching=zones.filter(z=>z.datasetId===source.datasetId&&
   z.archiveSha256===source.archiveSha256&&z.priceSide===source.priceSide&&
   Number.isSafeInteger(z.observedAt)&&Number.isSafeInteger(z.referenceBarTime)&&
   z.referenceBarTime>=0&&z.referenceBarTime%14400===0&&
+  // A timestamp alone cannot prove that the purported 4H source candle
+  // exists. Only a fully observed bar in the validated input can qualify.
+  referenceStarts.has(z.referenceBarTime)&&
   // A zone first recorded during/after manipulation cannot be prior context.
   // Its reference 4H candle must also have closed before that record.
   z.observedAt<=sweepStartAt&&z.referenceBarTime+14400<=z.observedAt&&
@@ -179,6 +182,7 @@ export function screenCrtHypotheses(input:Context):ScreenResult{
   !Number.isFinite(volumeMultiple)||volumeMultiple<1||volumeMultiple>10)
   throw Error('Invalid source, volume provenance or experimental thresholds');
  validateBars(fourHour,14400);validateBars(fifteenMinute,900);
+ const observedFourHourStarts=new Set(fourHour.map(b=>b.time));
  if(daily){
   // Daily UTC buckets are allowed to include session closure gaps and
   // incomplete calendar-day aggregates. Never treat them as complete 1440m.
@@ -264,8 +268,9 @@ export function screenCrtHypotheses(input:Context):ScreenResult{
   if(gates.volume==='INSUFFICIENT_DATA')notes.push('Verified actual volume history is missing; zero-volume HistData placeholders must not pass volume gates.');
   // Evaluate pre-existing 4H context against the sweep's own completed close,
   // not a later 15m confirmation price that was unknown at sweep close.
-  gates.matchingZone=zoneGate(input.zones,source,observed.direction,sweep.time,sweep.close);
-  if(gates.matchingZone==='INSUFFICIENT_DATA')notes.push('No source-linked, causally recorded matching 4H supply/demand reference; no automatic order-block claim.');
+  gates.matchingZone=zoneGate(input.zones,source,observedFourHourStarts,
+   observed.direction,sweep.time,sweep.close);
+  if(gates.matchingZone==='INSUFFICIENT_DATA')notes.push('No source-linked, observed and causally recorded matching 4H supply/demand reference; a timestamp alone does not prove a reference candle exists.');
   notes.push('No verified timestamped economic calendar, so a 15-minute high-impact news exclusion cannot be confirmed.');
   result.push({direction:observed.direction,sweepCloseAt,referenceAt:ref.time,
     referenceHigh:ref.high,referenceLow:ref.low,
