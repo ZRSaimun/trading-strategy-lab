@@ -20,7 +20,7 @@ function fixture():Context{
  const daily=Array.from({length:25},(_,i)=>make(BASE-(25-i)*24*H,100+i*.1,104+i*.1,99+i*.1,100+i*.1,1440));
  const zones=[{datasetId:source.datasetId,archiveSha256:source.archiveSha256,
   priceSide:'bid' as const,direction:'DEMAND' as const,
-  low:100,high:110,observedAt:BASE,referenceBarTime:BASE-4*H}];
+  low:100,high:110,observedAt:BASE+4*H,referenceBarTime:BASE}];
  return {fourHour,fifteenMinute,daily,source,zones};
 }
 test('causal 4H sweep and subsequent 15m close passes proposed price/volume/proxy gates',()=>{
@@ -162,6 +162,15 @@ test('wrong BID side or fabricated 4H zone reference timestamp cannot validate a
  fractional.zones=[{...fractional.zones![0],observedAt:BASE+0.5}];
  assert.equal(screenCrtHypotheses(fractional).candidates[0].gates.matchingZone,'INSUFFICIENT_DATA');
 });
+test('an aligned but absent 4H zone reference cannot manufacture prior source evidence',()=>{
+ const x=fixture();
+ x.zones=[{...x.zones![0],referenceBarTime:BASE-4*H,observedAt:BASE}];
+ const r=screenCrtHypotheses(x).candidates[0];
+ assert.equal(r.gates.matchingZone,'INSUFFICIENT_DATA');
+ assert.equal(r.gates.structureShift,'PASS','independent 15m evidence remains intact');
+ assert.match(r.notes.join(' '),/timestamp alone does not prove/);
+});
+
 test('zone first recorded during the sweep cannot certify pre-existing 4H context',()=>{
  const x=fixture();
  // Reference bar closed at 04:00, but the zone was first recorded at 06:00,
@@ -201,6 +210,7 @@ test('promptly recorded but stale 4H zone cannot confirm a much later sweep',()=
  // Previously PASS: the zone was recorded four hours after its reference,
  // but that reference is 31 calendar days before the sweep.
  const staleReference=BASE-31*24*H;
+ x.fourHour=[make(staleReference,105,106,104,105,240),...x.fourHour];
  x.zones=[{...x.zones![0],referenceBarTime:staleReference,
   observedAt:staleReference+4*H}];
  const r=screenCrtHypotheses(x).candidates[0];
@@ -210,6 +220,7 @@ test('promptly recorded but stale 4H zone cannot confirm a much later sweep',()=
 test('pre-observed zone with a reference inside the 30-day horizon remains eligible',()=>{
  const x=fixture();
  const recentReference=BASE-29*24*H;
+ x.fourHour=[make(recentReference,105,106,104,105,240),...x.fourHour];
  x.zones=[{...x.zones![0],referenceBarTime:recentReference,
   observedAt:recentReference+4*H}];
  assert.equal(screenCrtHypotheses(x).candidates[0].gates.matchingZone,'PASS');
