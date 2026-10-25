@@ -56,17 +56,25 @@ class PairedM1PreflightTests(unittest.TestCase):
     def test_python_float_permissive_numeric_lexemes_are_rejected(self):
         # float() accepts underscores and non-ASCII digits. Neither belongs
         # in an authenticated-looking price/volume export.
-        for original, replacement in (
-            ('1.20000', '1.2_0000'),
-            ('1.20000', '１.２００００'),
-            ('1.20000', '1_20000e-5'),
-            (',0\n', ',０\n'),
+        for field, replacement in (
+            ('open', '1.2_0000'),
+            ('open', '１.２００００'),
+            ('open', '1_20000e-5'),
+            ('volume', '０'),
         ):
             for interval in ('M1', 'H1'):
                 for side in ('bid', 'ask'):
-                    with self.subTest(replacement=replacement, interval=interval, side=side):
-                        bid = BID.replace(original, replacement) if side == 'bid' else BID
-                        ask = ASK.replace(original, replacement) if side == 'ask' else ASK
+                    with self.subTest(field=field, replacement=replacement,
+                                      interval=interval, side=side):
+                        original = BID if side == 'bid' else ASK
+                        if field == 'open':
+                            original = original.replace(
+                                '1.20000' if side == 'bid' else '1.20012',
+                                replacement)
+                        else:
+                            original = original.replace(',0\\n', f',{replacement}\\n')
+                        bid = original if side == 'bid' else BID
+                        ask = original if side == 'ask' else ASK
                         with self.assertRaisesRegex(ValueError, 'invalid numeric field'):
                             self.check(bid, ask, interval=interval)
 
