@@ -170,7 +170,8 @@ def test_postgres_independent_engines_same_expected_sequence_one_winner():
 
         try:
             with pytest.raises(RuntimeError, match="interrupted audit"):
-                append(b, 2, candle(120, 103))
+                ForecastEventStore(factories[1], lambda: 180).append(
+                    SESSION_ID, FEED, 120, 2, candle(120, 103))
         finally:
             event.remove(engines[1], "before_cursor_execute", interrupt_audit)
         assert a.load(SESSION_ID)["sequence"] == 2
