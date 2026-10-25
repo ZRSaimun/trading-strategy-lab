@@ -138,13 +138,16 @@ def audit_paths(paths):
     """Conservative population accounting; never silently drop censored paths."""
     if not isinstance(paths, list) or len(paths) > MAX_PATHS:
         raise ValueError('Bounded path list required')
-    results, ids, source_keys, weeks = [], set(), set(), set()
+    results, ids, clocks, source_keys, weeks = [], set(), set(), set(), set()
     for path in paths:
         result = evaluate_path(path)
         if result['path_id'] in ids:
             raise ValueError('Duplicate path ID')
         ids.add(result['path_id'])
-        source_keys.add(tuple(path[k] for k in ('instrument', 'provider', 'venue', 'archive_sha256', 'price_side')))
+        if path['signal_at'] in clocks:
+            raise ValueError('Duplicate completed-signal UTC minute')
+        clocks.add(path['signal_at'])
+        source_keys.add(tuple(path[k] for k in ('instrument', 'provider', 'venue', 'archive_sha256', 'price_side', 'horizon_minutes')))
         weeks.add(datetime.fromtimestamp(path['signal_at'], timezone.utc).isocalendar()[:2])
         results.append(result)
     if len(source_keys) > 1:
