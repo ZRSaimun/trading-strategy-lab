@@ -1,0 +1,11 @@
+# Declared demo quote-side deviation audit (Loop 3)
+
+`auditDeclaredDemoQuoteDeviations(scope, intent, events, policy)` is an **offline, opt-in, non-routing** extension of the declared demo order lifecycle audit. It first validates the entire event population with `auditDeclaredDemoOrderLifecycle`, then decomposes each declared fill against its matching declared bid/ask snapshot using the intent's BUY/SELL side. It does not connect to a broker, change an order, authorize a trade, or establish source authenticity.
+
+For a BUY fill, signed slippage per contract is `fill - ask`; for a SELL it is `bid - fill`. Positive is adverse, negative is favorable. Half-spread is `(ask - bid)/2`. Signed midpoint impact is `half-spread + signed slippage`. Results aggregate **price units × integer contracts**, with exact BigInt arithmetic and seven decimal places for half-micro spreads. They are **not cash amounts**: the function does not infer a CFD contract multiplier, point value, currency conversion, commission, financing, margin or taxes. A negative signed value does not prove profit.
+
+`policy` requires explicit nonnegative, bounded decimal strings `maxAdversePerContract` and `maxFavorablePerContract`, each with up to six fractional digits. Breaches return `OUT_OF_RANGE_UNVERIFIED` for investigation, not a trading recommendation. In-range values return `IN_RANGE_UNVERIFIED`, not a broker quality certification. No declared fills return `NO_DECLARED_FILLS` and **null**, not fabricated zero totals. All states always set `mayExecuteOrder: false`.
+
+This review inherits the lifecycle module's strict event ordering, source identity, quote freshness and overfill checks. It cannot authenticate the SHA declarations or prove that the event population is complete. Quote snapshots may not be executable and a fill outside the displayed spread is not by itself proof of an invalid broker fill. For genuine cost modeling, require independently sourced broker receipts, contract specifications, session-specific spreads, slippage, financing and FX evidence, and untouched preregistered walk-forward/holdout windows.
+
+Run `cd frontend && npm test` and `npm run typecheck` after dependencies are installed. Isolated tests: `node --experimental-strip-types --test tests/demo-quote-deviation-audit.test.ts`. No production runtime endpoint or broker API action is enabled.

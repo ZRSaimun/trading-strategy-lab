@@ -81,23 +81,33 @@ def _validate(state):
     return reserved
 
 
-def _encode(state):
+def _account_hash(key):
+    if not isinstance(key, str) or not re.fullmatch(r"paper-risk:[0-9a-f]{64}", key):
+        raise ValueError("Invalid paper risk account record key")
+    return key.split(":", 1)[1]
+
+
+def _encode(state, *, key):
+    account_hash = _account_hash(key)
     _validate(state)
     serialized = _canonical(state)
-    envelope = _canonical({"state": state, "sha256": hashlib.sha256(serialized.encode()).hexdigest()})
+    envelope = _canonical({"state": state, "sha256": hashlib.sha256(serialized.encode()).hexdigest(),
+                           "account_hash": account_hash})
     if len(envelope.encode("utf-8")) > _MAX_ENVELOPE_BYTES:
         raise ValueError("Paper risk-state envelope exceeds size limit")
     return envelope
 
 
-def _decode(raw):
+def _decode(raw, *, key):
     try:
+        account_hash = _account_hash(key)
         if (not isinstance(raw, str) or len(raw) > _MAX_ENVELOPE_BYTES
                 or len(raw.encode("utf-8")) > _MAX_ENVELOPE_BYTES):
             raise ValueError("Invalid paper risk-state envelope size")
         doc = _unique_json(raw)
-        if not isinstance(doc, dict) or set(doc) != {"state", "sha256"}:
-            raise ValueError("Invalid risk envelope")
+        if (not isinstance(doc, dict) or set(doc) != {"state", "sha256", "account_hash"}
+                or doc["account_hash"] != account_hash):
+            raise ValueError("Risk envelope does not belong to this account")
         reserved = _validate(doc["state"])
         digest = hashlib.sha256(_canonical(doc["state"]).encode()).hexdigest()
         if doc["sha256"] != digest:
@@ -136,14 +146,14 @@ class PaperRiskReservationStore:
             raw = db.scalar(select(Record.value).where(Record.key == key))
             if raw is None:
                 return False
-            state, _ = _decode(raw)
+            state, _ = _decode(raw, key=key)
             if state["revision"] != expected_revision:
                 return False
             updated = change(state)
             if updated is None:
                 return False
             updated["revision"] = expected_revision + 1
-            new_raw = _encode(updated)
+            new_raw = _encode(updated, key=key)
             changed = db.execute(update(Record).where(
                 Record.key == key, Record.value == raw).values(value=new_raw))
             if changed.rowcount != 1:
@@ -169,7 +179,7 @@ class PaperRiskReservationStore:
                  "emergency_latched": False, "limit_cash": "0", "reservations": {}}
         with self.session_factory() as db:
             try:
-                db.execute(insert(Record).values(key=key, value=_encode(state)))
+                db.execute(insert(Record).values(key=key, value=_encode(state, key=key)))
                 db.add(Audit(time=int(time.time()), actor="paper-risk-store", action="paper.risk.init",
                              detail=_canonical({"account_hash": key.split(":", 1)[1],
                                                 "operation": "initialize",
@@ -186,7 +196,7 @@ class PaperRiskReservationStore:
             raw = db.scalar(select(Record.value).where(Record.key == key))
         if raw is None:
             return None  # Absence is NOT permission to trade.
-        state, reserved = _decode(raw)
+        state, reserved = _decode(raw, key=key)
         return {"revision": state["revision"], "kill_switch": state["kill_switch"],
                 "emergency_latched": state["emergency_latched"], "limit_cash": state["limit_cash"],
                 "reserved_cash": str(reserved),
@@ -247,7 +257,7 @@ class PaperRiskReservationStore:
                 raw = db.scalar(select(Record.value).where(Record.key == key))
             if raw is None:
                 return False
-            state, _ = _decode(raw)
+            state, _ = _decode(raw, key=key)
             if state["kill_switch"] and state["emergency_latched"]:
                 return True
             if self._transition(key, state["revision"],

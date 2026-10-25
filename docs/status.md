@@ -44,3 +44,7 @@ The repository's visibility was public when accessed. The owner must make it pri
 ## Free-cloud deployment preparation
 
 Combined web/API image and supervisor, explicit Render Free Blueprint, secure configuration validation, private Postgres schema/RLS hardening and bounded small-host imports implemented. A separate memory-limited Docker CI fixture exercises the combined runtime. Actual Render/Supabase provisioning, TLS/pooler verification and iPhone private-server access remain pending. See `free-cloud-deployment.md`.
+
+## Revealed replay evidence panel
+
+Research Charts replay now has a read-only source/hash and revealed-window evidence summary, using the existing structural coverage gate and only the displayed prefix. Unknown gaps remain insufficient evidence; full dataset provenance is distinguished from prefix diagnostics. See [rules, regression coverage and reference review](replay-evidence.md). No market-data acceptance, CFD cost validation or profitability is established by this UI.

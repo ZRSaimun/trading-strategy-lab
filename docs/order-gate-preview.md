@@ -62,3 +62,10 @@ The independent `cash_account_gross_fully_funded` check requires **existing decl
 The example `XAUUSD` label in synthetic tests is **not** evidence that a commodity is available in an Invest or ISA account. Actual instrument availability, eligible equity/ETF ticker, trading currency, settlement and broker account capability must be verified from authenticated broker metadata before any real order. All previews remain stateless, unauthenticated with respect to broker balances/quotes, and **non-executing**. No live or demo orders are enabled.
 
 Test from `backend` with `PYTHONPATH=. python -m pytest -q tests/test_cash_account_gate.py`.
+
+
+## Separate per-position stressed-loss cash ceiling (24 October 2026)
+
+The non-executing order-gate preview now accepts `controls.max_position_loss_cash`, a **separate, positive owner-declared per-position loss ceiling** in the same account currency as equity and costs. The field remains optional in the request schema for compatibility, but **an omitted value causes the hypothetical order preview to fail** (`position_loss_cap_supplied=false`). The preview also fails if the proposed stressed loss exceeds the per-position cap, or if the supplied per-position cap exceeds the declared daily loss limit or account equity. This is in addition to, not instead of, the existing percentage risk budget and projected account-wide daily loss checks. It does not claim that a stop can guarantee a maximum realized loss.
+
+All these values are **user-declared and not broker-authenticated**. A caller can choose an unsafe cash ceiling; there is no provider-verified balance, instrument contract value, currency conversion or durable enforcement here. A passing diagnostic remains `may_execute_paper_order=false` and `may_execute_real_order=false`. Missing policy returns a normal diagnostic with failed checks; malformed/nonpositive values return HTTP 422. Synthetic tests cover missing, inadequate, excessive, valid and malformed limits. No broker connector, order endpoint, database write, paid API, credentials or live execution was added.

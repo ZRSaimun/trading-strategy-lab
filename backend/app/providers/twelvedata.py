@@ -10,6 +10,19 @@ ENDPOINT='https://api.twelvedata.com/time_series'
 MAPPINGS={'XAUUSD-TD':{'symbol':'XAU/USD','name':'Gold · Twelve Data XAU/USD','volume_type':'none'}}
 MAX_BYTES=3_000_000
 
+def _reject_duplicate_response_keys(pairs):
+    """Reject ambiguous vendor JSON before normalizing or archiving it."""
+    result={}
+    for key,value in pairs:
+        if key in result:
+            raise ValueError('Duplicate provider JSON key')
+        result[key]=value
+    return result
+
+def _reject_nonstandard_response_constant(value):
+    """NaN and Infinity are not valid JSON evidence."""
+    raise ValueError('Nonstandard provider JSON constant')
+
 class ProviderError(Exception):
     def __init__(self,message,status=502):
         super().__init__(message);self.status=status
@@ -59,7 +72,8 @@ async def retrieve(key,instrument,limit,end,now,transport=None):
                 async for chunk in response.aiter_bytes():
                     raw.extend(chunk)
                     if len(raw)>MAX_BYTES:raise ProviderError('Provider response exceeded the safe size limit.')
-                payload=json.loads(raw)
+                payload=json.loads(raw,object_pairs_hook=_reject_duplicate_response_keys,
+                                   parse_constant=_reject_nonstandard_response_constant)
     except (httpx.HTTPError,ValueError):
         # Never return exception strings: HTTP client exceptions can contain request details.
         raise ProviderError('Provider request failed or returned invalid JSON; no data imported.') from None

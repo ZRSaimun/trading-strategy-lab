@@ -1,3 +1,7 @@
+https://trading-strategy-lab-private.onrender.com/  
+
+https://zrsaimun.github.io/trading-strategy-lab/
+
 # Trading Strategy Lab
 
 Private, local-first historical trading research. **Phase 1 foundation; not a complete trading platform.** No live feeds, AI connector, confirmed signals or orders are enabled. Basic completed-bar research observations and replay are available. No historical market data or credentials are distributed.
@@ -67,6 +71,14 @@ See [architecture](docs/architecture.md), [status and acceptance](docs/status.md
 
 The authenticated Backtesting screen can now select one ready source-isolated historical ZIP archive and fetch up to 20,000 aggregate candles via the existing paginated history API, with dataset hash checks and explicit window/cost limitations. No archive is uploaded or merged automatically, and BID-only history is not broker-executable data. See [archive-backed backtesting](docs/archive-backtesting.md).
 
+## Experimental 4H CRT / ICT confirmation research
+
+Authenticated **CRT / ICT Research** now screens source-isolated 4H sweep/reclaim candles, a configurable 40% manipulation-wick hypothesis, and causal next-block 15m structure/displacement with a previous-20-bar median. It reports absent verified volume, formal order-block evidence, and event calendars as **insufficient data**, never as permission to trade. Results are observational, not a profitability backtest. See [complete methodology](docs/crt-quant-research.md).
+
+## Source-isolated NY close momentum research
+
+The authenticated **NY Close Research** screen adds a read-only, historical US equity-session hypothesis using completed M1 BID-only candles from exactly one imported archive, a 20-prior-complete-session volatility gate, and 0×/1×/2×/3× illustrative friction comparisons. It uses America/New_York clock rules and deliberately refuses incomplete regular sessions. This is not a live or verified CFD edge; ETF academic results cannot be assumed to hold for Nasdaq CFD, Gold or WTI proxies. See [full research protocol and limitations](docs/ny-close-cfd-research.md).
+
 ## Research backtesting
 
 Open Backtesting to compare five versioned research approximations with costs, next-open eligibility, conservative OHLC fills, chronological sample splits and reproducible JSON exports. Add selected simulations to Trading Journal. See [rules, cost model and limits](docs/backtesting.md). These are not verified profitable strategies or broker fills.
@@ -116,3 +128,10 @@ The project now defaults to `FREE_ONLY=true`, blocking the external historical-d
 ## Single-service free hosting preparation
 
 A combined Next.js/FastAPI Docker image, explicitly free Render Blueprint and private Postgres schema are available. See [setup, enforced limits and cloud activation checks](docs/free-cloud-deployment.md). This prepares deployment; it does not create or activate cloud resources.
+
+## Native Gold CSV research
+
+The private **Gold CSV Research** page saves original UTC hourly/minute BID or
+ASK exports, validates coverage, and charts/replays their native candles without
+feeding hourly data into minute-based backtests. See [format, limits and source
+caveats](docs/gold-csv-research.md). Uploaded prices are not bundled with the code.

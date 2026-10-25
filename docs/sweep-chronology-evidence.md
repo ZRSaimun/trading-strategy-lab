@@ -1,0 +1,9 @@
+# Frozen chronology-only evidence gate (Loop 2; research only)
+
+Pure `frontend/lib/sweep-chronology-evidence.ts` accepts a source-audited completed `RiskPathReport` and three predeclared chronological Monday-UTC phases of at least 14 full weeks. It enforces the exact source/instrument identity, a **frozen 5 bps hypothetical round-trip cost**, first-week entry purge, and last-week outcome embargo. Any exit exactly at the embargo boundary is excluded. It accounts for all completed paths as outside, purged, embargoed, or eligible; it does not impute unknown outcomes as zero. Trade-weighted and equal-week means are withheld for fewer than 30 eligible completed paths or 12 event weeks.
+
+**This is not independent holdout validation.** Caller-provided boundaries are not evidence of pre-registration; archive identity is not cryptographic provenance; one-week purge does not certify all CRT/ICT feature lookbacks; the source report excludes pending and incomplete signals; BID/OHLC stops and 5 bps costs are not executable broker prices. Every output explicitly marks source provenance and untouched holdout **unverified**, and live trading ineligible. Never select regimes or claim a profitable edge from these descriptive means.
+
+Reproduce from `frontend`: `node --experimental-strip-types --test tests/sweep-chronology-evidence.test.ts`, `npm test`, `npm run typecheck`. Synthetic tests are not market performance evidence.
+
+**Handoff:** PR #29 owns source lineage, independent chronological holdout freeze and feature-label purging; this completed-path gate is a separate, stricter accounting check, not a substitute. PR #25 owns demo-fill reconciliation. PR #24 stays draft/unmerged/undeployed pending latest-head full CI, main reconciliation, and verified Render production backup/rollback/health readiness.

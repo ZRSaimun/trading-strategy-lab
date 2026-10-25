@@ -1,0 +1,11 @@
+# Forecast calibration block-deletion sensitivity (Loop 5)
+
+`frontend/lib/forecast-block-sensitivity.ts` is a **pure, disconnected** sensitivity diagnostic for a previously validated, exact-source, model-version-specific and horizon-specific forward forecast ledger. It calls the existing causal `reviewForwardCalibration` gate before evaluating anything. It does not authenticate data, ingest candles, send alerts, write a database, simulate broker fills or place orders.
+
+For two chronological, fixed-phase, non-overlapping outcome windows of size `window` (default 20 each), divide each window into equal contiguous blocks (default 5 forecasts per block). Independently remove one earlier block and one recent block, computing all block-pair differences in mean Brier loss. Report the original deterioration, minimum/maximum after deletion, fraction with delta >= 0.02 and fraction where recent loss exceeds the fixed 0.25 baseline. A single unusual period can make a naive deterioration flag fragile; this reports that sensitivity.
+
+**Interpretation limits:** This is a leave-block-out stress check, **not** a bootstrap confidence interval, hypothesis test, p-value, multiple-testing correction, calibrated alert or proof of drift. Serial dependence, model selection, missing source entitlement, time-varying regimes, small sample size and repeated monitoring remain unresolved. The 0.02/0.25 thresholds are descriptive research heuristics. A robust flag cannot establish predictive edge or trading profitability. Output always has `mode=UNVERIFIED_LOCAL_RESEARCH`, `live=false`.
+
+Synthetic verification: `cd frontend && node --experimental-strip-types --test tests/forecast-block-sensitivity.test.ts`. Test scenarios cover strong/stable/outlier outcomes, incomplete windows, gap voids, future issuance, mixed sources, invalid block partitions, 3-candle horizons and model isolation. Synthetic Brier values are not real-market measurements.
+
+**Loop 1 integration handoff:** An authorized provider-specific completed-candle feed, server-owned receipt timestamps, immutable transactional forecast issuance/settlement, market-session handling, provider entitlement and durable alert outbox are required before forward monitoring can be called operational. Keep delivery and real-money execution disconnected. Do not equate historical BID candles with executable bid/ask.

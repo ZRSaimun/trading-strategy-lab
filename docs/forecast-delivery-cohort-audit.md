@@ -1,0 +1,15 @@
+# Loop 5 — offline forecast alert cohort coverage audit
+
+`frontend/lib/forecast-delivery-cohort-audit.ts` reconciles a separately declared, chronologically ordered, same-source/model/horizon list of forecast-review candidate IDs against the existing **self-attested** delivery journal. It counts missing queue records in the denominator instead of silently reporting only the alerts that made it into a queue. It also reports queue lag, overdue unresolved candidates, pending/in-flight/cancelled states, and the fraction with a **self-reported** ACK. It rejects unknown queued candidates, duplicate or unordered declarations, inconsistent canonical source IDs, and reused receipt IDs across candidates.
+
+**No delivery claim:** `independentlyVerifiedDelivery=false`, `cohortAuthenticated=false`, `live=false`, and `transportConnected=false` are unconditional. Even a 100% self-reported ACK fraction does **not** mean that a transport delivered an alert. The declared cohort and journal can be edited, clocks are caller supplied, and a missing candidate in both inputs cannot be detected. These metrics are not uptime, prospective alert recall, calibrated forecast accuracy, trade returns, or broker performance.
+
+The queue-lag and resolution-age thresholds are explicit bounded **research policy inputs** (positive integer seconds, max seven days). Exact threshold boundaries are inclusive. A queued candidate older than the resolution-age budget without a self-reported ACK remains overdue, including cancellations and ambiguous in-flight claims. A stale ACK still cannot be independently authenticated. No sends, network calls, database changes, claims, quote retrieval, broker orders, or paid services occur.
+
+Local synthetic checks: `cd frontend && node --experimental-strip-types --test tests/forecast-delivery-cohort-audit.test.ts`. This component is intentionally isolated from the UI and production server.
+
+## Loop 1 integration handoff
+
+Provide source-entitled authenticated completed-candle observations with server-owned receipt clocks and session-aware gaps. Commit forecast issuance, settlement, predeclared alert candidate IDs and outbox transitions transactionally to append-only durable storage; enforce unique candidate/attempt/receipt IDs with concurrent-worker and forced-crash tests. Independently verify transport receipts and delivery latency, plus destination opt-in and bounded retries, before labelling alerts operational. For paper trading, require authenticated prospective bid/ask quotes, margin/financing/slippage and audited demo reconciliation. Historical BID candles cannot be used as executable quotes. Real-money orders remain disabled until an eligible officially documented broker/account, current executable quote, hard risk limits and explicit owner confirmation for each order are verified.
+
+Release: remain draft, unmerged, undeployed pending main reconciliation, exact-head green CI, production backup restoration, rollback and health readiness. No authentic forward Brier skill, net return or maximum drawdown has been measured by this component.

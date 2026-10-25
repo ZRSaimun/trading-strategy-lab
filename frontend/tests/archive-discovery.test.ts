@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {ARCHIVE_LIST_PAGE_SIZE,ArchiveInventoryChangedError,appendArchiveListing,fetchArchiveListingPage,parseArchiveListing} from '../lib/archive-discovery.ts';
+import {ARCHIVE_LIST_PAGE_SIZE,ArchiveInventoryChangedError,advanceArchiveInventory,appendArchiveListing,fetchArchiveListingPage,parseArchiveListing} from '../lib/archive-discovery.ts';
 const item=(n:number)=>({id:n.toString(16).padStart(64,'0'),provider:'HistData',instrument:'XAUUSD-OTC',format:'ascii',state:'READY',accepted:1000,rejected:0,zero_volume:0,utc_offset_minutes:-300,archive_sha256:'f'.repeat(64)});
 const SNAP='a'.repeat(64);
 const headers=(more?:string,next?:string,snapshot:string|null=SNAP)=>new Headers({...(more===undefined?{}:{'X-History-Has-More':more}),...(next===undefined?{}:{'X-History-Next-Offset':next}),...(more!==undefined&&snapshot!==null?{'X-History-Snapshot':snapshot}:{})});
@@ -115,4 +115,53 @@ test('legacy paginated servers without inventory token show a first page but can
  assert.equal(first.nextOffset,null);
  assert.equal(first.legacyPossiblyTruncated,true);
  assert.throws(()=>parseArchiveListing(Array.from({length:200},(_,i)=>item(i+200)),headers('true','400',null),200),/requires a server inventory snapshot/);
+});
+
+test('backtesting inventory advances past 200 only with an unchanged server snapshot',async()=>{
+ const requested:string[]=[];
+ const fetcher=(async(url:string,opts:RequestInit)=>{
+  requested.push(url);
+  assert.equal(opts.credentials,'same-origin');
+  if(url.includes('offset=0'))return new Response(JSON.stringify(Array.from({length:200},(_,i)=>item(i))),{status:200,headers:headers('true','200')});
+  return new Response(JSON.stringify([item(200),item(201)]),{status:200,headers:headers('false',undefined,SNAP)});
+ }) as typeof fetch;
+ const first=await advanceArchiveInventory(fetcher);
+ assert.equal(first.items.length,200);
+ assert.equal(first.hasMore,true);
+ const final=await advanceArchiveInventory(fetcher,first);
+ assert.equal(final.items.length,202);
+ assert.equal(final.hasMore,false);
+ assert.equal(final.items[201].id,item(201).id);
+ assert.match(requested[1],new RegExp('offset=200&limit=200&snapshot='+SNAP));
+ await assert.rejects(()=>advanceArchiveInventory(fetcher,final),/no additional verified pages/);
+ assert.equal(requested.length,2);
+});
+
+test('backtesting inventory refuses shifted snapshots and overlapping identities',async()=>{
+ const first=await advanceArchiveInventory((async()=>new Response(
+  JSON.stringify(Array.from({length:200},(_,i)=>item(i))),
+  {status:200,headers:headers('true','200')}
+ )) as typeof fetch);
+ const changed=(async()=>new Response(JSON.stringify([item(200)]),{
+  status:200,headers:headers('false',undefined,'b'.repeat(64))
+ })) as typeof fetch;
+ await assert.rejects(()=>advanceArchiveInventory(changed,first),ArchiveInventoryChangedError);
+ const overlap=(async()=>new Response(JSON.stringify([item(199)]),{
+  status:200,headers:headers('false',undefined,SNAP)
+ })) as typeof fetch;
+ await assert.rejects(()=>advanceArchiveInventory(overlap,first),ArchiveInventoryChangedError);
+});
+
+test('backtesting inventory never pages an unverified legacy 200-row response',async()=>{
+ let calls=0;
+ const fetcher=(async()=>{
+  calls++;
+  return new Response(JSON.stringify(Array.from({length:200},(_,i)=>item(i))),{status:200});
+ }) as typeof fetch;
+ const first=await advanceArchiveInventory(fetcher);
+ assert.equal(first.items.length,200);
+ assert.equal(first.legacyPossiblyTruncated,true);
+ assert.equal(first.hasMore,false);
+ await assert.rejects(()=>advanceArchiveInventory(fetcher,first),/no additional verified pages/);
+ assert.equal(calls,1);
 });

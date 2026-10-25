@@ -24,7 +24,8 @@ def request(**changes):
         expected_venue='TEST', client_order_id='test-order-001',
         prior_client_order_ids=[], kill_switch_active=False,
         market_session_open=True, daily_realized_pnl_cash=0,
-        max_daily_loss_cash=50, owner_confirmed_this_order=True,
+        max_daily_loss_cash=50, max_position_loss_cash=15,
+        owner_confirmed_this_order=True,
         max_quote_age_ms=2000, max_transport_lag_ms=1000, max_spread_bps=5,
     )
     body = {'risk': risk, 'controls': controls}
@@ -134,3 +135,50 @@ def test_floating_gains_cannot_offset_account_wide_risk_and_invalid_reserve_reje
     assert result['checks']['projected_daily_loss_within_cap'] is False
     data['controls']['other_positions_reserved_stress_loss_cash'] = -1
     assert client().post('/api/broker/order-gate-preview', json=data).status_code == 422
+
+
+def test_missing_or_insufficient_position_cash_cap_blocks_preview():
+    data = request()
+    data['controls'].pop('max_position_loss_cash')
+    result = client().post('/api/broker/order-gate-preview', json=data).json()
+    assert not result['checks']['position_loss_cap_supplied']
+    assert not result['checks']['stressed_position_loss_within_cap']
+    assert not result['assumption_checks_pass']
+    assert result['may_execute_real_order'] is False
+    assert result['may_execute_paper_order'] is False
+
+    data = request()
+    data['controls']['max_position_loss_cash'] = 9
+    result = client().post('/api/broker/order-gate-preview', json=data).json()
+    assert result['checks']['position_loss_cap_supplied']
+    assert not result['checks']['stressed_position_loss_within_cap']
+    assert result['hypothetical_risk']['stressed_loss_if_filled'] > 9
+    assert not result['assumption_checks_pass']
+
+
+def test_position_cap_cannot_exceed_daily_cap_or_equity():
+    data = request()
+    data['controls']['max_position_loss_cash'] = 60
+    result = client().post('/api/broker/order-gate-preview', json=data).json()
+    assert not result['checks']['position_loss_cap_within_daily_limit']
+    assert not result['assumption_checks_pass']
+
+    data = request()
+    data['controls']['max_position_loss_cash'] = 1200
+    result = client().post('/api/broker/order-gate-preview', json=data).json()
+    assert not result['checks']['position_loss_cap_within_equity']
+    assert not result['assumption_checks_pass']
+
+
+def test_position_cap_valid_and_invalid_inputs():
+    data = request()
+    result = client().post('/api/broker/order-gate-preview', json=data).json()
+    assert result['assumption_checks_pass']
+    assert result['checks']['stressed_position_loss_within_cap']
+    assert result['hypothetical_risk']['max_position_loss_cash'] == 15
+    assert result['hypothetical_risk']['position_cap_broker_verified'] is False
+
+    for bad in (0, -1, 'NaN', 'Infinity'):
+        data = request()
+        data['controls']['max_position_loss_cash'] = bad
+        assert client().post('/api/broker/order-gate-preview', json=data).status_code == 422

@@ -348,9 +348,10 @@ def test_maximum_valid_reservation_count_fits_envelope_budget():
             for i in range(_MAX_RESERVATIONS)
         },
     }
-    raw = _encode(state)
+    key = "paper-risk:" + "0" * 64
+    raw = _encode(state, key=key)
     assert len(raw.encode("utf-8")) <= _MAX_ENVELOPE_BYTES
-    restored, reserved = _decode(raw)
+    restored, reserved = _decode(raw, key=key)
     assert restored == state
     assert reserved == Decimal("0.00000500")
 
@@ -374,7 +375,7 @@ def test_impossible_reservation_count_revision_fails_closed_with_matching_checks
         canonical = json.dumps(envelope["state"], sort_keys=True, separators=(",", ":"))
         envelope["sha256"] = hashlib.sha256(canonical.encode()).hexdigest()
         with pytest.raises(ValueError, match="revision"):
-            _encode(envelope["state"])
+            _encode(envelope["state"], key=key)
         row.value = json.dumps(envelope)
     with setup[1]() as db:
         audit_before = len(db.scalars(select(Audit)).all())
@@ -387,3 +388,29 @@ def test_impossible_reservation_count_revision_fails_closed_with_matching_checks
             operation()
     with setup[1]() as db:
         assert len(db.scalars(select(Audit)).all()) == audit_before
+
+
+def test_valid_risk_envelope_cannot_be_replayed_under_another_account(setup):
+    """Even a valid state checksum must not authorize a different paper account."""
+    s = store(setup)
+    enabled(s)
+    assert s.initialize("paper-acct-0002")
+    first_key = s._key("paper-acct-0001")
+    second_key = s._key("paper-acct-0002")
+    with setup[1].begin() as db:
+        original = db.get(Record, first_key).value
+        # Simulate a mistaken restore/copy into another account record.
+        db.get(Record, second_key).value = original
+    with setup[1]() as db:
+        before = len(db.scalars(select(Audit)).all())
+    for action in (
+        lambda: s.load("paper-acct-0002"),
+        lambda: s.reserve("paper-acct-0002", 1,
+                          client_order_id="order-00002", risk_cash="1"),
+        lambda: s.engage_kill_switch("paper-acct-0002"),
+    ):
+        with pytest.raises(ValueError, match="corrupt"):
+            action()
+    with setup[1]() as db:
+        assert len(db.scalars(select(Audit)).all()) == before
+    assert s.load("paper-acct-0001")["kill_switch"] is False

@@ -1,0 +1,13 @@
+# Loop 4 — immutable one-order human review packet (offline only)
+
+`backend/app/live_order_review.py` creates a **disconnected, read-only** risk-review packet with a SHA-256 digest bound to the complete owner-supplied order, account alias, client order ID, exact quote identity, bid/ask, source timestamps, server issue time, expiry and quote timing policy. It uses bounded plain-decimal strings and exact `Decimal` arithmetic. It rejects unknown fields, floating-point inputs, malformed monetary values and unsafe order directions.
+
+Checks cover supported public API account category (Trading 212 Invest/Stocks ISA only; **no Trading 212 CFD API orders**), cash-account BUY-only new entries, protective stop direction, worse-than-stop stressed exit, non-optimistic bid/ask entry, quote spread/freshness/transport delay, position loss ceiling, account-wide projected daily loss including unrealized downside and existing reserved risk, margin, leverage and fully funded cash exposure. The result exposes failed assumptions and cash figures. Re-review comparison detects changed intent, stale quotes or expired packet; it is **not** a reusable approval token. A digest is **not a signature**, and an untrusted caller can calculate it.
+
+**Safety boundary:** Inputs are NOT authenticated broker prices, balances, positions, available cash, instrument permissions, sessions or owner identity. The helper has no broker requests, credentials, persistent order-ID reservations, actual approval record, signing, live/demo order route, or state mutation. Both `may_execute_real_order` and `may_execute_paper_order` are always false, even if every hypothetical check passes. The packet must never be used as an execution permission. A stressed stop does not guarantee a maximum loss during a gap.
+
+From `backend`: `PYTHONPATH=. python -m pytest -q tests/test_live_order_review.py`. All test data is synthetic.
+
+## Integration handoff
+
+Keep this isolated from draft PRs #26 (durable reservations), #34 (preview API), #35 (position sizing), and #36 (stop observation) until coordinated. To make a **future** authenticated review workflow, verify eligible provider/account/instrument and quote source; bind an authenticated owner session and immutable per-order review to a durable, single-use reservation, server-side risk recheck and independent audit record. Recheck all conditions after owner approval and immediately before submission; any changed price/quantity/stop, stale quote, expired review, concurrent order or kill-switch transition must require fresh approval. No blanket autonomous live trading. Production deployment requires selected Render workspace, backups, rollback and health verification; no deployment is performed by this PR.

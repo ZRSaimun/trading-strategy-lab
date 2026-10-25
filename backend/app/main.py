@@ -323,3 +323,7 @@ app.include_router(build_router(owner))
 # Read-only evidence of actual data and broker readiness, owner-gated.
 from .system_readiness import build_router as system_readiness_router
 app.include_router(system_readiness_router(owner, engine))
+
+# Native hourly/minute Gold CSV research stays separate from the M1 strategy engine.
+from .gold_csv_research import build_router as gold_csv_router
+app.include_router(gold_csv_router(owner))

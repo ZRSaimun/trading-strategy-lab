@@ -131,3 +131,21 @@ export async function fetchArchiveListingPage(
  if(!response.ok)throw Error(`Historical archive discovery unavailable (${response.status})`);
  return parseArchiveListing(await response.json(),response.headers,offset,ARCHIVE_LIST_PAGE_SIZE,snapshot);
 }
+
+/** One immutable READY inventory snapshot for a consumer such as Backtesting.
+ * Never silently continue a legacy/truncated listing or mix offset pages from
+ * different inventories. Caller must discard the result on any thrown error.
+ */
+export type ArchiveInventory=ArchiveListingPage;
+
+export async function advanceArchiveInventory(
+ fetcher:typeof fetch, current:ArchiveInventory|null=null, signal?:AbortSignal,
+):Promise<ArchiveInventory>{
+ if(current&&!current.hasMore)throw Error('Historical archive inventory has no additional verified pages');
+ if(current&&(current.nextOffset===null||!current.snapshot))
+  throw Error('Historical archive pagination requires a verified inventory snapshot');
+ const page=await fetchArchiveListingPage(
+  fetcher,current?.nextOffset??0,signal,current?.snapshot??undefined,
+ );
+ return {...page,items:appendArchiveListing(current?.items??[],page)};
+}

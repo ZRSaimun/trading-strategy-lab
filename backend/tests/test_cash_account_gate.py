@@ -34,6 +34,7 @@ def payload(*, broker='Trading212-Invest', direction='BUY', other_gross=0):
         'kill_switch_active': False,
         'market_session_open': True,
         'max_daily_loss_cash': 50,
+        'max_position_loss_cash': 15,
         'owner_confirmed_this_order': True,
         'max_quote_age_ms': 2000,
         'max_transport_lag_ms': 1000,
