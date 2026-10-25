@@ -25,19 +25,41 @@ def _records(path, fmt, counts, *, max_rows, max_uncompressed_bytes):
     """Yield original-order naive wall minutes and exact OHLC decimals.
 
     Deliberately preserve repeated and backward timestamps for forensic review.
-    Exactly one flat CSV member is required; no archive paths are extracted.
+    One flat CSV plus an optional flat vendor .txt status report is allowed;
+    no archive paths are extracted. Status text is untrusted and never used
+    to validate prices or override candle observations.
     """
     with zipfile.ZipFile(path) as archive:
         members = archive.infolist()
-        if len(members) != 1:
-            raise ParityInputError('Exactly one CSV member required')
-        member = members[0]
-        if (member.is_dir() or not re.fullmatch(r'[A-Za-z0-9_.()\-]+\.csv', member.filename, re.I)
-                or (member.external_attr >> 16) & 0o170000 == stat.S_IFLNK
-                or member.flag_bits & 1):
-            raise ParityInputError('Unsupported, encrypted or link ZIP member')
+        if not 1 <= len(members) <= 2:
+            raise ParityInputError('Expected one CSV and optional TXT status report')
+        for item in members:
+            mode = (item.external_attr >> 16) & 0o170000
+            if (item.is_dir()
+                    or not re.fullmatch(r'[A-Za-z0-9_.()\-]+\.(?:csv|txt)', item.filename, re.I)
+                    or mode not in (0, stat.S_IFREG)
+                    or item.flag_bits & 1):
+                raise ParityInputError('Unsupported, encrypted or link ZIP member')
+        csv_members = [item for item in members if item.filename.lower().endswith('.csv')]
+        txt_members = [item for item in members if item.filename.lower().endswith('.txt')]
+        if len(csv_members) != 1 or len(txt_members) > 1:
+            raise ParityInputError('Expected one CSV and at most one TXT status report')
+        member = csv_members[0]
         if member.file_size > max_uncompressed_bytes:
             raise ParityInputError('Uncompressed byte budget exceeded')
+        if txt_members:
+            # Actual HistData downloads include a small text gap-status report.
+            # Consume it to check its CRC, but never trust its gap assertions.
+            report = txt_members[0]
+            if report.file_size > 32768:
+                raise ParityInputError('TXT status report exceeds byte budget')
+            with archive.open(report) as status_stream:
+                report_bytes = 0
+                while chunk := status_stream.read(4096):
+                    report_bytes += len(chunk)
+                    if report_bytes > 32768:
+                        raise ParityInputError('TXT status report exceeds byte budget')
+        counts['vendor_status_report_present'] = bool(txt_members)
         previous = None
         previous_prices = None
         with archive.open(member) as raw:
@@ -115,7 +137,7 @@ def compare_duplicate_archives(ascii_zip, mt_zip, *, instrument, provider,
     def counters():
         return dict(rows=0, adjacent_duplicate_minutes=0,
                     conflicting_adjacent_duplicate_ohlc=0, backward_jumps=0,
-                    zero_volume_rows=0)
+                    zero_volume_rows=0, vendor_status_report_present=False)
     a, b = counters(), counters()
     compared = equal = timestamp_mismatch = price_mismatch = 0
     samples = []
