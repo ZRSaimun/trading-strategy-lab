@@ -101,6 +101,40 @@ class PairedM1PreflightTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'Explicit interval'):
             self.check(interval=None)
 
+    def test_incomplete_or_alternative_timestamp_cannot_invent_midnight(self):
+        for timestamp in ('2021-01-04', '20210104', '2021-W01-1',
+                          '2021-01-04T00', '2021-01-04T00:00',
+                          '2021-01-04X00:00:00', '2021-W01-1T00:00:00'):
+            for side in ('bid', 'ask', 'both'):
+                with self.subTest(timestamp=timestamp, side=side):
+                    bid = BID.replace('2021-01-04T00:00:00Z', timestamp) if side != 'ask' else BID
+                    ask = ASK.replace('2021-01-04T00:00:00Z', timestamp) if side != 'bid' else ASK
+                    with self.assertRaisesRegex(ValueError, 'full calendar timestamp'):
+                        self.check(bid, ask)
+
+    def test_submicrosecond_precision_cannot_be_truncated_into_alignment(self):
+        with self.assertRaisesRegex(ValueError, 'full calendar timestamp'):
+            self.check(BID.replace('00:00:00Z', '00:00:00.0000001Z'), ASK)
+
+    def test_complete_timestamp_formats_retain_utc_semantics(self):
+        for timestamp in ('2021-01-04T00:00:00Z', '2021-01-04 00:00:00',
+                          '2021-01-04T00:00:00+00:00',
+                          '2021-01-04 00:00:00.000',
+                          '2021-01-04T00:00:00.000000Z'):
+            for interval in ('M1', 'H1'):
+                with self.subTest(timestamp=timestamp, interval=interval):
+                    report = self.check(
+                        BID.replace('2021-01-04T00:00:00Z', timestamp),
+                        ASK.replace('2021-01-04T00:00:00Z', timestamp), interval)
+                    self.assertEqual(report['first_utc'], '2021-01-04T00:00:00+00:00')
+                    self.assertFalse(report['approved_for_backtest'])
+
+    def test_valid_syntax_still_requires_real_date_and_aligned_time(self):
+        for timestamp in ('2021-02-30T00:00:00Z', '2021-01-04T24:00:00Z',
+                          '2021-01-04T00:00:00.000001Z'):
+            with self.subTest(timestamp=timestamp), self.assertRaises(ValueError):
+                self.check(BID.replace('2021-01-04T00:00:00Z', timestamp), ASK)
+
 
 if __name__ == '__main__':
     unittest.main()
