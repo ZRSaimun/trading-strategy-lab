@@ -151,5 +151,5 @@ def test_short_side_and_floating_profit_cannot_bypass_stressed_leverage():
 
 def test_stressed_equity_result_includes_existing_and_new_downside():
     result = sample()
-    assert result["stressed_equity_after_loss_cash"] == "965.0"
+    assert result["stressed_equity_after_loss_cash"] == "965"
     assert result["stressed_loss_cash"] == "30"
