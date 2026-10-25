@@ -15,7 +15,8 @@ def version(previous, *, times=None, change_close=False, received=420):
     old_manifest, _, old_rows = previous
     rows = deepcopy(old_rows)
     if times is not None:
-        rows = [deepcopy(rows[0]) for _ in times]
+        rows = [deepcopy(next((old for old in old_rows if old["time"] == t), old_rows[0]))
+                for t in times]
         for row, t in zip(rows, times):
             row["time"] = t
     if change_close:
