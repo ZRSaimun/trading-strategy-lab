@@ -110,12 +110,27 @@ class AtomicPaperQuoteJournalStore:
                     return _decision("JOURNAL_ACCOUNT_BINDING_MISMATCH")
                 if source_owner is not None and source_owner != journal_key:
                     return _decision("QUOTE_SOURCE_ALREADY_BOUND_TO_OTHER_JOURNAL")
+                if source_owner is None:
+                    # A missing reverse owner is not evidence of a free source.
+                    # A legacy/partially damaged forward binding may still
+                    # identify another journal. Never rebind it automatically.
+                    legacy_forward = db.scalar(select(Record.key).where(
+                        Record.key.like("paper-journal-source:%"),
+                        Record.value == source_hash,
+                    ).limit(1))
+                    if legacy_forward is not None:
+                        return _decision("QUOTE_SOURCE_BINDING_INCOMPLETE")
                 if (binding is None) != (source_owner is None):
                     return _decision("QUOTE_SOURCE_BINDING_INCOMPLETE")
                 if (journal_raw is None) != (binding is None):
                     return _decision("JOURNAL_BINDING_INCOMPLETE")
                 if journal_raw is not None and quote_raw is None:
                     return _decision("QUOTE_MARKER_MISSING")
+                if journal_raw is None and quote_raw is not None:
+                    # Standalone observations have no journal provenance.
+                    # Do not silently adopt their marker into an atomic
+                    # session, even if the next sequence is valid.
+                    return _decision("UNBOUND_QUOTE_MARKER_REQUIRES_RECONCILIATION")
                 if expected_journal_revision is None:
                     if previous_journal is not None:
                         return _decision("JOURNAL_ALREADY_EXISTS")
