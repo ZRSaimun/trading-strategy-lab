@@ -119,13 +119,15 @@ def audit_development_walkforward(archives: list[dict], observations: list[dict]
                     excluded["TEST_LABEL_UNAVAILABLE_OR_EMBARGO"] += 1
                 else:
                     test.append(o["id"])
-        results.append({"id": fold["id"], "trainIds": train, "testIds": test,
+        results.append({"id": fold["id"], "bounds": dict(fold), "trainIds": train, "testIds": test,
                         "excludedCounts": dict(sorted(excluded.items())),
                         "status": "TIMING_ONLY" if train and test else "INSUFFICIENT_TIMING_OBSERVATIONS"})
     return {"engine": "development-walkforward-timing-v1", "source": dict(zip(
         ("provider", "instrument", "venue", "priceSide", "utcConvention"), source)),
             "strategyVersion": protocol["strategyVersion"], "configSha256": protocol["configSha256"],
-            "archiveCount": len(archives), "declaredArchiveGaps": gaps,
+            "archiveCount": len(archives), "archiveLineage": [{"id": a["id"], "archiveSha256": a["archiveSha256"],
+                "start": a["start"], "end": a["end"]} for a in lineage],
+            "protocol": dict(protocol), "declaredArchiveGaps": gaps,
             "observationCount": len(observations), "folds": results,
             "validationHoldoutAccess": False, "mayExecuteOrder": False,
             "warning": "Declared metadata only: no outcome inspection, source authentication, market-session completeness, trusted preregistration, executable CFD costs, statistical significance or profitable edge. All validation and holdout periods remain outside fold tests."}
