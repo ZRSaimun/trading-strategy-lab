@@ -1,0 +1,9 @@
+# Frozen M1 intent potential-exposure audit (offline)
+
+`backend/app/frozen_intent_exposure_audit.py` is a read-only, deterministic companion to `frozen_next_open_intent.py` and the causal ATR intent bridge. It checks whether eligible hypothetical next-open positions **could** coexist if each remains open for its full predeclared `source.horizon_minutes`.
+
+Use `audit_frozen_intent_exposure(manifest, externally_preserved_manifest_sha256)` on the complete frozen manifest **before** interpreting a per-intent mean as an independently executable strategy return. The existing strict frozen-manifest validator runs first. The caller-supplied digest is a consistency check, not proof that the digest was independently recorded before outcomes. No market data is fetched or modified.
+
+Intervals are half-open `[signal_at + 60, signal_at + 60 + horizon_minutes*60)`. Expiry at the next entry instant is non-overlap. The audit reports all eligible intents, exact potential overlap-pair count, potential maximum simultaneous intents, affected-intent count, bounded adjacent-pair examples and declared pre-signal exclusions. It **never selects** a favourable nonoverlapping subset. An overlap flag means trade-level independence or capital utilization has not been established. An overlap-free result does not certify independent returns, source rights, realistic fills, holdout integrity, market liquidity, or profitability. Actual earlier stop/target exits may reduce concurrency, but those exits are future information unavailable at signal freeze.
+
+No production API, database, live feed, notification, paper broker, CFD endpoint or real-money execution is wired. Synthetic tests cover boundary equality, chains, multiple concurrent intents, digest mutation, exclusions and invalid manifests. Do not merge/deploy without exact-head frontend/backend/Docker/cloud CI and deployment rollback/health readiness.
