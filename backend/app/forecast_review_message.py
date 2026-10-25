@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 import math
 import re
 
-_LABEL = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:/-]{0,79}\\Z")
+_LABEL = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:/-]{0,79}\Z")
 _FEED = {"instrument", "provider", "venue", "sourceId", "priceSide", "seconds"}
 _MAX_EPOCH = 253402300799
 
