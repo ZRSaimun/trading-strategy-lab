@@ -76,3 +76,25 @@ Store JSON reports privately because they include source filenames.
 Local isolated tests cover fixed-offset parsing, malformed rows, quarantine, source isolation, no overwrite, paused/resumed imports, ASCII/MT parsing and paginated authenticated historical responses. Before production activation, perform PostgreSQL migration/recovery and authenticated browser acceptance tests against a **staging** database.
 
 This is not a live data source, a strategy profitability claim, or a completed historical backtesting engine.
+ 
+
+## Fail-closed research visibility for excluded rows
+
+An archive with **any rejected row**, or with zero accepted rows, is now marked
+`QUARANTINED` rather than `READY` when its resumable import finishes. The
+accepted candles and bounded rejection evidence remain in the isolated historical
+tables for manual inspection; nothing is deleted or repaired. Re-importing an
+identical quarantined archive reports its existing state without promoting it.
+A different corrected ZIP gets a new content-addressed dataset identity.
+
+The authenticated history listing and candle endpoints also hide **legacy**
+`READY` datasets whose metadata records rejected rows, zero accepted rows, or
+an inconsistent seen/accepted count. This is a protective read-time gate for
+existing databases; it does not rewrite old rows or claim that the remaining
+`READY` archives are licensed, authentic, session-complete or backtest-ready.
+The frontend may show fewer archives after this code is deployed. Independently
+audit previously imported data and retain backups before considering any merge.
+
+This does not implement source signatures, entitlement verification, session-aware
+gap classification, or production restore/rollback certification. Source archives
+with ambiguous repeated timestamps remain quarantined.
