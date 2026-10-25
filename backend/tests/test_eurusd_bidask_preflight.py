@@ -78,7 +78,6 @@ class PairedM1PreflightTests(unittest.TestCase):
         # Five causal, same-time synthetic closes: 1, 2, 3, 4 and 5 pips.
         # The ASK high is intentionally far above every close; OHLC high/low
         # spreads cannot be treated as simultaneous executable quotes.
-        bid = ''.join(BID.replace('00:00:00', f'00:0{i}:00') for i in range(5))
         ask = ''.join(
             ASK.replace('00:00:00', f'00:0{i}:00')
                .replace('1.20032', '1.20150')
