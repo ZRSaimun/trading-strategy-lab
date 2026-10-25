@@ -129,6 +129,7 @@ def test_long_gap_beyond_declared_stress_uses_worse_bid_and_floors_notional():
     assert r['gross_notional_cash'] == '200'
     assert 'ABC:position_loss_cap' in r['failed_checks']
     assert 'ABC:stop_not_breached' in r['failed_checks']
+    assert 'projected_daily_downside' in r['failed_checks']
     assert r['status'] == 'HOLD_RECONCILIATION'
     assert not r['may_execute_paper_order'] and not r['may_execute_real_order']
 
