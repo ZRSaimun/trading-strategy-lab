@@ -99,7 +99,9 @@ def observe_paper_stop(stop: PaperStop, quote: PaperQuote, policy: QuotePolicy, 
     for name, value in (("sequence", quote.sequence), ("max quote age", policy.max_quote_age_ms),
                         ("max transport lag", policy.max_transport_lag_ms)):
         _time(value, name)
-    if policy.max_quote_age_ms < 100 or policy.max_transport_lag_ms > 60_000:
+    # A caller-supplied policy must never silently accept minutes/hours-old quotes.
+    # The 60-second ceiling is a hard safety bound, not a broker freshness claim.
+    if not 100 <= policy.max_quote_age_ms <= 60_000 or policy.max_transport_lag_ms > 60_000:
         raise ValueError("Invalid quote timing policy")
     for name, value in (("observed time", quote.observed_at_ms), ("received time", quote.received_at_ms)):
         _time(value, name)
@@ -109,6 +111,13 @@ def observe_paper_stop(stop: PaperStop, quote: PaperQuote, policy: QuotePolicy, 
         _time(policy.previous_observed_at_ms, "previous observed time")
     if policy.previous_quote_id is not None:
         _id(policy.previous_quote_id, "previous quote ID")
+    # A partial checkpoint could let a caller silently drop replay evidence.
+    # Require all three prior fields, or none for the first observation.
+    checkpoint_present = (policy.previous_sequence is not None,
+                          policy.previous_observed_at_ms is not None,
+                          policy.previous_quote_id is not None)
+    if any(checkpoint_present) and not all(checkpoint_present):
+        raise ValueError("Incomplete previous quote checkpoint; reconcile before observing")
 
     with localcontext() as ctx:
         ctx.prec = 100
