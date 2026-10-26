@@ -7,7 +7,7 @@
  */
 import type {Bar} from './research.ts';
 
-export const HOURLY_FVG_VERSION='hourly-fvg-first-midpoint-touch-v20';
+export const HOURLY_FVG_VERSION='hourly-fvg-first-midpoint-touch-v21';
 export type Evidence='PASS'|'FAIL'|'INSUFFICIENT_DATA';
 export type Side='BULLISH'|'BEARISH';
 export type FvgSource={
@@ -215,7 +215,12 @@ export function studyHourlyFvgMidpoint(
  // Array.from materializes holes as undefined (which fails validation) and
  // prevents a second read from silently changing reported net markouts.
  const suppliedCosts=config.hypotheticalRoundTripCostsBps??[0,5,15];
- const costs=Array.isArray(suppliedCosts)?Array.from(suppliedCosts):suppliedCosts;
+ // Reject oversized arrays BEFORE Array.from: copying an untrusted array
+ // with a huge declared length can exhaust memory before the later settings
+ // validation runs. No scenario elements are read on this rejection path.
+ if(!Array.isArray(suppliedCosts)||suppliedCosts.length<1||suppliedCosts.length>10)
+  throw Error('Invalid source identity, volume provenance or frozen FVG study settings');
+ const costs=Array.from(suppliedCosts);
  // Snapshot the seven allowlisted source fields exactly once. A mutable or
  // accessor-backed declaration must not pass validation as one identity,
  // qualify volume under another, then export a third identity.
