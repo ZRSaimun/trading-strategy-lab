@@ -8,6 +8,7 @@ import pytest
 from app.frozen_bracket_population import fingerprint_population_manifest
 from app.frozen_capacity_drawdown import (_maximum_drawdown,
                                           _maximum_drawdown_with_window,
+                                          _first_pseudo_recovery_event,
                                           audit_frozen_capacity_drawdown)
 from test_frozen_capacity_week_fragility import CUTOFF, sample, move
 
@@ -50,6 +51,12 @@ def test_exhaustive_drawdown_windows_match_independent_quadratic_oracle():
                     expected = (loss, peak, trough)
         assert _maximum_drawdown_with_window(increments) == expected
         assert _maximum_drawdown(increments) == expected[0]
+        recovery = next(
+            (event for event in range(expected[2] + 1, len(equity))
+             if equity[event] >= equity[expected[1]]),
+            None,
+        ) if expected[0] > 0 else None
+        assert _first_pseudo_recovery_event(increments, *expected[1:], expected[0]) == recovery
 
 
 def test_holdout_drawdown_window_counts_booked_events_not_broker_fills():
@@ -61,6 +68,29 @@ def test_holdout_drawdown_window_counts_booked_events_not_broker_fills():
     assert scenario["training_pseudo_settlement_maximum_max_drawdown_peak_event"] == 0
     assert scenario["training_pseudo_settlement_maximum_max_drawdown_trough_event"] == 0
 
+
+
+def test_pseudo_recovery_event_is_not_actual_fill_time():
+    assert _first_pseudo_recovery_event(
+        [Decimal("2"), Decimal("-3"), Decimal("3")], 1, 2, Decimal("3")
+    ) == 3
+    assert _first_pseudo_recovery_event(
+        [Decimal("2"), Decimal("-3"), Decimal("1")], 1, 2, Decimal("3")
+    ) is None
+    assert _first_pseudo_recovery_event(
+        [Decimal("1"), Decimal("2")], 0, 0, Decimal(0)
+    ) is None
+    with pytest.raises(ValueError, match="window"):
+        _first_pseudo_recovery_event([Decimal("-1")], 1, 0, Decimal("1"))
+
+
+def test_report_recovery_is_explicitly_null_when_never_recovered():
+    manifest, paths = sample()
+    report = run(manifest, paths)
+    scenario = report["cost_scenarios"][0]
+    assert scenario["holdout_pseudo_settlement_maximum_max_drawdown_recovery_event"] is None
+    assert scenario["holdout_pseudo_settlement_minimum_max_drawdown_recovery_event"] is None
+    assert scenario["training_pseudo_settlement_maximum_max_drawdown_recovery_event"] is None
 
 
 def test_complete_frozen_cohorts_and_losses():
