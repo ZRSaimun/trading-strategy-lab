@@ -20,7 +20,17 @@ One JSON line is produced per archive. Keep the original ZIPs, member data and a
 6. Use a fixed chronological **70/30** bar-index split with **16-bar embargo** around the boundary. This is *exploratory later-period comparison*, **not** an independently sealed untouched holdout. No tuning, threshold search, candidate optimization or retrospective outcome-based filtering.
 7. Apply additional round-trip **0/5/10/20 basis-point** notional-price deductions to the same frozen hypothetical fills, expressed in units of original stop distance (R). This is **not** measured spread, slippage, commissions, financing, CFD margin, cashflow, bid/ask executable fills or actual position sizing.
 
-The change from protocol `source-local-sweep-confirmation-v1` to **v2** changes the stop-gap return model; all historical return summaries from v1, and summaries from before the censored-position reservation correction, are **stale** and must not be presented as v2 backtests. No private archives were rerun by this code change.\n\nOutput contains per-period opportunity count, censored count, arithmetic mean net R and strictly-positive net-return count for each illustrative cost scenario. Censored opportunities are not silently included in performance statistics; they are explicitly counted. Sparse or biased censoring may still distort the reported sample. There are no probabilities, confidence intervals or validated signals.
+The change from protocol `source-local-sweep-confirmation-v1` to **v2** changes the stop-gap return model; all historical return summaries from v1, and summaries from before the censored-position reservation correction, are **stale** and must not be presented as v2 backtests. No private archives were rerun by this code change.
+
+Output contains per-period opportunity count, censored count, arithmetic mean net R and strictly-positive net-return count for each illustrative cost scenario. Censored opportunities are not silently included in performance statistics; they are explicitly counted. Sparse or biased censoring may still distort the reported sample. There are no probabilities, confidence intervals or validated signals.
+
+### Frozen-cohort additional-cost break-even (descriptive only)
+
+For each cohort of **uncensored** hypothetical trades, the report now also exposes `uncensored_mean_gross_r`, `mean_r_cost_per_additional_bps`, and `positive_mean_break_even_additional_bps`. With entry price `p_i`, stop distance `d_i > 0`, and gross hypothetical outcome `R_i`, the same frozen trades obey
+
+`mean_net_R(b) = sum(R_i)/N - b * sum(abs(p_i)/d_i)/(10000*N)`
+
+for an additional round-trip cost `b` in basis points. When `sum(R_i) > 0`, the positive-mean zero crossing is `10000 * sum(R_i) / sum(abs(p_i)/d_i)` bps; otherwise the field is `null`, as it is for an empty cohort. The calculation uses Decimal arithmetic and does **not** choose or filter trades, alter exits, or establish an executable cost allowance. In particular, censored trades are omitted, the source is not authenticated, the later cohort is already inspected, and the cost model excludes measured bid/ask spread, slippage, financing and other broker liabilities. Do not treat a positive threshold as a profitable strategy or an order authorization.
 
 ## Safety and interpretation
 
