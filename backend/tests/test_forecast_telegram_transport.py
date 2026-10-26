@@ -40,9 +40,10 @@ class FakeOpener:
         return self.reply
 
 
-def accepted(chat=CHAT, mid=55):
+def accepted(chat=CHAT, mid=55, text="Forecast review only"):
     return json.dumps({"ok": True, "result": {"message_id": mid,
-                                              "chat": {"id": int(chat)}}}).encode()
+                                              "chat": {"id": int(chat)},
+                                              "text": text}}).encode()
 
 
 def test_acceptance_is_not_delivery():
@@ -159,8 +160,36 @@ def test_unicode_spoofing_or_malformed_text_rejected_before_network(unsafe):
     "Review 🔎",
 ])
 def test_normal_unicode_review_text_is_allowed(safe):
-    fake = FakeOpener(Reply(accepted()))
+    fake = FakeOpener(Reply(accepted(text=safe)))
     result = send_telegram_once(bot_token=TOKEN, chat_id=CHAT, text=safe, opener=fake)
     assert result["providerAccepted"] is True
     assert result["deliveryVerified"] is False
+    assert len(fake.calls) == 1
+
+
+@pytest.mark.parametrize("echo", [
+    None,  # missing message text
+    17,  # wrong type
+    "another forecast",
+    "Forecast review only ",  # even trailing whitespace must match
+    "Forecast review only\\n",  # no canonicalization of the provider echo
+])
+def test_provider_acceptance_requires_exact_sent_text_echo(echo):
+    # A valid chat ID and message ID alone cannot correlate an ACK to this send.
+    result = {"message_id": 55, "chat": {"id": int(CHAT)}}
+    if echo is not None:
+        result["text"] = echo
+    fake = FakeOpener(Reply(json.dumps({"ok": True, "result": result}).encode()))
+    with pytest.raises(DeliveryUncertain, match="manual reconciliation"):
+        send_telegram_once(bot_token=TOKEN, chat_id=CHAT,
+                           text="Forecast review only", opener=fake)
+    assert len(fake.calls) == 1
+
+
+def test_unicode_echo_must_match_exact_codepoints():
+    sent = "Révision sans exécution"
+    # Visually similar NFD reply is not proof the exact request was accepted.
+    fake = FakeOpener(Reply(accepted(text="Re\\u0301vision sans exe\\u0301cution")))
+    with pytest.raises(DeliveryUncertain):
+        send_telegram_once(bot_token=TOKEN, chat_id=CHAT, text=sent, opener=fake)
     assert len(fake.calls) == 1
