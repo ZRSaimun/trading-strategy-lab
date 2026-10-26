@@ -175,6 +175,52 @@ test('bearish midpoint rejection uses upper wick and directional next-open marko
  assert.equal(x.gates.verifiedVolume,'PASS');
  assert.ok((x.confirmedNextOpen?.grossBps??0)>0);
 });
+
+test('large finite FVG endpoints yield a finite interior midpoint',()=>{
+ const bars=fixture();
+ bars[30]=candle(30,1.2e308,1.3e308,1.1e308,1.2e308);
+ bars[31]=candle(31,1.3e308,1.4e308,1.2e308,1.3e308);
+ bars[32]=candle(32,1.6e308,1.7e308,1.5e308,1.6e308);
+ const x=target(bars);
+ assert.equal(x.direction,'BULLISH');
+ assert.ok(Number.isFinite(x.midpoint));
+ assert.ok(x.midpoint>x.gapLow&&x.midpoint<x.gapHigh);
+});
+
+test('unrepresentable midpoint rejects the window instead of rounding to a boundary',()=>{
+ const bars=fixture();
+ bars[30]=candle(30,1,1.0000000000000002,0.9,1);
+ bars[31]=candle(31,1.0000000000000002,1.0000000000000004,1,1.0000000000000002);
+ bars[32]=candle(32,1.0000000000000007,1.0000000000000009,
+  1.0000000000000004,1.0000000000000007);
+ assert.throws(()=>studyHourlyFvgMidpoint(bars,source),/midpoint cannot be represented/);
+});
+
+test('nonfinite gross markouts are insufficient in bullish and bearish studies',()=>{
+ for(const bearish of [false,true]){
+  const bars=bearish?fixture().map(b=>({...b,open:220-b.open,high:220-b.low,
+   low:220-b.high,close:220-b.close})):fixture();
+  bars[36]=candle(36,1e308,1.1e308,9e307,1e308);
+  const x=target(bars);
+  assert.equal(x.gates.midpointTouch,'PASS');
+  assert.equal(x.gates.wickRejection,'PASS');
+  assert.equal(x.gates.markout,'INSUFFICIENT_DATA');
+  assert.equal(x.blindMidpointTouch,null);
+  assert.equal(x.confirmedNextOpen,null);
+ }
+});
+
+test('an overflowing next-open comparator suppresses both matched markouts',()=>{
+ const bars=fixture();
+ // Blind midpoint return stays finite; next-open return cannot be
+ // represented in basis points and must not be cherry-picked away.
+ bars[34]=candle(34,1e-308,107,1e-308,106);
+ const x=target(bars);
+ assert.equal(x.gates.wickRejection,'PASS');
+ assert.equal(x.gates.markout,'INSUFFICIENT_DATA');
+ assert.equal(x.blindMidpointTouch,null);
+ assert.equal(x.confirmedNextOpen,null);
+});
 test('invalid source, incomplete candles and unsafe settings fail closed',()=>{
  assert.throws(()=>studyHourlyFvgMidpoint(fixture(),{...source,archiveSha256:'wrong'}),/Invalid source/);
  const bad=fixture();bad[20].observed_minutes=59;

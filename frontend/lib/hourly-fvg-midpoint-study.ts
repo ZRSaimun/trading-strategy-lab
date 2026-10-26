@@ -66,13 +66,16 @@ function verifiedVolume(bars:readonly Bar[],j:number,source:FvgSource,multiple:n
  return mean>0&&now.volume>multiple*mean?'PASS':'FAIL';
 }
 function markout(entryAt:number,entry:number,exitAt:number,exit:number,
- direction:Side,costs:readonly number[]):Markout{
+ direction:Side,costs:readonly number[]):Markout|null{
  const sign=direction==='BULLISH'?1:-1;
  const grossBps=sign*(exit-entry)/entry*10000;
+ // Finite source OHLC can still overflow a bps ratio. Infinity is not a
+ // measured return and must never enter a research report.
+ if(!Number.isFinite(grossBps))return null;
+ const netBpsByCost=costs.map(costBps=>({costBps,netBps:grossBps-costBps}));
+ if(netBpsByCost.some(x=>!Number.isFinite(x.netBps)))return null;
  return {entryObservedAt:entryAt,entryPrice:entry,exitObservedAt:exitAt,
-  exitPrice:exit,grossBps,netBpsByCost:costs.map(costBps=>({
-   costBps,netBps:grossBps-costBps,
-  }))};
+  exitPrice:exit,grossBps,netBpsByCost};
 }
 export function studyHourlyFvgMidpoint(
  bars:readonly Bar[],source:FvgSource,config:FvgConfig={},
@@ -105,7 +108,11 @@ export function studyHourlyFvgMidpoint(
   const direction:Side=bull?'BULLISH':'BEARISH';
   const gapLow=bull?first.high:third.high;
   const gapHigh=bull?third.low:first.low;
-  const midpoint=(gapLow+gapHigh)/2;
+  // Summing two large finite endpoints can overflow before division.
+  // An unrepresentable midpoint must not be rounded to either gap edge.
+  const midpoint=gapLow/2+gapHigh/2;
+  if(!Number.isFinite(midpoint)||midpoint<=gapLow||midpoint>=gapHigh)
+   throw Error('FVG midpoint cannot be represented strictly inside the gap');
   const gates:FvgObservation['gates']={
    midpointTouch:'INSUFFICIENT_DATA',wickRejection:'INSUFFICIENT_DATA',
    verifiedVolume:'INSUFFICIENT_DATA',strictCandidate:'INSUFFICIENT_DATA',
@@ -164,12 +171,16 @@ export function studyHourlyFvgMidpoint(
     // OHLC can establish a midpoint intersection only when the touch bar
     // closes. Its open timestamp is NOT an observed intrabar fill time.
     // The hypothetical limit price remains unchanged; no fill is certified.
-    blind=markout(b.time+HOUR,midpoint,exitAt,exit.close,direction,costs);
-    if(gates.wickRejection==='PASS'){
-     const next=bars[j+1];
-     confirmed=markout(next.time,next.open,exitAt,exit.close,direction,costs);
+    const blindCandidate=markout(b.time+HOUR,midpoint,exitAt,exit.close,direction,costs);
+    const confirmedCandidate=gates.wickRejection==='PASS'?
+     markout(bars[j+1].time,bars[j+1].open,exitAt,exit.close,direction,costs):null;
+    // Preserve the matched comparison cohort. If either required return
+    // overflows, do not report the other as a selectively retained outcome.
+    if(blindCandidate&&(gates.wickRejection!=='PASS'||confirmedCandidate)){
+     blind=blindCandidate;
+     confirmed=confirmedCandidate;
+     gates.markout='PASS';
     }
-    gates.markout='PASS';
    }
    break; // FIRST midpoint touch only
   }
