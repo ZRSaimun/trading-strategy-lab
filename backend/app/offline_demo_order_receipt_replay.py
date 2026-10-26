@@ -10,8 +10,8 @@ import json
 import re
 
 _PROTOCOL = "offline-demo-order-receipt-replay-v1"
-_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,119}\\Z")
-_SHA = re.compile(r"[0-9a-f]{64}\\Z")
+_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,119}\Z")
+_SHA = re.compile(r"[0-9a-f]{64}\Z")
 _ZERO = "0" * 64
 _MAX_MS = 100_000_000_000_000
 _MAX_EVENTS = 2_000
