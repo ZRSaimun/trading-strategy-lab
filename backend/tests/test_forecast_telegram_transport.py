@@ -125,7 +125,7 @@ def test_json_decoder_recursion_failure_is_uncertain(monkeypatch):
 
 @pytest.mark.parametrize("reply", [
     object(),  # malformed response context manager
-    Reply(b"invalid utf8\\xff"),  # malformed HTTP response body
+    Reply(b"invalid utf8\xff"),  # malformed HTTP response body
 ])
 def test_malformed_response_object_is_uncertain(reply):
     fake = FakeOpener(reply=reply)
