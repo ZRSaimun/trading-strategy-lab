@@ -34,7 +34,8 @@ def fetch_trading212_readonly(
     A test-only injected transport can mock responses. Production uses httpx's
     default certificate validation, fixed HTTPS origins and no redirects/proxies.
     """
-    if endpoint not in _PATHS or environment not in _HOSTS:
+    if (not isinstance(endpoint, str) or endpoint not in _PATHS
+            or not isinstance(environment, str) or environment not in _HOSTS):
         raise ReadOnlyBrokerError("Unsupported read-only endpoint or environment")
     if account_type not in ("INVEST", "STOCKS_ISA"):
         raise ReadOnlyBrokerError("Only declared Invest/Stocks ISA accounts are eligible")
@@ -54,7 +55,8 @@ def fetch_trading212_readonly(
                 if response.headers.get("content-type", "").split(";", 1)[0].strip().lower() != "application/json":
                     raise ReadOnlyBrokerError("Unexpected broker response content type")
                 size = response.headers.get("content-length")
-                if size is not None and (not size.isdecimal() or int(size) > _MAX_RESPONSE_BYTES):
+                if size is not None and (not size.isascii() or not size.isdecimal()
+                                         or len(size) > 8 or int(size) > _MAX_RESPONSE_BYTES):
                     raise ReadOnlyBrokerError("Broker response exceeds size limit")
                 chunks, total = [], 0
                 for chunk in response.iter_bytes():
