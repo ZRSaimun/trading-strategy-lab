@@ -5,6 +5,7 @@ separately authenticated feed check and a durable one-time outbox claim. A
 provider acceptance is NOT a device delivery receipt. Never retry uncertain
 outcomes automatically. No orders or broker API calls exist in this module.
 """
+from http.client import HTTPException
 import json
 import re
 import urllib.error
@@ -77,6 +78,9 @@ def send_telegram_once(*, bot_token, chat_id, text, timeout=5, opener=None):
                 "deliveryVerified": False, "messageId": data["result"]["message_id"],
                 "recipientId": chat_id, "retryPermitted": False,
                 "mayExecutePaperOrder": False, "mayExecuteLiveOrder": False}
-    except (urllib.error.URLError, OSError, UnicodeError, ValueError, KeyError,
-            TypeError, OverflowError) as exc:
+    except (urllib.error.URLError, OSError, HTTPException, UnicodeError,
+            ValueError, KeyError, TypeError, OverflowError, RecursionError,
+            AttributeError):
+        # Even a locally malformed HTTP response or a deeply nested JSON body
+        # may arrive *after* Telegram accepted the send. Never retry blindly.
         raise DeliveryUncertain("Telegram delivery outcome uncertain; manual reconciliation required") from None
