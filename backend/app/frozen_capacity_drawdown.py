@@ -136,6 +136,37 @@ def _strict_sign_count_envelope(lower, upper):
 
 
 
+def _zero_cost_winner_erosion(zero_lower, zero_upper, cost_lower, cost_upper):
+    """Paired cost sensitivity for baseline-guaranteed positive pseudo-paths.
+
+    Preserve frozen path identities across scenarios; never use the outcome
+    to change admission. These are interval counts, not win probabilities.
+    """
+    if not (len(zero_lower) == len(zero_upper) == len(cost_lower) == len(cost_upper)):
+        raise ValueError("Mismatched paired cost population")
+    baseline = certain_lost = possible_lost = certain_survive = 0
+    for first_lo, first_hi, later_lo, later_hi in zip(
+            zero_lower, zero_upper, cost_lower, cost_upper):
+        if (first_lo > first_hi or later_lo > later_hi
+                or later_lo > first_lo or later_hi > first_hi):
+            raise ValueError("Invalid paired cost interval or nonmonotone erosion")
+        if first_lo > 0:
+            baseline += 1
+            certain_lost += later_hi <= 0
+            possible_lost += later_lo <= 0
+            certain_survive += later_lo > 0
+    if not (0 <= certain_lost <= possible_lost <= baseline
+            and possible_lost + certain_survive == baseline):
+        raise ValueError("Inconsistent paired winner erosion census")
+    return dict(
+        evaluated_paths=len(zero_lower),
+        zero_cost_guaranteed_strict_positive=baseline,
+        guaranteed_no_longer_strict_positive=certain_lost,
+        possible_no_longer_strict_positive=possible_lost,
+        still_guaranteed_strict_positive=certain_survive,
+    )
+
+
 def _validated_cost_trajectory(costs, *, frozen_entry=None, frozen_stop=None,
                                lower_gross_r=None, upper_gross_r=None):
     """Verify each frozen path's exact illustrative cost erosion.
@@ -404,6 +435,9 @@ def audit_frozen_capacity_drawdown(
                 report[f"{label}_pseudo_settlement_maximum_longest_strict_negative_path_streak"] = max_streak
                 report[f"{label}_pseudo_settlement_strict_sign_census"] = (
                     _strict_sign_count_envelope(lo, hi))
+                zero_lo, zero_hi = _bounds_for_population(admitted[cohort], 0, 0)
+                report[f"{label}_pseudo_settlement_admitted_zero_cost_winner_erosion"] = (
+                    _zero_cost_winner_erosion(zero_lo, zero_hi, lo, hi))
                 report[f"{label}_pseudo_settlement_worst_quartile_net_r"] = (
                     _worst_quartile_mean_envelope(lo, hi))
                 # Capacity-rejected signals remain in the frozen opportunity set.
@@ -415,6 +449,11 @@ def audit_frozen_capacity_drawdown(
                 if skipped_signs["unadmitted_paths"] != counts[f"{label}_unadmitted"]:
                     raise ValueError("Capacity-rejected outcome census disagrees")
                 report[f"{label}_pseudo_settlement_unadmitted_strict_sign_census"] = skipped_signs
+                skipped_zero_lo, skipped_zero_hi = _bounds_for_population(
+                    unadmitted[cohort], 0, 0)
+                report[f"{label}_pseudo_settlement_unadmitted_zero_cost_winner_erosion"] = (
+                    _zero_cost_winner_erosion(
+                        skipped_zero_lo, skipped_zero_hi, skipped_lo, skipped_hi))
                 report[f"{label}_pseudo_settlement_final_lower_pct_initial"] = str(sum(lo) * factor)
                 report[f"{label}_pseudo_settlement_final_upper_pct_initial"] = str(sum(hi) * factor)
             # Increasing *additional* round-trip costs cannot create strict
@@ -429,6 +468,18 @@ def audit_frozen_capacity_drawdown(
                         if (_decimal(report[tail_key][bound])
                                 > _decimal(previous[tail_key][bound])):
                             raise ValueError("Nonmonotone downside tail cost envelope")
+                    for population in ("admitted", "unadmitted"):
+                        erosion_key = f"{label}_pseudo_settlement_{population}_zero_cost_winner_erosion"
+                        old_erosion, new_erosion = previous[erosion_key], report[erosion_key]
+                        if (new_erosion["zero_cost_guaranteed_strict_positive"]
+                                != old_erosion["zero_cost_guaranteed_strict_positive"]
+                                or new_erosion["guaranteed_no_longer_strict_positive"]
+                                < old_erosion["guaranteed_no_longer_strict_positive"]
+                                or new_erosion["possible_no_longer_strict_positive"]
+                                < old_erosion["possible_no_longer_strict_positive"]
+                                or new_erosion["still_guaranteed_strict_positive"]
+                                > old_erosion["still_guaranteed_strict_positive"]):
+                            raise ValueError("Nonmonotone paired winner erosion")
                     for population in ("strict_sign_census", "unadmitted_strict_sign_census"):
                         key_prefix = f"{label}_pseudo_settlement_{population}"
                         old = previous[key_prefix]
