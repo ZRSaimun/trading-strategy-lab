@@ -4,12 +4,39 @@ This is deliberately a *narrow text-policy check*, not a YAML parser, Render
 schema validation, service-state attestation, backup drill or deployment gate.
 Unknown service layouts should be reviewed rather than silently accepted.
 """
+from collections import Counter
 from pathlib import Path
 import re
 import sys
 
 ROOT = Path(__file__).resolve().parents[1]
 BLUEPRINT = ROOT / "render.yaml"
+# Explicit source allowlist: changing infrastructure requires conscious review
+# of this policy, not merely adding a YAML key that bypasses a regex.
+_EXPECTED_LINES = """services:
+  - type: web
+    name: trading-strategy-lab-private
+    runtime: docker
+    plan: free
+    dockerfilePath: ./deploy/free.Dockerfile
+    dockerContext: .
+    autoDeployTrigger: 'off'
+    healthCheckPath: /api/health
+    envVars:
+      - key: DEPLOYMENT_PROFILE
+        value: free-cloud
+      - key: FREE_ONLY
+        value: "true"
+      - key: TWELVEDATA_ENABLED
+        value: "false"
+      - key: DATABASE_SCHEMA
+        value: tsl_private
+      - key: DATABASE_URL
+        sync: false
+      - key: DATABASE_CA_PEM
+        sync: false
+      - key: OWNER_PASSWORD_HASH
+        sync: false""".splitlines()
 
 
 def check_blueprint(text: str) -> list[str]:
@@ -19,6 +46,10 @@ def check_blueprint(text: str) -> list[str]:
         return ["BLUEPRINT_SIZE_OR_TYPE"]
     if "\t" in text or "\r" in text:
         errors.append("NONCANONICAL_WHITESPACE")
+    lines = [line for line in text.splitlines()
+             if line.strip() and not line.lstrip().startswith("#")]
+    if Counter(lines) != Counter(_EXPECTED_LINES):
+        errors.append("UNREVIEWED_BLUEPRINT_STRUCTURE")
 
     def require_one(pattern: str, label: str) -> None:
         if len(re.findall(pattern, text, flags=re.MULTILINE)) != 1:
