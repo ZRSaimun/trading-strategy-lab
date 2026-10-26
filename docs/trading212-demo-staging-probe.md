@@ -28,6 +28,17 @@ Stocks ISA**, not **CFD** accounts. Metadata is not a price feed.
    SHA-256 of response bytes, SHA-256 of the request ID, item count and
    observed broker quota-header status. It deliberately omits instrument
    names, tickers, response JSON, account scope, keys and secrets.
+**Metadata schema gate (26 October 2026):** Before a nonempty DEMO response can
+be labeled `DEMO_METADATA_OBSERVED_UNVERIFIED`, the probe now validates
+documented instrument/exchange field shapes, rejects duplicate ticker/exchange
+identifiers, nonfinite/negative quantities, malformed currency/type/schedule
+references, malformed schedules, and oversized populations. Malformed data
+fails closed with a sanitized error; a request reservation is still consumed.
+Empty collections remain `REVIEW_REQUIRED`. These checks do **not** establish
+catalog completeness, cross-endpoint exchange linkage, actual account
+entitlement, data rights, exchange calendars, price freshness or executable
+bid/ask. No source or broker metadata is persisted or printed.
+
 5. Reconcile quota observations with the broker account using independently
    authorized evidence. A missing/partial/inconsistent header or empty
    collection yields `REVIEW_REQUIRED`. Even `DEMO_METADATA_OBSERVED_UNVERIFIED`
