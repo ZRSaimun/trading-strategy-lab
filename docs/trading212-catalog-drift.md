@@ -7,7 +7,8 @@ for **both** snapshots before comparing. No HTTP request, account login,
 market-data subscription, persistence, polling or order path is involved.
 
 The report counts additions/removals from the **declared accessible catalog**,
-changes to shared ticker metadata (type, currency, exchange/schedule ID, names,
+changes to shared ticker metadata (type, currency, separate exchange ID and
+nested working-schedule ID, names,
 extended-hours flag, maximum quantity), and any canonical catalog fingerprint
 change. A changed fingerprint with no changed ticker fields may indicate
 exchange name or schedule changes. Instrument list order alone does not cause
@@ -56,3 +57,18 @@ Offline tests:
 production activation. Authenticated owner-controlled staging, independent
 account and data-rights verification, durable private storage, backup restore,
 rollback and health checks remain necessary before merging or deploying.
+
+## Correct exchange versus working-schedule drift (26 October 2026)
+
+`workingScheduleId` identifies a `WorkingSchedule.id` nested under an
+exchange, not the exchange's own `id`. Drift now resolves the parent
+exchange for each instrument at **both** observation times, counts
+`working_schedule_id` and `exchange_id` changes separately, and marks
+shared tickers as changed when a schedule moves to another exchange even if
+its schedule ID remains unchanged. Previously the `exchange_id` counter
+incorrectly compared only working-schedule IDs and could miss a reparenting.
+The reconciler must validate both receipt pairs first; no session inference,
+broker rights, prices, spreads or live-trading status follows from this.
+Old field-count reports are not directly comparable with this corrected
+format. See the official schema:
+https://docs.trading212.com/_bundle/api.json?download= .

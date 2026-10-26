@@ -10,11 +10,18 @@ from app.trading212_instrument_catalog import (
 )
 
 
-def _metadata(items: list[dict]) -> dict[str, tuple]:
-    # The upstream catalog validator has already bounded and checked every row.
+def _metadata(items: list[dict], exchanges: list[dict]) -> dict[str, tuple]:
+    # The upstream catalog validator has checked all schedule references and
+    # uniqueness. Include BOTH nested schedule ID and its parent exchange ID:
+    # they are distinct in the official Trading 212 OpenAPI schema.
+    schedule_exchanges = {
+        schedule["id"]: exchange["id"]
+        for exchange in exchanges for schedule in exchange["workingSchedules"]
+    }
     return {
         item["ticker"]: (
             item["type"], item["currencyCode"], item["workingScheduleId"],
+            schedule_exchanges[item["workingScheduleId"]],
             item["name"], item["shortName"], item["extendedHours"],
             item["maxOpenQuantity"],
         )
@@ -60,8 +67,8 @@ def compare_trading212_catalogs(
     if current_start <= previous_end:
         raise InstrumentCatalogError("Catalog receipt windows overlap or reverse")
 
-    before = _metadata(previous_instruments["data"])
-    after = _metadata(current_instruments["data"])
+    before = _metadata(previous_instruments["data"], previous_exchanges["data"])
+    after = _metadata(current_instruments["data"], current_exchanges["data"])
     before_keys, after_keys = set(before), set(after)
     shared = before_keys & after_keys
     changed = {ticker for ticker in shared if before[ticker] != after[ticker]}
@@ -94,8 +101,8 @@ def compare_trading212_catalogs(
     # The catalog digest also includes exchange names and schedules. Thus a
     # digest change without per-ticker changes may be exchange-only drift.
     changed_fields = (
-        "type", "currency", "exchange_id", "name", "short_name",
-        "extended_hours", "max_open_quantity",
+        "type", "currency", "working_schedule_id", "exchange_id",
+        "name", "short_name", "extended_hours", "max_open_quantity",
     )
     field_changes = {
         field: sum(before[t][i] != after[t][i] for t in changed)

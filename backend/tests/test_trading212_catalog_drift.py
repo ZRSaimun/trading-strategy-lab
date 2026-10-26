@@ -151,3 +151,29 @@ def test_pair_is_not_mutated():
     before = deepcopy(pair)
     _compare(pair, requested_tickers=["AAPL_US_EQ"])
     assert pair == before
+
+def test_reparented_working_schedule_is_per_ticker_exchange_drift():
+    pair = _pair()
+    pair[3]["data"][0]["workingSchedules"] = []
+    pair[3]["data"].append({
+        "id": 9, "name": "Other Exchange",
+        "workingSchedules": [{"id": 7, "timeEvents": []}],
+    })
+    report = _compare(pair, requested_tickers=["AAPL_US_EQ"])
+    assert report["review"] == "REVIEW_REQUIRED"
+    assert report["changed_shared_instruments_count"] == 2
+    assert report["changed_field_counts"]["exchange_id"] == 2
+    assert report["changed_field_counts"]["working_schedule_id"] == 0
+    assert report["requested"][0]["change"] == "DECLARED_METADATA_CHANGED"
+    assert report["requested"][0]["previous"]["exchange_id"] == 3
+    assert report["requested"][0]["current"]["exchange_id"] == 9
+
+
+def test_schedule_id_changed_without_exchange_change_is_distinct_field():
+    pair = _pair()
+    pair[3]["data"][0]["workingSchedules"] = [{"id": 8, "timeEvents": []}]
+    for item in pair[2]["data"]:
+        item["workingScheduleId"] = 8
+    report = _compare(pair)
+    assert report["changed_field_counts"]["working_schedule_id"] == 2
+    assert report["changed_field_counts"]["exchange_id"] == 0
