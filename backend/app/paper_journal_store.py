@@ -171,6 +171,22 @@ class PaperJournalStore:
                         raise ValueError("Stored paper journal source identity mismatch")
                     if old["revision"] != expected_revision:
                         return False
+                    # Enforce history continuity against the SERVER-LOADED
+                    # checkpoint before the compare-and-swap. The preflight is
+                    # diagnostic on its own, but here its fail-closed checks
+                    # are anchored to the database row and protected by the
+                    # full-value CAS below. It is NOT deterministic replay.
+                    from .paper_journal_continuity_preflight import review_paper_journal_continuity
+                    continuity = review_paper_journal_continuity(
+                        old["json"], checkpoint_json,
+                        expected_revision=expected_revision,
+                        next_revision=next_revision,
+                    )
+                    if not continuity["assumption_checks_pass"]:
+                        raise ValueError(
+                            "Paper journal history continuity violation; "
+                            "manual reconciliation required"
+                        )
                     # Atomic predicate rechecks the entire previously read value.
                     # In PostgreSQL READ COMMITTED a competing UPDATE must either
                     # win first or cause rowcount=0, never a silent lost update.
