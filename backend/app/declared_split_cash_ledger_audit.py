@@ -95,7 +95,7 @@ def _freeze(manifest, fx_policy, fx_sha, rounding_sha, cutoff, policy):
             raise ValueError("Invalid ledger-kind census row")
         pid, kind, count = row["position_id"], row["kind"], row["count"]
         key = (pid, kind)
-        if pid not in anchors or kind not in _KINDS or key in counts:
+        if not _id(pid) or pid not in anchors or kind not in _KINDS or key in counts:
             raise ValueError("Extra or repeated ledger-kind census")
         if type(count) is not int or not 0 <= count <= 32:
             raise ValueError("Invalid bounded ledger-kind count")
@@ -212,7 +212,7 @@ def audit_declared_split_cash_ledger(
             if type(event) is not dict or set(event) != _EVENT:
                 raise ValueError("Invalid split-ledger event schema")
             pid, kind, eid = event["position_id"], event["kind"], event["event_id"]
-            if pid not in anchors or kind not in _KINDS or not _id(eid) or eid in event_ids:
+            if not _id(pid) or pid not in anchors or kind not in _KINDS or not _id(eid) or eid in event_ids:
                 raise ValueError("Unknown ledger scope or duplicate event ID")
             event_ids.add(eid)
             if (
