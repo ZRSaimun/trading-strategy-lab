@@ -33,7 +33,9 @@ def audit_temporal_forecast_calibration(snapshot, *, min_per_window=30,
     early climatology uses only resolved outcomes available BEFORE the first
     late issuance; the late cohort is never used to fit that baseline. Adjacent
     and overlapping forecast outcomes are conservatively thinned. Incomplete
-    cohorts withhold scores. Thresholds are heuristics, not hypothesis tests.
+    cohorts withhold scores. Early settled labels unavailable at the split
+    boundary count toward the early selection-risk fraction, not just pending
+    or void labels. Thresholds are heuristics, not hypothesis tests.
     """
     if type(min_per_window) is not int or not 30 <= min_per_window <= 1000:
         raise ValueError("Invalid independent sample minimum")
@@ -78,7 +80,12 @@ def audit_temporal_forecast_calibration(snapshot, *, min_per_window=30,
         test_eligible = [r for r in late if r["status"] == "SETTLED"]
         train = _nonoverlapping(train_eligible)
         test = _nonoverlapping(test_eligible)
-        early_rate = early_unresolved / len(early) if early else 1.0
+        # A SETTLED outcome learned only after the late cohort begins is
+        # unavailable to the frozen baseline. Count it as boundary missingness
+        # even though the retrospective journal eventually contains a label.
+        early_purged = sum(r["status"] == "SETTLED" for r in early) - len(train_eligible)
+        early_unavailable = early_unresolved + early_purged
+        early_rate = early_unavailable / len(early) if early else 1.0
         late_rate = late_unresolved / len(late) if late else 1.0
         sufficient = len(train) >= min_per_window and len(test) >= min_per_window
         complete_enough = (early_rate <= max_unresolved_fraction
@@ -88,7 +95,10 @@ def audit_temporal_forecast_calibration(snapshot, *, min_per_window=30,
             "issued": len(rows), "earlyIssued": len(early), "lateIssued": len(late),
             "earlyUnresolvedOrVoid": early_unresolved,
             "lateUnresolvedOrVoid": late_unresolved,
-            "earlyPurgedForChronology": sum(r["status"] == "SETTLED" for r in early) - len(train_eligible),
+            "earlyPurgedForChronology": early_purged,
+            "earlyUnavailableAtBoundary": early_unavailable,
+            "earlyUnavailableAtBoundaryFraction": early_rate,
+            "lateUnresolvedOrVoidFraction": late_rate,
             "earlyNonoverlappingSettled": len(train),
             "lateNonoverlappingSettled": len(test),
             "earlyBrier": None, "lateBrier": None, "lateBrierDelta": None,
