@@ -182,7 +182,7 @@ def test_simultaneous_duplicate_registration_only_one_wins(store):
 @pytest.mark.parametrize("corruption", [
     " " * 16_385,  # Valid whitespace alone must fail before JSON parsing.
     '{"state":' + (" " * 16_385) + '{},"sha256":"x"}',
-    "\\ud800" * 6000,  # UTF-8 cannot encode lone surrogate code points.
+    "\\ud800" * 6000,  # Oversized escaped-surrogate sequences must also be rejected.
 ])
 def test_oversized_stored_intent_fails_closed_without_extra_audit(store, corruption):
     reg, factory = store
