@@ -181,3 +181,59 @@ def test_new_policy_checks_preserve_existing_position_loss_calculation():
     assert baseline['checks']['declared_daily_budget_at_most_10pct_equity']
     assert baseline['checks']['declared_leverage_policy_at_most_5x']
     assert baseline['checks']['declared_spread_policy_at_most_100bps']
+
+
+# Regression cases carried forward from PR #79; preserve both safety layers.
+@pytest.mark.parametrize('bid,ask', [
+    ('99', '99.02'),
+    ('98.5', '98.52'),
+])
+def test_current_executable_bid_breaches_buy_stop(bid, ask):
+    p = packet(quote_bid=bid, quote_ask=ask)
+    assert 'protective_stop_not_breached' in p['failed_checks']
+    assert not p['assumption_checks_pass']
+    assert not p['may_execute_paper_order'] and not p['may_execute_real_order']
+
+
+def test_buy_gap_worse_than_stress_exit_is_charged_at_bid():
+    p = packet(quote_bid='90', quote_ask='90.02')
+    assert p['stressed_loss_cash'] == '20.54'
+    assert 'per_position_loss_cap' in p['failed_checks']
+    assert 'protective_stop_not_breached' in p['failed_checks']
+    assert p['projected_daily_pnl_cash'] == '-24.54'
+
+
+def test_sell_gap_worse_than_stress_exit_is_charged_at_ask():
+    p = packet(direction='SELL', entry_price='100', stop_price='101',
+               stressed_exit_price='102', quote_bid='105', quote_ask='105.02')
+    assert p['stressed_loss_cash'] == '10.54'
+    assert 'protective_stop_not_breached' in p['failed_checks']
+    assert 'per_position_loss_cap' in p['failed_checks']
+    assert not p['may_execute_real_order']
+
+
+def test_stressed_margin_can_fail_even_when_current_margin_passes():
+    p = packet(existing_reserved_margin_cash='799')
+    assert p['checks']['portfolio_margin_within_equity']
+    assert not p['checks']['stressed_portfolio_margin_within_equity']
+    assert not p['may_execute_paper_order']
+
+
+def test_stressed_leverage_can_fail_even_when_current_leverage_passes():
+    p = packet(existing_gross_notional_cash='799')
+    assert p['checks']['portfolio_leverage_within_cap']
+    assert not p['checks']['stressed_portfolio_leverage_within_cap']
+    assert not p['may_execute_real_order']
+
+
+def test_conservative_ceilings_and_stop_breach_are_both_enforced():
+    p = packet(quote_bid='90', quote_ask='90.02', max_position_loss_cash='51',
+               max_daily_loss_cash='101', max_gross_leverage='5.00000001',
+               max_spread_bps='100.00000001')
+    for check in ('protective_stop_not_breached',
+                  'declared_position_budget_at_most_5pct_equity',
+                  'declared_daily_budget_at_most_10pct_equity',
+                  'declared_leverage_policy_at_most_5x',
+                  'declared_spread_policy_at_most_100bps'):
+        assert check in p['failed_checks']
+    assert p['may_execute_real_order'] is False
