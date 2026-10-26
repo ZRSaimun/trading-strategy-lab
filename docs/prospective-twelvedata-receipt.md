@@ -56,3 +56,21 @@ Official API reference: https://twelvedata.com/docs (`/time_series`, `1min`,
 `timezone=UTC`, per-symbol credit cost). Trading 212's official API is
 Invest/Stocks ISA only, not a CFD market-data substitute:
 https://docs.trading212.com/api.
+
+
+## Provider response-body provenance (26 October 2026)
+
+The optional one-shot bridge now asks the existing bounded HTTPS client for a
+SHA-256 of the **HTTP-client-decoded response body**, its decoded byte count,
+and a separate SHA-256 of the normalized snapshot. It rejects missing,
+malformed, oversized or snapshot-mismatched evidence. The historical client's
+default two-value return remains unchanged; this evidence is opt-in and does
+not enable any network request on its own. No response body or key is included
+in the report. The raw-body digest and normalized-snapshot digest are **not
+interchangeable**: the latter discards original provider metadata and rows
+that normalization did not retain. Neither hash is a vendor signature, a
+license, an independent clock, or proof of executable BID/ASK. HTTP content
+decompression may already have occurred; do not call this a TLS-wire digest.
+
+The adapter must remain disconnected until the owner approves any potential
+API credit usage and verifies the instrument entitlement and data rights.

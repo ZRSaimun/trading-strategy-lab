@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import hashlib
 import math
+import re
 from time import monotonic as _monotonic, time as _wall_clock
 
 from .expected_bar_manifest import (
@@ -70,9 +71,10 @@ async def review_twelvedata_completed_m1(
 
     started = _monotonic()
     try:
-        rows, snapshot = await retrieve(
+        rows, snapshot, wire = await retrieve(
             api_key, "XAUUSD-TD", len(manifest.expected_minutes),
             manifest.expected_minutes[-1], request_at,
+            include_wire_evidence=True,
         )
         received_at = int(_wall_clock())
         elapsed = _monotonic() - started
@@ -81,6 +83,19 @@ async def review_twelvedata_completed_m1(
                 or abs((received_at - request_at) - elapsed) > 5):
             raise ValueError("Unreliable server clock")
         verify_normalized_snapshot(rows, snapshot, "XAU/USD")
+        # Evidence is emitted by the bounded HTTP adapter, never caller-supplied.
+        # It proves internal receipt-byte accounting, NOT vendor signing/rights.
+        if (type(wire) is not dict or set(wire) != {
+            "decoded_http_body_sha256", "decoded_http_body_bytes",
+            "normalized_snapshot_sha256", "http_status",
+        } or type(wire["decoded_http_body_bytes"]) is not int
+                or not 0 < wire["decoded_http_body_bytes"] <= 3_000_000
+                or type(wire["http_status"]) is not int or wire["http_status"] != 200
+                or any(type(wire[k]) is not str or
+                       re.fullmatch(r"[0-9a-f]{64}", wire[k]) is None
+                       for k in ("decoded_http_body_sha256", "normalized_snapshot_sha256"))
+                or wire["normalized_snapshot_sha256"] != hashlib.sha256(snapshot).hexdigest()):
+            raise ValueError("Invalid provider wire evidence")
         # No price-side inference: Twelve Data's normalized OHLC do not prove
         # an executable BID, ASK or spread, even over authenticated HTTPS.
         receipts = [{
@@ -108,6 +123,10 @@ async def review_twelvedata_completed_m1(
         "server_request_elapsed_ms": round(elapsed * 1000),
         "server_receipt_time_observed": True,
         "source_snapshot_sha256": hashlib.sha256(snapshot).hexdigest(),
+        "decoded_http_body_sha256": wire["decoded_http_body_sha256"],
+        "decoded_http_body_bytes": wire["decoded_http_body_bytes"],
+        "http_body_hash_semantics": "httpx-decoded-response-body-not-TLS-wire",
+        "provider_http_status": wire["http_status"],
         "source_authenticated": False,
         "provider_entitlement_verified": False,
         "retention_and_display_rights_verified": False,

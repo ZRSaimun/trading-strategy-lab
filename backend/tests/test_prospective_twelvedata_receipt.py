@@ -37,16 +37,26 @@ def snapshot(candles):
     }, separators=(",", ":")).encode()
 
 
-def fixture(monkeypatch, *, candles=None, raw=None, now=NOW):
+def fixture(monkeypatch, *, candles=None, raw=None, now=NOW, wire=None):
     observed = []
     if candles is None:
         candles = rows(T, T + 60)
     if raw is None:
         raw = snapshot(candles)
 
-    async def fake_retrieve(key, instrument, limit, end, started):
+    if wire is None:
+        provider_body = b'{"status":"ok","meta":{"symbol":"XAU/USD"}}'
+        wire = {
+            "decoded_http_body_sha256": hashlib.sha256(provider_body).hexdigest(),
+            "decoded_http_body_bytes": len(provider_body),
+            "normalized_snapshot_sha256": hashlib.sha256(raw).hexdigest(),
+            "http_status": 200,
+        }
+
+    async def fake_retrieve(key, instrument, limit, end, started, *, include_wire_evidence=False):
+        assert include_wire_evidence is True
         observed.append((key, instrument, limit, end, started))
-        return candles, raw
+        return candles, raw, wire
 
     monkeypatch.setattr(adapter, "retrieve", fake_retrieve)
     monkeypatch.setattr(adapter, "_wall_clock", lambda: now)
@@ -68,6 +78,9 @@ def test_complete_observation_server_stamped_and_still_not_live(monkeypatch):
     assert report["server_response_received_at_utc"] == NOW
     assert report["server_receipt_time_observed"] is True
     assert report["source_snapshot_sha256"] == hashlib.sha256(snapshot(rows(T, T+60))).hexdigest()
+    assert report["decoded_http_body_sha256"] != report["source_snapshot_sha256"]
+    assert report["decoded_http_body_bytes"] > 0
+    assert report["http_body_hash_semantics"] == "httpx-decoded-response-body-not-TLS-wire"
     assert report["source_authenticated"] is False
     assert report["expected_calendar_verified"] is False
     assert report["provider_entitlement_verified"] is False
@@ -172,3 +185,21 @@ def test_provider_failure_is_sanitized(monkeypatch):
         run()
     assert "secret upstream payload" not in str(exc.value)
     assert calls == []
+
+
+@pytest.mark.parametrize("bad_wire", [
+    {},
+    {"decoded_http_body_sha256": "not-a-hash"},
+    {"decoded_http_body_sha256": "f"*64, "decoded_http_body_bytes": True,
+     "normalized_snapshot_sha256": "f"*64, "http_status": 200},
+    {"decoded_http_body_sha256": "f"*64, "decoded_http_body_bytes": 3_000_001,
+     "normalized_snapshot_sha256": "f"*64, "http_status": 200},
+    {"decoded_http_body_sha256": "f"*64, "decoded_http_body_bytes": 20,
+     "normalized_snapshot_sha256": "0"*64, "http_status": 200},
+    {"decoded_http_body_sha256": "f"*64, "decoded_http_body_bytes": 20,
+     "normalized_snapshot_sha256": "f"*64, "http_status": 302},
+])
+def test_invalid_or_unbound_wire_receipt_is_rejected(monkeypatch, bad_wire):
+    fixture(monkeypatch, wire=bad_wire)
+    with pytest.raises(adapter.ProspectiveReceiptError, match="Provider receipt rejected"):
+        run()

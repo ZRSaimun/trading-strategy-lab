@@ -1,5 +1,6 @@
 """Bounded, explicit, historical one-minute adapter. No live polling or fallback symbols."""
 import csv
+import hashlib
 import io
 import json
 from datetime import datetime, timezone
@@ -56,9 +57,11 @@ def normalize(payload,instrument,now):
     archive={'meta':{'symbol':expected,'interval':'1min','exchange_timezone':'UTC'},'values':normalized}
     return rows,json.dumps(archive,separators=(',',':')).encode()
 
-async def retrieve(key,instrument,limit,end,now,transport=None):
+async def retrieve(key,instrument,limit,end,now,transport=None, *, include_wire_evidence=False):
     if instrument not in MAPPINGS:raise ProviderError('Unknown provider mapping; no instrument substitution.',422)
     if not 1<=limit<=5000:raise ProviderError('Request requires 1–5,000 candles.',422)
+    if type(include_wire_evidence) is not bool:
+        raise ProviderError('Invalid wire evidence mode.',422)
     # Key goes in the official Authorization header, never URL/query/log output.
     params={'symbol':MAPPINGS[instrument]['symbol'],'interval':'1min','timezone':'UTC','order':'ASC','outputsize':str(limit),
             'end_date':datetime.fromtimestamp(end,timezone.utc).strftime('%Y-%m-%d %H:%M:%S')}
@@ -81,4 +84,13 @@ async def retrieve(key,instrument,limit,end,now,transport=None):
     # A provider must not expand past the requested boundary or requested count.
     if len(rows)>limit or any(r['time']>end for r in rows):
         raise ProviderError('Provider returned candles outside the requested boundary; no data imported.')
+    if include_wire_evidence:
+        # This is the HTTP-client-DECODED response body, not TLS wire bytes.
+        # A digest detects accidental changes but is NOT a vendor signature.
+        return rows,archive,{
+            'decoded_http_body_sha256': hashlib.sha256(raw).hexdigest(),
+            'decoded_http_body_bytes': len(raw),
+            'normalized_snapshot_sha256': hashlib.sha256(archive).hexdigest(),
+            'http_status': 200,
+        }
     return rows,archive
