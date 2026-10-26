@@ -97,3 +97,21 @@ must verify rights and plan limits out of band, bind approval to exact provider,
 instrument, purpose and request, and enforce a durable budget/rate limiter.
 Do not pass either flag automatically from a configuration default. No actual
 Twelve Data request was made while developing this safeguard.
+
+
+## Durable pre-request credit reservations (26 October 2026)
+
+The two exact-boolean owner declarations are **necessary but no longer
+sufficient** to invoke the one-shot provider bridge. It now also requires
+`budget_db_path` and a fresh 32-character lowercase hexadecimal
+`budget_request_id` for a previously owner-provisioned, current-UTC-day
+SQLite credit ledger. One credit is atomically reserved **before** the vendor
+request; failures and uncertain outcomes are not automatically refunded or
+retried. Missing ledger, exhausted budget, missing daily policy and duplicate
+request IDs fail closed before network access. Reports include the reservation
+identity and remaining local credit allowance, never a license claim.
+
+See [provider-credit-budget.md](provider-credit-budget.md) for provisioning,
+tests, concurrency boundaries and the critical warning that ephemeral cloud
+filesystems are not durable. This remains a disconnected component; it is not
+an authenticated owner route or a verified Twelve Data account entitlement.
