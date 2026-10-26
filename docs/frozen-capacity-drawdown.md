@@ -58,6 +58,14 @@ executable spreads or financing. The independent exhaustive oracle checks
 breaks and sign-crossing intervals. These streaks must not be used for
 candidate selection, live order authorization or claims of predictive edge.
 
+## Strict-sign uncertainty census under additional execution costs
+
+For each admitted training/holdout cohort and each **0/5/10/20 bps illustrative additional round-trip cost**, `{training|holdout}_pseudo_settlement_strict_sign_census` records the exact mathematical bounds on the number of *strictly positive*, *strictly negative*, and *exactly zero* hypothetical net-R outcomes. Each class has `guaranteed_...` and `possible_...` counts; `admitted_paths` is the complete timestamp-admitted population. A return interval spanning zero can be both a *possible* strict win and a *possible* strict loss, so possible class counts need not sum to the cohort size. Exact zero is neither a strict win nor a strict loss.
+
+The lower endpoint establishes guaranteed positives and possible negatives; the upper endpoint establishes possible positives and guaranteed negatives. Both endpoints are required to be zero for a guaranteed exact-zero outcome. The diagnostic never selects favorable outcomes, discards ambiguous paths, or changes capacity admission. A monotonicity check refuses cost scenarios in which increasing additional costs creates possible/guaranteed pseudo-winners or removes possible/guaranteed pseudo-losers. The independent exhaustive test enumerates 4,680 interval-compatible synthetic histories and checks each sign-count bound against complete integer-outcome enumeration.
+
+These counts are **not** observed profitable fills, broker win rates, probability intervals, calibrated forecasts, or evidence of statistical trading edge. Costs are hypothetical; no authenticated BID/ASK, financing, spread or slippage is inferred. No sign census may authorize a live or paper order.
+
 No individual winning week, trade, or ambiguity is removed to improve returns. Declared exclusions, censored paths, inadequate cohort size/dispersion, wrong manifest hash, cutoff/embargo leakage, duplicate signals, inconsistent costs or changed admissions cause withholding or rejection. Synthetic regression tests verify baseline losses, cost ordering, ambiguous outcomes, rejection accounting, no hindsight capacity release, invariance to input order and fail-closed conditions.
 
 ## Explicit limits and coordination
