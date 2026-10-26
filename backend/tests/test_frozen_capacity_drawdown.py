@@ -633,3 +633,73 @@ def test_full_auditor_rejects_corrupt_path_even_before_cohort_mean(monkeypatch):
     manifest, paths = sample()
     with pytest.raises(ValueError, match="Nonmonotone individual path"):
         run(manifest, paths)
+
+
+def test_exact_declared_cost_erosion_rejects_monotone_undercharge():
+    # Frozen entry=100, stop=99 -> 1 price unit at risk. The *illustrative*
+    # round-trip cost is 0.05 R per 5 bps, not a broker execution quote.
+    rows = [
+        dict(additional_round_trip_bps=bps,
+             lower_net_r=lo, upper_net_r=hi)
+        for bps, lo, hi in (
+            (0, "-1", "1"), (5, "-1.05", "0.95"),
+            (10, "-1.10", "0.90"), (20, "-1.20", "0.80"),
+        )
+    ]
+    assert len(_validated_cost_trajectory(
+        rows, frozen_entry="100", frozen_stop="99",
+        lower_gross_r="-1", upper_gross_r="1",
+    )) == 4
+    undercharged = deepcopy(rows)
+    undercharged[1]["lower_net_r"] = "-1.01"
+    undercharged[1]["upper_net_r"] = "0.99"
+    # The old monotonicity-only invariant accepts this counterfeit schedule.
+    assert len(_validated_cost_trajectory(undercharged)) == 4
+    with pytest.raises(ValueError, match="Incorrect per-path frozen cost erosion"):
+        _validated_cost_trajectory(
+            undercharged, frozen_entry="100", frozen_stop="99",
+            lower_gross_r="-1", upper_gross_r="1",
+        )
+
+
+def test_declared_cost_identity_rejects_missing_and_inverted_gross():
+    rows = [
+        dict(additional_round_trip_bps=bps,
+             lower_net_r="-1", upper_net_r="1")
+        for bps in (0, 5, 10, 20)
+    ]
+    with pytest.raises(ValueError, match="Incomplete per-path frozen cost identity"):
+        _validated_cost_trajectory(rows, frozen_entry="100")
+    with pytest.raises(ValueError, match="denominator"):
+        _validated_cost_trajectory(
+            rows, frozen_entry="100", frozen_stop="100",
+            lower_gross_r="-1", upper_gross_r="1",
+        )
+    with pytest.raises(ValueError, match="gross-R"):
+        _validated_cost_trajectory(
+            rows, frozen_entry="100", frozen_stop="99",
+            lower_gross_r="2", upper_gross_r="1",
+        )
+
+
+def test_full_auditor_rejects_monotone_but_false_cost_schedule(monkeypatch):
+    # A monotone forged path can be missed by aggregate-only comparisons.
+    # The independent frozen bracket + gross-R identity must reject it
+    # *before* admitted means are computed or a holdout statistic is reported.
+    from app import frozen_capacity_drawdown as module
+    original = module.audit_frozen_bracket_population
+
+    def undercharged(manifest, paths, digest):
+        report = original(manifest, paths, digest)
+        scenarios = report["outcome_audit"]["paths"][0]["cost_scenarios"]
+        for key in ("lower_net_r", "upper_net_r"):
+            first = Decimal(scenarios[0][key])
+            five = Decimal(scenarios[1][key])
+            scenarios[1][key] = str((first + five) / 2)
+        assert len(_validated_cost_trajectory(scenarios)) == 4
+        return report
+
+    monkeypatch.setattr(module, "audit_frozen_bracket_population", undercharged)
+    manifest, paths = sample()
+    with pytest.raises(ValueError, match="Incorrect per-path frozen cost erosion"):
+        run(manifest, paths)
