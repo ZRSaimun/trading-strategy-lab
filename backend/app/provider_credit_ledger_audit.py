@@ -16,9 +16,9 @@ import stat
 import time
 from urllib.parse import quote
 
-_DAY = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}\\Z")
-_HEX32 = re.compile(r"[0-9a-f]{32}\\Z")
-_HEX64 = re.compile(r"[0-9a-f]{64}\\Z")
+_DAY = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}\Z")
+_HEX32 = re.compile(r"[0-9a-f]{32}\Z")
+_HEX64 = re.compile(r"[0-9a-f]{64}\Z")
 _MAX_DB_BYTES = 32_000_000
 _MAX_POLICIES = 3660
 
