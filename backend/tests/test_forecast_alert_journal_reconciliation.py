@@ -61,6 +61,14 @@ def test_pending_linked_alert_near_expiry_requires_review_without_authority():
         "mayExecutePaperOrder", "mayExecuteLiveOrder"))
 
 
+def test_pending_alert_outside_expiry_window_remains_declared_only():
+    journals, records, expected = make_case(as_of=130)
+    result = audit(journals, records, expected, as_of=130)
+    assert result["status"] == "DECLARED_ONLY"
+    assert result["alertHealth"]["counts"]["EXPIRING_SOON_WARNING"] == 0
+    assert result["maySendNotification"] is False
+
+
 def test_empty_is_not_green():
     result = audit([], [], [], as_of=150)
     assert result["status"] == "NO_DECLARED_ALERTS"
