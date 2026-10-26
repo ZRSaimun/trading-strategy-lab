@@ -1,0 +1,11 @@
+# Offline Twelve Data credit-header sequence review
+
+`app.provider_credit_header_sequence.audit_twelvedata_credit_header_sequence(receipt_reports, declared_window_start_utc=..., declared_window_end_utc=...)` compares a bounded caller-supplied sequence of successful one-shot Twelve Data Gold receipts **without HTTP, file writes, credentials, subscriptions or orders**.
+
+It checks duplicate request identities, source/protocol/side claims, timestamps and the presence/shape of the documented `api-credits-used` / `api-credits-left` response headers. Within the **operator-declared, not independently verified** interval (at most 24 hours), it flags counter decreases, increases in remaining credits, changes in the used-plus-left total, missing headers, ambiguous timestamps, and jumps in used credits not explained by a single adjacent local receipt. Any anomaly returns `REVIEW_REQUIRED`; malformed or forged inputs fail closed. Even a clean series returns only `SELF_ATTESTED_SEQUENCE_ONLY`.
+
+**Critical limits:** The provider's actual quota reset windows, account/key identity, all other applications' requests, omitted or fabricated receipts, caching, credits charged on errors, provider billing, licensing, storage rights and entitlements are not verified. The series is not an account-wide census. A changed counter may indicate a reset or other legitimate activity, not misconduct; never automatically retry, refund, increase quotas or activate feeds based on this audit. For a local reservation population, separately run the read-only `provider_credit_receipt_census` on a quiescent private ledger. These two audits do not together prove independent account usage reconciliation.
+
+Twelve Data documents its response credit headers and that `/api_usage` itself costs a credit: https://support.twelvedata.com/en/articles/5713553-control-over-api-usage. Trading 212 documents its API for **Invest and Stocks ISA only, not CFDs**: https://docs.trading212.com/api. No broker connection or execution is implemented here.
+
+Keep PR draft and undeployed pending independent provider entitlement/rights, authenticated staging, source clock/session validation, durable private storage, production restore/rollback and health checks. Synthetic tests only; no actual provider credits consumed.
