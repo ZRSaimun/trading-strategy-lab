@@ -18,7 +18,9 @@ From `backend`:
 PYTHONPATH=. python -m pytest -q tests/test_paper_order_intent_registry.py
 ```
 
-The 23 synthetic SQLite regression cases exercise duplicate/restarted IDs, cross-account isolation, fingerprint mismatch, unknown-outcome quarantine, invalid metadata, corrupted records, redacted identifiers, atomic audit rollback, and concurrent duplicate registration. SQLite thread contention is not a substitute for disposable PostgreSQL multi-worker acceptance.
+The synthetic SQLite regression suite exercises duplicate/restarted IDs, cross-account isolation, fingerprint mismatch, unknown-outcome quarantine, invalid metadata, corrupted records, redacted identifiers, atomic audit rollback, and concurrent duplicate registration. Persisted intent envelopes larger than **16 KiB UTF-8** now fail closed **before JSON parsing** (including on quarantine attempts); the existing small canonical envelope format is unchanged.
+
+**Disposable PostgreSQL acceptance (CI):** the existing `postgres-risk-acceptance` job runs `backend/tests/test_paper_daily_loss_postgres.py`, now covering the intent registry as well as the daily-loss latch. Three added cases verify concurrent duplicate registration (one winner, one audit), competing unknown-outcome CAS transitions (one winner, one quarantine audit), and atomic rollback on an injected audit insert failure for both transitions. The fixture refuses non-loopback databases and database names not ending in `_test`, then creates/drops a random schema. To run locally, set `TSL_PG_RISK_TEST_URL` to an explicitly disposable local PostgreSQL database; **never use production credentials**. Without that variable the PostgreSQL tests skip. These tests do not simulate process termination mid-commit or prove broker execution exactly once.
 
 ## Production integration gates (NOT complete)
 
