@@ -3,12 +3,16 @@
 `app.forecast_alert_atomic_snapshot.audit_persisted_forecast_alerts` is a
 **disconnected, read-only** audit of persisted forecast events and alert states.
 It runs exactly one bounded SQL `SELECT` to read the requested journal keys
-and *all* `forecast-alert:` keys, then verifies envelopes, replays forecasts,
-and reconciles every declared alert against its issuance event. An undeclared
-persisted alert, missing journal/alert, duplicate declared identity, corrupt
+and *all* `forecast-events:` and `forecast-alert:` keys, then verifies envelopes,
+replays forecasts, and reconciles every declared alert against its issuance event.
+An undeclared journal (even one without alerts), undeclared alert, missing
+journal/alert, duplicate declared identity, corrupt
 payload, conflicting forecast metadata, >2,000 rows or >16 MB of returned
 record contents rejects the entire audit. The session and expected-alert
 inventory is still supplied by the caller and is not independently attested.
+All stored forecast sessions in the scanned database must be declared; a
+multi-tenant/shared database needs an explicitly authorized complete inventory.
+The scan cannot prove a journal or alert was never deleted before the SELECT.
 
 Example (in a **private, read-only, quiescent staging database**):
 
