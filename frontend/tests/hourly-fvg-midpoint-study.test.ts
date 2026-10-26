@@ -120,6 +120,20 @@ test('verified prior-20 volume uses a scale-safe strict threshold for extreme fi
  }
 });
 
+test('strict prior-20 volume threshold does not round a true exceedance into equality',()=>{
+ // 1.5000000000000001e100 is strictly above 1.5 times the exact
+ // IEEE-754 value 1e100, but the old ratio rounds to precisely 1.5.
+ const bars=fixture();
+ for(let i=13;i<=32;i++)bars[i].volume=1e100;
+ bars[33].volume=1.5000000000000001e100;
+ assert.equal(bars[33].volume!/bars[32].volume!,1.5);
+ assert.equal(target(bars).gates.verifiedVolume,'PASS');
+ assert.equal(target(bars).gates.strictCandidate,'PASS');
+ bars[33].volume=150;
+ for(let i=13;i<=32;i++)bars[i].volume=100;
+ assert.equal(target(bars).gates.verifiedVolume,'FAIL',
+  'an exactly equal 1.5x threshold must not pass');
+});
 test('missing 1H bar in pre-touch path is unknown, not a false negative or later cherry-picked touch',()=>{
  const bars=fixture().filter(b=>b.time!==BASE+33*H);
  const x=target(bars);
@@ -267,7 +281,7 @@ test('an overflowing next-open comparator suppresses both matched markouts',()=>
 });
 test('completed hourly timestamps are safe and numeric rule changes have a new version',()=>{
  const report=studyHourlyFvgMidpoint(fixture(),source);
- assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v3');
+ assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v4');
  const lastSafeAlignedOpen=Math.floor(Number.MAX_SAFE_INTEGER/H)*H;
  assert.equal(Number.isSafeInteger(lastSafeAlignedOpen),true);
  assert.equal(Number.isSafeInteger(lastSafeAlignedOpen+H),false);

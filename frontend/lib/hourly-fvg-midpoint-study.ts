@@ -7,7 +7,7 @@
  */
 import type {Bar} from './research.ts';
 
-export const HOURLY_FVG_VERSION='hourly-fvg-first-midpoint-touch-v3';
+export const HOURLY_FVG_VERSION='hourly-fvg-first-midpoint-touch-v4';
 export type Evidence='PASS'|'FAIL'|'INSUFFICIENT_DATA';
 export type Side='BULLISH'|'BEARISH';
 export type FvgSource={
@@ -56,6 +56,19 @@ function validateBars(bars:readonly Bar[]){
    throw Error('Invalid, incomplete, misaligned or unordered hourly BID candles');
  }
 }
+// Decompose a validated positive finite float into an exact integer times
+// a power of two. This preserves even subnormal observed volume values.
+function positiveFloatParts(value:number):{mantissa:bigint;exponent:number}{
+ const view=new DataView(new ArrayBuffer(8));
+ view.setFloat64(0,value,false);
+ const high=view.getUint32(0,false),low=view.getUint32(4,false);
+ const biasedExponent=(high>>>20)&0x7ff;
+ const fraction=(BigInt(high&0xfffff)<<32n)|BigInt(low);
+ return {
+  mantissa:biasedExponent===0?fraction:(1n<<52n)|fraction,
+  exponent:biasedExponent===0?-1074:biasedExponent-1075,
+ };
+}
 function verifiedVolume(bars:readonly Bar[],j:number,source:FvgSource,multiple:number):Evidence{
  if(!source.volumeVerified||!['exchange','tick'].includes(source.volumeType))
   return 'INSUFFICIENT_DATA';
@@ -65,13 +78,21 @@ function verifiedVolume(bars:readonly Bar[],j:number,source:FvgSource,multiple:n
   now.volume===null||now.volume<=0||
   history.some(b=>b.volume===null||b.volume<=0))
   return 'INSUFFICIENT_DATA';
- // Sum-before-divide can overflow for valid finite volumes; dividing
- // every volume by a positive observed baseline also avoids underflow when
- // the entire 20-bar history is subnormal. Ratios are only used for this
- // strict comparison, never emitted as authenticated volume evidence.
- const scale=Math.max(...history.map(b=>b.volume??0));
- const meanRelative=history.reduce((sum,b)=>sum+(b.volume??0)/scale,0)/20;
- return now.volume/scale>multiple*meanRelative?'PASS':'FAIL';
+ // Compare the exact finite IEEE-754 values, not rounded quotients.
+ // For 20 prior bars, now > multiple * (sum/20) is equivalent to
+ // 20*now > multiple*sum. Binary integer mantissas avoid both overflow
+ // and false threshold ties introduced by floating-point division.
+ const historyParts=history.map(b=>positiveFloatParts(b.volume!));
+ const current=positiveFloatParts(now.volume);
+ const factor=positiveFloatParts(multiple);
+ const commonExponent=Math.min(current.exponent,...historyParts.map(x=>x.exponent));
+ const total=historyParts.reduce((sum,x)=>
+  sum+(x.mantissa<<BigInt(x.exponent-commonExponent)),0n);
+ let lhs=20n*current.mantissa<<BigInt(current.exponent-commonExponent);
+ let rhs=factor.mantissa*total;
+ if(factor.exponent>=0)rhs<<=BigInt(factor.exponent);
+ else lhs<<=BigInt(-factor.exponent);
+ return lhs>rhs?'PASS':'FAIL';
 }
 function markout(entryAt:number,entry:number,exitAt:number,exit:number,
  direction:Side,costs:readonly number[]):Markout|null{
