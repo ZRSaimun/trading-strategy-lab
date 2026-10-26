@@ -27,6 +27,28 @@ const target=(bars:Bar[],s:FvgSource=source)=>{
  assert.ok(found,'expected exact 3-candle FVG');
  return found;
 };
+test('hourly candle fields are snapshotted once before validation and research',()=>{
+ const stable=target(fixture());
+ const bars=fixture();
+ let highReads=0,volumeReads=0;
+ // Accessor-backed inputs can be valid at validation and turn invalid or
+ // change identity before the return/volume gate is computed. Snapshot once.
+ Object.defineProperty(bars[33],'high',{get(){
+  highReads++;
+  return highReads===1?106:NaN;
+ }});
+ Object.defineProperty(bars[33],'volume',{get(){
+  volumeReads++;
+  return volumeReads===1?200:NaN;
+ }});
+ assert.deepEqual(target(bars),stable);
+ assert.equal(highReads,1,'OHLC must not be reread after its initial snapshot');
+ assert.equal(volumeReads,1,'volume must not change after validation');
+ const invalid=fixture();
+ Object.defineProperty(invalid[33],'low',{get(){return NaN;}});
+ assert.throws(()=>studyHourlyFvgMidpoint(invalid,source),/Invalid, incomplete/);
+});
+
 test('formation census preserves unknown outcomes and distinguishes paired from blind-only markouts',()=>{
  const bars=[
   candle(0,99,100,98,99),candle(1,100,102,99,101),
@@ -208,7 +230,7 @@ test('research report source metadata excludes arbitrary caller properties',()=>
  assert.deepEqual(Object.keys(report.source).sort(),Object.keys(source).sort());
  assert.equal(JSON.stringify(report).includes('synthetic-private-marker'),false);
  assert.equal(JSON.stringify(report).includes('synthetic-account-marker'),false);
- assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v17');
+ assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v18');
 });
 test('ambiguous source labels and contradictory volume evidence fail closed',()=>{
  // These are declared metadata, not independent vendor authentication.
@@ -583,7 +605,7 @@ test('an overflowing next-open comparator suppresses both matched markouts',()=>
 });
 test('completed hourly timestamps are safe and numeric rule changes have a new version',()=>{
  const report=studyHourlyFvgMidpoint(fixture(),source);
- assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v17');
+ assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v18');
  const lastSafeAlignedOpen=Math.floor(Number.MAX_SAFE_INTEGER/H)*H;
  assert.equal(Number.isSafeInteger(lastSafeAlignedOpen),true);
  assert.equal(Number.isSafeInteger(lastSafeAlignedOpen+H),false);
