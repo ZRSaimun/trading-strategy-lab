@@ -72,3 +72,22 @@ PYTHONPATH=. pytest -q tests/test_provider_credit_budget.py tests/test_prospecti
 
 Official vendor references: https://twelvedata.com/docs and
 https://docs.trading212.com/api (Trading 212 public API does not cover CFDs).
+
+## Private-ledger filesystem preflight
+
+Before provisioning or reserving, the bridge now fails closed unless the
+**immediate ledger directory** is owned by the running service user and
+has no group/other permission bits (typically `0700`). Any existing ledger
+must be an owner-owned regular file with no group/other permission bits
+(typically `0600`) and exactly one hard link. Symbolic-link ledgers,
+shared directories, hard-linked databases and publicly readable ledgers are
+rejected before SQLite opens them. First creation uses exclusive
+`O_NOFOLLOW` where supported and owner-only file permissions.
+
+These checks reduce accidental exposure and common filesystem aliasing
+hazards; they do **not** make path validation race-free, inspect every ancestor
+directory or mount/ACL, prove backups, or secure a compromised host. Operators
+must provision a dedicated private durable directory and verify its mount,
+backup restoration and host ownership independently. Existing ledgers with
+permissive filesystem permissions will be refused until securely remediated.
+No vendor request is made by these tests.

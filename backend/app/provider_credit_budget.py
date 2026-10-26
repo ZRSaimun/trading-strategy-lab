@@ -13,6 +13,7 @@ import os
 from pathlib import Path
 import re
 import sqlite3
+import stat
 import time
 from urllib.parse import quote
 
@@ -58,22 +59,52 @@ def _hash(value: str) -> str:
     return value
 
 
+def _check_private_storage(path: Path) -> None:
+    """Fail closed on shared/misowned ledger storage before SQLite access.
+
+    Only the immediate ledger directory and the ledger inode are checked.
+    This is not a substitute for an isolated mount, backups or OS ACL review.
+    """
+    try:
+        uid = os.getuid()
+        parent = os.lstat(path.parent)
+        if (not stat.S_ISDIR(parent.st_mode) or parent.st_uid != uid
+                or parent.st_mode & 0o077):
+            raise CreditBudgetError("Durable ledger directory must be private")
+        try:
+            entry = os.lstat(path)
+        except FileNotFoundError:
+            return  # Provisioning may create the file, reservation may not.
+        if (not stat.S_ISREG(entry.st_mode) or entry.st_uid != uid
+                or entry.st_nlink != 1 or entry.st_mode & 0o077):
+            raise CreditBudgetError("Durable ledger file must be private")
+    except (OSError, AttributeError):
+        raise CreditBudgetError("Cannot verify private ledger storage") from None
+
+
 def _path(db_path: str) -> Path:
     if not isinstance(db_path, str) or not 1 <= len(db_path) <= 1024:
         raise CreditBudgetError("Invalid durable ledger location")
     path = Path(db_path)
     if not path.is_absolute() or path.is_symlink() or not path.parent.is_dir():
         raise CreditBudgetError("Invalid durable ledger location")
+    _check_private_storage(path)
     return path
 
 
 def _connect(path: Path) -> sqlite3.Connection:
     # mode=rw refuses missing files; reservations never create an empty ledger.
+    _check_private_storage(path)
     uri = "file:" + quote(str(path), safe="/") + "?mode=rw"
     conn = sqlite3.connect(uri, uri=True, timeout=10, isolation_level=None)
-    conn.execute("PRAGMA foreign_keys=ON")
-    conn.execute("PRAGMA synchronous=FULL")
-    return conn
+    try:
+        _check_private_storage(path)
+        conn.execute("PRAGMA foreign_keys=ON")
+        conn.execute("PRAGMA synchronous=FULL")
+        return conn
+    except BaseException:
+        conn.close()
+        raise
 
 
 def provision_daily_budget(
@@ -97,8 +128,13 @@ def provision_daily_budget(
     try:
         # First-time creation is explicit and private. Never follow a symlink.
         if not path.exists():
-            fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+            fd = os.open(
+                path, os.O_CREAT | os.O_EXCL | os.O_WRONLY
+                | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_CLOEXEC", 0),
+                0o600,
+            )
             os.close(fd)
+        _check_private_storage(path)
         with closing(_connect(path)) as conn:
             conn.executescript(_SCHEMA)  # schema only; never contains user input
             conn.execute("BEGIN IMMEDIATE")

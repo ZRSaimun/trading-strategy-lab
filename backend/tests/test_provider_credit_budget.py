@@ -186,3 +186,67 @@ def test_bridge_reservation_is_not_refunded_after_provider_failure(tmp_path, mon
     with pytest.raises(bridge.ProspectiveReceiptError, match="Durable"):
         review(2)
     assert calls == [1]
+
+
+def test_new_ledger_has_private_mode(tmp_path, monkeypatch):
+    import stat
+    path = ledger(tmp_path, monkeypatch)
+    assert stat.S_IMODE(__import__("os").stat(path).st_mode) == 0o600
+    assert reserve(path, 1)["remaining_credits"] == 1
+
+
+def test_group_readable_ledger_denied_before_reservation(tmp_path, monkeypatch):
+    from pathlib import Path
+    path = ledger(tmp_path, monkeypatch)
+    Path(path).chmod(0o640)
+    with pytest.raises(budget.CreditBudgetError, match="private"):
+        reserve(path, 1)
+    Path(path).chmod(0o600)
+    assert reserve(path, 1)["remaining_credits"] == 1
+
+
+def test_shared_ledger_directory_denied_before_reservation(tmp_path, monkeypatch):
+    path = ledger(tmp_path, monkeypatch)
+    tmp_path.chmod(0o755)
+    try:
+        with pytest.raises(budget.CreditBudgetError, match="private"):
+            reserve(path, 1)
+    finally:
+        tmp_path.chmod(0o700)
+    assert reserve(path, 1)["remaining_credits"] == 1
+
+
+def test_hardlinked_ledger_denied_before_reservation(tmp_path, monkeypatch):
+    import os
+    path = ledger(tmp_path, monkeypatch)
+    other = tmp_path / "other-ledger.sqlite"
+    os.link(path, other)
+    try:
+        with pytest.raises(budget.CreditBudgetError, match="private"):
+            reserve(path, 1)
+    finally:
+        other.unlink()
+    assert reserve(path, 1)["remaining_credits"] == 1
+
+
+def test_symlinked_ledger_denied_before_reservation(tmp_path, monkeypatch):
+    from pathlib import Path
+    path = ledger(tmp_path, monkeypatch)
+    alias = tmp_path / "alias.sqlite"
+    alias.symlink_to(Path(path))
+    with pytest.raises(budget.CreditBudgetError):
+        reserve(str(alias), 1)
+    assert reserve(path, 1)["remaining_credits"] == 1
+
+
+def test_provision_rejects_existing_public_file_without_mutation(tmp_path):
+    path = tmp_path / "existing.sqlite"
+    path.write_bytes(b"not a database")
+    path.chmod(0o644)
+    with pytest.raises(budget.CreditBudgetError, match="private"):
+        budget.provision_daily_budget(
+            str(path), utc_day=DAY, max_credits=1,
+            entitlement_evidence_sha256=HASH,
+            rights_evidence_sha256=RIGHTS, owner_confirmed=True,
+        )
+    assert path.read_bytes() == b"not a database"
