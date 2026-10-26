@@ -58,6 +58,12 @@ def fixture(monkeypatch, *, candles=None, raw=None, now=NOW, wire=None):
         observed.append((key, instrument, limit, end, started))
         return candles, raw, wire
 
+    # Existing observation cases stub budget reservation; real SQLite semantics
+    # are covered independently by test_provider_credit_budget.py.
+    monkeypatch.setattr(adapter, "reserve_one_credit", lambda *a, **k: {
+        "reservation_id": "a"*32, "utc_day": "2026-09-21",
+        "remaining_credits": 0,
+    })
     monkeypatch.setattr(adapter, "retrieve", fake_retrieve)
     monkeypatch.setattr(adapter, "_wall_clock", lambda: now)
     monkeypatch.setattr(adapter, "_monotonic", lambda: 100.0)
@@ -68,6 +74,7 @@ def run(m=None, **kwargs):
     return asyncio.run(adapter.review_twelvedata_completed_m1(
         api_key="test-only-key", manifest=m or manifest(),
         owner_approved_api_credit_use=True, owner_asserted_data_rights=True,
+        budget_db_path="/tmp/test-only-budget", budget_request_id="a"*32,
         **kwargs))
 
 
@@ -110,7 +117,9 @@ def test_complete_observation_server_stamped_and_still_not_live(monkeypatch):
     assert report["http_body_hash_semantics"] == "httpx-decoded-response-body-not-TLS-wire"
     assert report["source_authenticated"] is False
     assert report["expected_calendar_verified"] is False
-    assert report["owner_call_approval_scope"] == "explicit-per-call-assertion-only"
+    assert report["owner_call_approval_scope"] == "explicit-per-call-assertion-plus-durable-budget"
+    assert report["credit_budget_reservation_id"] == "a"*32
+    assert report["credit_budget_is_entitlement_proof"] is False
     assert report["provider_entitlement_verified"] is False
     assert report["executable_bid_ask_verified"] is False
     assert report["live"] is False and report["may_execute_order"] is False
