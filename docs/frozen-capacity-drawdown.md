@@ -92,3 +92,34 @@ diagnostic, **not** a backtest of an executable alternative strategy, a claim
 of forgone profit, a reason to retune capacity using holdout outcomes, or evidence
 of independent source/holdout authentication. It never authorizes a paper or
 real-money order.
+
+
+## Fixed bottom-quartile admitted net-R downside envelope
+
+Each complete training/holdout cohort and each additional 0/5/10/20-bps
+round-trip cost scenario now includes
+`{training|holdout}_pseudo_settlement_worst_quartile_net_r`.
+This reports the number of **timestamp-admitted** paths, the predetermined
+bottom-quarter count `ceil(N/4)`, and exact
+`minimum_worst_quartile_mean_net_r` /
+`maximum_worst_quartile_mean_net_r` bounds. For each interval-compatible
+realization, sort all admitted pseudo-net-R outcomes ascending and average
+the worst `ceil(N/4)`. The all-lower and all-upper endpoint vectors attain
+the exact extrema of this order-statistic mean, so ambiguous outcomes
+remain uncertain. No outcome is discarded, no profitable trade is selected,
+and capacity decisions remain timestamp-only and unchanged.
+
+The quarter fraction is fixed in code, not selected after viewing holdout
+results. Increasing declared additional costs must not improve either
+bound; the auditor rejects nonmonotone cost reports. The synthetic tests
+independently enumerate **9,800** complete interval-compatible histories
+(including 5/6-path cases where two worst outcomes are averaged), and
+verify no admitted-tail change when a capacity-rejected path's result changes.
+
+This is a **retrospective worst-quartile average**, not a calibrated
+expected-shortfall/CVaR forecast, tail probability, confidence interval,
+actual broker drawdown, actual fills or statistical trading advantage.
+Overlapping signals, synthetic full-horizon settlement, unverified
+market-data provenance, financing and executable quote costs limit
+interpretation. In particular, do **not** use this descriptive metric
+to tune filters on an untouched holdout or authorize a trade.
