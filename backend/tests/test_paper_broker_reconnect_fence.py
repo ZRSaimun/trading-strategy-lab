@@ -85,9 +85,9 @@ def test_transport_delay_and_snapshot_staleness():
     after["quote_observed_at_ms"] = NOW - 2200
     after["quote_received_at_ms"] = NOW - 100
     assert "quote_transport_delay_within_cap" in audit(before, after)["failed_checks"]
-    after["captured_at_ms"] = NOW - 100
-    assert "snapshot_fresh_at_current_time" in audit(before, after, max_snapshot_age_ms=100)["failed_checks"] if False else True
-    assert "snapshot_fresh_at_current_time" in audit(before, after, max_snapshot_age_ms=100)["checks"]
+    after["captured_at_ms"] = NOW - 200
+    after["quote_received_at_ms"] = NOW - 200
+    assert "snapshot_fresh_at_current_time" in audit(before, after, max_snapshot_age_ms=100)["failed_checks"]
 
 
 def test_disconnected_snapshot_not_reusable_as_new_quote():
