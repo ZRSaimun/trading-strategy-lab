@@ -7,7 +7,7 @@ import httpx
 import pytest
 
 from app import trading212_request_budget as budget
-from app.trading212_demo_staging_probe import probe_trading212_demo_metadata
+from app.trading212_demo_staging_probe import DemoStagingProbeError, probe_trading212_demo_metadata
 from app.trading212_readonly import ReadOnlyBrokerError
 
 
@@ -78,4 +78,20 @@ def test_failed_mock_get_consumes_reservation_without_retry(ledger):
     with pytest.raises(ReadOnlyBrokerError) as error:
         _call(ledger, httpx.MockTransport(handler))
     assert "synthetic_secret" not in str(error.value)
+    assert calls == ["GET"] and _count(ledger) == 1
+
+
+def test_malformed_mock_metadata_consumes_reservation_and_redacts(ledger):
+    calls = []
+    def handler(request):
+        calls.append(request.method)
+        return httpx.Response(200, json=[{"ticker": "PRIVATE_MALFORMED"}],
+                              headers={"x-ratelimit-limit": "50",
+                                       "x-ratelimit-period": "60",
+                                       "x-ratelimit-remaining": "49",
+                                       "x-ratelimit-used": "1",
+                                       "x-ratelimit-reset": "1793037660"})
+    with pytest.raises(DemoStagingProbeError) as error:
+        _call(ledger, httpx.MockTransport(handler))
+    assert "PRIVATE_MALFORMED" not in str(error.value)
     assert calls == ["GET"] and _count(ledger) == 1
