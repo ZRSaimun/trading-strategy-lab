@@ -120,6 +120,18 @@ def test_invalid_states_fail_closed(mutation):
         check(row)
 
 
+@pytest.mark.parametrize("expiry", [120, 120 + 3601])
+def test_impossible_outbox_expiry_fails_closed(expiry):
+    with pytest.raises(ValueError, match="Invalid alert health state"):
+        check(state(expiresAt=expiry))
+
+
+def test_maximum_allowed_outbox_age_is_accepted_without_send_authority():
+    result = check(state(expiresAt=120 + 3600))
+    assert result["status"] == "DECLARED_ONLY"
+    assert result["maySendNotification"] is False
+
+
 def test_inconsistent_claim_fails_closed():
     with pytest.raises(ValueError, match="Invalid alert health state"):
         check(state("IN_FLIGHT_UNCERTAIN", claimedAt=301))
