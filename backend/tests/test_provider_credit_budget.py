@@ -68,12 +68,27 @@ def test_invalid_cap_rejected_without_creating_ledger(tmp_path, cap):
 def test_consumes_credit_before_any_network_and_caps(tmp_path, monkeypatch):
     path = ledger(tmp_path, monkeypatch)
     first = reserve(path, 1)
-    second = reserve(path, 2)
     assert first["remaining_credits"] == 1
+    with pytest.raises(budget.CreditBudgetError, match="Per-minute"):
+        reserve(path, 2)
+    monkeypatch.setattr(budget, "time", SimpleNamespace(time=lambda: NOW + 60))
+    second = reserve(path, 2)
     assert second["remaining_credits"] == 0
     assert first["entitlement_verified"] is False
     assert second["rights_verified"] is False
     with pytest.raises(budget.CreditBudgetError, match="exhausted"):
+        reserve(path, 3)
+
+
+def test_utc_minute_window_is_bounded_and_atomic(tmp_path, monkeypatch):
+    path = ledger(tmp_path, monkeypatch, cap=3)
+    reserve(path, 1)
+    monkeypatch.setattr(budget, "time", SimpleNamespace(time=lambda: NOW + 59))
+    with pytest.raises(budget.CreditBudgetError, match="Per-minute"):
+        reserve(path, 2)
+    monkeypatch.setattr(budget, "time", SimpleNamespace(time=lambda: NOW + 60))
+    assert reserve(path, 2)["remaining_credits"] == 1
+    with pytest.raises(budget.CreditBudgetError, match="Per-minute"):
         reserve(path, 3)
 
 
@@ -82,6 +97,9 @@ def test_request_replay_denied_without_refund(tmp_path, monkeypatch):
     reserve(path, 1)
     with pytest.raises(budget.CreditBudgetError):
         reserve(path, 1)
+    with pytest.raises(budget.CreditBudgetError, match="Per-minute"):
+        reserve(path, 2)
+    monkeypatch.setattr(budget, "time", SimpleNamespace(time=lambda: NOW + 60))
     assert reserve(path, 2)["remaining_credits"] == 0
 
 
@@ -116,8 +134,18 @@ def test_concurrent_reservations_never_exceed_cap(tmp_path, monkeypatch):
     with ThreadPoolExecutor(max_workers=8) as pool:
         outcomes = list(pool.map(attempt, range(1, 13)))
     accepted = [x for x in outcomes if x is not None]
-    assert len(accepted) == 3
-    assert sorted(x["remaining_credits"] for x in accepted) == [0, 1, 2]
+    assert len(accepted) == 1
+    assert accepted[0]["remaining_credits"] == 2
+    monkeypatch.setattr(budget, "time", SimpleNamespace(time=lambda: NOW + 60))
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        second = [x for x in pool.map(attempt, range(13, 25)) if x is not None]
+    assert len(second) == 1
+    assert second[0]["remaining_credits"] == 1
+    monkeypatch.setattr(budget, "time", SimpleNamespace(time=lambda: NOW + 120))
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        third = [x for x in pool.map(attempt, range(25, 37)) if x is not None]
+    assert len(third) == 1
+    assert third[0]["remaining_credits"] == 0
 
 
 @pytest.mark.parametrize("request_id, fingerprint", [
