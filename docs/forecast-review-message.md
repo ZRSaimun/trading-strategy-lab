@@ -7,3 +7,15 @@ The formatter rejects an expired or resolved forecast, missing or duplicate jour
 **Offline verification:** `cd backend && PYTHONPATH=. pytest -q tests/test_forecast_review_message.py` — 30 deterministic synthetic tests, zero HTTP requests. No provider acceptance, human receipt, authenticated forward observation, trading return, net expectancy or drawdown is established.
 
 **Activation handoff:** Loop 1 must provide entitled/authenticated completed-candle receipts, trusted server receipt time, session-aware expected-bar and gap reconciliation, exact provider/venue/source/side identity, and authorized user/recipient opt-in. Loop 5 must integrate durable claims with a verified one-attempt transport and independently reconciled provider receipts, plus concurrency/crash tests, before any notification can be enabled. Loop 4 handles paper risk and owner-confirmed eligible broker execution separately. Historical BID candles never become executable broker quotes. Keep draft PR unmerged/undeployed until full exact-head CI and independent production backup/rollback/health gates are satisfied.
+
+
+## Forecast probability display and target-expiry integrity (26 October 2026)
+
+The review renderer never rounds a strictly interior probability to the misleading
+displayed extremes `0.00%` or `100.00%`. Values below 0.01% are displayed as
+`<0.01%`, and values above 99.99% as `>99.99%`; all are still explicitly
+`UNCALIBRATED`. This is presentation safety, not evidence of a calibrated
+probability or a profitable signal. The renderer also rejects an outbox view
+whose advertised expiry extends beyond the forecast target candle's completion
+(`targetStart + seconds`), consistent with `ForecastAlertOutbox.queue`.
+Synthetic boundary regressions exercise both guards. No alerts or orders are sent.
