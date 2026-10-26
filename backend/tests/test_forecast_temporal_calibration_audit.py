@@ -95,6 +95,22 @@ def test_late_resolved_early_label_counts_as_boundary_missingness():
     assert row["descriptiveDriftFlag"] is None
 
 
+@pytest.mark.parametrize("censored_index, expected_early, expected_late", [
+    (0, 39, 40), (1, 40, 40), (80, 40, 39), (81, 40, 40),
+])
+def test_missing_outcome_does_not_shift_fixed_issued_sampling_census(
+        censored_index, expected_early, expected_late):
+    s = fixture()
+    s["forecasts"][censored_index].update(
+        status="PENDING", outcomeUp=None, resolvedAt=None)
+    group = audit_temporal_forecast_calibration(s)["groups"][0]
+    assert group["earlyNonoverlappingIssued"] == 40
+    assert group["lateNonoverlappingIssued"] == 40
+    assert group["earlyNonoverlappingSettled"] == expected_early
+    assert group["lateNonoverlappingSettled"] == expected_late
+    assert group["earlyUnavailableAtBoundary"] + group["lateUnresolvedOrVoid"] == 1
+
+
 def test_pending_and_post_boundary_labels_share_one_risk_budget():
     s = fixture()
     s["forecasts"][0].update(status="PENDING", outcomeUp=None, resolvedAt=None)
