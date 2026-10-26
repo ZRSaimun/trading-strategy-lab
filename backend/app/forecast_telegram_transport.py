@@ -15,6 +15,9 @@ import urllib.request
 _TOKEN = re.compile(r"[0-9]{6,15}:[A-Za-z0-9_-]{20,100}\Z")
 _CHAT = re.compile(r"-?[0-9]{1,20}\Z")
 _MAX_RESPONSE = 16384
+_REVIEW_HEADER = "UNVERIFIED RESEARCH FORECAST - NOT LIVE / NOT A TRADE\n"
+_REVIEW_FOOTER = ("Source NOT authenticated; no broker BID/ASK or fill. "
+                  "NO BUY/SELL SIGNAL. NO PAPER OR LIVE ORDER.")
 
 
 class DeliveryUncertain(RuntimeError):
@@ -42,6 +45,7 @@ def _safe_review_text(text):
     unexpected Unicode errors. Ordinary non-ASCII letters and emoji are fine.
     """
     return (type(text) is str and 1 <= len(text) <= 1000 and
+            text.startswith(_REVIEW_HEADER) and text.endswith(_REVIEW_FOOTER) and
             all(c in "\n\t" or unicodedata.category(c) not in
                 {"Cc", "Cf", "Cs", "Zl", "Zp"} for c in text))
 

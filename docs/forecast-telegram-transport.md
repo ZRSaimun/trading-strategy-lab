@@ -44,3 +44,7 @@ unrelated or mismatched response from being recorded as acceptance of the
 forecast-review text. It does not prove that the recipient received or read
 the message, nor does it authenticate the market feed. Synthetic fake-opener
 tests exercise the mismatches without network access.
+
+## Mandatory non-tradable message boundary (26 October 2026)
+
+The review-only Telegram adapter now rejects any outbound text that does not begin with the exact formatter warning `UNVERIFIED RESEARCH FORECAST - NOT LIVE / NOT A TRADE` and end with the exact `Source NOT authenticated; no broker BID/ASK or fill. NO BUY/SELL SIGNAL. NO PAPER OR LIVE ORDER.` disclaimer. These markers match the existing disconnected forecast-review formatter. This prevents an accidental direct call from sending an unlabeled forecast or a misleading buy/sell message through the review-only transport. The check is local and runs before HTTP; it does **not** authenticate the underlying data or permit real notification activation. Additional synthetic negative tests ensure no network attempt on missing/altered warnings. Do not use this research-only adapter for authenticated live alerts without a separately reviewed design.

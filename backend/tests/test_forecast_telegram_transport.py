@@ -12,6 +12,15 @@ from app.forecast_telegram_transport import DeliveryUncertain, send_telegram_onc
 TOKEN = "123456789:ABCDEFGHIJKLMNOPQRSTUVWX0123456789"
 CHAT = "-1001234567890"
 
+REVIEW_HEADER = "UNVERIFIED RESEARCH FORECAST - NOT LIVE / NOT A TRADE\n"
+REVIEW_FOOTER = ("Source NOT authenticated; no broker BID/ASK or fill. "
+                 "NO BUY/SELL SIGNAL. NO PAPER OR LIVE ORDER.")
+
+
+def review_text(body="Forecast review only"):
+    return REVIEW_HEADER + body + "\n" + REVIEW_FOOTER
+
+
 
 class Reply:
     def __init__(self, payload, status=200):
@@ -41,7 +50,9 @@ class FakeOpener:
         return self.reply
 
 
-def accepted(chat=CHAT, mid=55, text="Forecast review only"):
+def accepted(chat=CHAT, mid=55, text=None):
+    if text is None:
+        text = review_text()
     return json.dumps({"ok": True, "result": {"message_id": mid,
                                               "chat": {"id": int(chat)},
                                               "text": text}}).encode()
@@ -49,7 +60,7 @@ def accepted(chat=CHAT, mid=55, text="Forecast review only"):
 
 def test_acceptance_is_not_delivery():
     fake = FakeOpener(Reply(accepted()))
-    result = send_telegram_once(bot_token=TOKEN, chat_id=CHAT, text="Forecast review only", opener=fake)
+    result = send_telegram_once(bot_token=TOKEN, chat_id=CHAT, text=review_text(), opener=fake)
     assert result == {"provider": "telegram", "providerAccepted": True,
                       "deliveryVerified": False, "messageId": 55, "recipientId": CHAT,
                       "retryPermitted": False, "mayExecutePaperOrder": False,
@@ -63,10 +74,10 @@ def test_acceptance_is_not_delivery():
 
 
 @pytest.mark.parametrize("token,chat,text,timeout", [
-    ("invalid", CHAT, "x", 5), (TOKEN, "@someone", "x", 5),
-    (TOKEN, CHAT, "", 5), (TOKEN, CHAT, "x" * 1001, 5),
-    (TOKEN, CHAT, "x\x00", 5), (TOKEN, CHAT, "x", 0),
-    (TOKEN, CHAT, "x", 11), (TOKEN, CHAT, "x", True),
+    ("invalid", CHAT, review_text("x"), 5), (TOKEN, "@someone", review_text("x"), 5),
+    (TOKEN, CHAT, "", 5), (TOKEN, CHAT, review_text("x" * 1001), 5),
+    (TOKEN, CHAT, review_text("x\x00"), 5), (TOKEN, CHAT, review_text("x"), 0),
+    (TOKEN, CHAT, review_text("x"), 11), (TOKEN, CHAT, review_text("x"), True),
 ])
 def test_invalid_arguments_never_call_network(token, chat, text, timeout):
     fake = FakeOpener(Reply(accepted()))
@@ -87,7 +98,7 @@ def test_invalid_arguments_never_call_network(token, chat, text, timeout):
 def test_untrusted_response_fails_closed(payload):
     fake = FakeOpener(Reply(payload))
     with pytest.raises(DeliveryUncertain) as err:
-        send_telegram_once(bot_token=TOKEN, chat_id=CHAT, text="review", opener=fake)
+        send_telegram_once(bot_token=TOKEN, chat_id=CHAT, text=review_text("review"), opener=fake)
     assert TOKEN not in str(err.value) and len(fake.calls) == 1
 
 
@@ -100,7 +111,7 @@ def test_untrusted_response_fails_closed(payload):
 def test_network_failures_never_expose_secret_or_retry(failure):
     fake = FakeOpener(error=failure)
     with pytest.raises(DeliveryUncertain) as err:
-        send_telegram_once(bot_token=TOKEN, chat_id=CHAT, text="review", opener=fake)
+        send_telegram_once(bot_token=TOKEN, chat_id=CHAT, text=review_text("review"), opener=fake)
     assert len(fake.calls) == 1
     assert "secret" not in str(err.value) and TOKEN not in str(err.value)
 
@@ -108,7 +119,7 @@ def test_network_failures_never_expose_secret_or_retry(failure):
 def test_non_200_is_uncertain():
     fake = FakeOpener(Reply(accepted(), status=202))
     with pytest.raises(DeliveryUncertain):
-        send_telegram_once(bot_token=TOKEN, chat_id=CHAT, text="review", opener=fake)
+        send_telegram_once(bot_token=TOKEN, chat_id=CHAT, text=review_text("review"), opener=fake)
     assert len(fake.calls) == 1
 
 
@@ -121,7 +132,7 @@ def test_json_decoder_recursion_failure_is_uncertain(monkeypatch):
     monkeypatch.setattr("app.forecast_telegram_transport.json.loads", decoder_failure)
     fake = FakeOpener(Reply(accepted()))
     with pytest.raises(DeliveryUncertain, match="manual reconciliation") as err:
-        send_telegram_once(bot_token=TOKEN, chat_id=CHAT, text="review", opener=fake)
+        send_telegram_once(bot_token=TOKEN, chat_id=CHAT, text=review_text("review"), opener=fake)
     assert "secret" not in str(err.value) and len(fake.calls) == 1
 
 
@@ -132,7 +143,7 @@ def test_json_decoder_recursion_failure_is_uncertain(monkeypatch):
 def test_malformed_response_object_is_uncertain(reply):
     fake = FakeOpener(reply=reply)
     with pytest.raises(DeliveryUncertain, match="manual reconciliation"):
-        send_telegram_once(bot_token=TOKEN, chat_id=CHAT, text="review", opener=fake)
+        send_telegram_once(bot_token=TOKEN, chat_id=CHAT, text=review_text("review"), opener=fake)
     assert len(fake.calls) == 1
 
 
@@ -151,7 +162,7 @@ def test_malformed_response_object_is_uncertain(reply):
 def test_unicode_spoofing_or_malformed_text_rejected_before_network(unsafe):
     fake = FakeOpener(Reply(accepted()))
     with pytest.raises(ValueError, match="Invalid review alert text"):
-        send_telegram_once(bot_token=TOKEN, chat_id=CHAT, text=unsafe, opener=fake)
+        send_telegram_once(bot_token=TOKEN, chat_id=CHAT, text=review_text(unsafe), opener=fake)
     assert fake.calls == []
 
 
@@ -161,8 +172,8 @@ def test_unicode_spoofing_or_malformed_text_rejected_before_network(unsafe):
     "Review 🔎",
 ])
 def test_normal_unicode_review_text_is_allowed(safe):
-    fake = FakeOpener(Reply(accepted(text=safe)))
-    result = send_telegram_once(bot_token=TOKEN, chat_id=CHAT, text=safe, opener=fake)
+    fake = FakeOpener(Reply(accepted(text=review_text(safe))))
+    result = send_telegram_once(bot_token=TOKEN, chat_id=CHAT, text=review_text(safe), opener=fake)
     assert result["providerAccepted"] is True
     assert result["deliveryVerified"] is False
     assert len(fake.calls) == 1
@@ -183,14 +194,29 @@ def test_provider_acceptance_requires_exact_sent_text_echo(echo):
     fake = FakeOpener(Reply(json.dumps({"ok": True, "result": result}).encode()))
     with pytest.raises(DeliveryUncertain, match="acceptance not independently established"):
         send_telegram_once(bot_token=TOKEN, chat_id=CHAT,
-                           text="Forecast review only", opener=fake)
+                           text=review_text(), opener=fake)
     assert len(fake.calls) == 1
 
 
 def test_unicode_echo_must_match_exact_codepoints():
-    sent = "Révision sans exécution"
+    sent = review_text("Révision sans exécution")
     # Visually similar NFD reply is not proof the exact request was accepted.
     fake = FakeOpener(Reply(accepted(text=unicodedata.normalize("NFD", sent))))
     with pytest.raises(DeliveryUncertain):
         send_telegram_once(bot_token=TOKEN, chat_id=CHAT, text=sent, opener=fake)
     assert len(fake.calls) == 1
+
+
+@pytest.mark.parametrize("unlabeled", [
+    "Forecast review only",
+    "UNVERIFIED RESEARCH FORECAST - NOT LIVE / NOT A TRADE",
+    "UNVERIFIED RESEARCH FORECAST - NOT LIVE / NOT A TRADE\nBUY NOW",
+    review_text().replace("NO BUY/SELL SIGNAL.", "BUY SIGNAL."),
+    "  " + review_text(),
+    review_text() + " LIVE BUY",
+])
+def test_review_disclaimer_cannot_be_omitted_or_overwritten(unlabeled):
+    fake = FakeOpener(Reply(accepted()))
+    with pytest.raises(ValueError, match="Invalid review alert text"):
+        send_telegram_once(bot_token=TOKEN, chat_id=CHAT, text=unlabeled, opener=fake)
+    assert fake.calls == []
