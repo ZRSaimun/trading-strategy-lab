@@ -47,9 +47,12 @@ def run(journals=None, records=None, expected=None, *, as_of=150):
                  default[2] if expected is None else expected, as_of=as_of)
 
 
-def test_pending_linked_alert_never_authorizes_action():
+def test_pending_linked_alert_near_expiry_requires_review_without_authority():
     result = run()
-    assert result["status"] == "DECLARED_ONLY"
+    # Target candle closes in 30s; pre-expiry review is expected even though
+    # the forecast remains PENDING and no notification/order is authorized.
+    assert result["status"] == "OPERATOR_REVIEW_REQUIRED"
+    assert result["alertHealth"]["counts"]["EXPIRING_SOON_WARNING"] == 1
     assert result["forecastCounts"]["PENDING"] == 1
     assert result["declaredCount"] == 1
     assert result["resolvedNoncancelledKeys"] == []
