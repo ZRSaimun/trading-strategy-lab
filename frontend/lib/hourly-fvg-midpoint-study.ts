@@ -7,7 +7,7 @@
  */
 import type {Bar} from './research.ts';
 
-export const HOURLY_FVG_VERSION='hourly-fvg-first-midpoint-touch-v11';
+export const HOURLY_FVG_VERSION='hourly-fvg-first-midpoint-touch-v12';
 export type Evidence='PASS'|'FAIL'|'INSUFFICIENT_DATA';
 export type Side='BULLISH'|'BEARISH';
 export type FvgSource={
@@ -36,7 +36,8 @@ export type EvidenceCounts=Record<Evidence,number>;
 export type FvgCohort={
  formations:number;
  midpointTouch:EvidenceCounts;strictCandidate:EvidenceCounts;markout:EvidenceCounts;
- pairedMarkouts:number;blindOnlyMarkouts:number;
+ pairedMarkouts:number;strictPairedMarkouts:number;nonStrictPairedMarkouts:number;
+ blindOnlyMarkouts:number;
 };
 export type FvgStudy={
  version:typeof HOURLY_FVG_VERSION;source:FvgSource;
@@ -158,6 +159,15 @@ function summarizeCohort(observations:readonly FvgObservation[]):FvgCohort{
   markout:count('markout'),
   pairedMarkouts:observations.filter(o=>
    o.blindMidpointTouch!==null&&o.confirmedNextOpen!==null).length,
+  // A wick-only paired result is NOT a strict volume-qualified result.
+  // The PASS label is based on caller-declared volume provenance; it is
+  // not independent broker or exchange authentication.
+  strictPairedMarkouts:observations.filter(o=>
+   o.blindMidpointTouch!==null&&o.confirmedNextOpen!==null&&
+   o.gates.strictCandidate==='PASS').length,
+  nonStrictPairedMarkouts:observations.filter(o=>
+   o.blindMidpointTouch!==null&&o.confirmedNextOpen!==null&&
+   o.gates.strictCandidate!=='PASS').length,
   blindOnlyMarkouts:observations.filter(o=>
    o.blindMidpointTouch!==null&&o.confirmedNextOpen===null).length,
  };
