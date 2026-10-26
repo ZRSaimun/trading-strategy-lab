@@ -13,6 +13,7 @@ from app.frozen_capacity_drawdown import (_maximum_drawdown,
                                           _first_pseudo_loss_barrier_event,
                                           _longest_strict_negative_streak,
                                           _strict_sign_count_envelope,
+                                          _worst_quartile_mean_envelope,
                                           audit_frozen_capacity_drawdown)
 from test_frozen_capacity_week_fragility import CUTOFF, sample, move
 
@@ -476,3 +477,80 @@ def test_rejected_outcome_changes_do_not_retroactively_change_admissions():
     assert changed["cost_scenarios"][0][
         "holdout_pseudo_settlement_unadmitted_strict_sign_census"
     ]["guaranteed_strict_positive"] == 1
+
+
+def test_worst_quartile_net_r_exact_values_and_fail_closed():
+    d = Decimal
+    result = _worst_quartile_mean_envelope(
+        [d("-3"), d("-1"), d("0"), d("1"), d("2"), d("3"), d("4"), d("5")],
+        [d("-2"), d("0"), d("1"), d("2"), d("3"), d("4"), d("5"), d("6")],
+    )
+    assert result == {
+        "admitted_paths": 8, "worst_quartile_paths": 2,
+        "minimum_worst_quartile_mean_net_r": "-2",
+        "maximum_worst_quartile_mean_net_r": "-1",
+    }
+    with pytest.raises(ValueError, match="quartile"):
+        _worst_quartile_mean_envelope([], [])
+    with pytest.raises(ValueError, match="quartile"):
+        _worst_quartile_mean_envelope([d("1")], [d("0")])
+    with pytest.raises(ValueError, match="quartile"):
+        _worst_quartile_mean_envelope([d("0")], [])
+
+
+def test_worst_quartile_bounds_match_independent_exhaustive_oracle():
+    # Enumerate every integer outcome of 4,680 short interval histories;
+    # extend to 5/6 events so the bottom quartile contains two outcomes.
+    interval_sets = (
+        ((-2, -1), (-1, 1), (0, 0), (1, 2)),
+        ((-2, -1), (0, 1)),
+    )
+    checked = 0
+    for choices, lengths in zip(interval_sets, ((1, 2, 3, 4), (5, 6))):
+        for length in lengths:
+            for intervals in product(choices, repeat=length):
+                actual = _worst_quartile_mean_envelope(
+                    [Decimal(a) for a, _ in intervals],
+                    [Decimal(b) for _, b in intervals],
+                )
+                k = (length + 3) // 4
+                observed = []
+                for values in product(*(range(a, b + 1) for a, b in intervals)):
+                    observed.append(
+                        sum(sorted(map(Decimal, values))[:k], Decimal(0)) / k
+                    )
+                    checked += 1
+                assert actual["admitted_paths"] == length
+                assert actual["worst_quartile_paths"] == k
+                assert Decimal(actual["minimum_worst_quartile_mean_net_r"]) == min(observed)
+                assert Decimal(actual["maximum_worst_quartile_mean_net_r"]) == max(observed)
+    assert checked == 9800
+
+
+def test_admitted_tail_envelope_is_cost_monotone_and_capacity_frozen():
+    m, p = sample()
+    move(m, p, 37, CUTOFF + 60)
+    before = run(m, p)
+    assert before["admission_counts"]["holdout_unadmitted"] == 1
+    for cohort in ("training", "holdout"):
+        previous = None
+        for scenario in before["cost_scenarios"]:
+            tail = scenario[f"{cohort}_pseudo_settlement_worst_quartile_net_r"]
+            assert tail["admitted_paths"] == before["admission_counts"][f"{cohort}_admitted"]
+            assert tail["worst_quartile_paths"] == (tail["admitted_paths"] + 3) // 4
+            assert Decimal(tail["minimum_worst_quartile_mean_net_r"]) <= Decimal(
+                tail["maximum_worst_quartile_mean_net_r"])
+            if previous:
+                for bound in ("minimum_worst_quartile_mean_net_r",
+                              "maximum_worst_quartile_mean_net_r"):
+                    assert Decimal(tail[bound]) <= Decimal(previous[bound])
+            previous = tail
+    # A changed rejected result must not alter admitted tail measurements.
+    for bar in p[37]["bars"]:
+        bar["close"] = "100.5"
+    after = run(m, p)
+    assert before["admission_counts"] == after["admission_counts"]
+    for old, new in zip(before["cost_scenarios"], after["cost_scenarios"]):
+        for cohort in ("training", "holdout"):
+            key = f"{cohort}_pseudo_settlement_worst_quartile_net_r"
+            assert old[key] == new[key]
