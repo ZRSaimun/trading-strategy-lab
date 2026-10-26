@@ -12,10 +12,10 @@ import re
 from decimal import Decimal, localcontext
 
 _PROTOCOL = "offline-demo-quote-tape-scenario-v1"
-_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,119}\\Z")
-_CURRENCY = re.compile(r"[A-Z]{3}\\Z")
-_SHA = re.compile(r"[0-9a-f]{64}\\Z")
-_NUMBER = re.compile(r"(?:0|[1-9][0-9]{0,11})(?:\\.[0-9]{1,8})?\\Z")
+_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,119}\Z")
+_CURRENCY = re.compile(r"[A-Z]{3}\Z")
+_SHA = re.compile(r"[0-9a-f]{64}\Z")
+_NUMBER = re.compile(r"(?:0|[1-9][0-9]{0,11})(?:\.[0-9]{1,8})?\Z")
 _SCOPE = {"provider", "venue", "account_alias", "instrument", "quote_currency",
           "point_value_cash", "max_quote_age_ms", "max_spread_price",
           "adverse_slippage_price", "commission_per_contract_side", "as_of_ms"}
