@@ -1,4 +1,5 @@
 """Offline, synthetic money-management tests; no broker or database."""
+from decimal import Decimal
 import pytest
 from app.paper_position_sizing import size_paper_position
 
@@ -36,8 +37,8 @@ def test_floating_profit_cannot_offset_loss():
 
 
 def test_existing_margin_and_leverage_bound_quantity():
-    assert sample(other_reserved_margin_cash="950")["quantity"] == "1"
-    assert sample(other_gross_notional_cash="1900")["quantity"] == "1"
+    assert sample(other_reserved_margin_cash="950")["quantity"] == "0.8"
+    assert sample(other_gross_notional_cash="1900")["quantity"] == "0.8"
     assert sample(other_reserved_margin_cash="1000")["failed_checks"] == ["margin_exhausted"]
 
 
@@ -50,7 +51,7 @@ def test_minimum_lot_fails_closed():
 
 def test_cash_mode_requires_full_funding_and_buy_only():
     result = sample(account_mode="CASH", max_leverage="1", margin_requirement_percent="100")
-    assert result["quantity"] == "10"
+    assert result["quantity"] == "9.7"
     with pytest.raises(ValueError, match="short"):
         sample(account_mode="CASH", side="SELL", stop_price="101", stressed_exit_price="102",
                max_leverage="1", margin_requirement_percent="100")
@@ -97,3 +98,58 @@ def test_maximum_quantity_and_no_broker_claim():
     assert result["quantity"] == "3.2"
     assert not result["broker_quote_verified"]
     assert not result["human_order_confirmation_verified"]
+
+
+def test_stressed_equity_is_debited_before_leverage_sizing():
+    result = sample(other_gross_notional_cash="1900")
+    q = Decimal(result["quantity"])
+    stressed_equity = Decimal(result["stressed_equity_after_loss_cash"])
+    assert q == Decimal("0.8")
+    assert stressed_equity == Decimal("991.4")
+    assert Decimal("1900") + q * 100 <= stressed_equity * 2
+    # The next 0.1 lot passes current-equity leverage, but fails stressed leverage.
+    assert Decimal("1900") + Decimal("0.9") * 100 > (
+        Decimal("1000") - Decimal("5") - Decimal("2") - Decimal("0.9") * 2
+    ) * 2
+    assert result["may_execute_paper_order"] is False
+
+
+def test_stressed_equity_is_debited_before_margin_sizing():
+    result = sample(other_reserved_margin_cash="950")
+    q = Decimal(result["quantity"])
+    stressed_equity = Decimal(result["stressed_equity_after_loss_cash"])
+    assert q == Decimal("0.8")
+    assert Decimal("950") + q * 50 <= stressed_equity
+    assert Decimal("950") + Decimal("0.9") * 50 > (
+        Decimal("1000") - Decimal("5") - Decimal("2") - Decimal("0.9") * 2
+    )
+
+
+def test_declared_existing_risk_can_exhaust_stressed_equity():
+    result = sample(other_reserved_loss_cash="999",
+                    max_daily_loss_cash="2000", max_position_loss_cash="1000",
+                    daily_realized_pnl_cash="0", daily_unrealized_pnl_cash="0")
+    assert result["quantity"] == "0"
+    assert "stressed_equity_exhausted" in result["failed_checks"]
+    assert not result["illustrative_constraints_satisfied"]
+
+
+def test_minimum_lot_refused_when_stressed_equity_cannot_cover_it():
+    result = sample(other_reserved_loss_cash="990", max_daily_loss_cash="2000",
+                    max_position_loss_cash="1000", daily_realized_pnl_cash="0",
+                    daily_unrealized_pnl_cash="0", minimum_quantity="0.2")
+    assert result["quantity"] == "0"
+    assert result["failed_checks"] == ["minimum_lot_exceeds_limits"]
+
+
+def test_short_side_and_floating_profit_cannot_bypass_stressed_leverage():
+    result = sample(side="SELL", stop_price="101", stressed_exit_price="102",
+                    other_gross_notional_cash="1900", daily_unrealized_pnl_cash="1000")
+    assert result["quantity"] == "0.8"
+    assert result["may_execute_real_order"] is False
+
+
+def test_stressed_equity_result_includes_existing_and_new_downside():
+    result = sample()
+    assert result["stressed_equity_after_loss_cash"] == "965"
+    assert result["stressed_loss_cash"] == "30"
