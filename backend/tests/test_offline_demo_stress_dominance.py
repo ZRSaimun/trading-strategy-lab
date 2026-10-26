@@ -113,6 +113,11 @@ def test_no_mutation_and_order_independent_stress_plan():
     (lambda r: r.update(minimum_hypothetical_filled_contracts=999), "summary"),
     (lambda r: r.update(all_scenarios_fully_filled=False), "summary"),
     (lambda r: r.update(worst_comparable_full_fill_entry_cost_cash="0"), "envelope"),
+    (lambda r: r.update(source_identity={"provider": "forged"}), "source"),
+    (lambda r: r.update(as_of_ms=2000), "cutoff"),
+    (lambda r: r.update(requested_contracts=99), "source"),
+    (lambda r: r["baseline"].update(quote_tape_sha256="f" * 64), "fingerprint"),
+    (lambda r: r.update(stresses=[]), "population"),
 ])
 def test_adversarial_internal_result_mutations_fail_closed(monkeypatch, mutator, pattern):
     original = guard.engine.audit_declared_demo_execution_stress
