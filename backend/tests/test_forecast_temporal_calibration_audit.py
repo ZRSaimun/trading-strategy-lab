@@ -76,6 +76,40 @@ def test_pending_or_void_in_late_cohort_withholds_metrics():
         assert row["lateBrier"] is None
 
 
+
+def test_late_resolved_early_label_counts_as_boundary_missingness():
+    s = fixture()
+    # Last early forecast settles exactly as the late cohort starts.
+    boundary = s["forecasts"][80]["issuedAt"]
+    s["forecasts"][79]["resolvedAt"] = boundary
+    row = audit_temporal_forecast_calibration(
+        s, max_unresolved_fraction=.01)["groups"][0]
+    assert row["earlyNonoverlappingSettled"] >= 30
+    assert row["lateNonoverlappingSettled"] >= 30
+    assert row["earlyPurgedForChronology"] == 1
+    assert row["earlyUnavailableAtBoundary"] == 1
+    assert row["earlyUnavailableAtBoundaryFraction"] == pytest.approx(1 / 80)
+    assert row["lateUnresolvedOrVoidFraction"] == 0
+    assert row["status"] == "UNRESOLVED_SELECTION_RISK"
+    assert row["earlyBrier"] is None and row["lateBrier"] is None
+    assert row["descriptiveDriftFlag"] is None
+
+
+def test_pending_and_post_boundary_labels_share_one_risk_budget():
+    s = fixture()
+    s["forecasts"][0].update(status="PENDING", outcomeUp=None, resolvedAt=None)
+    s["forecasts"][79]["resolvedAt"] = s["forecasts"][80]["issuedAt"]
+    row = audit_temporal_forecast_calibration(
+        s, max_unresolved_fraction=.02)["groups"][0]
+    assert row["earlyPurgedForChronology"] == 1
+    assert row["earlyUnresolvedOrVoid"] == 1
+    assert row["earlyUnavailableAtBoundary"] == 2
+    assert row["earlyUnavailableAtBoundaryFraction"] == pytest.approx(2 / 80)
+    assert row["earlyNonoverlappingSettled"] >= 30
+    assert row["status"] == "UNRESOLVED_SELECTION_RISK"
+    assert row["lateBrierSkillVsFrozenEarlyClimatology"] is None
+
+
 def test_empty_journal_safe():
     s = fixture(0)
     result = audit_temporal_forecast_calibration(s)
