@@ -108,7 +108,13 @@ def test_missing_outcome_does_not_shift_fixed_issued_sampling_census(
     assert group["lateNonoverlappingIssued"] == 40
     assert group["earlyNonoverlappingSettled"] == expected_early
     assert group["lateNonoverlappingSettled"] == expected_late
-    assert group["earlyUnavailableAtBoundary"] + group["lateUnresolvedOrVoid"] == 1
+    # The unmodified fixture already has one boundary-unavailable early
+    # outcome; censoring must add exactly one more, not erase that risk.
+    baseline = audit_temporal_forecast_calibration(fixture())["groups"][0]
+    missing = group["earlyUnavailableAtBoundary"] + group["lateUnresolvedOrVoid"]
+    baseline_missing = (baseline["earlyUnavailableAtBoundary"]
+                        + baseline["lateUnresolvedOrVoid"])
+    assert missing == baseline_missing + 1
 
 
 def test_pending_and_post_boundary_labels_share_one_risk_budget():
