@@ -113,7 +113,7 @@ def evaluate_paper_reconnect(before, after, *, disconnect_at_ms, reconnected_at_
     prior_working = set(prior["working_order_ids"])
     current_working = set(current["working_order_ids"])
     receipts = {r["client_order_id"]: r for r in current["terminal_receipts"]}
-    filled = any(r["outcome"] == "FILLED" for r in receipts.values())
+    declared_filled_count = sum(r["outcome"] == "FILLED" for r in receipts.values())
     chronology = prior["captured_at_ms"] <= disconnect < reconnect <= now
     post_chronology = reconnect <= current["captured_at_ms"] <= now
     quote_chronology = (
@@ -151,6 +151,10 @@ def evaluate_paper_reconnect(before, after, *, disconnect_at_ms, reconnected_at_
             current["order_sequence"] >= prior["order_sequence"]
             and current["fill_sequence"] >= prior["fill_sequence"]
         ),
+        "no_unexplained_order_sequence_change": (
+            current["order_sequence"] == prior["order_sequence"]
+            or bool(receipts)
+        ),
         "risk_revision_unchanged_pending_review": (
             current["risk_revision"] == prior["risk_revision"]
         ),
@@ -166,8 +170,7 @@ def evaluate_paper_reconnect(before, after, *, disconnect_at_ms, reconnected_at_
             reconnect <= r["observed_at_ms"] <= now for r in receipts.values()
         ),
         "fill_sequence_matches_declared_terminal_fills": (
-            current["fill_sequence"] > prior["fill_sequence"] if filled
-            else current["fill_sequence"] == prior["fill_sequence"]
+            current["fill_sequence"] - prior["fill_sequence"] == declared_filled_count
         ),
     }
     payload = {
