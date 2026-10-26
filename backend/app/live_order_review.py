@@ -86,7 +86,7 @@ def build_review_packet(order, *, now_ms, max_quote_age_ms=3000,
         raise ValueError('Invalid trusted server clock')
     if any(type(v) is not int for v in (max_quote_age_ms, max_transport_lag_ms, ttl_ms)):
         raise ValueError('Timing limits must be integers')
-    if not 100 <= max_quote_age_ms <= 60000 or not 0 <= max_transport_lag_ms <= 60000 or not 1000 <= ttl_ms <= 60000:
+    if not 100 <= max_quote_age_ms <= 3000 or not 0 <= max_transport_lag_ms <= 1000 or not 1000 <= ttl_ms <= 60000:
         raise ValueError('Invalid timing policy')
     if now_ms + ttl_ms > MAX_TIME:
         raise ValueError('Review expiry overflow')
@@ -117,6 +117,16 @@ def build_review_packet(order, *, now_ms, max_quote_age_ms=3000,
         effective_daily = (o['daily_realized_pnl_cash']
                            + min(o['daily_unrealized_pnl_cash'], Decimal(0))
                            - o['existing_reserved_risk_cash'] - loss)
+        # Conservative non-relaxable bounds for this offline review surface.
+        # These are NOT a broker risk policy, nor guarantees against gap losses.
+        checks['declared_position_budget_at_most_5pct_equity'] = (
+            o['max_position_loss_cash'] * 100 <= o['account_equity_cash'] * 5)
+        checks['declared_daily_budget_at_most_10pct_equity'] = (
+            o['max_daily_loss_cash'] * 100 <= o['account_equity_cash'] * 10)
+        checks['declared_leverage_policy_at_most_5x'] = (
+            o['max_gross_leverage'] <= Decimal('5'))
+        checks['declared_spread_policy_at_most_100bps'] = (
+            o['max_spread_bps'] <= Decimal('100'))
         checks['per_position_loss_cap'] = loss > 0 and loss <= o['max_position_loss_cash']
         checks['position_cap_within_daily_cap_and_equity'] = (o['max_position_loss_cash'] <= o['max_daily_loss_cash']
                                                                and o['max_position_loss_cash'] <= o['account_equity_cash'])
