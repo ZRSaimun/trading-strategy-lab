@@ -247,6 +247,57 @@ def _validated_cost_trajectory(costs, *, frozen_entry=None, frozen_stop=None,
             bounds.append((lower, upper))
     return tuple(bounds)
 
+
+def _baseline_strict_winner_cost_tolerance(population, frozen_by_id,
+                                           cost_trajectories):
+    """Continuous illustrative bps thresholds for zero-cost guaranteed winners.
+
+    For a strictly positive lower net-R at zero extra cost, additional bps
+    erode net-R by abs(entry) / (10000 * abs(entry-stop)) per bps. Equality
+    with the lower (upper) threshold removes guaranteed (possible) strict
+    profitability for that *same* frozen path. No outcome-driven admission,
+    realized broker spread, probability, or strategy-selection inference.
+    """
+    lower_thresholds, upper_thresholds = [], []
+    with localcontext() as ctx:
+        ctx.prec = 80
+        for _, _, path_id in sorted(population):
+            lower, upper = cost_trajectories[path_id][0]
+            if lower > upper:
+                raise ValueError("Inverted zero-cost return interval")
+            if lower <= 0:
+                continue
+            frozen = frozen_by_id[path_id]
+            entry = _decimal(frozen["entry"])
+            stop = _decimal(frozen["stop"])
+            if entry == 0 or entry == stop:
+                raise ValueError("Invalid frozen cost tolerance denominator")
+            scale = Decimal(10000) * abs(entry - stop) / abs(entry)
+            lower_bps, upper_bps = lower * scale, upper * scale
+            if not (Decimal(0) < lower_bps <= upper_bps):
+                raise ValueError("Invalid strict-winner break-even interval")
+            lower_thresholds.append(lower_bps)
+            upper_thresholds.append(upper_bps)
+
+        def summary(values):
+            if not values:
+                return dict(minimum=None, median=None, maximum=None)
+            ordered = sorted(values)
+            n = len(ordered)
+            return dict(
+                minimum=str(ordered[0]),
+                median=str((ordered[(n - 1) // 2] + ordered[n // 2]) / 2),
+                maximum=str(ordered[-1]),
+            )
+
+        return dict(
+            population_paths=len(population),
+            baseline_guaranteed_strict_positive_paths=len(lower_thresholds),
+            additional_bps_to_erase_guaranteed_positive=summary(lower_thresholds),
+            additional_bps_to_erase_possible_positive=summary(upper_thresholds),
+        )
+
+
 def _worst_quartile_mean_envelope(lower, upper):
     """Exact bottom-quarter mean bounds for independently bounded net-R paths.
 
@@ -548,6 +599,18 @@ def audit_frozen_capacity_drawdown(
         policy=upstream["policy"], admission_counts=counts,
         pseudo_settlement_order="full_horizon_end_then_signal_at_then_path_id",
         cost_scenarios=reports,
+        break_even_tolerance={
+            f"{label}_{status}": _baseline_strict_winner_cost_tolerance(
+                population, frozen_by_id, cost_trajectories)
+            for label, admitted_population, rejected_population in (
+                ("training", admitted[0], unadmitted[0]),
+                ("holdout", admitted[1], unadmitted[1]),
+            )
+            for status, population in (
+                ("admitted", admitted_population),
+                ("unadmitted", rejected_population),
+            )
+        },
         source_authenticated=False, untouched_holdout_verified=False,
         independent_preregistration_verified=False,
         capital_feasible_returns_verified=False, executable_broker_fills=False,
