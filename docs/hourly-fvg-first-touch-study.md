@@ -1,6 +1,8 @@
-# Hourly FVG first-touch midpoint rejection versus blind limit (research v12)
+# Hourly FVG first-touch midpoint rejection versus blind limit (research v13)
 
 **Status: proposed, deterministic, read-only hypothesis.** This standalone TypeScript library is not yet wired to the terminal UI, production broker, archive query or cloud service. No actual BID/ASK executions, licensed news data, verified performance, live trades or profitability claims are included. It deliberately does **not** duplicate PR #24's sweep/MSS/FVG confluence risk-path experiment or PR #33's 4H CRT/15m confirmation screen.
+
+**Version 13: audit paired and censored strict-gate populations.** The `cohort` report includes `pairedByStrictCandidate` and `unpairedByStrictCandidate` counts for each `PASS`, `FAIL`, and `INSUFFICIENT_DATA` strict-candidate status. Every status reconciles to the full formation census, paired cells reconcile to `pairedMarkouts`, and unpaired cells to the remaining formations. A strict first touch without a complete fixed-horizon exit remains **unpaired PASS**, not a measured return; a wick-only pair with unverified volume remains **paired INSUFFICIENT_DATA**, not strict evidence. One synthetic regression checks right-censoring, failed wicks, unverified volume and gap-through. Frozen rule ID: `hourly-fvg-first-midpoint-touch-v13`. No authenticated fills, source identities or profitability are claimed.
 
 **Version 12: separate strict-declared volume-qualified pairs from wick-only comparisons.** The `cohort` report now partitions `pairedMarkouts` into `strictPairedMarkouts` (both hypothetical returns present and `strictCandidate: PASS`) and `nonStrictPairedMarkouts` (both returns present but strict eligibility is `FAIL` or `INSUFFICIENT_DATA`). These counts always sum to `pairedMarkouts`; a visually compelling wick with unverified/missing/below-threshold volume is **not** counted as strict-qualified. This classification relies only on the caller's declared source/volume identity, **not independent provider authentication**, executable BID/ASK fills or profit. One synthetic regression covers declared pass, known fail, unknown source and census reconciliation. Frozen rule ID: `hourly-fvg-first-midpoint-touch-v12`.
 
@@ -46,6 +48,6 @@ The research still lacks an authenticated broker's timestamped BID/ASK observati
 
 ## Verification
 
-29 synthetic Node tests cover bullish and bearish gap geometry, first-touch freeze, strict volume gating, incomplete and missing candles, gap-through uncertainty, causal next-open timing, common-horizon cost arithmetic and source validation. Run `cd frontend && npm test && npm run typecheck && npm run build`; repository CI also exercises backend and container smoke. Synthetic passing tests do not establish a statistical edge.
+30 synthetic Node tests cover bullish and bearish gap geometry, first-touch freeze, strict volume gating, incomplete and missing candles, gap-through uncertainty, causal next-open timing, common-horizon cost arithmetic and source validation. Run `cd frontend && npm test && npm run typecheck && npm run build`; repository CI also exercises backend and container smoke. Synthetic passing tests do not establish a statistical edge.
 
 **Deployment safety:** isolated draft PR; no secrets, private datasets, paid APIs, orders, production database changes, merge or Render deployment.

@@ -7,7 +7,7 @@
  */
 import type {Bar} from './research.ts';
 
-export const HOURLY_FVG_VERSION='hourly-fvg-first-midpoint-touch-v12';
+export const HOURLY_FVG_VERSION='hourly-fvg-first-midpoint-touch-v13';
 export type Evidence='PASS'|'FAIL'|'INSUFFICIENT_DATA';
 export type Side='BULLISH'|'BEARISH';
 export type FvgSource={
@@ -37,6 +37,8 @@ export type FvgCohort={
  formations:number;
  midpointTouch:EvidenceCounts;strictCandidate:EvidenceCounts;markout:EvidenceCounts;
  pairedMarkouts:number;strictPairedMarkouts:number;nonStrictPairedMarkouts:number;
+ // Count matched and right-censored candidates by strict evidence status.
+ pairedByStrictCandidate:EvidenceCounts;unpairedByStrictCandidate:EvidenceCounts;
  blindOnlyMarkouts:number;
 };
 export type FvgStudy={
@@ -152,13 +154,20 @@ function summarizeCohort(observations:readonly FvgObservation[]):FvgCohort{
   for(const observation of observations)result[observation.gates[gate]]++;
   return result;
  };
+ const paired=(o:FvgObservation)=>o.blindMidpointTouch!==null&&o.confirmedNextOpen!==null;
+ const pairedByStrictCandidate:EvidenceCounts={PASS:0,FAIL:0,INSUFFICIENT_DATA:0};
+ const unpairedByStrictCandidate:EvidenceCounts={PASS:0,FAIL:0,INSUFFICIENT_DATA:0};
+ for(const observation of observations){
+  const counts=paired(observation)?pairedByStrictCandidate:unpairedByStrictCandidate;
+  counts[observation.gates.strictCandidate]++;
+ }
  return {
   formations:observations.length,
   midpointTouch:count('midpointTouch'),
   strictCandidate:count('strictCandidate'),
   markout:count('markout'),
-  pairedMarkouts:observations.filter(o=>
-   o.blindMidpointTouch!==null&&o.confirmedNextOpen!==null).length,
+  pairedMarkouts:observations.filter(paired).length,
+  pairedByStrictCandidate,unpairedByStrictCandidate,
   // A wick-only paired result is NOT a strict volume-qualified result.
   // The PASS label is based on caller-declared volume provenance; it is
   // not independent broker or exchange authentication.
