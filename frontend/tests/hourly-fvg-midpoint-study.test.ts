@@ -37,7 +37,7 @@ test('research report source metadata excludes arbitrary caller properties',()=>
  assert.deepEqual(Object.keys(report.source).sort(),Object.keys(source).sort());
  assert.equal(JSON.stringify(report).includes('synthetic-private-marker'),false);
  assert.equal(JSON.stringify(report).includes('synthetic-account-marker'),false);
- assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v8');
+ assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v9');
 });
 test('ambiguous source labels and contradictory volume evidence fail closed',()=>{
  // These are declared metadata, not independent vendor authentication.
@@ -55,6 +55,20 @@ test('ambiguous source labels and contradictory volume evidence fail closed',()=
  }
  const exact={...source,instrument:'NSXUSD-CFD / BID',provider:'Research feed A'};
  assert.deepEqual(studyHourlyFvgMidpoint(fixture(),exact).source,exact);
+});
+test('invisible and bidirectional Unicode source controls cannot spoof feed identity',()=>{
+ // Control characters can reverse or hide displayed instrument/provider
+ // names without changing their exact strings. Do not export such labels.
+ for(const character of ['\u202e','\u202a','\u2066','\u2069','\u200b','\u200d','\u061c','\ufeff']){
+  for(const field of ['provider','instrument'] as const){
+   assert.throws(()=>studyHourlyFvgMidpoint(fixture(),{
+    ...source,[field]:field==='provider'?'feed'+character+'A':'NSX'+character+'USD',
+   }),/Invalid source/);
+  }
+ }
+ // Legitimate non-ASCII provider identities remain distinguishable.
+ const legitimate={...source,provider:'Données marché',instrument:'Índice Oro'};
+ assert.deepEqual(studyHourlyFvgMidpoint(fixture(),legitimate).source,legitimate);
 });
 test('first bullish midpoint touch has a hypothetical blind limit and later next-open rejection markout',()=>{
  const x=target(fixture());
@@ -352,7 +366,7 @@ test('an overflowing next-open comparator suppresses both matched markouts',()=>
 });
 test('completed hourly timestamps are safe and numeric rule changes have a new version',()=>{
  const report=studyHourlyFvgMidpoint(fixture(),source);
- assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v8');
+ assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v9');
  const lastSafeAlignedOpen=Math.floor(Number.MAX_SAFE_INTEGER/H)*H;
  assert.equal(Number.isSafeInteger(lastSafeAlignedOpen),true);
  assert.equal(Number.isSafeInteger(lastSafeAlignedOpen+H),false);

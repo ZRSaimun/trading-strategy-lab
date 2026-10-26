@@ -7,7 +7,7 @@
  */
 import type {Bar} from './research.ts';
 
-export const HOURLY_FVG_VERSION='hourly-fvg-first-midpoint-touch-v8';
+export const HOURLY_FVG_VERSION='hourly-fvg-first-midpoint-touch-v9';
 export type Evidence='PASS'|'FAIL'|'INSUFFICIENT_DATA';
 export type Side='BULLISH'|'BEARISH';
 export type FvgSource={
@@ -39,12 +39,13 @@ export type FvgStudy={
 };
 const HOUR=3600;
 // Preserve exact provider/instrument identities in exported research reports.
-// Whitespace aliases, control characters and unbounded labels can poison
-// provenance comparisons or logs; never silently normalize an identity.
+// Whitespace aliases, control and Unicode formatting characters, and
+// unbounded labels can poison provenance comparisons or visually spoof a
+// feed identity; never silently normalize an identity.
 function validSourceLabel(value:unknown):value is string{
  return typeof value==='string'&&value.length>=1&&value.length<=128&&
   value.trim()===value&&
-  !/[\u0000-\u001f\u007f-\u009f\u2028\u2029]/.test(value);
+  !/[\u0000-\u001f\u007f-\u009f\u061c\u200b-\u200f\u2028-\u202e\u2060-\u206f\ufeff]/.test(value);
 }
 function validateBars(bars:readonly Bar[]){
  if(!Array.isArray(bars)||bars.length>20000)
