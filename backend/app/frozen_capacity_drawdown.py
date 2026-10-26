@@ -387,7 +387,7 @@ def audit_frozen_capacity_drawdown(
                 if best > worst:
                     raise ValueError("Inverted drawdown envelope")
                 report[f"{label}_pseudo_settlement_minimum_max_drawdown_pct_initial"] = str(best)
-                report[f"{label}_pseudo_settlement_maximum_max_drawdown_peak_event"] = best_peak
+                report[f"{label}_pseudo_settlement_minimum_max_drawdown_peak_event"] = best_peak
                 report[f"{label}_pseudo_settlement_minimum_max_drawdown_trough_event"] = best_trough
                 report[f"{label}_pseudo_settlement_maximum_max_drawdown_pct_initial"] = str(worst)
                 report[f"{label}_pseudo_settlement_maximum_max_drawdown_peak_event"] = worst_peak
