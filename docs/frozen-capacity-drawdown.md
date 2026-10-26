@@ -243,3 +243,27 @@ intervals or nonmonotone erosion across cost scenarios. Tests include an
 independent discrete-outcome oracle and full-report population census.
 Source rights, clock mapping, quote-side costs, financing, untouched holdouts
 and trading profitability remain unverified.
+
+
+## Continuous break-even execution-cost tolerance (26 October 2026)
+
+The top-level `break_even_tolerance` section covers each **frozen**
+training/holdout × admitted/capacity-rejected population. It counts paths
+whose **zero-additional-cost lower return bound is strictly positive**, then
+computes the additional illustrative round-trip basis points at which that
+*same path* ceases to be guaranteed strictly positive (lower endpoint hits
+zero), and at which it ceases to be even possibly strictly positive (upper
+endpoint hits zero). With frozen entry `E`, stop `S`, and gross R endpoint
+`R`, the threshold is `R × 10000 × abs(E-S) / abs(E)`. Both thresholds
+are reported as **minimum, median and maximum** across baseline-guaranteed
+winners, using exact Decimal arithmetic; no winners produces null summaries.
+
+The count must match the zero-cost strict-sign census for the identical
+population. The same predeclared full-horizon capacity decisions are reused;
+capacity-rejected opportunities are not silently omitted. This is a
+continuous-cost *arithmetic sensitivity* complement to the 0/5/10/20-bps
+illustrative grid, **not** a measured broker spread, empirical slippage,
+profit probability, forecast calibration, validated historical edge, or
+permission to trade. In particular, a threshold is not a claim that any
+provider can execute at that cost. No signal selection or order path uses
+these retrospective summaries.
