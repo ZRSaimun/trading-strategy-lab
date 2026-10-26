@@ -19,6 +19,7 @@ _SHA = re.compile(r"[0-9a-f]{64}\Z")
 _MAX_MS = 8_640_000_000_000_000
 _MAX_TTL_MS = 600_000
 _MAX_REV = 2**53 - 1
+_MAX_ENVELOPE_BYTES = 16_384
 _FIELDS = {"version", "account_hash", "order_hash", "review_sha256",
            "created_ms", "expires_ms", "updated_ms", "revision", "state"}
 
@@ -43,6 +44,12 @@ def _canonical(value):
 
 def _decode(raw, account_hash, order_hash):
     try:
+        # Check the persisted envelope BEFORE JSON parsing. Corrupt/hostile DB
+        # values must not consume unbounded parser memory or CPU on every read.
+        # Encoded states are ASCII JSON; bound both characters and UTF-8 bytes.
+        if (not isinstance(raw, str) or len(raw) > _MAX_ENVELOPE_BYTES
+                or len(raw.encode("utf-8")) > _MAX_ENVELOPE_BYTES):
+            raise ValueError("Oversized or non-text intent envelope")
         def unique(pairs):
             out = {}
             for key, value in pairs:
@@ -81,7 +88,7 @@ def _decode(raw, account_hash, order_hash):
         if not isinstance(doc["sha256"], str) or doc["sha256"] != digest:
             raise ValueError("Intent checksum mismatch")
         return state
-    except (ValueError, TypeError, OverflowError, RecursionError) as exc:
+    except (ValueError, TypeError, OverflowError, RecursionError, UnicodeError) as exc:
         raise ValueError("Stored paper order intent corrupt; keep execution disabled") from exc
 
 
