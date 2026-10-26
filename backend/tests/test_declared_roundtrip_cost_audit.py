@@ -160,7 +160,7 @@ def test_order_independence_deterministic_hash_and_nonmutation():
     (0, {"quote_observed_at": 90}),
     (0, {"executed_at": True}),
     (0, {"extra": "unexpected"}),
-    (2, {"executed_at": 350}),
+    (2, {"executed_at": 101}),
     (4, {"executed_at": 101}),
 ])
 def test_invalid_or_cross_source_fill_fails_closed(index, change):
