@@ -10,7 +10,7 @@ import app.provider_credit_budget as budget
 import app.prospective_twelvedata_receipt as bridge
 from app.expected_bar_manifest import compile_expected_m1_manifest
 
-NOW = 1790000180
+NOW = 1790000160
 DAY = datetime.fromtimestamp(NOW, timezone.utc).date().isoformat()
 HASH = "a" * 64
 RIGHTS = "b" * 64
