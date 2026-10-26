@@ -7,7 +7,7 @@
  */
 import type {Bar} from './research.ts';
 
-export const HOURLY_FVG_VERSION='hourly-fvg-first-midpoint-touch-v19';
+export const HOURLY_FVG_VERSION='hourly-fvg-first-midpoint-touch-v20';
 export type Evidence='PASS'|'FAIL'|'INSUFFICIENT_DATA';
 export type Side='BULLISH'|'BEARISH';
 export type FvgSource={
@@ -228,7 +228,12 @@ export function studyHourlyFvgMidpoint(
   priceSide:source.priceSide,volumeType:source.volumeType,
   volumeVerified:source.volumeVerified,
  };
- if(!/^[a-f0-9]{64}$/.test(declaredSource.datasetId)||
+ // RegExp#test coerces objects via toString/Symbol.toPrimitive. A forged
+ // object could pass a hash-shaped check then leak into exported provenance.
+ // Require primitive strings before testing the exact lowercase SHA form.
+ if(typeof declaredSource.datasetId!=='string'||
+  typeof declaredSource.archiveSha256!=='string'||
+  !/^[a-f0-9]{64}$/.test(declaredSource.datasetId)||
   !/^[a-f0-9]{64}$/.test(declaredSource.archiveSha256)||
   !validSourceLabel(declaredSource.instrument)||!validSourceLabel(declaredSource.provider)||
   declaredSource.priceSide!=='bid'||typeof declaredSource.volumeVerified!=='boolean'||
