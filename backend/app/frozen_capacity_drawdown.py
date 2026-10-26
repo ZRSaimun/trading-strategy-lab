@@ -45,6 +45,27 @@ def _maximum_drawdown(increments):
     return _maximum_drawdown_with_window(increments)[0]
 
 
+
+def _first_pseudo_recovery_event(increments, peak_event, trough_event, maximum):
+    """First later booking event recovering the selected drawdown peak.
+
+    None means no positive drawdown or no recovery by the final fixed-horizon
+    booking. This is not an observed market exit, broker equity recovery, or
+    a causal signal for capacity admission.
+    """
+    if maximum == 0:
+        return None
+    if not 0 <= peak_event < trough_event <= len(increments):
+        raise ValueError("Invalid pseudo-drawdown event window")
+    target = sum(increments[:peak_event], Decimal(0))
+    equity = sum(increments[:trough_event], Decimal(0))
+    for event_index in range(trough_event + 1, len(increments) + 1):
+        equity += increments[event_index - 1]
+        if equity >= target:
+            return event_index
+    return None
+
+
 def _withheld(upstream, reason):
     return dict(
         protocol="frozen-m1-capacity-drawdown-v1",
@@ -158,6 +179,10 @@ def audit_frozen_capacity_drawdown(
                 best_r, best_peak, best_trough = _maximum_drawdown_with_window(hi)
                 worst_r, worst_peak, worst_trough = _maximum_drawdown_with_window(lo)
                 best, worst = best_r * factor, worst_r * factor
+                best_recovery = _first_pseudo_recovery_event(
+                    hi, best_peak, best_trough, best_r)
+                worst_recovery = _first_pseudo_recovery_event(
+                    lo, worst_peak, worst_trough, worst_r)
                 if best > worst:
                     raise ValueError("Inverted drawdown envelope")
                 report[f"{label}_pseudo_settlement_minimum_max_drawdown_pct_initial"] = str(best)
@@ -166,6 +191,8 @@ def audit_frozen_capacity_drawdown(
                 report[f"{label}_pseudo_settlement_maximum_max_drawdown_pct_initial"] = str(worst)
                 report[f"{label}_pseudo_settlement_maximum_max_drawdown_peak_event"] = worst_peak
                 report[f"{label}_pseudo_settlement_maximum_max_drawdown_trough_event"] = worst_trough
+                report[f"{label}_pseudo_settlement_minimum_max_drawdown_recovery_event"] = best_recovery
+                report[f"{label}_pseudo_settlement_maximum_max_drawdown_recovery_event"] = worst_recovery
                 report[f"{label}_pseudo_settlement_final_lower_pct_initial"] = str(sum(lo) * factor)
                 report[f"{label}_pseudo_settlement_final_upper_pct_initial"] = str(sum(hi) * factor)
             reports.append(report)
