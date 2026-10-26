@@ -35,6 +35,29 @@ For each frozen training/holdout cohort and illustrative 0/5/10/20-bps additiona
 
 Both event fields are null when the corresponding endpoint never touches the threshold. The synthetic all-endpoint classification does **not** measure a probability, expected shortfall, margin liquidation, risk of ruin, broker stop, or capital adequacy. It is sensitive to the artificial fixed-horizon ordering and initial-equity risk convention. No thresholds are tuned against holdout outcomes, and these events must never influence retrospective admission, candidate selection, or trade authorization. Independent exhaustive all-path tests enumerate interval-compatible integer outcomes to verify the earliest possible and unavoidable crossing logic.
 
+## Strict-negative pseudo-settlement streak envelope
+
+Each cost scenario and cohort also reports
+`{training|holdout}_pseudo_settlement_minimum_longest_strict_negative_path_streak`
+and
+`{training|holdout}_pseudo_settlement_maximum_longest_strict_negative_path_streak`.
+A path counts as negative only when its **net-R outcome is strictly below zero**;
+zero and positive paths break a consecutive-loss run. The metric counts adjacent
+*full-horizon pseudo-bookings*, not trading days, calendar duration, broker
+executions, or independent market bets. A loss streak may include overlapping
+market exposure and does not imply broker solvency or margin outcomes.
+
+With independently selectable interval-valued path outcomes, the **all-upper**
+net-R endpoints minimize the longest negative streak, and the **all-lower**
+endpoints maximize it. Both limits are exact mathematical bounds over the
+declared synthetic outcome envelope, not likelihood estimates. An ambiguous
+path is never optimistically discarded. Costs are the existing illustrative
+0/5/10/20 additional round-trip basis points; they are not authenticated
+executable spreads or financing. The independent exhaustive oracle checks
+4,680 short synthetic interval-compatible histories, including exact-zero
+breaks and sign-crossing intervals. These streaks must not be used for
+candidate selection, live order authorization or claims of predictive edge.
+
 No individual winning week, trade, or ambiguity is removed to improve returns. Declared exclusions, censored paths, inadequate cohort size/dispersion, wrong manifest hash, cutoff/embargo leakage, duplicate signals, inconsistent costs or changed admissions cause withholding or rejection. Synthetic regression tests verify baseline losses, cost ordering, ambiguous outcomes, rejection accounting, no hindsight capacity release, invariance to input order and fail-closed conditions.
 
 ## Explicit limits and coordination
