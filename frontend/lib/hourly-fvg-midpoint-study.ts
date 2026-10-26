@@ -7,7 +7,7 @@
  */
 import type {Bar} from './research.ts';
 
-export const HOURLY_FVG_VERSION='hourly-fvg-first-midpoint-touch-v1';
+export const HOURLY_FVG_VERSION='hourly-fvg-first-midpoint-touch-v2';
 export type Evidence='PASS'|'FAIL'|'INSUFFICIENT_DATA';
 export type Side='BULLISH'|'BEARISH';
 export type FvgSource={
@@ -43,7 +43,10 @@ function validateBars(bars:readonly Bar[]){
   throw Error('Invalid or oversized hourly research window');
  for(let i=0;i<bars.length;i++){
   const b=bars[i];
-  if(!Number.isSafeInteger(b.time)||b.time<0||b.time%HOUR!==0||
+  // A safe integer bar open can still overflow when converted to its
+  // completed-bar close. All signal and markout timestamps use close times.
+  if(!Number.isSafeInteger(b.time)||!Number.isSafeInteger(b.time+HOUR)||
+   b.time<0||b.time%HOUR!==0||
    b.observed_minutes!==60||
    ![b.open,b.high,b.low,b.close].every(x=>Number.isFinite(x)&&x>0)||
    b.low>Math.min(b.open,b.close)||b.high<Math.max(b.open,b.close)||

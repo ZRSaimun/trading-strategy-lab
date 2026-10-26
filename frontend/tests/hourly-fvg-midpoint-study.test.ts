@@ -241,6 +241,22 @@ test('an overflowing next-open comparator suppresses both matched markouts',()=>
  assert.equal(x.blindMidpointTouch,null);
  assert.equal(x.confirmedNextOpen,null);
 });
+test('completed hourly timestamps are safe and numeric rule changes have a new version',()=>{
+ const report=studyHourlyFvgMidpoint(fixture(),source);
+ assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v2');
+ const lastSafeAlignedOpen=Math.floor(Number.MAX_SAFE_INTEGER/H)*H;
+ assert.equal(Number.isSafeInteger(lastSafeAlignedOpen),true);
+ assert.equal(Number.isSafeInteger(lastSafeAlignedOpen+H),false);
+ // Previously this open passed validation but its close could not be
+ // represented as an exact second for formation/touch/markout evidence.
+ assert.throws(()=>studyHourlyFvgMidpoint([
+  {...candle(0),time:lastSafeAlignedOpen},
+ ],source),/Invalid, incomplete/);
+ assert.equal(studyHourlyFvgMidpoint([
+  {...candle(0),time:lastSafeAlignedOpen-H},
+ ],source).observations.length,0);
+});
+
 test('invalid source, incomplete candles and unsafe settings fail closed',()=>{
  assert.throws(()=>studyHourlyFvgMidpoint(fixture(),{...source,archiveSha256:'wrong'}),/Invalid source/);
  const bad=fixture();bad[20].observed_minutes=59;
