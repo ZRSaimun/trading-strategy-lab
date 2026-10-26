@@ -73,6 +73,29 @@ def test_undeclared_persisted_alert_fails_closed():
     engine.dispose()
 
 
+def test_undeclared_journal_without_alert_fails_closed():
+    engine, factory = fixture_db()
+    # A valid-looking extra journal can be omitted even when it has no alert.
+    # The audit must not accept a partial declared session inventory.
+    with factory.begin() as db:
+        db.add(Record(key=ForecastEventStore._key("hidden_session"), value="{}"))
+    with pytest.raises(ValueError, match="Undeclared persisted forecast journal"):
+        audit(factory)
+    engine.dispose()
+
+
+def test_empty_inventory_does_not_hide_orphan_journal():
+    engine = create_engine("sqlite+pysqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    factory = sessionmaker(engine)
+    with factory.begin() as db:
+        db.add(Record(key=ForecastEventStore._key("orphan_session"), value="{}"))
+    with pytest.raises(ValueError, match="Undeclared persisted forecast journal"):
+        audit_persisted_forecast_alerts([], [], as_of=150,
+                                        session_factory=factory)
+    engine.dispose()
+
+
 def test_missing_journal_and_missing_alert_fail_closed():
     for key in (ForecastEventStore._key(SESSION),
                 ForecastAlertOutbox._key(SESSION, FORECAST)):
