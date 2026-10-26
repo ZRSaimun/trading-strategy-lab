@@ -198,10 +198,19 @@ def _evaluate_snapshot(expected: dict, observed: dict, now_ms: int) -> dict:
         )
         mark = q["bid"] if p["side"] == "LONG" else q["ask"]
         checks[prefix + "stop_not_breached"] = mark > p["stop"] if p["side"] == "LONG" else mark < p["stop"]
-        stress_loss = abs(p["entry"] - p["stress_exit"]) * p["quantity"] * p["point_value"]
+        # A breached stop is NOT evidence of a stop fill. When the current
+        # executable side has gapped past the declared stress exit, retain the
+        # worse price in the loss estimate (for BOTH long and short positions).
+        worst_exit = (min(p["stress_exit"], mark) if p["side"] == "LONG"
+                      else max(p["stress_exit"], mark))
+        adverse_distance = (p["entry"] - worst_exit if p["side"] == "LONG"
+                            else worst_exit - p["entry"])
+        stress_loss = max(Decimal(0), adverse_distance) * p["quantity"] * p["point_value"]
         checks[prefix + "position_loss_cap"] = stress_loss <= max_position_loss
         total_stress_loss += stress_loss
-        gross_notional += q["ask"] * p["quantity"] * p["point_value"]
+        # A lower current ask must not erase the notional committed at entry.
+        # This is a conservative scenario, not verified broker margin.
+        gross_notional += max(p["entry"], q["ask"]) * p["quantity"] * p["point_value"]
         unrealized = ((mark - p["entry"]) if p["side"] == "LONG" else (p["entry"] - mark)) * p["quantity"] * p["point_value"]
         mark_downside += min(unrealized, Decimal(0))
         if broker != "Trading212-CFD":
