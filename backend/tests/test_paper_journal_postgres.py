@@ -21,8 +21,9 @@ IDENTITY = {"instrument": "XAUUSD-DEMO", "provider": "TEST", "venue": "LOCAL",
             "priceSide": "bid-ask", "pointValue": 1}
 
 
-def checkpoint(tag):
-    return json.dumps({"version": 1, "identity": IDENTITY, "actions": [tag],
+def checkpoint(tag, history=()):
+    return json.dumps({"version": 1, "identity": IDENTITY,
+                       "actions": [*history, tag],
                        "orders": [], "events": []}, separators=(",", ":"))
 
 
@@ -55,15 +56,15 @@ def test_postgres_two_connections_and_atomic_audit_rollback():
                 barrier.wait()
         try:
             with ThreadPoolExecutor(max_workers=2) as pool:
-                a = pool.submit(store.compare_and_swap, "race", IDENTITY, 0, 1, checkpoint("writer-a"))
-                b = pool.submit(store.compare_and_swap, "race", IDENTITY, 0, 1, checkpoint("writer-b"))
+                a = pool.submit(store.compare_and_swap, "race", IDENTITY, 0, 1, checkpoint("writer-a", history=("seed",)))
+                b = pool.submit(store.compare_and_swap, "race", IDENTITY, 0, 1, checkpoint("writer-b", history=("seed",)))
                 results = [a.result(timeout=12), b.result(timeout=12)]
         finally:
             event.remove(engine, "after_cursor_execute", synchronize_reads)
         assert sorted(results) == [False, True]
         saved = PaperJournalStore(factory).load("race")
         assert saved["revision"] == 1
-        assert saved["json"] in (checkpoint("writer-a"), checkpoint("writer-b"))
+        assert saved["json"] in (checkpoint("writer-a", history=("seed",)), checkpoint("writer-b", history=("seed",)))
         with factory() as db:
             assert len(db.scalars(select(Audit).where(Audit.action == "paper.journal.cas")).all()) == 2
             assert len(db.scalars(select(Record).where(Record.key.like("paper-journal:%"))).all()) == 1
@@ -74,13 +75,13 @@ def test_postgres_two_connections_and_atomic_audit_rollback():
                 raise RuntimeError("synthetic interruption before audit")
         try:
             with pytest.raises(RuntimeError, match="synthetic interruption"):
-                store.compare_and_swap("race", IDENTITY, 1, 2, checkpoint("should-rollback"))
+                store.compare_and_swap("race", IDENTITY, 1, 2, checkpoint("should-rollback", history=tuple(json.loads(saved["json"])["actions"])))
         finally:
             event.remove(engine, "before_cursor_execute", interrupt_audit)
         assert PaperJournalStore(factory).load("race") == saved
         with factory() as db:
             assert len(db.scalars(select(Audit).where(Audit.action == "paper.journal.cas")).all()) == 2
-        assert store.compare_and_swap("race", IDENTITY, 1, 2, checkpoint("retry"))
+        assert store.compare_and_swap("race", IDENTITY, 1, 2, checkpoint("retry", history=tuple(json.loads(saved["json"])["actions"])))
         assert PaperJournalStore(factory).load("race")["revision"] == 2
     finally:
         # Remove only our randomized test schema, never public or owner data.
