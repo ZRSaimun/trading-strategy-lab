@@ -9,6 +9,10 @@ from datetime import datetime, timedelta
 import hashlib
 import re
 
+from app.trading212_demo_metadata_schema import (
+    DemoMetadataSchemaError, validate_demo_metadata_shape,
+)
+
 _SHA = re.compile(r"[0-9a-f]{64}\Z")
 _REQUEST = re.compile(r"[0-9a-f]{32}\Z")
 _ENDPOINTS = frozenset({"instruments", "exchanges"})
@@ -48,9 +52,10 @@ def _validate_receipt(receipt: object, *, endpoint: str, account_type: str) -> d
     if at.tzinfo is None or at.utcoffset() != timedelta(0):
         raise DemoStagingProbeError("UTC local receipt timestamp required")
     payload = receipt.get("data")
-    max_count = 50_000 if endpoint == "instruments" else 2_000
-    if not isinstance(payload, list) or len(payload) > max_count:
-        raise DemoStagingProbeError("Invalid metadata collection shape")
+    try:
+        count = validate_demo_metadata_shape(endpoint, payload)
+    except DemoMetadataSchemaError:
+        raise DemoStagingProbeError("Invalid DEMO metadata schema") from None
     quota = receipt.get("rate_limit_observation")
     if (not isinstance(quota, dict)
             or not isinstance(quota.get("status"), str)
@@ -67,7 +72,7 @@ def _validate_receipt(receipt: object, *, endpoint: str, account_type: str) -> d
         "provider": "Trading 212", "environment": "DEMO",
         "endpoint": endpoint, "account_type_declared": account_type,
         "received_at_utc_local_unverified": observed,
-        "response_sha256": digest, "declared_items_count": len(payload),
+        "response_sha256": digest, "declared_items_count": count,
         "rate_limit_status": quota["status"],
         "account_type_verified": False, "provider_entitlement_verified": False,
         "data_rights_verified": False, "server_clock_attested": False,
