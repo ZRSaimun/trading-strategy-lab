@@ -17,6 +17,7 @@ from app.frozen_capacity_drawdown import (_maximum_drawdown,
                                            _zero_cost_winner_erosion,
                                           _worst_fixed_booking_window,
                                           _worst_quartile_mean_envelope,
+                                          _chronological_quartile_net_r_envelope,
                                           _validated_cost_trajectory,
                                           audit_frozen_capacity_drawdown)
 from test_frozen_capacity_week_fragility import CUTOFF, sample, move
@@ -985,5 +986,84 @@ def test_full_report_fixed_window_envelopes_are_causal_and_cost_monotone():
                                 <= Decimal(old[f"{bound}_worst_window_pct_initial"]))
             previous = windows
     assert report["source_authenticated"] is False
+    assert report["verified_profitability"] is False
+    assert report["may_execute_order"] is False
+
+
+def test_chronological_quartiles_preserve_fixed_booking_boundaries():
+    lower = [Decimal(x) for x in (-4, -3, 1, 2, 3, 4, 5, 6, 7)]
+    upper = [x + Decimal(2) for x in lower]
+    result = _chronological_quartile_net_r_envelope(lower, upper)
+    quartiles = result["quartiles"]
+    assert [(q["start_booking_event"], q["end_booking_event"]) for q in quartiles] == [
+        (0, 2), (2, 4), (4, 6), (6, 9)]
+    assert [q["booked_paths"] for q in quartiles] == [2, 2, 2, 3]
+    assert Decimal(quartiles[0]["lower_mean_net_r"]) == Decimal("-3.5")
+    assert Decimal(quartiles[0]["upper_mean_net_r"]) == Decimal("-1.5")
+    assert result["guaranteed_positive_quartiles"] == 3
+    assert result["possible_positive_quartiles"] == 3
+    assert Decimal(result["minimum_quartile_lower_mean_net_r"]) == Decimal("-3.5")
+    assert Decimal(result["minimum_quartile_upper_mean_net_r"]) == Decimal("-1.5")
+    for low, high in (([], []), ([Decimal(0)] * 3, [Decimal(0)] * 3),
+                      ([Decimal(0)] * 4, [Decimal(0)] * 5),
+                      ([Decimal(1)] * 4, [Decimal(0)] * 4)):
+        with pytest.raises(ValueError, match="chronological quartile"):
+            _chronological_quartile_net_r_envelope(low, high)
+
+
+def test_chronological_quartile_envelopes_match_independent_outcome_oracle():
+    # 3**5 interval populations, 2**5 endpoint outcome paths per population.
+    # A quartile here may contain two paths, so the oracle also checks means.
+    from decimal import localcontext
+    with localcontext() as ctx:
+        ctx.prec = 80
+        for intervals in product(((-2, 0), (-1, 1), (0, 2)), repeat=5):
+            lower = [Decimal(a) for a, _ in intervals]
+            upper = [Decimal(b) for _, b in intervals]
+            actual = _chronological_quartile_net_r_envelope(lower, upper)
+            possible_worst = []
+            positive_counts = []
+            for endpoints in product((0, 1), repeat=5):
+                realized = [Decimal(intervals[i][endpoint]) for i, endpoint in enumerate(endpoints)]
+                means = []
+                for q in range(4):
+                    start, end = q * 5 // 4, (q + 1) * 5 // 4
+                    means.append(sum(realized[start:end], Decimal(0)) / Decimal(end - start))
+                possible_worst.append(min(means))
+                positive_counts.append(sum(mean > 0 for mean in means))
+            assert Decimal(actual["minimum_quartile_lower_mean_net_r"]) == min(possible_worst)
+            assert Decimal(actual["minimum_quartile_upper_mean_net_r"]) == max(possible_worst)
+            assert actual["guaranteed_positive_quartiles"] == min(positive_counts)
+            assert actual["possible_positive_quartiles"] == max(positive_counts)
+
+
+def test_full_report_chronological_quartiles_cost_monotonic_and_nonexecuting():
+    manifest, paths = sample()
+    report = run(manifest, paths)
+    for label in ("training", "holdout"):
+        key = f"{label}_pseudo_settlement_chronological_quartiles"
+        previous = None
+        for scenario in report["cost_scenarios"]:
+            value = scenario[key]
+            rows = value["quartiles"]
+            assert [row["quartile"] for row in rows] == [1, 2, 3, 4]
+            assert sum(row["booked_paths"] for row in rows) == report[
+                "admission_counts"][f"{label}_admitted"]
+            assert rows[0]["start_booking_event"] == 0
+            assert rows[-1]["end_booking_event"] == report[
+                "admission_counts"][f"{label}_admitted"]
+            if previous is not None:
+                assert value["guaranteed_positive_quartiles"] <= previous[
+                    "guaranteed_positive_quartiles"]
+                assert value["possible_positive_quartiles"] <= previous[
+                    "possible_positive_quartiles"]
+                for current_row, prior_row in zip(rows, previous["quartiles"]):
+                    assert (current_row["start_booking_event"], current_row["end_booking_event"]) == (
+                        prior_row["start_booking_event"], prior_row["end_booking_event"])
+                    for bound in ("lower_mean_net_r", "upper_mean_net_r"):
+                        assert Decimal(current_row[bound]) <= Decimal(prior_row[bound])
+            previous = value
+    assert report["source_authenticated"] is False
+    assert report["untouched_holdout_verified"] is False
     assert report["verified_profitability"] is False
     assert report["may_execute_order"] is False
