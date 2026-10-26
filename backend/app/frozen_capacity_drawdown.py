@@ -10,6 +10,8 @@ from app.frozen_chronological_holdout import _decimal
 from app.frozen_holdout_capacity_slots import audit_frozen_holdout_capacity_slots
 
 _COSTS = (0, 5, 10, 20)
+# Illustrative fractions of fixed initial pseudo-equity, not broker risk limits.
+_LOSS_BARRIERS_PCT_INITIAL = (10, 20)
 
 
 def _maximum_drawdown_with_window(increments):
@@ -77,6 +79,23 @@ def _first_pseudo_recovery_event(increments, peak_event, trough_event, maximum):
         equity += increments[event_index - 1]
         if equity >= target:
             return event_index
+    return None
+
+
+
+def _first_pseudo_loss_barrier_event(increments, factor, threshold_pct_initial):
+    """First fixed-horizon booking event touching a loss barrier from zero.
+
+    This is a synthetic, uncompounded initial-equity *cumulative* loss,
+    not a broker stop, margin call, risk of ruin or actual exit timestamp.
+    """
+    if factor <= 0 or threshold_pct_initial <= 0:
+        raise ValueError("Positive pseudo-risk factor and loss barrier required")
+    cumulative = Decimal(0)
+    for event, increment in enumerate(increments, 1):
+        cumulative += increment * factor
+        if cumulative <= -threshold_pct_initial:
+            return event
     return None
 
 
@@ -214,6 +233,33 @@ def audit_frozen_capacity_drawdown(
                 report[f"{label}_pseudo_settlement_maximum_max_drawdown_recovery_event"] = worst_recovery
                 report[f"{label}_pseudo_settlement_minimum_terminal_underwater_pct_initial"] = str(best_terminal)
                 report[f"{label}_pseudo_settlement_maximum_terminal_underwater_pct_initial"] = str(worst_terminal)
+                # A cumulative lower endpoint touching the barrier means
+                # at least one interval-compatible pseudo-path can touch it.
+                # An upper endpoint touching it means every interval-compatible
+                # pseudo-path has touched it by that event. Neither statement
+                # is a probability, a risk-of-ruin forecast or broker equity.
+                barriers = []
+                for threshold in _LOSS_BARRIERS_PCT_INITIAL:
+                    possible = _first_pseudo_loss_barrier_event(
+                        lo, factor, Decimal(threshold))
+                    unavoidable = _first_pseudo_loss_barrier_event(
+                        hi, factor, Decimal(threshold))
+                    if (unavoidable is not None and
+                            (possible is None or possible > unavoidable)):
+                        raise ValueError("Inconsistent pseudo-loss barrier envelope")
+                    barriers.append(dict(
+                        threshold_pct_initial=threshold,
+                        first_possible_event=possible,
+                        first_unavoidable_event=unavoidable,
+                        envelope_status=(
+                            "UNAVOIDABLE_WITHIN_INTERVAL_ENVELOPE"
+                            if unavoidable is not None else
+                            "POSSIBLE_WITHIN_INTERVAL_ENVELOPE"
+                            if possible is not None else
+                            "NOT_REACHED_WITHIN_INTERVAL_ENVELOPE"
+                        ),
+                    ))
+                report[f"{label}_pseudo_settlement_loss_barriers"] = barriers
                 report[f"{label}_pseudo_settlement_final_lower_pct_initial"] = str(sum(lo) * factor)
                 report[f"{label}_pseudo_settlement_final_upper_pct_initial"] = str(sum(hi) * factor)
             reports.append(report)
