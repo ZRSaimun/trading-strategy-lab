@@ -158,7 +158,15 @@ def research(bars, *, lookback=16, horizon=16, embargo=16):
             stopped = b.l <= stop if is_long else b.h >= stop
             won = b.h >= target if is_long else b.l <= target
             if stopped:
-                outcome = Q(-1)  # conservative even if target also touched
+                # A source OHLC bar can open beyond the stop while remaining
+                # timestamp-contiguous. Crediting an exact -1R stop in that
+                # case would erase observed adverse gap risk. Use the worse
+                # source open as a *hypothetical proxy*, not an executable fill
+                # or a bound on broker slippage. Stop still wins same-bar ties.
+                adverse_open = (b.o < stop if is_long else b.o > stop)
+                exit_proxy = b.o if adverse_open else stop
+                outcome = ((exit_proxy-entry)/risk if is_long
+                           else (entry-exit_proxy)/risk)
                 next_free = j + 1
                 break
             if won:
@@ -191,7 +199,7 @@ def research(bars, *, lookback=16, horizon=16, embargo=16):
                                   strictly_positive=sum(v > 0 for v in net)))
             reports[name] = dict(censored_due_to_gaps_or_boundaries=censored[name],
                                  cost_scenarios=cases)
-    return dict(protocol="source-local-sweep-confirmation-v1",
+    return dict(protocol="source-local-sweep-confirmation-v2",
                 source_authenticated=False, timezone_verified=False,
                 untouched_holdout_verified=False, executable_broker_costs=False,
                 verified_profitability=False, may_execute_order=False,
