@@ -25,6 +25,16 @@ The report also measures **terminal underwater drawdown**, the maximum cumulativ
 
 The report also records the **first later pseudo-settlement event** that regains the selected peak level for each minimum/maximum drawdown scenario. The recovery event is `null` if there was no positive drawdown or if the selected peak was never recovered before the last booking. This is a retrospective, fixed-horizon booking-index diagnostic: it is **not** an actual broker recovery time, intrabar cash balance, execution timestamp, forecast, or a reason to admit/reject any trade. The regression oracle checks both the selected peak/trough and first subsequent recovery against all 3,125 five-event sequences.
 
+## Fixed initial-equity pseudo-loss barrier first passage
+
+For each frozen training/holdout cohort and illustrative 0/5/10/20-bps additional round-trip cost, the report now includes **10% and 20% of fixed initial pseudo-equity** cumulative-loss barriers. Each event is a predeclared full-horizon pseudo-booking, not an observed fill or calendar timestamp. Touching the negative threshold counts as a breach.
+
+- `first_possible_event`: earliest event at which the all-lower endpoint cumulative return touches the barrier; at least one interval-compatible synthetic outcome sequence can cross it.
+- `first_unavoidable_event`: earliest event at which the all-upper endpoint cumulative return touches the barrier; every interval-compatible synthetic sequence has crossed by that event. This is a mathematical interval statement, **not** certainty about actual trading.
+- `envelope_status`: `NOT_REACHED_WITHIN_INTERVAL_ENVELOPE`, `POSSIBLE_WITHIN_INTERVAL_ENVELOPE`, or `UNAVOIDABLE_WITHIN_INTERVAL_ENVELOPE`. A possible crossing cannot be labeled unavoidable; the possible event cannot occur later than an unavoidable event.
+
+Both event fields are null when the corresponding endpoint never touches the threshold. The synthetic all-endpoint classification does **not** measure a probability, expected shortfall, margin liquidation, risk of ruin, broker stop, or capital adequacy. It is sensitive to the artificial fixed-horizon ordering and initial-equity risk convention. No thresholds are tuned against holdout outcomes, and these events must never influence retrospective admission, candidate selection, or trade authorization. Independent exhaustive all-path tests enumerate interval-compatible integer outcomes to verify the earliest possible and unavoidable crossing logic.
+
 No individual winning week, trade, or ambiguity is removed to improve returns. Declared exclusions, censored paths, inadequate cohort size/dispersion, wrong manifest hash, cutoff/embargo leakage, duplicate signals, inconsistent costs or changed admissions cause withholding or rejection. Synthetic regression tests verify baseline losses, cost ordering, ambiguous outcomes, rejection accounting, no hindsight capacity release, invariance to input order and fail-closed conditions.
 
 ## Explicit limits and coordination
