@@ -8,6 +8,7 @@ import pytest
 from app.frozen_bracket_population import fingerprint_population_manifest
 from app.frozen_capacity_drawdown import (_maximum_drawdown,
                                           _maximum_drawdown_with_window,
+                                          _terminal_drawdown,
                                           _first_pseudo_recovery_event,
                                           audit_frozen_capacity_drawdown)
 from test_frozen_capacity_week_fragility import CUTOFF, sample, move
@@ -51,6 +52,10 @@ def test_exhaustive_drawdown_windows_match_independent_quadratic_oracle():
                     expected = (loss, peak, trough)
         assert _maximum_drawdown_with_window(increments) == expected
         assert _maximum_drawdown(increments) == expected[0]
+        assert _terminal_drawdown(increments) == max(
+            previous - equity[-1] for previous in equity
+        )
+        assert _terminal_drawdown(increments) <= expected[0]
         recovery = next(
             (event for event in range(expected[2] + 1, len(equity))
              if equity[event] >= equity[expected[1]]),
@@ -68,6 +73,14 @@ def test_holdout_drawdown_window_counts_booked_events_not_broker_fills():
     assert scenario["training_pseudo_settlement_maximum_max_drawdown_peak_event"] == 0
     assert scenario["training_pseudo_settlement_maximum_max_drawdown_trough_event"] == 0
 
+
+
+def test_terminal_underwater_differs_from_historical_maximum_drawdown():
+    seq = [Decimal("2"), Decimal("-3"), Decimal("3"), Decimal("-1")]
+    assert _maximum_drawdown(seq) == 3
+    assert _terminal_drawdown(seq) == 1
+    assert _terminal_drawdown([Decimal("1"), Decimal("2")]) == 0
+    assert _terminal_drawdown([Decimal("-1"), Decimal("-2")]) == 3
 
 
 def test_pseudo_recovery_event_is_not_actual_fill_time():
@@ -104,6 +117,9 @@ def test_complete_frozen_cohorts_and_losses():
     assert Decimal(s["holdout_pseudo_settlement_minimum_max_drawdown_pct_initial"]) == 18
     assert Decimal(s["holdout_pseudo_settlement_maximum_max_drawdown_pct_initial"]) == 18
     assert Decimal(s["holdout_pseudo_settlement_final_lower_pct_initial"]) == -18
+    assert Decimal(s["holdout_pseudo_settlement_minimum_terminal_underwater_pct_initial"]) == 18
+    assert Decimal(s["holdout_pseudo_settlement_maximum_terminal_underwater_pct_initial"]) == 18
+    assert Decimal(s["training_pseudo_settlement_maximum_terminal_underwater_pct_initial"]) == 0
     assert r["verified_profitability"] is False
     assert r["may_execute_order"] is False
 
