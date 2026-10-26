@@ -1,5 +1,6 @@
 """Offline deterministic Telegram transport acceptance tests: no network calls."""
 import json
+import unicodedata
 from http.client import IncompleteRead, HTTPException
 from io import BytesIO
 from urllib.error import HTTPError, URLError
@@ -189,7 +190,7 @@ def test_provider_acceptance_requires_exact_sent_text_echo(echo):
 def test_unicode_echo_must_match_exact_codepoints():
     sent = "Révision sans exécution"
     # Visually similar NFD reply is not proof the exact request was accepted.
-    fake = FakeOpener(Reply(accepted(text="Re\\u0301vision sans exe\\u0301cution")))
+    fake = FakeOpener(Reply(accepted(text=unicodedata.normalize("NFD", sent))))
     with pytest.raises(DeliveryUncertain):
         send_telegram_once(bot_token=TOKEN, chat_id=CHAT, text=sent, opener=fake)
     assert len(fake.calls) == 1
