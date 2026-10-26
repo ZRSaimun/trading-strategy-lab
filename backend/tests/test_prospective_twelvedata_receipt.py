@@ -66,7 +66,34 @@ def fixture(monkeypatch, *, candles=None, raw=None, now=NOW, wire=None):
 
 def run(m=None, **kwargs):
     return asyncio.run(adapter.review_twelvedata_completed_m1(
-        api_key="test-only-key", manifest=m or manifest(), **kwargs))
+        api_key="test-only-key", manifest=m or manifest(),
+        owner_approved_api_credit_use=True, owner_asserted_data_rights=True,
+        **kwargs))
+
+
+
+@pytest.mark.parametrize(("credit", "rights"), [
+    (False, True), (True, False), (False, False),
+    (1, True), (True, 1), (None, True), (True, "yes"),
+])
+def test_unapproved_vendor_call_fails_before_network(monkeypatch, credit, rights):
+    calls = fixture(monkeypatch)
+    with pytest.raises(adapter.ProspectiveReceiptError, match="per-call"):
+        asyncio.run(adapter.review_twelvedata_completed_m1(
+            api_key="test-only-key", manifest=manifest(),
+            owner_approved_api_credit_use=credit,
+            owner_asserted_data_rights=rights,
+        ))
+    assert calls == []
+
+
+def test_default_vendor_call_is_disabled(monkeypatch):
+    calls = fixture(monkeypatch)
+    with pytest.raises(adapter.ProspectiveReceiptError, match="per-call"):
+        asyncio.run(adapter.review_twelvedata_completed_m1(
+            api_key="test-only-key", manifest=manifest(),
+        ))
+    assert calls == []
 
 
 def test_complete_observation_server_stamped_and_still_not_live(monkeypatch):
@@ -83,6 +110,7 @@ def test_complete_observation_server_stamped_and_still_not_live(monkeypatch):
     assert report["http_body_hash_semantics"] == "httpx-decoded-response-body-not-TLS-wire"
     assert report["source_authenticated"] is False
     assert report["expected_calendar_verified"] is False
+    assert report["owner_call_approval_scope"] == "explicit-per-call-assertion-only"
     assert report["provider_entitlement_verified"] is False
     assert report["executable_bid_ask_verified"] is False
     assert report["live"] is False and report["may_execute_order"] is False
