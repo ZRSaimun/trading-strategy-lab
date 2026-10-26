@@ -141,3 +141,35 @@ def test_limits_and_wrong_types_fail_closed():
     p["signature"] = "0" * 64
     with pytest.raises(ValueError):
         audit(signed=p)
+
+
+def test_expired_claim_requires_review_at_exclusive_expiry_boundary():
+    assert audit(now=159)["status"] == "SIGNED_POLICY_MATCH_REVIEW_ONLY"
+    result = audit(now=160)
+    assert result["status"] == "OPERATOR_REVIEW_REQUIRED"
+    assert result["expiredClaimCount"] == 1
+    assert result["claimExpiryBeyondPolicyCount"] == 0
+    assert result["maySendNotification"] is False
+
+
+def test_claim_cannot_extend_authorization_past_signed_policy_window():
+    result = audit([claim(claimedAt=990, expiresAt=1010)], now=995)
+    assert result["status"] == "OPERATOR_REVIEW_REQUIRED"
+    assert result["claimExpiryBeyondPolicyCount"] == 1
+    assert result["expiredClaimCount"] == 0
+    assert result["maySendNotification"] is False
+
+
+def test_claim_max_lifetime_matches_outbox_budget():
+    with pytest.raises(ValueError, match="chronology"):
+        audit([claim(expiresAt=3731)])
+    result = audit([claim(expiresAt=3730)], now=140)
+    assert result["claimExpiryBeyondPolicyCount"] == 1
+    assert result["status"] == "OPERATOR_REVIEW_REQUIRED"
+
+
+def test_expiry_violations_are_counted_independently_of_allowlist():
+    result = audit([claim(recipientId="444", expiresAt=160)], now=160)
+    assert result["unauthorizedClaimCount"] == 1
+    assert result["expiredClaimCount"] == 1
+    assert result["status"] == "OPERATOR_REVIEW_REQUIRED"
