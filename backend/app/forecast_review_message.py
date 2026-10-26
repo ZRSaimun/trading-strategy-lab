@@ -24,6 +24,16 @@ def _time(value):
     return datetime.fromtimestamp(value, timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
 
 
+def _probability_text(probability):
+    """Never round a nonzero/nonunit probability into a displayed 0% or 100%."""
+    percent = probability * 100
+    if percent < 0.01:
+        return "<0.01%"
+    if percent > 99.99:
+        return ">99.99%"
+    return f"{percent:.2f}%"
+
+
 def render_unverified_forecast_review(snapshot, outbox_view, *, forecast_id, as_of):
     """Render a bounded, explicitly non-tradable message from validated store views.
 
@@ -79,7 +89,8 @@ def render_unverified_forecast_review(snapshot, outbox_view, *, forecast_id, as_
     _time(target)
     _time(issued)
     if target != base + horizon * seconds or base % seconds or issued > as_of or \
-            issued < base + seconds or as_of >= target + seconds:
+            issued < base + seconds or as_of >= target + seconds or\
+            expiry > target + seconds:
         raise ValueError("Forecast review chronology invalid")
     if (event.get("seq") != outbox_view.get("issueSeq") or
             event.get("modelVersion") != model or event.get("horizon") != horizon or
@@ -92,7 +103,7 @@ def render_unverified_forecast_review(snapshot, outbox_view, *, forecast_id, as_
         f"Source: {identity['provider']} / {identity['venue']} / {identity['sourceId']}\n"
         f"Candle: {seconds // 60}m {side.upper()} (NOT an executable quote)\n"
         f"Model: {model}; horizon: {horizon} completed candles\n"
-        f"P(up vs base close): {probability * 100:.2f}% (UNCALIBRATED)\n"
+        f"P(up vs base close): {_probability_text(probability)} (UNCALIBRATED)\n"
         f"Base UTC: {_time(base)}\n"
         f"Target closes UTC: {_time(target + seconds)}\n"
         f"Issued UTC: {_time(issued)}; expires UTC: {_time(expiry)}\n"
