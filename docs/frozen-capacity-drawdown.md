@@ -172,6 +172,23 @@ not an account cash-risk budget. No scenario is optimized using holdout
 outcomes, no capacity admission is changed, and no real or paper order is
 authorized. The branch remains disconnected, draft and undeployed.
 
+## Distinct optimistic/pessimistic drawdown peak event fields (26 October 2026)
+
+Corrected a report-key collision: the **minimum** possible maximum drawdown
+previously wrote its optimistic peak event into the
+`maximum_max_drawdown_peak_event` key, which the pessimistic result then
+overwrote. The report now exposes both
+`minimum_max_drawdown_peak_event` and
+`maximum_max_drawdown_peak_event`, each paired with its corresponding
+trough, magnitude and recovery event. No drawdown arithmetic, frozen admission,
+execution-cost assumption or order capability changed.
+
+A synthetic regression makes the first holdout opportunity intrabar ambiguous,
+so the optimistic path peaks at booking event 1 while the pessimistic path
+peaks at event 0, and verifies both fields across all four cost scenarios.
+These are retrospective fixed-horizon pseudo-booking indices, **not** actual
+broker fill times or authenticated profitability evidence.
+
 ## Paired zero-cost guaranteed-winner erosion (26 October 2026)
 
 For every frozen **admitted and capacity-rejected** path, retain the same
