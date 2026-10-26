@@ -71,7 +71,7 @@ def test_clean_structural_review_still_cannot_trade():
     ("observed_ms", NOW - 1200, "observation_monotonic"),
     ("received_ms", NOW + 1, "snapshot_time_order"),
     ("observed_ms", NOW - 3500, "snapshot_fresh"),
-    ("received_ms", NOW - 100, "transport_lag_ok"),
+    ("observed_ms", NOW - 2500, "transport_lag_ok"),
     ("peak_equity_cash", "1000", "peak_not_reset"),
     ("day_start_equity_cash", "999", "day_start_not_reset"),
     ("consecutive_losses", 0, "loss_streak_not_reset_without_receipt"),
@@ -100,7 +100,7 @@ def test_missing_checkpoint_never_establishes_clean_continuity():
 
 def test_day_rollover_never_silently_resets_limits():
     old = previous()
-    old["utc_day"] = "2026-10-26"
+    old["utc_day"] = "2026-10-25"
     old["observed_ms"] -= 86_400_000
     old["received_ms"] -= 86_400_000
     x = review(old=old)
