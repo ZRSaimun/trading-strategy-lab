@@ -12,6 +12,29 @@ from app.frozen_holdout_capacity_slots import audit_frozen_holdout_capacity_slot
 _COSTS = (0, 5, 10, 20)
 
 
+def _maximum_drawdown_with_window(increments):
+    """Return (maximum drawdown, peak event, trough event) in settlement order.
+
+    Event 0 is the initial zero baseline; event N is after N booked paths.
+    Equal peaks retain the earliest event, and equal maximum drawdowns retain
+    the earliest trough. This is an *artificial* fixed-horizon booking sequence,
+    never an actual broker fill or exit timeline.
+    """
+    equity = peak = maximum = Decimal(0)
+    peak_event = best_peak_event = trough_event = 0
+    for event_index, increment in enumerate(increments, 1):
+        equity += increment
+        if equity > peak:
+            peak = equity
+            peak_event = event_index
+        drawdown = peak - equity
+        if drawdown > maximum:
+            maximum = drawdown
+            best_peak_event = peak_event
+            trough_event = event_index
+    return maximum, best_peak_event, trough_event
+
+
 def _maximum_drawdown(increments):
     """Exact peak-to-trough loss, including a zero initial baseline.
 
@@ -19,13 +42,7 @@ def _maximum_drawdown(increments):
     interval-valued returns, replacing every increment with its lower
     (upper) endpoint maximizes (minimizes) the maximum drawdown.
     """
-    equity = peak = maximum = Decimal(0)
-    for increment in increments:
-        equity += increment
-        if equity > peak:
-            peak = equity
-        maximum = max(maximum, peak - equity)
-    return maximum
+    return _maximum_drawdown_with_window(increments)[0]
 
 
 def _withheld(upstream, reason):
@@ -138,12 +155,17 @@ def audit_frozen_capacity_drawdown(
                 # returns give minimum possible maximum drawdown; pessimistic
                 # lower returns give maximum possible maximum drawdown.
                 factor = Decimal(per_position_risk_bps) / Decimal(100)
-                best = _maximum_drawdown(hi) * factor
-                worst = _maximum_drawdown(lo) * factor
+                best_r, best_peak, best_trough = _maximum_drawdown_with_window(hi)
+                worst_r, worst_peak, worst_trough = _maximum_drawdown_with_window(lo)
+                best, worst = best_r * factor, worst_r * factor
                 if best > worst:
                     raise ValueError("Inverted drawdown envelope")
                 report[f"{label}_pseudo_settlement_minimum_max_drawdown_pct_initial"] = str(best)
+                report[f"{label}_pseudo_settlement_maximum_max_drawdown_peak_event"] = best_peak
+                report[f"{label}_pseudo_settlement_minimum_max_drawdown_trough_event"] = best_trough
                 report[f"{label}_pseudo_settlement_maximum_max_drawdown_pct_initial"] = str(worst)
+                report[f"{label}_pseudo_settlement_maximum_max_drawdown_peak_event"] = worst_peak
+                report[f"{label}_pseudo_settlement_maximum_max_drawdown_trough_event"] = worst_trough
                 report[f"{label}_pseudo_settlement_final_lower_pct_initial"] = str(sum(lo) * factor)
                 report[f"{label}_pseudo_settlement_final_upper_pct_initial"] = str(sum(hi) * factor)
             reports.append(report)
