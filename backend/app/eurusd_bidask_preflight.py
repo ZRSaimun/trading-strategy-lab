@@ -7,12 +7,27 @@ import csv
 import hashlib
 import io
 import math
+import re
+from decimal import Decimal
 from datetime import datetime, timezone
 
 HEADER = ['Etc/UTC', 'Open', 'High', 'Low', 'Close', 'Volume']
 MAX_BYTES = 25_000_000
 MAX_ROWS = 300_000
 INTERVAL_SECONDS = {'M1': 60, 'H1': 3600}
+# Require explicitly observed calendar date AND time down to seconds.
+# fromisoformat alone supplies omitted time components and truncates fractions
+# beyond microseconds, which can manufacture an apparently aligned candle.
+TIMESTAMP = re.compile(
+    r'[0-9]{4}-[0-9]{2}-[0-9]{2}[T ][0-9]{2}:[0-9]{2}:[0-9]{2}'
+    r'(?:\.[0-9]{1,6})?(?:Z|[+-][0-9]{2}:[0-9]{2})?'
+)
+# float() accepts underscores and Unicode digits (e.g. 1_200 or １.２００),
+# which are not unambiguous source CSV decimal lexemes. Preserve optional
+# ASCII scientific notation, but never normalize malformed price evidence.
+DECIMAL_FIELD = re.compile(
+    r'[+-]?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)(?:[eE][+-]?[0-9]+)?'
+)
 
 
 def _parse_side(raw, side, interval_seconds):
@@ -24,13 +39,28 @@ def _parse_side(raw, side, interval_seconds):
             raise ValueError(f'{side}: expected original Etc/UTC OHLCV header')
         rows = []
         previous = None
-        for line, fields in enumerate(reader, 2):
+        for fields in reader:
+            # csv.reader may consume multiple physical lines for quoted cells.
+            line = reader.line_num
             if len(rows) >= MAX_ROWS:
                 raise ValueError(f'{side}: row budget exceeded')
             if len(fields) != 6:
                 raise ValueError(f'{side}: row {line}: expected six columns')
+            # Quoted cells can hide embedded physical line breaks. Stripping
+            # whitespace later would otherwise accept a multiline timestamp,
+            # price or volume as one apparently valid candle.
+            if any('\n' in field or '\r' in field for field in fields):
+                raise ValueError(f'{side}: row {line}: embedded line break in CSV field')
             try:
-                dt = datetime.fromisoformat(fields[0].strip().replace('Z', '+00:00'))
+                timestamp = fields[0].strip()
+                if not TIMESTAMP.fullmatch(timestamp):
+                    raise ValueError('expected full calendar timestamp YYYY-MM-DD HH:MM:SS '
+                                     'with optional microseconds and UTC offset')
+                # RFC 3339 -00:00 means the source's UTC offset is unknown,
+                # not a verified zero offset; never certify it as UTC.
+                if timestamp.endswith('-00:00'):
+                    raise ValueError('unknown UTC offset -00:00; cannot certify UTC')
+                dt = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
                 # Naive time is UTC only because the exact header declares Etc/UTC.
                 if dt.tzinfo is None:
                     dt = dt.replace(tzinfo=timezone.utc)
@@ -41,13 +71,29 @@ def _parse_side(raw, side, interval_seconds):
                     raise ValueError('timestamp not aligned to declared interval')
                 if previous is not None and stamp <= previous:
                     raise ValueError('duplicate or backward timestamp')
+                if any(not DECIMAL_FIELD.fullmatch(field.strip()) for field in fields[1:]):
+                    raise ValueError('invalid numeric field syntax; expected ASCII decimal')
                 o, h, l, c, v = map(float, fields[1:])
-                if (not all(math.isfinite(x) for x in (o,h,l,c,v)) or
-                    min(o,h,l,c) <= 0 or v < 0 or l > min(o,c) or h < max(o,c) or l > h):
+                if not all(math.isfinite(x) for x in (o, h, l, c, v)):
+                    raise ValueError('invalid OHLC or volume')
+                # IEEE-754 rounding can erase a source-level crossed quote or
+                # a high/low violation when two decimals differ below one ULP.
+                # Keep the original decimal values for exact integrity checks;
+                # floats remain descriptive-only report values.
+                exact = tuple(Decimal(field.strip()) for field in fields[1:])
+                eo, eh, el, ec, ev = exact
+                # A nonzero source decimal can silently become 0.0 when
+                # converted to a float (e.g. 1e-400). Do not describe a
+                # positive source price or volume as an observed zero.
+                if any(original != 0 and rounded == 0
+                       for original, rounded in zip(exact, (o, h, l, c, v))):
+                    raise ValueError('nonzero numeric field underflows to zero in float report')
+                if (min(eo, eh, el, ec) <= 0 or ev < 0 or
+                    el > min(eo, ec) or eh < max(eo, ec) or el > eh):
                     raise ValueError('invalid OHLC or volume')
             except (ValueError, OverflowError) as exc:
                 raise ValueError(f'{side}: row {line}: {exc}') from exc
-            rows.append((stamp, o, h, l, c, v))
+            rows.append((stamp, o, h, l, c, v, exact))
             previous = stamp
     except (UnicodeError, csv.Error) as exc:
         raise ValueError(f'{side}: malformed UTF-8 CSV') from exc
@@ -66,17 +112,51 @@ def inspect_eurusd_pair(bid_raw, ask_raw, *, interval):
     if len(bid) != len(ask):
         raise ValueError('BID/ASK candle counts differ; no synthetic alignment')
     min_spread, max_spread, gaps = math.inf, -math.inf, 0
+    # Only paired, actually observed candle-close spreads enter the quantiles.
+    # High/low extrema on two OHLC bars need not occur simultaneously.
+    close_spreads_pips = []
+    # Source-decimal extrema retain positive sub-ULP spreads lost by float subtraction.
+    min_exact_close_spread_pips = None
+    max_exact_close_spread_pips = None
+    unrepresented_slots, largest_gap_seconds = 0, 0
+    # Bounded diagnostic evidence, not a calendar classification or imputation.
+    gap_samples = []
     for index, (b, a) in enumerate(zip(bid, ask)):
         if b[0] != a[0]:
             raise ValueError(f'BID/ASK timestamp mismatch at paired row {index+1}')
-        if any(b[i] > a[i] for i in (1, 2, 3, 4)):
+        if any(b[6][i] > a[6][i] for i in range(4)):
             raise ValueError(f'crossed BID/ASK OHLC at paired row {index+1}')
         for i in (1, 4):
             spread = a[i] - b[i]
             min_spread = min(min_spread, spread)
             max_spread = max(max_spread, spread)
-        if index and b[0] - bid[index-1][0] > interval_seconds:
-            gaps += 1
+        close_spreads_pips.append((a[4] - b[4]) * 10000)
+        exact_close_spread_pips = (a[6][3] - b[6][3]) * Decimal('10000')
+        if min_exact_close_spread_pips is None or exact_close_spread_pips < min_exact_close_spread_pips:
+            min_exact_close_spread_pips = exact_close_spread_pips
+        if max_exact_close_spread_pips is None or exact_close_spread_pips > max_exact_close_spread_pips:
+            max_exact_close_spread_pips = exact_close_spread_pips
+        if index:
+            elapsed_seconds = b[0] - bid[index-1][0]
+            if elapsed_seconds > interval_seconds:
+                gaps += 1
+                # Counts unrepresented time slots, NOT missing market candles:
+                # weekends and closed sessions can legitimately span slots.
+                unrepresented_slots += elapsed_seconds // interval_seconds - 1
+                largest_gap_seconds = max(largest_gap_seconds, elapsed_seconds)
+                if len(gap_samples) < 10:
+                    gap_samples.append({
+                        'previous_observed_utc': datetime.fromtimestamp(
+                            bid[index-1][0], timezone.utc).isoformat(),
+                        'next_observed_utc': datetime.fromtimestamp(
+                            b[0], timezone.utc).isoformat(),
+                        'unrepresented_interval_slots': elapsed_seconds // interval_seconds - 1,
+                    })
+    close_spreads_pips.sort()
+    # Nearest-rank percentiles select observed samples, not interpolated quotes.
+    def observed_percentile(percent):
+        return round(close_spreads_pips[math.ceil(percent * len(close_spreads_pips)) - 1], 6)
+
     return {
         'instrument': 'EUR/USD', 'interval': interval, 'interval_seconds': interval_seconds,
         'declared_timebase': 'Etc/UTC',
@@ -84,10 +164,19 @@ def inspect_eurusd_pair(bid_raw, ask_raw, *, interval):
         'first_utc': datetime.fromtimestamp(bid[0][0], timezone.utc).isoformat(),
         'last_utc': datetime.fromtimestamp(bid[-1][0], timezone.utc).isoformat(),
         'observed_gaps_over_interval': gaps,
+        'observed_unrepresented_interval_slots': unrepresented_slots,
+        'largest_observed_gap_seconds': largest_gap_seconds,
+        'observed_gap_samples_first_10': gap_samples,
+        'observed_gap_samples_truncated': gaps > len(gap_samples),
         'bid_sha256': hashlib.sha256(bid_raw).hexdigest(),
         'ask_sha256': hashlib.sha256(ask_raw).hexdigest(),
         'observed_open_close_spread_min_pips': round(min_spread * 10000, 6),
         'observed_open_close_spread_max_pips': round(max_spread * 10000, 6),
+        'observed_close_spread_sample_count': len(close_spreads_pips),
+        'observed_close_spread_min_exact_pips': str(min_exact_close_spread_pips),
+        'observed_close_spread_max_exact_pips': str(max_exact_close_spread_pips),
+        'observed_close_spread_p50_pips': observed_percentile(0.50),
+        'observed_close_spread_p95_pips': observed_percentile(0.95),
         'volume_classification': 'unverified_source_volume',
         'provider_authenticity': 'unverified_user_supplied_export',
         'broker_executable_quotes': False,
@@ -97,7 +186,9 @@ def inspect_eurusd_pair(bid_raw, ask_raw, *, interval):
         'limitations': [
             'Independent source authenticity and usage-rights review required',
             'OHLC spreads are observations, not broker executable fill costs',
+            'Close-only p50/p95 describe sampled candle closes, not tick spreads or Fusion Zero fills',
             'Observed gaps are not necessarily missing market sessions',
+            'Unrepresented interval slots can include scheduled market closures, not missing tradeable candles',
             'Declared interval is not authenticated against original export identity',
             'Volume class and first-available news timestamps unverified',
             'No strategy, profitability or trading authorization',
