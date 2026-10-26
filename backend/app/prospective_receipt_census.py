@@ -24,7 +24,7 @@ def audit_declared_m1_receipts(
     receipts: list[dict], expected_minutes: list[int], *, provider: str,
     symbol: str, venue: str, price_side: str, observed_at_utc: int,
     max_receipt_lag_seconds: int = 120, max_observation_age_seconds: int = 180,
-    sample_limit: int = 10,
+    max_expected_close_age_seconds: int = 180, sample_limit: int = 10,
 ) -> dict:
     """Compare received completed bars against an explicit UTC minute census.
 
@@ -40,6 +40,7 @@ def audit_declared_m1_receipts(
     if (type(observed_at_utc) is not int or not 60 <= observed_at_utc <= 253402300799
             or type(max_receipt_lag_seconds) is not int or max_receipt_lag_seconds < 0
             or type(max_observation_age_seconds) is not int or max_observation_age_seconds < 0
+            or type(max_expected_close_age_seconds) is not int or max_expected_close_age_seconds < 0
             or type(sample_limit) is not int or not 0 <= sample_limit <= 50):
         raise ValueError("Invalid observation time or resource limits")
     if (not isinstance(receipts, list) or len(receipts) > 10_000
@@ -52,9 +53,10 @@ def audit_declared_m1_receipts(
             raise ValueError("Expected UTC minutes must be unique, ordered and completed")
         previous = t
 
+    expected = set(expected_minutes)
     seen: dict[int, tuple] = {}
     duplicate_rows = conflicting_duplicate_rows = late_receipts = 0
-    latest_receipt = None
+    latest_receipt = latest_expected_receipt = None
     max_lag = 0
     for row in receipts:
         if not isinstance(row, dict) or row.keys() != _FIELDS:
@@ -81,19 +83,27 @@ def audit_declared_m1_receipts(
         late_receipts += lag > max_receipt_lag_seconds
         max_lag = max(max_lag, lag)
         latest_receipt = received if latest_receipt is None else max(latest_receipt, received)
+        if t in expected:
+            latest_expected_receipt = (received if latest_expected_receipt is None
+                                       else max(latest_expected_receipt, received))
 
-    expected = set(expected_minutes)
     observed = set(seen)
     missing = sorted(expected - observed)
     unexpected = sorted(observed - expected)
     stale = latest_receipt is None or observed_at_utc - latest_receipt > max_observation_age_seconds
-    incomplete = bool(missing or unexpected or duplicate_rows or late_receipts or stale)
+    stale_expected_receipts = (latest_expected_receipt is None or
+                               observed_at_utc - latest_expected_receipt > max_observation_age_seconds)
+    expected_close_age = observed_at_utc - expected_minutes[-1] - 60
+    stale_expected_candle = expected_close_age > max_expected_close_age_seconds
+    incomplete = bool(missing or unexpected or duplicate_rows or late_receipts or stale
+                      or stale_expected_receipts or stale_expected_candle)
     fingerprint_input = {
         "identity": identity, "observed_at_utc": observed_at_utc,
         "expected_minutes": expected_minutes,
         "receipts": receipts,
         "max_receipt_lag_seconds": max_receipt_lag_seconds,
         "max_observation_age_seconds": max_observation_age_seconds,
+        "max_expected_close_age_seconds": max_expected_close_age_seconds,
     }
     fingerprint = hashlib.sha256(json.dumps(fingerprint_input, sort_keys=True,
                                             separators=(",", ":"), allow_nan=False).encode()).hexdigest()
@@ -114,6 +124,11 @@ def audit_declared_m1_receipts(
         "seconds_since_last_declared_receipt": (
             observed_at_utc - latest_receipt if latest_receipt is not None else None),
         "stale_declared_observation": stale,
+        "seconds_since_last_expected_receipt": (
+            observed_at_utc - latest_expected_receipt if latest_expected_receipt is not None else None),
+        "stale_expected_receipts": stale_expected_receipts,
+        "seconds_since_latest_expected_close": expected_close_age,
+        "stale_expected_candle": stale_expected_candle,
         "missing_utc_samples": [_utc(t) for t in missing[:sample_limit]],
         "unexpected_utc_samples": [_utc(t) for t in unexpected[:sample_limit]],
         "sample_limit": sample_limit,
