@@ -15,6 +15,7 @@ from app.frozen_capacity_drawdown import (_maximum_drawdown,
                                           _longest_strict_negative_streak,
                                           _strict_sign_count_envelope,
                                            _zero_cost_winner_erosion,
+                                          _worst_fixed_booking_window,
                                           _worst_quartile_mean_envelope,
                                           _validated_cost_trajectory,
                                           audit_frozen_capacity_drawdown)
@@ -933,5 +934,56 @@ def test_full_report_continuous_cost_tolerance_matches_frozen_zero_cost_census()
                 "admitted_paths" if status == "admitted" else "unadmitted_paths"]
             assert summaries[key]["baseline_guaranteed_strict_positive_paths"] == (
                 census["guaranteed_strict_positive"])
+    assert report["verified_profitability"] is False
+    assert report["may_execute_order"] is False
+
+
+def test_worst_fixed_booking_window_matches_independent_quadratic_oracle():
+    # Exhaustive 3,125 five-event histories, including flat and tied minima.
+    for sequence in product((-2, -1, 0, 1, 2), repeat=5):
+        values = [Decimal(x) for x in sequence]
+        for width in (1, 2, 3, 5):
+            candidates = [
+                (sum(values[start:start + width], Decimal(0)),
+                 start, start + width)
+                for start in range(len(values) - width + 1)
+            ]
+            # First occurrence wins ties, independently of rolling algorithm.
+            expected = min(candidates, key=lambda item: item[0])
+            assert _worst_fixed_booking_window(values, width) == expected
+
+
+def test_worst_fixed_booking_window_rejects_invalid_widths():
+    for width in (0, -1, True, 4, 1.0):
+        with pytest.raises(ValueError, match="window size"):
+            _worst_fixed_booking_window([Decimal(-1), Decimal(2)], width)
+
+
+def test_full_report_fixed_window_envelopes_are_causal_and_cost_monotone():
+    manifest, paths = sample()
+    report = run(manifest, paths)
+    for label in ("training", "holdout"):
+        key = f"{label}_pseudo_settlement_fixed_window_adverse_sums"
+        previous = None
+        for scenario in report["cost_scenarios"]:
+            windows = scenario[key]
+            assert [row["booking_window_paths"] for row in windows] == [5, 10]
+            cohort_size = report["admission_counts"][f"{label}_admitted"]
+            for row in windows:
+                width = row["booking_window_paths"]
+                for bound in ("minimum", "maximum"):
+                    start = row[f"{bound}_worst_window_start_event"]
+                    end = row[f"{bound}_worst_window_end_event"]
+                    assert 0 <= start < end <= cohort_size
+                    assert end - start == width
+                assert (Decimal(row["minimum_worst_window_pct_initial"])
+                        <= Decimal(row["maximum_worst_window_pct_initial"]))
+            if previous is not None:
+                for current, old in zip(windows, previous):
+                    for bound in ("minimum", "maximum"):
+                        assert (Decimal(current[f"{bound}_worst_window_pct_initial"])
+                                <= Decimal(old[f"{bound}_worst_window_pct_initial"]))
+            previous = windows
+    assert report["source_authenticated"] is False
     assert report["verified_profitability"] is False
     assert report["may_execute_order"] is False
