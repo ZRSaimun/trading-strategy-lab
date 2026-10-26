@@ -108,3 +108,34 @@ def test_invalid_completed_candle_price_fails(bad):
     row["events"][0]["close"] = bad
     with pytest.raises(ValueError, match="chronology"):
         check(journal=row)
+
+
+@pytest.mark.parametrize("seqs", [(1, 1, 3), (2, 1, 3), (1, True, 3),
+                                    (1, 1.5, 3), (1, 0, 3), (1, -1, 3),
+                                    (1, 5001, 5002)])
+def test_reject_corrupt_candle_sequence(seqs):
+    row = snapshot()
+    for event, seq in zip(row["events"], seqs):
+        event["seq"] = seq
+    with pytest.raises(ValueError, match="sequence"):
+        check(journal=row)
+
+
+def test_accept_forecast_gap_in_candle_sequence():
+    row = snapshot()
+    row["events"][1]["seq"] = 3
+    row["events"][2]["seq"] = 5
+    assert check(journal=row)["status"] == "DECLARED_MATCH_UNVERIFIED"
+
+
+def test_reject_candle_receipt_later_than_maximum_source_lag():
+    row = snapshot((0,))
+    row["events"][0]["receivedAt"] = 3661
+    with pytest.raises(ValueError, match="chronology"):
+        check(starts=[0], journal=row, now=3661)
+
+
+def test_accept_maximum_source_lag_boundary():
+    row = snapshot((0,))
+    row["events"][0]["receivedAt"] = 3660
+    assert check(starts=[0], journal=row, now=3660)["status"] == "DECLARED_MATCH_UNVERIFIED"
