@@ -129,6 +129,26 @@ def _first_pseudo_loss_barrier_event(increments, factor, threshold_pct_initial):
     return None
 
 
+def _worst_fixed_booking_window(increments, size):
+    """Worst contiguous fixed-count pseudo-booking return, with earliest tie.
+
+    Window event indices are [start, end] boundaries of artificial full-
+    horizon bookings, NOT wall-clock time or broker execution timestamps.
+    Every interval-compatible sum is coordinatewise monotone, so all-lower
+    and all-upper outcomes give exact pessimistic/optimistic bounds on the
+    minimum contiguous window sum. This is not a probability or a signal.
+    """
+    if type(size) is not int or size <= 0 or size > len(increments):
+        raise ValueError("Invalid fixed pseudo-booking window size")
+    current = sum(increments[:size], Decimal(0))
+    worst, start_event = current, 0
+    for start in range(1, len(increments) - size + 1):
+        current += increments[start + size - 1] - increments[start - 1]
+        if current < worst:
+            worst, start_event = current, start
+    return worst, start_event, start_event + size
+
+
 def _longest_strict_negative_streak(increments):
     """Longest run of consecutive strictly negative pseudo-booked net-R paths.
 
@@ -493,6 +513,27 @@ def audit_frozen_capacity_drawdown(
                 report[f"{label}_pseudo_settlement_maximum_total_underwater_events"] = worst_underwater_total
                 report[f"{label}_pseudo_settlement_minimum_longest_underwater_event_streak"] = best_underwater_streak
                 report[f"{label}_pseudo_settlement_maximum_longest_underwater_event_streak"] = worst_underwater_streak
+                # Predeclared 5/10 artificial booking-event windows expose
+                # clustered adverse returns even when total cohort mean is
+                # positive. These are not market minutes or executable fills.
+                fixed_windows = []
+                for window_paths in (5, 10):
+                    lower_sum, lower_start, lower_end = (
+                        _worst_fixed_booking_window(lo, window_paths))
+                    upper_sum, upper_start, upper_end = (
+                        _worst_fixed_booking_window(hi, window_paths))
+                    if lower_sum > upper_sum:
+                        raise ValueError("Inverted fixed-window return envelope")
+                    fixed_windows.append(dict(
+                        booking_window_paths=window_paths,
+                        minimum_worst_window_pct_initial=str(lower_sum * factor),
+                        minimum_worst_window_start_event=lower_start,
+                        minimum_worst_window_end_event=lower_end,
+                        maximum_worst_window_pct_initial=str(upper_sum * factor),
+                        maximum_worst_window_start_event=upper_start,
+                        maximum_worst_window_end_event=upper_end,
+                    ))
+                report[f"{label}_pseudo_settlement_fixed_window_adverse_sums"] = fixed_windows
                 # A cumulative lower endpoint touching the barrier means
                 # at least one interval-compatible pseudo-path can touch it.
                 # An upper endpoint touching it means every interval-compatible
@@ -565,6 +606,16 @@ def audit_frozen_capacity_drawdown(
                         if (_decimal(report[tail_key][bound])
                                 > _decimal(previous[tail_key][bound])):
                             raise ValueError("Nonmonotone downside tail cost envelope")
+                    window_key = f"{label}_pseudo_settlement_fixed_window_adverse_sums"
+                    for new_window, old_window in zip(
+                            report[window_key], previous[window_key]):
+                        if (new_window["booking_window_paths"]
+                                != old_window["booking_window_paths"]
+                                or _decimal(new_window["minimum_worst_window_pct_initial"])
+                                > _decimal(old_window["minimum_worst_window_pct_initial"])
+                                or _decimal(new_window["maximum_worst_window_pct_initial"])
+                                > _decimal(old_window["maximum_worst_window_pct_initial"])):
+                            raise ValueError("Nonmonotone fixed-window cost envelope")
                     for population in ("admitted", "unadmitted"):
                         erosion_key = f"{label}_pseudo_settlement_{population}_zero_cost_winner_erosion"
                         old_erosion, new_erosion = previous[erosion_key], report[erosion_key]
