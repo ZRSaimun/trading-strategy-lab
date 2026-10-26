@@ -31,3 +31,16 @@ Five additional isolated synthetic cases bring the transport suite to **27 passi
 The disconnected transport now rejects Unicode bidirectional controls, zero-width formatting marks, lone surrogate code points, Unicode paragraph/line separators, carriage returns and other control characters **before opening a connection**. Ordinary non-ASCII letters and emoji remain permitted. This prevents a direct caller from visually disguising the mandatory research-only / non-trade warning or triggering an unexpected encoding exception. Only newline and tab controls are permitted in a review message.
 
 Thirteen additional isolated fake-opener tests exercise rejection before any network call and acceptance of safe Unicode. This is **message-integrity hardening, not source authentication, delivery verification, or trading authorization**. The adapter remains disconnected, and ambiguous provider outcomes remain non-retryable. Run the isolated transport tests and exact-head CI before any merge. No Telegram messages or broker orders were sent.
+
+
+## Exact provider-response correlation (26 October 2026)
+
+The adapter now requires the Telegram `sendMessage` success payload to echo
+the **exact text submitted**, in addition to matching the numeric chat ID and
+positive message ID. Missing, non-string, altered, whitespace-shifted or
+Unicode-normalized-differently text yields `DeliveryUncertain` and **must not
+be automatically retried**. This prevents a structurally successful but
+unrelated or mismatched response from being recorded as acceptance of the
+forecast-review text. It does not prove that the recipient received or read
+the message, nor does it authenticate the market feed. Synthetic fake-opener
+tests exercise the mismatches without network access.
