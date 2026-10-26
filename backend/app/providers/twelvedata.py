@@ -3,6 +3,7 @@ import csv
 import hashlib
 import io
 import json
+import re
 from datetime import datetime, timezone
 import httpx
 from ..market import parse_csv
@@ -10,6 +11,39 @@ from ..market import parse_csv
 ENDPOINT='https://api.twelvedata.com/time_series'
 MAPPINGS={'XAUUSD-TD':{'symbol':'XAU/USD','name':'Gold · Twelve Data XAU/USD','volume_type':'none'}}
 MAX_BYTES=3_000_000
+
+def _credit_header_observation(headers):
+    """Sanitize provider quota headers; never log or return arbitrary headers.
+
+    Header counters describe provider-account usage in a quota window, NOT
+    the cost of this request, daily SQLite reservations, or plan entitlement.
+    Missing headers remain an explicit review blocker; malformed/duplicate
+    headers are rejected instead of silently accepted.
+    """
+    counters = []
+    for name in ('api-credits-used', 'api-credits-left'):
+        values = headers.get_list(name)
+        if not values:
+            counters.append(None)
+            continue
+        if len(values) != 1 or re.fullmatch(r'[0-9]{1,10}', values[0]) is None:
+            raise ValueError('Invalid provider credit header')
+        count = int(values[0])
+        if count > 1_000_000_000:
+            raise ValueError('Provider credit header exceeds safe bound')
+        counters.append(count)
+    used, left = counters
+    if (used is None) != (left is None):
+        raise ValueError('Incomplete provider credit header pair')
+    if used is not None and (used == 0 or used + left > 1_000_000_000):
+        raise ValueError('Inconsistent provider credit header counters')
+    return {
+        'status': 'MISSING_REVIEW_REQUIRED' if used is None else 'OBSERVED_UNVERIFIED',
+        'api_credits_used': used,
+        'api_credits_left': left,
+        'quota_window_verified': False,
+        'account_usage_reconciled': False,
+    }
 
 def _reject_duplicate_response_keys(pairs):
     """Reject ambiguous vendor JSON before normalizing or archiving it."""
@@ -71,6 +105,7 @@ async def retrieve(key,instrument,limit,end,now,transport=None, *, include_wire_
                 if response.status_code in (401,403):raise ProviderError('Provider rejected the credential or entitlement.',403)
                 if response.status_code==429:raise ProviderError('Provider quota exceeded.',429)
                 if response.status_code!=200:raise ProviderError('Provider request failed; no data imported.')
+                credit_headers = _credit_header_observation(response.headers) if include_wire_evidence else None
                 raw=bytearray()
                 async for chunk in response.aiter_bytes():
                     raw.extend(chunk)
@@ -92,5 +127,6 @@ async def retrieve(key,instrument,limit,end,now,transport=None, *, include_wire_
             'decoded_http_body_bytes': len(raw),
             'normalized_snapshot_sha256': hashlib.sha256(archive).hexdigest(),
             'http_status': 200,
+            'provider_credit_header_observation': credit_headers,
         }
     return rows,archive
