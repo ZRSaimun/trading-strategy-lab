@@ -5,9 +5,9 @@ prove provider/device delivery, permit retries, or authorize trading.
 """
 import re
 
-_ID = re.compile(r"[A-Za-z0-9_-]{1,80}\\Z")
-_CLAIM = re.compile(r"[0-9a-f]{32}\\Z")
-_CHAT = re.compile(r"-?[0-9]{1,20}\\Z")
+_ID = re.compile(r"[A-Za-z0-9_-]{1,80}\Z")
+_CLAIM = re.compile(r"[0-9a-f]{32}\Z")
+_CHAT = re.compile(r"-?[0-9]{1,20}\Z")
 _MAX_ROWS = 1000
 _CLAIM_FIELDS = {"sessionId", "forecastId", "claimId", "recipientId",
                  "claimedAt", "expiresAt"}
