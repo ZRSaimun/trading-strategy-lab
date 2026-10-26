@@ -399,7 +399,25 @@ def test_postgres_atomic_history_tamper_race_with_valid_append(pg_store):
             0, 1, json.dumps(forged, separators=(",", ":")), now_ms=NOW + 130,
         )
 
-    results = _race(engine, writer)
+    # Synchronize after BOTH writers have read the same prior journal row.
+    # Synchronizing only their first quote SELECT permits a scheduling race
+    # where the rejected writer sees an already-advanced journal revision.
+    barrier = Barrier(2, timeout=15)
+    journal_key = PaperJournalStore._key("pg-atomic-journal")
+
+    def after_journal_read(_connection, _cursor, statement, params, _context, _many):
+        if (current_thread().name.startswith("atomic-history")
+                and statement.lstrip().lower().startswith("select records.value")
+                and journal_key in str(params)):
+            barrier.wait()
+
+    event.listen(engine, "after_cursor_execute", after_journal_read)
+    try:
+        with ThreadPoolExecutor(max_workers=2, thread_name_prefix="atomic-history") as pool:
+            futures = [pool.submit(writer) for _ in range(2)]
+            results = [future.result(timeout=30) for future in futures]
+    finally:
+        event.remove(engine, "after_cursor_execute", after_journal_read)
     assert sorted(result["status"] for result in results) == [
         "CHECKPOINT_RECORDED_UNVERIFIED", "HOLD_RECONCILIATION",
     ]
