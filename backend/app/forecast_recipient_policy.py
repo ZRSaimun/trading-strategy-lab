@@ -88,6 +88,8 @@ def audit_forecast_recipient_policy(claims, signed_policy, verification_keys, *,
     seen = set()
     unauthorized = 0
     revoked_count = 0
+    expired_count = 0
+    beyond_policy_expiry_count = 0
     for claim in claims:
         if type(claim) is not dict or set(claim) != _CLAIM_KEYS:
             raise ValueError("Malformed forecast recipient claim")
@@ -98,22 +100,30 @@ def audit_forecast_recipient_policy(claims, signed_policy, verification_keys, *,
                 or type(recipient) is not str or not _CHAT.fullmatch(recipient)
                 or not _epoch(claim["claimedAt"]) or not _epoch(claim["expiresAt"])
                 or not claim["claimedAt"] < claim["expiresAt"]
-                or claim["claimedAt"] > as_of):
+                or claim["claimedAt"] > as_of
+                or claim["expiresAt"] - claim["claimedAt"] > 3600):
             raise ValueError("Invalid recipient claim identity or chronology")
         if (session, forecast) in seen or claim_id in seen:
             raise ValueError("Duplicate forecast recipient claim")
         seen.add((session, forecast))
         seen.add(claim_id)
+        if claim["expiresAt"] <= as_of:
+            expired_count += 1
+        if claim["expiresAt"] > policy["validUntil"]:
+            beyond_policy_expiry_count += 1
         if (recipient not in recipients or not policy["validFrom"] <= claim["claimedAt"] < policy["validUntil"]):
             unauthorized += 1
         elif recipient in revoked and revoked[recipient] <= as_of:
             revoked_count += 1
     policy_current = policy["validFrom"] <= as_of < policy["validUntil"]
-    status = ("OPERATOR_REVIEW_REQUIRED" if not policy_current or unauthorized or revoked_count else
+    status = ("OPERATOR_REVIEW_REQUIRED" if (not policy_current or unauthorized or revoked_count
+                                              or expired_count or beyond_policy_expiry_count) else
               "NO_CLAIMS" if not claims else "SIGNED_POLICY_MATCH_REVIEW_ONLY")
     return {"status": status, "evidence": "HMAC_POLICY_CALLER_KEY_NOT_INDEPENDENTLY_ANCHORED",
             "declaredClaimCount": len(claims), "unauthorizedClaimCount": unauthorized,
-            "revokedRecipientClaimCount": revoked_count, "policyCurrent": policy_current,
+            "revokedRecipientClaimCount": revoked_count, "expiredClaimCount": expired_count,
+            "claimExpiryBeyondPolicyCount": beyond_policy_expiry_count,
+            "policyCurrent": policy_current,
             "verificationKeyProvenanceVerified": False, "recipientDeliveryVerified": False,
             "retryPermitted": False, "maySendNotification": False,
             "mayExecutePaperOrder": False, "mayExecuteLiveOrder": False}
