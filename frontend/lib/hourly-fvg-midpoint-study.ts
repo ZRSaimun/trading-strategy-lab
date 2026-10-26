@@ -7,7 +7,7 @@
  */
 import type {Bar} from './research.ts';
 
-export const HOURLY_FVG_VERSION='hourly-fvg-first-midpoint-touch-v17';
+export const HOURLY_FVG_VERSION='hourly-fvg-first-midpoint-touch-v18';
 export type Evidence='PASS'|'FAIL'|'INSUFFICIENT_DATA';
 export type Side='BULLISH'|'BEARISH';
 export type FvgSource={
@@ -194,8 +194,18 @@ function summarizeCohort(observations:readonly FvgObservation[]):FvgCohort{
  };
 }
 export function studyHourlyFvgMidpoint(
- bars:readonly Bar[],source:FvgSource,config:FvgConfig={},
+ suppliedBars:readonly Bar[],source:FvgSource,config:FvgConfig={},
 ):FvgStudy{
+ // Capture each supplied candle field exactly once before validation.
+ // Accessor-backed/mutable input objects must not change between the
+ // evidence check and the later formation, volume or return calculation.
+ // Bound the array before copying; holes/invalid fields fail validation.
+ if(!Array.isArray(suppliedBars)||suppliedBars.length>20000)
+  throw Error('Invalid or oversized hourly research window');
+ const bars:Bar[]=Array.from(suppliedBars,b=>({
+  time:b.time,open:b.open,high:b.high,low:b.low,close:b.close,
+  volume:b.volume,observed_minutes:b.observed_minutes,
+ }));
  const maxTouchWaitBars=config.maxTouchWaitBars??12;
  const markoutBars=config.markoutBars??3;
  const minimumRejectionWickFraction=config.minimumRejectionWickFraction??0.5;
