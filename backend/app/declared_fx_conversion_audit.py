@@ -13,10 +13,10 @@ from decimal import Decimal, localcontext
 from app.declared_roundtrip_cost_audit import audit_declared_roundtrip_net
 
 _PROTOCOL = "declared-roundtrip-point-in-time-fx-v1"
-_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,119}\\Z")
-_SHA = re.compile(r"[0-9a-f]{64}\\Z")
-_CURRENCY = re.compile(r"[A-Z]{3}\\Z")
-_RATE = re.compile(r"(?:0|[1-9][0-9]{0,11})(?:\\.[0-9]{1,10})?\\Z")
+_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,119}\Z")
+_SHA = re.compile(r"[0-9a-f]{64}\Z")
+_CURRENCY = re.compile(r"[A-Z]{3}\Z")
+_RATE = re.compile(r"(?:0|[1-9][0-9]{0,11})(?:\.[0-9]{1,10})?\Z")
 _POLICY = frozenset(("fx_provider", "fx_venue", "reporting_currency", "max_quote_age_seconds"))
 _QUOTE = frozenset((
     "position_id", "account_alias", "fx_provider", "fx_venue", "base_currency",
