@@ -39,6 +39,7 @@ test('formation census preserves unknown outcomes and distinguishes paired from 
  assert.equal(paired.observations.length,1);
  assert.deepEqual(paired.cohort,{
   formations:1,
+  firstTouchOutcome:{TOUCH:1,NO_TOUCH:0,OPEN_GAP_THROUGH:0,INCOMPLETE_WINDOW:0},
   midpointTouch:{PASS:1,FAIL:0,INSUFFICIENT_DATA:0},
   strictCandidate:{PASS:0,FAIL:0,INSUFFICIENT_DATA:1},
   markout:{PASS:1,FAIL:0,INSUFFICIENT_DATA:0},
@@ -96,6 +97,40 @@ test('paired FVG census does not conflate wick-only pairs with strict declared-v
  // authenticated source volume, an executable fill or profitability.
  assert.equal(strictObservation.eligibleForLiveTrading,false);
 });
+test('first-touch census distinguishes observed no-touch, gap-through and missing history',()=>{
+ const noTouch=fixture();
+ for(let i=33;i<45;i++)noTouch[i]=candle(i,105,106,104,105);
+ const gapThrough=fixture();
+ gapThrough[33]=candle(33,100,101,99,100,200);
+ const crossingGap=fixture();
+ crossingGap[33]=candle(33,101,106,100,105.5,200);
+ const missing=fixture().filter(b=>b.time!==BASE+33*H);
+ const cases:[Bar[],string][]=[
+  [fixture(),'TOUCH'],[noTouch,'NO_TOUCH'],
+  [gapThrough,'OPEN_GAP_THROUGH'],[crossingGap,'OPEN_GAP_THROUGH'],
+  [missing,'INCOMPLETE_WINDOW'],[fixture().slice(0,33),'INCOMPLETE_WINDOW'],
+ ];
+ for(const bearish of [false,true])for(const [input,expected] of cases){
+  const bars=bearish?input.map(b=>({...b,open:220-b.open,
+   high:220-b.low,low:220-b.high,close:220-b.close})):input;
+  const report=studyHourlyFvgMidpoint(bars,source);
+  const formation=report.observations.find(o=>o.formationClosedAt===BASE+33*H);
+  assert.ok(formation);
+  assert.equal(formation.firstTouchOutcome,expected);
+  if(expected==='OPEN_GAP_THROUGH'){
+   assert.equal(formation.gates.midpointTouch,'INSUFFICIENT_DATA');
+   assert.equal(formation.blindMidpointTouch,null);
+  }
+  if(expected==='NO_TOUCH')assert.equal(formation.gates.midpointTouch,'FAIL');
+  if(expected==='INCOMPLETE_WINDOW')
+   assert.equal(formation.gates.midpointTouch,'INSUFFICIENT_DATA');
+  const counts=report.cohort.firstTouchOutcome;
+  assert.equal(counts.TOUCH+counts.NO_TOUCH+counts.OPEN_GAP_THROUGH+
+   counts.INCOMPLETE_WINDOW,report.cohort.formations);
+  for(const outcome of Object.keys(counts) as (keyof typeof counts)[])
+   assert.equal(counts[outcome],report.observations.filter(o=>o.firstTouchOutcome===outcome).length);
+ }
+});
 test('paired and censored strict-gate cohorts reconcile without promoting missing evidence',()=>{
  const failedWick=fixture();
  failedWick[33]=candle(33,105,106,101,102.5,200);
@@ -139,7 +174,7 @@ test('research report source metadata excludes arbitrary caller properties',()=>
  assert.deepEqual(Object.keys(report.source).sort(),Object.keys(source).sort());
  assert.equal(JSON.stringify(report).includes('synthetic-private-marker'),false);
  assert.equal(JSON.stringify(report).includes('synthetic-account-marker'),false);
- assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v13');
+ assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v14');
 });
 test('ambiguous source labels and contradictory volume evidence fail closed',()=>{
  // These are declared metadata, not independent vendor authentication.
@@ -473,7 +508,7 @@ test('an overflowing next-open comparator suppresses both matched markouts',()=>
 });
 test('completed hourly timestamps are safe and numeric rule changes have a new version',()=>{
  const report=studyHourlyFvgMidpoint(fixture(),source);
- assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v13');
+ assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v14');
  const lastSafeAlignedOpen=Math.floor(Number.MAX_SAFE_INTEGER/H)*H;
  assert.equal(Number.isSafeInteger(lastSafeAlignedOpen),true);
  assert.equal(Number.isSafeInteger(lastSafeAlignedOpen+H),false);

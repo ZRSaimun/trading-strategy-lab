@@ -7,7 +7,7 @@
  */
 import type {Bar} from './research.ts';
 
-export const HOURLY_FVG_VERSION='hourly-fvg-first-midpoint-touch-v13';
+export const HOURLY_FVG_VERSION='hourly-fvg-first-midpoint-touch-v14';
 export type Evidence='PASS'|'FAIL'|'INSUFFICIENT_DATA';
 export type Side='BULLISH'|'BEARISH';
 export type FvgSource={
@@ -26,15 +26,17 @@ export type Markout={
 };
 export type FvgObservation={
  direction:Side;formationClosedAt:number;gapLow:number;gapHigh:number;
- midpoint:number;firstTouchClosedAt:number|null;rejectionWickFraction:number|null;
+ midpoint:number;firstTouchClosedAt:number|null;
+ firstTouchOutcome:FirstTouchOutcome;rejectionWickFraction:number|null;
  gates:{midpointTouch:Evidence;wickRejection:Evidence;verifiedVolume:Evidence;
   strictCandidate:Evidence;markout:Evidence};
  blindMidpointTouch:Markout|null;confirmedNextOpen:Markout|null;
  eligibleForLiveTrading:false;
 };
 export type EvidenceCounts=Record<Evidence,number>;
+export type FirstTouchOutcome='TOUCH'|'NO_TOUCH'|'OPEN_GAP_THROUGH'|'INCOMPLETE_WINDOW';
 export type FvgCohort={
- formations:number;
+ formations:number;firstTouchOutcome:Record<FirstTouchOutcome,number>;
  midpointTouch:EvidenceCounts;strictCandidate:EvidenceCounts;markout:EvidenceCounts;
  pairedMarkouts:number;strictPairedMarkouts:number;nonStrictPairedMarkouts:number;
  // Count matched and right-censored candidates by strict evidence status.
@@ -161,8 +163,12 @@ function summarizeCohort(observations:readonly FvgObservation[]):FvgCohort{
   const counts=paired(observation)?pairedByStrictCandidate:unpairedByStrictCandidate;
   counts[observation.gates.strictCandidate]++;
  }
+ const firstTouchOutcome:Record<FirstTouchOutcome,number>={
+  TOUCH:0,NO_TOUCH:0,OPEN_GAP_THROUGH:0,INCOMPLETE_WINDOW:0,
+ };
+ for(const observation of observations)firstTouchOutcome[observation.firstTouchOutcome]++;
  return {
-  formations:observations.length,
+  formations:observations.length,firstTouchOutcome,
   midpointTouch:count('midpointTouch'),
   strictCandidate:count('strictCandidate'),
   markout:count('markout'),
@@ -304,6 +310,8 @@ export function studyHourlyFvgMidpoint(
   }
   observations.push({direction,formationClosedAt:third.time+HOUR,
    gapLow,gapHigh,midpoint,firstTouchClosedAt:touch===null?null:bars[touch].time+HOUR,
+   firstTouchOutcome:openingGapThrough?'OPEN_GAP_THROUGH':
+    touch!==null?'TOUCH':windowComplete?'NO_TOUCH':'INCOMPLETE_WINDOW',
    rejectionWickFraction:wickFraction,gates,
    blindMidpointTouch:blind,confirmedNextOpen:confirmed,
    eligibleForLiveTrading:false});
