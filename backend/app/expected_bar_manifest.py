@@ -117,6 +117,9 @@ def audit_m1_receipts_against_manifest(
     receipts: list[dict], manifest: ExpectedM1Manifest, **limits: int
 ) -> dict:
     """Run the existing fail-closed receipt census against a frozen manifest."""
+    if set(limits) - {"max_receipt_lag_seconds", "max_observation_age_seconds",
+                       "max_expected_close_age_seconds", "sample_limit"}:
+        raise ValueError("Unsupported receipt audit option")
     if type(manifest) is not ExpectedM1Manifest:
         raise ValueError("Compiled manifest required")
     rebuilt = compile_expected_m1_manifest(
