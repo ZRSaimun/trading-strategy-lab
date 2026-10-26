@@ -7,7 +7,7 @@
  */
 import type {Bar} from './research.ts';
 
-export const HOURLY_FVG_VERSION='hourly-fvg-first-midpoint-touch-v14';
+export const HOURLY_FVG_VERSION='hourly-fvg-first-midpoint-touch-v15';
 export type Evidence='PASS'|'FAIL'|'INSUFFICIENT_DATA';
 export type Side='BULLISH'|'BEARISH';
 export type FvgSource={
@@ -27,6 +27,9 @@ export type Markout={
 export type FvgObservation={
  direction:Side;formationClosedAt:number;gapLow:number;gapHigh:number;
  midpoint:number;firstTouchClosedAt:number|null;
+ // Earliest closed hourly bar at which this disposition is observable.
+ // Null means the waiting window is incomplete, not a known negative.
+ firstTouchOutcomeObservedAt:number|null;
  firstTouchOutcome:FirstTouchOutcome;rejectionWickFraction:number|null;
  gates:{midpointTouch:Evidence;wickRejection:Evidence;verifiedVolume:Evidence;
   strictCandidate:Evidence;markout:Evidence};
@@ -237,6 +240,7 @@ export function studyHourlyFvgMidpoint(
   let blind:Markout|null=null,confirmed:Markout|null=null;
   let windowComplete=true;
   let openingGapThrough=false;
+  let outcomeObservedAt:number|null=null;
   for(let wait=1;wait<=maxTouchWaitBars;wait++){
    const j=i+wait,b=bars[j],prev=bars[j-1];
    if(!b||b.time-prev.time!==HOUR){windowComplete=false;break;}
@@ -248,11 +252,15 @@ export function studyHourlyFvgMidpoint(
     // Preserve a physical range intersection without asserting a fill.
     if(b.low<=midpoint&&b.high>=midpoint)touch=j;
     openingGapThrough=true;
+    // An hourly historical open is not first-available tick evidence;
+    // the complete gap-through bar is only observable at its close.
+    outcomeObservedAt=b.time+HOUR;
     gates.midpointTouch='INSUFFICIENT_DATA';
     break;
    }
    if(b.low>midpoint||b.high<midpoint)continue;
    touch=j;
+   outcomeObservedAt=b.time+HOUR;
    // An opening gap THROUGH the midpoint is not evidence that a hypothetical
    // limit at midpoint could have filled at that price. Do not skip it.
    const approachesFromGapSide=bull?b.open>=midpoint:b.open<=midpoint;
@@ -301,6 +309,8 @@ export function studyHourlyFvgMidpoint(
   // A fully observed waiting horizon without a touch is a known rejection,
   // not missing evidence. Keep incomplete/gap-through windows unknown.
   if(touch===null&&windowComplete&&!openingGapThrough){
+   // A NO_TOUCH verdict requires all configured waiting bars to close.
+   outcomeObservedAt=bars[i+maxTouchWaitBars].time+HOUR;
    gates.midpointTouch='FAIL';
    gates.strictCandidate='FAIL';
    // All waiting bars were observed without a fill opportunity. This is a
@@ -310,6 +320,7 @@ export function studyHourlyFvgMidpoint(
   }
   observations.push({direction,formationClosedAt:third.time+HOUR,
    gapLow,gapHigh,midpoint,firstTouchClosedAt:touch===null?null:bars[touch].time+HOUR,
+   firstTouchOutcomeObservedAt:outcomeObservedAt,
    firstTouchOutcome:openingGapThrough?'OPEN_GAP_THROUGH':
     touch!==null?'TOUCH':windowComplete?'NO_TOUCH':'INCOMPLETE_WINDOW',
    rejectionWickFraction:wickFraction,gates,

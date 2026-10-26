@@ -1,6 +1,8 @@
-# Hourly FVG first-touch midpoint rejection versus blind limit (research v14)
+# Hourly FVG first-touch midpoint rejection versus blind limit (research v15)
 
 **Status: proposed, deterministic, read-only hypothesis.** This standalone TypeScript library is not yet wired to the terminal UI, production broker, archive query or cloud service. No actual BID/ASK executions, licensed news data, verified performance, live trades or profitability claims are included. It deliberately does **not** duplicate PR #24's sweep/MSS/FVG confluence risk-path experiment or PR #33's 4H CRT/15m confirmation screen.
+
+**Version 15: causal first-touch disposition timestamps.** Every formation now includes `firstTouchOutcomeObservedAt`: the completed hourly bar close that first supports its `TOUCH`, `OPEN_GAP_THROUGH`, or fully observed `NO_TOUCH` label. In particular, a 12-hour no-touch negative is not available at formation close, and a historical gap-through candle's opening price is not treated as an independently timestamped, first-available broker quote. `INCOMPLETE_WINDOW` keeps a null decision timestamp; it cannot be silently promoted to a negative or treated as an observed trading signal. Bullish/bearish synthetic regressions test prefix censoring, observed no-touch, physical touches, opening gap-through and missing hours. Frozen rule ID: `hourly-fvg-first-midpoint-touch-v15`. These timestamps are derived from supplied completed BID OHLC, not authenticated first-available quotes, actual fills, or profit evidence.
 
 **Version 14: expose why a first touch is absent or unobservable.** Each formation now has a `firstTouchOutcome`: `TOUCH` for an observed eligible midpoint-range intersection, `NO_TOUCH` for a fully observed 12-bar wait without one, `OPEN_GAP_THROUGH` when an opening jump invalidates the hypothetical limit assumption (even if that bar subsequently crosses the midpoint), or `INCOMPLETE_WINDOW` for missing/truncated waiting history. The `cohort.firstTouchOutcome` census counts all four and reconciles to every formation. This separates a genuine observed negative from a quote-path ambiguity and missing data without asserting a broker fill. A bullish/bearish synthetic regression covers both kinds of opening gap-through, a complete no-touch window, an interior gap, and a truncated tail. Frozen rule ID: `hourly-fvg-first-midpoint-touch-v14`. No authenticated prices, fills or profitability are claimed.
 
@@ -50,6 +52,6 @@ The research still lacks an authenticated broker's timestamped BID/ASK observati
 
 ## Verification
 
-31 synthetic Node tests cover bullish and bearish gap geometry, first-touch freeze, strict volume gating, incomplete and missing candles, gap-through uncertainty, causal next-open timing, common-horizon cost arithmetic and source validation. Run `cd frontend && npm test && npm run typecheck && npm run build`; repository CI also exercises backend and container smoke. Synthetic passing tests do not establish a statistical edge.
+32 synthetic Node tests cover bullish and bearish gap geometry, first-touch freeze, strict volume gating, incomplete and missing candles, gap-through uncertainty, causal next-open timing, common-horizon cost arithmetic and source validation. Run `cd frontend && npm test && npm run typecheck && npm run build`; repository CI also exercises backend and container smoke. Synthetic passing tests do not establish a statistical edge.
 
 **Deployment safety:** isolated draft PR; no secrets, private datasets, paid APIs, orders, production database changes, merge or Render deployment.

@@ -131,6 +131,40 @@ test('first-touch census distinguishes observed no-touch, gap-through and missin
    assert.equal(counts[outcome],report.observations.filter(o=>o.firstTouchOutcome===outcome).length);
  }
 });
+test('first-touch dispositions become known only at completed-bar close',()=>{
+ const untouched=fixture();
+ for(let i=33;i<=44;i++){
+  const bar=candle(i,105,106,104,105);
+  if(i<untouched.length)untouched[i]=bar;
+  else untouched.push(bar);
+ }
+ const gapThrough=fixture();
+ gapThrough[33]=candle(33,100,101,99,100,200);
+ for(const bearish of [false,true]){
+  const side=(bars:Bar[])=>bearish?bars.map(b=>({...b,
+   open:220-b.open,high:220-b.low,low:220-b.high,close:220-b.close})):bars;
+  const touch=target(side(fixture()));
+  assert.equal(touch.firstTouchOutcome,'TOUCH');
+  assert.equal(touch.firstTouchOutcomeObservedAt,BASE+34*H);
+  assert.equal(touch.firstTouchOutcomeObservedAt,touch.firstTouchClosedAt);
+  const partial=target(side(untouched.slice(0,44)));
+  assert.equal(partial.firstTouchOutcome,'INCOMPLETE_WINDOW');
+  assert.equal(partial.firstTouchOutcomeObservedAt,null,
+   'eleven observed no-touch bars cannot establish a twelve-bar negative');
+  const complete=target(side(untouched));
+  assert.equal(complete.firstTouchOutcome,'NO_TOUCH');
+  assert.equal(complete.firstTouchOutcomeObservedAt,BASE+45*H);
+  assert.equal(complete.firstTouchClosedAt,null);
+  const gap=target(side(gapThrough));
+  assert.equal(gap.firstTouchOutcome,'OPEN_GAP_THROUGH');
+  assert.equal(gap.firstTouchOutcomeObservedAt,BASE+34*H,
+   'historical hourly OHLC cannot certify the opening quote before close');
+  assert.equal(gap.firstTouchClosedAt,null);
+  const missing=target(side(fixture().filter(b=>b.time!==BASE+33*H)));
+  assert.equal(missing.firstTouchOutcome,'INCOMPLETE_WINDOW');
+  assert.equal(missing.firstTouchOutcomeObservedAt,null);
+ }
+});
 test('paired and censored strict-gate cohorts reconcile without promoting missing evidence',()=>{
  const failedWick=fixture();
  failedWick[33]=candle(33,105,106,101,102.5,200);
@@ -174,7 +208,7 @@ test('research report source metadata excludes arbitrary caller properties',()=>
  assert.deepEqual(Object.keys(report.source).sort(),Object.keys(source).sort());
  assert.equal(JSON.stringify(report).includes('synthetic-private-marker'),false);
  assert.equal(JSON.stringify(report).includes('synthetic-account-marker'),false);
- assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v14');
+ assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v15');
 });
 test('ambiguous source labels and contradictory volume evidence fail closed',()=>{
  // These are declared metadata, not independent vendor authentication.
@@ -508,7 +542,7 @@ test('an overflowing next-open comparator suppresses both matched markouts',()=>
 });
 test('completed hourly timestamps are safe and numeric rule changes have a new version',()=>{
  const report=studyHourlyFvgMidpoint(fixture(),source);
- assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v14');
+ assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v15');
  const lastSafeAlignedOpen=Math.floor(Number.MAX_SAFE_INTEGER/H)*H;
  assert.equal(Number.isSafeInteger(lastSafeAlignedOpen),true);
  assert.equal(Number.isSafeInteger(lastSafeAlignedOpen+H),false);
