@@ -146,6 +146,7 @@ def test_financing_revision_recomputes_net_and_detects_mismatch():
 
 @pytest.mark.parametrize("field,value", [
     ("provider", "Other"), ("venue", "LIVE"), ("account_alias", "other"),
+    ("position_id", ["p1"]), ("kind", {"unexpected": "dict"}),
     ("currency", "GBP"), ("kind", "OTHER"), ("event_id", ""),
     ("statement_sha256", "bad"), ("posted_at", 399), ("posted_at", 412),
     ("received_at", 400), ("received_at", 420), ("received_at", 501),
@@ -197,6 +198,7 @@ def test_invalid_policy_rejected(field, value):
     lambda c: c.__setitem__(0, dict(c[0], count=33)),
     lambda c: c.__setitem__(0, dict(c[0], count=0)),
     lambda c: c.__setitem__(0, dict(c[0], position_id="unknown")),
+    lambda c: c.__setitem__(0, dict(c[0], position_id=["p1"])),
 ])
 def test_invalid_or_incomplete_kind_census_rejected(mutate):
     data = setup()
