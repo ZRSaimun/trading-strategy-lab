@@ -101,7 +101,7 @@ def test_canonical_decimal_equivalence_and_expiry():
 
 def test_review_policy_change_invalidates_digest():
     p = packet()
-    assert not compare_review(p, intent(), now_ms=NOW+1, max_quote_age_ms=5000)['review_matches_exact_intent']
+    assert not compare_review(p, intent(), now_ms=NOW+1, max_quote_age_ms=2500)['review_matches_exact_intent']
 
 
 def test_invalid_clock_and_fingerprint_rejected():
@@ -132,3 +132,52 @@ def test_pure_repeatability():
     original = deepcopy(x)
     assert build_review_packet(x, now_ms=NOW) == build_review_packet(x, now_ms=NOW)
     assert x == original
+
+
+@pytest.mark.parametrize('change,check', [
+    ({'max_position_loss_cash': '51'}, 'declared_position_budget_at_most_5pct_equity'),
+    ({'max_daily_loss_cash': '101'}, 'declared_daily_budget_at_most_10pct_equity'),
+    ({'max_gross_leverage': '5.00000001'}, 'declared_leverage_policy_at_most_5x'),
+    ({'max_spread_bps': '100.00000001'}, 'declared_spread_policy_at_most_100bps'),
+])
+def test_untrusted_risk_policy_cannot_relax_conservative_review_ceiling(change, check):
+    result = packet(**change)
+    assert check in result['failed_checks']
+    assert result['assumption_checks_pass'] is False
+    assert result['may_execute_real_order'] is False
+    assert result['may_execute_paper_order'] is False
+
+
+@pytest.mark.parametrize('policy', [
+    {'max_quote_age_ms': 3001},
+    {'max_transport_lag_ms': 1001},
+    {'max_quote_age_ms': 60000},
+    {'max_transport_lag_ms': 60000},
+])
+def test_quote_timing_policy_cannot_be_relaxed(policy):
+    with pytest.raises(ValueError, match='Invalid timing policy'):
+        build_review_packet(intent(), now_ms=NOW, **policy)
+    with pytest.raises(ValueError, match='Invalid timing policy'):
+        compare_review(packet(), intent(), now_ms=NOW+1, **policy)
+
+
+def test_conservative_ceilings_accept_boundary_values_but_never_execute():
+    result = packet(max_position_loss_cash='50', max_daily_loss_cash='100',
+                    max_gross_leverage='5', max_spread_bps='100')
+    for check in ('declared_position_budget_at_most_5pct_equity',
+                  'declared_daily_budget_at_most_10pct_equity',
+                  'declared_leverage_policy_at_most_5x',
+                  'declared_spread_policy_at_most_100bps'):
+        assert result['checks'][check] is True
+    assert result['assumption_checks_pass'] is True
+    assert result['may_execute_real_order'] is False
+    assert result['may_execute_paper_order'] is False
+
+
+def test_new_policy_checks_preserve_existing_position_loss_calculation():
+    baseline = packet()
+    assert baseline['stressed_loss_cash'] == '4.54'
+    assert baseline['checks']['declared_position_budget_at_most_5pct_equity']
+    assert baseline['checks']['declared_daily_budget_at_most_10pct_equity']
+    assert baseline['checks']['declared_leverage_policy_at_most_5x']
+    assert baseline['checks']['declared_spread_policy_at_most_100bps']
