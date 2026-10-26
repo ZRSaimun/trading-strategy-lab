@@ -207,6 +207,30 @@ test('large finite FVG endpoints yield a finite interior midpoint',()=>{
  assert.ok(x.midpoint>x.gapLow&&x.midpoint<x.gapHigh);
 });
 
+test('subnormal midpoint uses a single rounded half-gap and does not fabricate a gap-through',()=>{
+ // With separately halved endpoints, rounding moves the midpoint one ULP
+ // upward. The first touch then looks like an opening gap-through instead.
+ const low=3.9866600654518847e-308,high=3.986660065451928e-308;
+ const expected=low+(high-low)/2;
+ assert.ok(expected>low&&expected<high);
+ assert.notEqual(low/2+high/2,expected);
+ const bars=[
+  candle(0,low,low,low,low),
+  candle(1,low,low,low,low),
+  candle(2,high,high,high,high),
+  candle(3,expected,expected,expected,expected),
+ ];
+ const x=studyHourlyFvgMidpoint(bars,source,{maxTouchWaitBars:1})
+  .observations.find(o=>o.formationClosedAt===BASE+3*H);
+ assert.ok(x);
+ assert.equal(x.midpoint,expected);
+ assert.equal(x.firstTouchClosedAt,BASE+4*H);
+ assert.equal(x.gates.midpointTouch,'PASS');
+ assert.equal(x.gates.wickRejection,'FAIL');
+ assert.equal(x.gates.markout,'INSUFFICIENT_DATA');
+ assert.equal(x.eligibleForLiveTrading,false);
+});
+
 test('unrepresentable midpoint rejects the window instead of rounding to a boundary',()=>{
  const bars=fixture();
  bars[30]=candle(30,1,1.0000000000000002,0.9,1);
@@ -243,7 +267,7 @@ test('an overflowing next-open comparator suppresses both matched markouts',()=>
 });
 test('completed hourly timestamps are safe and numeric rule changes have a new version',()=>{
  const report=studyHourlyFvgMidpoint(fixture(),source);
- assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v2');
+ assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v3');
  const lastSafeAlignedOpen=Math.floor(Number.MAX_SAFE_INTEGER/H)*H;
  assert.equal(Number.isSafeInteger(lastSafeAlignedOpen),true);
  assert.equal(Number.isSafeInteger(lastSafeAlignedOpen+H),false);
