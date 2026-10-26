@@ -27,6 +27,9 @@ def test_valid_and_unchanged():
     original = deepcopy(data)
     assert validate_demo_metadata_shape("instruments", data) == 1
     assert validate_demo_metadata_shape("exchanges", [exchange()]) == 1
+    assert validate_demo_metadata_shape("exchanges", [
+        exchange(workingSchedules=[{"id": 7, "timeEvents": []}]),
+    ]) == 1
     assert data == original
     assert validate_demo_metadata_shape("instruments", []) == 0
 
@@ -55,6 +58,13 @@ def test_valid_and_unchanged():
     ("exchanges", [exchange(workingSchedules=["bad"])]),
     ("exchanges", [exchange(name="\x00")]),
     ("exchanges", [exchange(workingSchedules=[{}] * 1001)]),
+    ("exchanges", [exchange(workingSchedules=[{}])]),
+    ("exchanges", [exchange(workingSchedules=[{"id": True, "timeEvents": []}])]),
+    ("exchanges", [exchange(workingSchedules=[{"id": -1, "timeEvents": []}])]),
+    ("exchanges", [exchange(workingSchedules=[{"id": 7, "timeEvents": {}}])]),
+    ("exchanges", [exchange(workingSchedules=[{"id": 7, "timeEvents": []},
+                                              {"id": 7, "timeEvents": []}])]),
+    ("exchanges", [exchange(workingSchedules=[{"id": 7, "timeEvents": [None] * 10001}])]),
 ])
 def test_reject_bad_shape(endpoint, payload):
     with pytest.raises(DemoMetadataSchemaError) as exc:

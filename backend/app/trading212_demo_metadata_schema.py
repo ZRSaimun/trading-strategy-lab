@@ -62,9 +62,21 @@ def validate_demo_metadata_shape(endpoint: str, payload: object) -> int:
             schedules = item.get("workingSchedules")
             if (type(identity) is not int or not 0 <= identity <= 2**63 - 1
                     or not _text(item.get("name"))
-                    or not isinstance(schedules, list) or len(schedules) > 1000
-                    or any(not isinstance(s, dict) for s in schedules)):
+                    or not isinstance(schedules, list) or len(schedules) > 1000):
                 raise DemoMetadataSchemaError("Invalid DEMO exchange metadata")
+            # WorkingSchedule.id, not Exchange.id, is the instrument's
+            # workingScheduleId target. Reject malformed nested IDs before
+            # reporting even a single endpoint as observed metadata.
+            schedule_ids = set()
+            for schedule in schedules:
+                if not isinstance(schedule, dict):
+                    raise DemoMetadataSchemaError("Invalid DEMO working schedule")
+                schedule_id, events = schedule.get("id"), schedule.get("timeEvents")
+                if (type(schedule_id) is not int or not 0 <= schedule_id <= 2**63 - 1
+                        or schedule_id in schedule_ids or not isinstance(events, list)
+                        or len(events) > 10_000):
+                    raise DemoMetadataSchemaError("Invalid DEMO working schedule")
+                schedule_ids.add(schedule_id)
         if identity in seen:
             raise DemoMetadataSchemaError("Duplicate DEMO metadata identity")
         seen.add(identity)

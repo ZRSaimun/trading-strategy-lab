@@ -32,7 +32,8 @@ Stocks ISA**, not **CFD** accounts. Metadata is not a price feed.
 be labeled `DEMO_METADATA_OBSERVED_UNVERIFIED`, the probe now validates
 documented instrument/exchange field shapes, rejects duplicate ticker/exchange
 identifiers, nonfinite/negative quantities, malformed currency/type/schedule
-references, malformed schedules, and oversized populations. Malformed data
+references, malformed nested working-schedule IDs and event collections,
+duplicate schedule IDs within an exchange, and oversized populations. Malformed data
 fails closed with a sanitized error; a request reservation is still consumed.
 Empty collections remain `REVIEW_REQUIRED`. These checks do **not** establish
 catalog completeness, cross-endpoint exchange linkage, actual account
@@ -57,3 +58,13 @@ Run mock-only tests with:
 **Release gate:** Keep PR #65 draft and undeployed until full exact-head CI,
 independent licensing/entitlement checks, owner-authenticated staging, durable
 backup restore, rollback rehearsal and production health checks.
+
+**Nested working schedule schema check (26 October 2026):** The disconnected
+DEMO metadata gate now validates each exchange's `workingSchedules[].id`
+as a unique bounded integer **within that exchange** and requires a bounded
+`timeEvents` list. Cross-exchange duplicate IDs and instrument-to-schedule
+linkage are checked only by the separately invoked full catalog reconciler,
+which has both endpoint receipts. This does not interpret trading hours or
+prove market sessions, price freshness, legal rights or broker account scope.
+See https://docs.trading212.com/_bundle/api.json?download= for the
+`Exchange`, `WorkingSchedule`, and `TradableInstrument` schemas.
