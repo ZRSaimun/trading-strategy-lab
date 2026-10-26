@@ -343,6 +343,46 @@ def _worst_quartile_mean_envelope(lower, upper):
     )
 
 
+
+def _chronological_quartile_net_r_envelope(lower, upper):
+    """Predeclared contiguous pseudo-booking quartiles, never return-ranked bins.
+
+    Four nonempty contiguous partitions use floor(i*N/4) boundaries. They
+    preserve frozen settlement order and expose time-local fragility without
+    optimizing a boundary on outcomes or claiming market-calendar regimes.
+    """
+    if (len(lower) != len(upper) or len(lower) < 4
+            or any(a > b for a, b in zip(lower, upper))):
+        raise ValueError("Invalid chronological quartile intervals")
+    n = len(lower)
+    quartiles = []
+    for i in range(4):
+        start, end = i * n // 4, (i + 1) * n // 4
+        size = end - start
+        lo = sum(lower[start:end], Decimal(0)) / Decimal(size)
+        hi = sum(upper[start:end], Decimal(0)) / Decimal(size)
+        if lo > hi:
+            raise ValueError("Inverted chronological quartile means")
+        quartiles.append(dict(
+            quartile=i + 1, start_booking_event=start,
+            end_booking_event=end, booked_paths=size,
+            lower_mean_net_r=str(lo), upper_mean_net_r=str(hi),
+            guaranteed_strict_positive=lo > 0,
+            possible_strict_positive=hi > 0,
+        ))
+    return dict(
+        quartiles=quartiles,
+        guaranteed_positive_quartiles=sum(
+            q["guaranteed_strict_positive"] for q in quartiles),
+        possible_positive_quartiles=sum(
+            q["possible_strict_positive"] for q in quartiles),
+        minimum_quartile_lower_mean_net_r=str(min(
+            _decimal(q["lower_mean_net_r"]) for q in quartiles)),
+        minimum_quartile_upper_mean_net_r=str(min(
+            _decimal(q["upper_mean_net_r"]) for q in quartiles)),
+    )
+
+
 def _withheld(upstream, reason):
     return dict(
         protocol="frozen-m1-capacity-drawdown-v1",
@@ -578,6 +618,8 @@ def audit_frozen_capacity_drawdown(
                     _zero_cost_winner_erosion(zero_lo, zero_hi, lo, hi))
                 report[f"{label}_pseudo_settlement_worst_quartile_net_r"] = (
                     _worst_quartile_mean_envelope(lo, hi))
+                report[f"{label}_pseudo_settlement_chronological_quartiles"] = (
+                    _chronological_quartile_net_r_envelope(lo, hi))
                 # Capacity-rejected signals remain in the frozen opportunity set.
                 # Their sign census is descriptive and NEVER changes admissions.
                 skipped_lo, skipped_hi = _bounds_for_population(
@@ -606,6 +648,26 @@ def audit_frozen_capacity_drawdown(
                         if (_decimal(report[tail_key][bound])
                                 > _decimal(previous[tail_key][bound])):
                             raise ValueError("Nonmonotone downside tail cost envelope")
+                    quartile_key = f"{label}_pseudo_settlement_chronological_quartiles"
+                    current_quartiles = report[quartile_key]
+                    prior_quartiles = previous[quartile_key]
+                    if (current_quartiles["guaranteed_positive_quartiles"]
+                            > prior_quartiles["guaranteed_positive_quartiles"]
+                            or current_quartiles["possible_positive_quartiles"]
+                            > prior_quartiles["possible_positive_quartiles"]):
+                        raise ValueError("Nonmonotone chronological quartile signs")
+                    for new_quartile, old_quartile in zip(
+                            current_quartiles["quartiles"],
+                            prior_quartiles["quartiles"]):
+                        if (new_quartile["start_booking_event"]
+                                != old_quartile["start_booking_event"]
+                                or new_quartile["end_booking_event"]
+                                != old_quartile["end_booking_event"]
+                                or _decimal(new_quartile["lower_mean_net_r"])
+                                > _decimal(old_quartile["lower_mean_net_r"])
+                                or _decimal(new_quartile["upper_mean_net_r"])
+                                > _decimal(old_quartile["upper_mean_net_r"])):
+                            raise ValueError("Nonmonotone chronological quartile costs")
                     window_key = f"{label}_pseudo_settlement_fixed_window_adverse_sums"
                     for new_window, old_window in zip(
                             report[window_key], previous[window_key]):
