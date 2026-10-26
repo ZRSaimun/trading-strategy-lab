@@ -16,8 +16,8 @@ from .provider_credit_ledger_audit import (
     CreditLedgerAuditError, audit_provider_credit_ledger,
 )
 
-_HEX32 = re.compile(r"[0-9a-f]{32}\\Z")
-_HEX64 = re.compile(r"[0-9a-f]{64}\\Z")
+_HEX32 = re.compile(r"[0-9a-f]{32}\Z")
+_HEX64 = re.compile(r"[0-9a-f]{64}\Z")
 _MAX_REPORTS = 5000
 _FALSE_FLAGS = (
     "provider_credit_quota_window_verified",
