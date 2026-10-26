@@ -89,7 +89,7 @@ def render_unverified_forecast_review(snapshot, outbox_view, *, forecast_id, as_
     _time(target)
     _time(issued)
     if target != base + horizon * seconds or base % seconds or issued > as_of or \
-            issued < base + seconds or as_of >= target + seconds or\
+            issued < base + seconds or as_of >= target + seconds or \
             expiry > target + seconds:
         raise ValueError("Forecast review chronology invalid")
     if (event.get("seq") != outbox_view.get("issueSeq") or
