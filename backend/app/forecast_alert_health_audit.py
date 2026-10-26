@@ -120,18 +120,26 @@ def audit_forecast_alert_health(records, expected_keys, *, as_of,
             if age >= uncertain_warning_seconds:
                 counts["UNCERTAIN_DELAY_WARNING"] += 1
                 warning_keys.append(key)
+            if as_of >= state["expiresAt"]:
+                counts["EXPIRED_IN_FLIGHT_UNCERTAIN"] += 1
+                warning_keys.append(key)
         elif status == "ACK_RECORDED_UNVERIFIED":
             counts[status] += 1
             max_ack_lag = max(max_ack_lag, state["ackAt"] - state["claimedAt"])
+            if state["ackAt"] >= state["expiresAt"]:
+                counts["ACK_AT_OR_AFTER_EXPIRY_WARNING"] += 1
+                warning_keys.append(key)
         else:
             counts["CANCELLED"] += 1
     if seen != expected:
         raise ValueError("Incomplete declared alert health population")
     statuses = ("QUEUED", "EXPIRED_UNCLAIMED", "IN_FLIGHT_UNCERTAIN",
-                "ACK_RECORDED_UNVERIFIED", "CANCELLED", "QUEUE_DELAY_WARNING",
-                "UNCERTAIN_DELAY_WARNING")
+                "EXPIRED_IN_FLIGHT_UNCERTAIN", "ACK_RECORDED_UNVERIFIED",
+                "ACK_AT_OR_AFTER_EXPIRY_WARNING", "CANCELLED",
+                "QUEUE_DELAY_WARNING", "UNCERTAIN_DELAY_WARNING")
     requires_review = bool(counts["EXPIRED_UNCLAIMED"] or counts["IN_FLIGHT_UNCERTAIN"] or
-                           counts["QUEUE_DELAY_WARNING"])
+                           counts["QUEUE_DELAY_WARNING"] or
+                           counts["ACK_AT_OR_AFTER_EXPIRY_WARNING"])
     return {"populationEvidence": "DECLARED_ONLY_NOT_INDEPENDENTLY_VERIFIED",
             "status": "NO_DECLARED_ALERTS" if not expected else
                       "OPERATOR_REVIEW_REQUIRED" if requires_review else "DECLARED_ONLY",
@@ -139,7 +147,7 @@ def audit_forecast_alert_health(records, expected_keys, *, as_of,
             "oldestQueuedSeconds": oldest_queued,
             "oldestUncertainSeconds": oldest_uncertain,
             "maxSelfAttestedAckLagSeconds": max_ack_lag,
-            "warningKeys": [list(key) for key in sorted(warning_keys)],
+            "warningKeys": [list(key) for key in sorted(set(warning_keys))],
             "providerDeliveryVerified": False, "recipientDeliveryVerified": False,
             "maySendNotification": False, "mayExecutePaperOrder": False,
             "mayExecuteLiveOrder": False}
