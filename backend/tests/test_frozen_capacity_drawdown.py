@@ -18,6 +18,7 @@ from app.frozen_capacity_drawdown import (_maximum_drawdown,
                                           _worst_fixed_booking_window,
                                           _worst_quartile_mean_envelope,
                                           _chronological_quartile_net_r_envelope,
+                                          _worst_single_deletion_mean_envelope,
                                           _validated_cost_trajectory,
                                           audit_frozen_capacity_drawdown)
 from test_frozen_capacity_week_fragility import CUTOFF, sample, move
@@ -1065,5 +1066,78 @@ def test_full_report_chronological_quartiles_cost_monotonic_and_nonexecuting():
             previous = value
     assert report["source_authenticated"] is False
     assert report["untouched_holdout_verified"] is False
+    assert report["verified_profitability"] is False
+    assert report["may_execute_order"] is False
+
+
+def test_worst_single_deletion_mean_is_not_winner_selection():
+    lower = [Decimal("-3"), Decimal("1"), Decimal("5")]
+    upper = [Decimal("-2"), Decimal("2"), Decimal("6")]
+    result = _worst_single_deletion_mean_envelope(lower, upper)
+    assert result["booked_paths"] == 3
+    assert Decimal(result["minimum_worst_deletion_mean_net_r"]) == Decimal("-1")
+    assert Decimal(result["maximum_worst_deletion_mean_net_r"]) == Decimal("0")
+    assert result["minimum_worst_deletion_removed_booking_event"] == 3
+    assert result["maximum_worst_deletion_removed_booking_event"] == 3
+    assert result["guaranteed_strict_positive_after_any_one_deletion"] is False
+    assert result["possible_strict_positive_after_any_one_deletion"] is False
+    ties = _worst_single_deletion_mean_envelope(
+        [Decimal(1)] * 4, [Decimal(2)] * 4)
+    assert ties["minimum_worst_deletion_removed_booking_event"] == 1
+    assert ties["maximum_worst_deletion_removed_booking_event"] == 1
+    assert ties["guaranteed_strict_positive_after_any_one_deletion"] is True
+    for low, high in (([], []), ([Decimal(1)], [Decimal(1)]),
+                      ([Decimal(0)] * 3, [Decimal(0)] * 2),
+                      ([Decimal(1)] * 2, [Decimal(0)] * 2)):
+        with pytest.raises(ValueError, match="single-deletion"):
+            _worst_single_deletion_mean_envelope(low, high)
+
+
+def test_worst_single_deletion_bounds_match_independent_endpoint_oracle():
+    # 3**5 interval populations * 2**5 endpoint realizations = 7,776.
+    # The worst deletion is reselected for EACH realized outcome; the
+    # envelope must not assume the same removed booking event every time.
+    for intervals in product(((-2, 0), (-1, 1), (0, 2)), repeat=5):
+        lower = [Decimal(a) for a, _ in intervals]
+        upper = [Decimal(b) for _, b in intervals]
+        actual = _worst_single_deletion_mean_envelope(lower, upper)
+        outcomes = []
+        for endpoint_bits in product((0, 1), repeat=5):
+            realized = [
+                Decimal(intervals[i][bit]) for i, bit in enumerate(endpoint_bits)]
+            outcomes.append(min(
+                sum((realized[k] for k in range(5) if k != removed),
+                    Decimal(0)) / Decimal(4)
+                for removed in range(5)))
+        assert Decimal(actual["minimum_worst_deletion_mean_net_r"]) == min(outcomes)
+        assert Decimal(actual["maximum_worst_deletion_mean_net_r"]) == max(outcomes)
+        assert actual["guaranteed_strict_positive_after_any_one_deletion"] == (
+            min(outcomes) > 0)
+        assert actual["possible_strict_positive_after_any_one_deletion"] == (
+            max(outcomes) > 0)
+
+
+def test_full_report_worst_single_deletion_is_cost_monotone_and_nonexecuting():
+    manifest, paths = sample()
+    report = run(manifest, paths)
+    for label in ("training", "holdout"):
+        key = f"{label}_pseudo_settlement_worst_single_deletion_mean"
+        previous = None
+        for scenario in report["cost_scenarios"]:
+            current = scenario[key]
+            assert current["booked_paths"] == report[
+                "admission_counts"][f"{label}_admitted"]
+            for event_key in ("minimum_worst_deletion_removed_booking_event",
+                              "maximum_worst_deletion_removed_booking_event"):
+                assert 1 <= current[event_key] <= current["booked_paths"]
+            if previous is not None:
+                for bound in ("minimum_worst_deletion_mean_net_r",
+                              "maximum_worst_deletion_mean_net_r"):
+                    assert Decimal(current[bound]) <= Decimal(previous[bound])
+                for flag in ("guaranteed_strict_positive_after_any_one_deletion",
+                             "possible_strict_positive_after_any_one_deletion"):
+                    assert not current[flag] or previous[flag]
+            previous = current
+    assert report["source_authenticated"] is False
     assert report["verified_profitability"] is False
     assert report["may_execute_order"] is False
