@@ -153,3 +153,62 @@ def test_recent_nonadjacent_quote_identifier_reuse_is_quarantined(store):
     assert obj.observe(SOURCE, quote(67, quote_id="quote-id-00003"),
                        now_ms=NOW + 6630)["reason"] == "REUSED_QUOTE_ID"
     assert obj.load_marker(SOURCE)["sequence"] == 66
+
+
+@pytest.mark.parametrize("mutation", [
+    "boolean_version",
+    "receipt_before_observation",
+    "accept_before_receipt",
+    "impossibly_old_observation",
+    "revision_ahead_of_sequence",
+    "truncated_recent_window",
+    "oversized_envelope",
+])
+def test_checksums_cannot_launder_corrupt_persisted_quote_markers(store, mutation):
+    """Even a recomputed checksum cannot turn an impossible replay state valid."""
+    import json
+    from app.paper_quote_replay_store import _digest
+
+    obj, _, factory = store
+    assert obj.observe(SOURCE, quote(), now_ms=NOW + 30)["status"] == "ACCEPTED_UNVERIFIED"
+    key = obj._key(SOURCE)
+    with factory.begin() as db:
+        record = db.get(Record, key)
+        doc = json.loads(record.value)
+        if mutation == "boolean_version":
+            doc["version"] = True
+        elif mutation == "receipt_before_observation":
+            doc["observed_at_ms"] = NOW + 21
+        elif mutation == "accept_before_receipt":
+            doc["received_at_ms"] = NOW + 31
+        elif mutation == "impossibly_old_observation":
+            doc["observed_at_ms"] = NOW - 60_001
+        elif mutation == "revision_ahead_of_sequence":
+            doc["revision"] = 2
+        elif mutation == "truncated_recent_window":
+            doc["revision"] = 1
+            doc["sequence"] = 1
+        doc["checksum"] = _digest({k: v for k, v in doc.items() if k != "checksum"})
+        record.value = json.dumps(doc, separators=(",", ":"))
+        if mutation == "oversized_envelope":
+            record.value += " " * 8_001
+        corrupt = record.value
+
+    with pytest.raises(ValueError, match="corrupt"):
+        obj.load_marker(SOURCE)
+    with pytest.raises(ValueError, match="corrupt"):
+        obj.observe(SOURCE, quote(2), now_ms=NOW + 130)
+    with factory() as db:
+        assert db.get(Record, key).value == corrupt
+        assert len(db.scalars(select(Audit)).all()) == 1
+
+
+def test_valid_marker_sliding_window_remains_loadable_after_hardening(store):
+    obj, _, factory = store
+    for i in range(1, 68):
+        assert obj.observe(SOURCE, quote(i), now_ms=NOW + (i - 1) * 100 + 30)["status"] == "ACCEPTED_UNVERIFIED"
+    marker = PaperQuoteReplayStore(factory).load_marker(SOURCE)
+    assert marker["revision"] == 66
+    assert marker["sequence"] == 67
+    assert len(marker["recent_quote_hashes"]) == 64
+    assert marker["observed_at_ms"] <= marker["received_at_ms"] <= marker["accepted_at_ms"]
