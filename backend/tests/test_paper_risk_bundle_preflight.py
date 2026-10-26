@@ -85,7 +85,7 @@ def test_three_store_snapshot_coherent_but_never_authorizes(store):
     assert r["may_execute_paper_order"] is False
     assert len(r["evidence_fingerprint_sha256"]) == 64
     with factory() as db:
-        assert len(db.scalars(select(Audit)).all()) == 3
+        assert len(db.scalars(select(Audit)).all()) == 4
 
 
 @pytest.mark.parametrize("missing", ["daily", "quote", "intent"])
