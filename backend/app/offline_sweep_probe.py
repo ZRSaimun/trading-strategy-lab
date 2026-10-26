@@ -190,6 +190,16 @@ def research(bars, *, lookback=16, horizon=16, embargo=16):
     with localcontext() as ctx:
         ctx.prec = 60
         for name, trades in cohorts.items():
+            # Frozen uncensored cohort: mean net R is linear in additional
+            # round-trip bps. The zero-crossing is a descriptive cost budget,
+            # never a measured spread or an executable profitability claim.
+            gross_sum = sum((r for r, _, _ in trades), Q(0))
+            notional_r_sum = sum((abs(entry) / risk for _, entry, risk in trades), Q(0))
+            mean_gross_r = gross_sum / len(trades) if trades else None
+            cost_slope = (notional_r_sum / Q(10000) / len(trades)
+                          if trades else None)
+            break_even_bps = (gross_sum * Q(10000) / notional_r_sum
+                              if trades and gross_sum > 0 else None)
             cases = []
             for bps in (0, 5, 10, 20):
                 net = [r - abs(entry)*Q(bps)/Q(10000)/risk for r, entry, risk in trades]
@@ -197,8 +207,13 @@ def research(bars, *, lookback=16, horizon=16, embargo=16):
                                   mean_net_r=str(sum(net, Q(0))/len(net)) if net else None,
                                   sum_net_r=str(sum(net, Q(0))),
                                   strictly_positive=sum(v > 0 for v in net)))
-            reports[name] = dict(censored_due_to_gaps_or_boundaries=censored[name],
-                                 cost_scenarios=cases)
+            reports[name] = dict(
+                censored_due_to_gaps_or_boundaries=censored[name],
+                uncensored_mean_gross_r=(str(mean_gross_r) if trades else None),
+                mean_r_cost_per_additional_bps=(str(cost_slope) if trades else None),
+                positive_mean_break_even_additional_bps=(
+                    str(break_even_bps) if break_even_bps is not None else None),
+                cost_scenarios=cases)
     return dict(protocol="source-local-sweep-confirmation-v2",
                 source_authenticated=False, timezone_verified=False,
                 untouched_holdout_verified=False, executable_broker_costs=False,
