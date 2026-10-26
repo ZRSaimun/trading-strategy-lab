@@ -7,7 +7,7 @@ from app.forecast_alert_health_audit import audit_forecast_alert_health as audit
 def state(status="QUEUED", **changes):
     row = {"version": 1, "identity": {"instrument": "XAUUSD-SYNTH", "provider": "SYNTH",
            "venue": "TEST", "sourceId": "offline", "priceSide": "bid", "seconds": 60},
-           "forecastId": "f1", "modelVersion": "baseline", "horizon": 1,
+           "forecastId": "f1", "modelVersion": "baseline", "horizon": 3,
            "baseStart": 60, "issueSeq": 2, "issuedAt": 120, "expiresAt": 300,
            "status": status, "claimId": None, "claimedAt": None, "ackAt": None}
     if status in ("IN_FLIGHT_UNCERTAIN", "ACK_RECORDED_UNVERIFIED"):
@@ -127,7 +127,11 @@ def test_impossible_outbox_expiry_fails_closed(expiry):
 
 
 def test_maximum_allowed_outbox_age_is_accepted_without_send_authority():
-    result = check(state(expiresAt=120 + 3600))
+    # A 1-hour alert lifetime requires a target candle that closes late enough.
+    feed = {**state()["identity"], "seconds": 3600}
+    row = state(identity=feed, baseStart=3600, issuedAt=7200,
+                expiresAt=10800, horizon=1)
+    result = check(row, now=7250)
     assert result["status"] == "DECLARED_ONLY"
     assert result["maySendNotification"] is False
 
@@ -221,3 +225,21 @@ def test_approaching_expiry_and_queue_delay_have_single_warning_identity():
 def test_invalid_expiry_warning_budget_fails_closed(bad):
     with pytest.raises(ValueError, match="warning budget"):
         check(expiry_warning_seconds=bad)
+
+
+@pytest.mark.parametrize("changes,now", [
+    ({"expiresAt": 301}, 150),  # Target horizon=3 closes at 300.
+    ({"baseStart": 61}, 150),  # Base must align to the feed timeframe.
+    ({"issuedAt": 119}, 150),  # Cannot issue before completed base.
+    ({"issuedAt": 180}, 200),  # Cannot issue after next candle closes.
+])
+def test_impossible_target_expiry_or_issue_timing_fails_closed(changes, now):
+    with pytest.raises(ValueError, match="Invalid alert health state"):
+        check(state(**changes), now=now)
+
+
+def test_exact_target_completion_expiry_is_valid_but_not_authoritative():
+    result = check(state(expiresAt=300), now=150)
+    assert result["status"] == "DECLARED_ONLY"
+    assert result["maySendNotification"] is False
+    assert result["providerDeliveryVerified"] is False
