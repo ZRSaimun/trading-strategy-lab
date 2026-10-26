@@ -15,6 +15,7 @@ from .expected_bar_manifest import (
     compile_expected_m1_manifest,
 )
 from .provider_snapshot import verify_normalized_snapshot
+from .provider_credit_budget import CreditBudgetError, reserve_one_credit
 from .providers.twelvedata import ProviderError, retrieve
 
 _IDENTITY = ("twelvedata", "XAU/USD", "UNVERIFIED", "UNSPECIFIED")
@@ -42,6 +43,8 @@ async def review_twelvedata_completed_m1(
     *, api_key: str, manifest: ExpectedM1Manifest,
     owner_approved_api_credit_use: bool = False,
     owner_asserted_data_rights: bool = False,
+    budget_db_path: str | None = None,
+    budget_request_id: str | None = None,
 ) -> dict:
     """One operator-invoked HTTPS read, stamped by backend clock after response.
 
@@ -76,6 +79,16 @@ async def review_twelvedata_completed_m1(
             raise ValueError("Future expected bars")
     except (ValueError, TypeError, OverflowError):
         raise ProspectiveReceiptError("Invalid or uncompleted expected-bar manifest") from None
+
+    # Reserve BEFORE any potentially chargeable network request. A failed or
+    # uncertain request consumes its reservation; never retry or refund blindly.
+    try:
+        budget = reserve_one_credit(
+            budget_db_path, request_id=budget_request_id,
+            manifest_sha256=manifest.manifest_sha256,
+        )
+    except CreditBudgetError:
+        raise ProspectiveReceiptError("Durable provider credit reservation required") from None
 
     started = _monotonic()
     try:
@@ -136,7 +149,11 @@ async def review_twelvedata_completed_m1(
         "http_body_hash_semantics": "httpx-decoded-response-body-not-TLS-wire",
         "provider_http_status": wire["http_status"],
         "source_authenticated": False,
-        "owner_call_approval_scope": "explicit-per-call-assertion-only",
+        "owner_call_approval_scope": "explicit-per-call-assertion-plus-durable-budget",
+        "credit_budget_reservation_id": budget["reservation_id"],
+        "credit_budget_utc_day": budget["utc_day"],
+        "credit_budget_remaining_after_reservation": budget["remaining_credits"],
+        "credit_budget_is_entitlement_proof": False,
         "provider_entitlement_verified": False,
         "retention_and_display_rights_verified": False,
         "expected_calendar_verified": False,
