@@ -172,6 +172,34 @@ class PairedM1PreflightTests(unittest.TestCase):
                 self.assertFalse(report['broker_executable_quotes'])
                 self.assertFalse(report['approved_for_backtest'])
 
+    def test_nonzero_decimal_underflow_cannot_be_reported_as_zero(self):
+        # IEEE-754 underflows this nonzero source lexeme to zero. A source
+        # volume or price must not silently become an observed zero in the
+        # preflight's descriptive floating-point rows.
+        self.assertEqual(float('1e-400'), 0.0)
+        for interval in ('M1', 'H1'):
+            for side in ('bid', 'ask'):
+                for field in ('low', 'volume'):
+                    with self.subTest(interval=interval, side=side, field=field):
+                        row = BID if side == 'bid' else ASK
+                        if field == 'low':
+                            row = row.replace(
+                                '1.19990' if side == 'bid' else '1.20002',
+                                '1e-400')
+                        else:
+                            row = row.replace(',0\\n', ',1e-400\\n')
+                        bid = row if side == 'bid' else BID
+                        ask = row if side == 'ask' else ASK
+                        with self.assertRaisesRegex(ValueError, 'underflows to zero'):
+                            self.check(bid, ask, interval=interval)
+
+    def test_true_zero_volume_remains_valid(self):
+        for interval in ('M1', 'H1'):
+            with self.subTest(interval=interval):
+                report = self.check(interval=interval)
+                self.assertEqual(report['rows'], 1)
+                self.assertFalse(report['approved_for_backtest'])
+
     def test_nan_volume_rejected(self):
         with self.assertRaisesRegex(ValueError, 'invalid numeric field'):
             self.check(BID.replace(',0\n', ',nan\n'), ASK)

@@ -82,6 +82,12 @@ def _parse_side(raw, side, interval_seconds):
                 # floats remain descriptive-only report values.
                 exact = tuple(Decimal(field.strip()) for field in fields[1:])
                 eo, eh, el, ec, ev = exact
+                # A nonzero source decimal can silently become 0.0 when
+                # converted to a float (e.g. 1e-400). Do not describe a
+                # positive source price or volume as an observed zero.
+                if any(original != 0 and rounded == 0
+                       for original, rounded in zip(exact, (o, h, l, c, v))):
+                    raise ValueError('nonzero numeric field underflows to zero in float report')
                 if (min(eo, eh, el, ec) <= 0 or ev < 0 or
                     el > min(eo, ec) or eh < max(eo, ec) or el > eh):
                     raise ValueError('invalid OHLC or volume')
