@@ -74,3 +74,73 @@ def test_transport_errors_are_sanitized():
     with pytest.raises(ReadOnlyBrokerError) as e:
         call(handler)
     assert "demo_secret" not in str(e.value)
+
+
+def test_broker_rate_limit_headers_are_observations_not_permissions():
+    headers = {
+        "x-ratelimit-limit": "50",
+        "x-ratelimit-period": "60",
+        "x-ratelimit-remaining": "49",
+        "x-ratelimit-reset": "1793030400",
+        "x-ratelimit-used": "1",
+    }
+    result = call(lambda _: httpx.Response(200, json=[], headers=headers))
+    quota = result["rate_limit_observation"]
+    assert quota["status"] == "OBSERVED_UNVERIFIED"
+    assert quota["remaining"] == 49 and quota["used"] == 1
+    assert quota["account_quota_verified"] is False
+    assert quota["safe_to_make_another_request"] is False
+    assert result["market_data_feed"] is False and result["may_execute_order"] is False
+
+
+def test_broker_missing_and_partial_quota_headers_do_not_claim_capacity():
+    missing = call(lambda _: httpx.Response(200, json=[]))
+    assert missing["rate_limit_observation"]["status"] == "MISSING_REVIEW_REQUIRED"
+    assert missing["rate_limit_observation"]["remaining"] is None
+    partial = call(lambda _: httpx.Response(
+        200, json=[], headers={"x-ratelimit-limit": "50"}))
+    assert partial["rate_limit_observation"]["status"] == "PARTIAL_REVIEW_REQUIRED"
+    assert partial["rate_limit_observation"]["safe_to_make_another_request"] is False
+
+
+@pytest.mark.parametrize("headers", [
+    {"x-ratelimit-limit": "10", "x-ratelimit-period": "60",
+     "x-ratelimit-remaining": "10", "x-ratelimit-reset": "1793030400",
+     "x-ratelimit-used": "1"},
+    {"x-ratelimit-limit": "0", "x-ratelimit-period": "60",
+     "x-ratelimit-remaining": "0", "x-ratelimit-reset": "1793030400",
+     "x-ratelimit-used": "0"},
+    {"x-ratelimit-limit": "10", "x-ratelimit-period": "0",
+     "x-ratelimit-remaining": "9", "x-ratelimit-reset": "1793030400",
+     "x-ratelimit-used": "1"},
+    {"x-ratelimit-limit": "10", "x-ratelimit-period": "60",
+     "x-ratelimit-remaining": "9", "x-ratelimit-reset": "0",
+     "x-ratelimit-used": "1"},
+])
+def test_inconsistent_broker_rate_limit_counters_require_review(headers):
+    result = call(lambda _: httpx.Response(200, json=[], headers=headers))
+    assert result["rate_limit_observation"]["status"] == "INCONSISTENT_REVIEW_REQUIRED"
+    assert result["rate_limit_observation"]["safe_to_make_another_request"] is False
+
+
+@pytest.mark.parametrize("headers", [
+    {"x-ratelimit-limit": "10,11"},
+    {"x-ratelimit-limit": "not-a-number"},
+    {"x-ratelimit-limit": "-1"},
+    {"x-ratelimit-limit": "1.0"},
+    {"x-ratelimit-limit": "9" * 100},
+    [("x-ratelimit-limit", "10"), ("x-ratelimit-limit", "11")],
+])
+def test_malformed_or_duplicate_broker_quota_headers_fail_closed(headers):
+    with pytest.raises(ReadOnlyBrokerError, match="rate-limit headers"):
+        call(lambda _: httpx.Response(200, json=[], headers=headers))
+
+
+def test_broker_quota_evidence_never_includes_authentication_header():
+    result = call(lambda _: httpx.Response(
+        200, json={}, headers={
+            "x-ratelimit-limit": "2", "x-ratelimit-period": "60",
+            "x-ratelimit-remaining": "1", "x-ratelimit-reset": "1793030400",
+            "x-ratelimit-used": "1", "authorization": "secret-not-for-output",
+        }))
+    assert "secret-not-for-output" not in json.dumps(result)
