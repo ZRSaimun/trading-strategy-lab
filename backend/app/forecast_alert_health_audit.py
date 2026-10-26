@@ -44,7 +44,10 @@ def _state_valid(state, now):
         return False
     if any(not _epoch(state[k]) for k in ("baseStart", "issuedAt", "expiresAt")):
         return False
-    if not state["baseStart"] <= state["issuedAt"] <= now or state["issuedAt"] > state["expiresAt"]:
+    # Outbox.queue caps age at 3,600 seconds and never permits zero lifetime.
+    # Reject impossible persisted expiries rather than reporting false health.
+    if (not state["baseStart"] <= state["issuedAt"] <= now or
+            not state["issuedAt"] < state["expiresAt"] <= state["issuedAt"] + 3600):
         return False
     if type(state["status"]) is not str or state["status"] not in _STATES:
         return False
