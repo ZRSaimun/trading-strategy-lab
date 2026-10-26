@@ -149,3 +149,31 @@ def test_does_not_mutate_input():
     before = copy.deepcopy(row)
     check(row)
     assert row == before
+
+
+def test_expired_uncertain_claim_is_counted_once_in_warning_keys():
+    result = check(state("IN_FLIGHT_UNCERTAIN", expiresAt=150), now=160)
+    assert result["counts"]["IN_FLIGHT_UNCERTAIN"] == 1
+    assert result["counts"]["EXPIRED_IN_FLIGHT_UNCERTAIN"] == 1
+    assert result["counts"]["UNCERTAIN_DELAY_WARNING"] == 1
+    assert result["warningKeys"] == [["s1", "f1"]]
+    assert result["status"] == "OPERATOR_REVIEW_REQUIRED"
+    assert result["maySendNotification"] is False
+
+
+@pytest.mark.parametrize("ack_at", [300, 301])
+def test_self_attested_ack_at_or_after_expiry_requires_review(ack_at):
+    result = check(state("ACK_RECORDED_UNVERIFIED", ackAt=ack_at), now=400)
+    assert result["counts"]["ACK_RECORDED_UNVERIFIED"] == 1
+    assert result["counts"]["ACK_AT_OR_AFTER_EXPIRY_WARNING"] == 1
+    assert result["status"] == "OPERATOR_REVIEW_REQUIRED"
+    assert result["warningKeys"] == [["s1", "f1"]]
+    assert result["providerDeliveryVerified"] is False
+    assert result["recipientDeliveryVerified"] is False
+
+
+def test_ack_before_expiry_does_not_trigger_late_warning():
+    result = check(state("ACK_RECORDED_UNVERIFIED", ackAt=299), now=400)
+    assert result["counts"]["ACK_AT_OR_AFTER_EXPIRY_WARNING"] == 0
+    assert result["status"] == "DECLARED_ONLY"
+    assert result["warningKeys"] == []
