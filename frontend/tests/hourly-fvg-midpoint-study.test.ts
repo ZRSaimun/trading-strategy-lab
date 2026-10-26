@@ -27,6 +27,46 @@ const target=(bars:Bar[],s:FvgSource=source)=>{
  assert.ok(found,'expected exact 3-candle FVG');
  return found;
 };
+test('strict and markout clocks are causal for bullish/bearish paired, rejected and censored cases',()=>{
+ for(const bearish of [false,true]){
+  const flip=(series:Bar[])=>bearish?series.map(b=>({...b,
+   open:220-b.open,high:220-b.low,low:220-b.high,close:220-b.close})):series;
+  const paired=target(flip(fixture()));
+  assert.equal(paired.formationClosedAt,BASE+33*H);
+  assert.equal(paired.firstTouchOutcomeObservedAt,BASE+34*H);
+  assert.equal(paired.gates.strictCandidate,'PASS');
+  assert.equal(paired.strictCandidateObservedAt,BASE+34*H);
+  assert.equal(paired.gates.markout,'PASS');
+  assert.equal(paired.markoutOutcomeObservedAt,BASE+37*H);
+  assert.equal(paired.markoutOutcomeObservedAt,paired.blindMidpointTouch?.exitObservedAt);
+  assert.ok((paired.markoutOutcomeObservedAt??0)>(paired.strictCandidateObservedAt??0));
+  const failed=fixture();failed[33]=candle(33,105,106,101,102.5,200);
+  const blindOnly=target(flip(failed));
+  assert.equal(blindOnly.gates.strictCandidate,'FAIL');
+  assert.equal(blindOnly.strictCandidateObservedAt,BASE+34*H);
+  assert.equal(blindOnly.gates.markout,'PASS');
+  assert.equal(blindOnly.markoutOutcomeObservedAt,BASE+37*H);
+  const untouched=fixture();
+  for(let i=33;i<=44;i++){
+   if(i>=untouched.length)untouched.push(candle(i,105,106,104,105));
+   else untouched[i]=candle(i,105,106,104,105);
+  }
+  const noTouch=target(flip(untouched));
+  assert.equal(noTouch.gates.strictCandidate,'FAIL');
+  assert.equal(noTouch.gates.markout,'FAIL');
+  assert.equal(noTouch.strictCandidateObservedAt,BASE+45*H);
+  assert.equal(noTouch.markoutOutcomeObservedAt,BASE+45*H);
+  const censored=target(flip(untouched.slice(0,44)));
+  assert.equal(censored.strictCandidateObservedAt,null);
+  assert.equal(censored.markoutOutcomeObservedAt,null);
+  const gap=fixture();gap[33]=candle(33,101,106,100,105.5,200);
+  const unobservable=target(flip(gap));
+  assert.equal(unobservable.gates.strictCandidate,'INSUFFICIENT_DATA');
+  assert.equal(unobservable.strictCandidateObservedAt,null);
+  assert.equal(unobservable.markoutOutcomeObservedAt,null);
+ }
+});
+
 test('hourly candle fields are snapshotted once before validation and research',()=>{
  const stable=target(fixture());
  const bars=fixture();
@@ -301,7 +341,7 @@ test('research report source metadata excludes arbitrary caller properties',()=>
  assert.deepEqual(Object.keys(report.source).sort(),Object.keys(source).sort());
  assert.equal(JSON.stringify(report).includes('synthetic-private-marker'),false);
  assert.equal(JSON.stringify(report).includes('synthetic-account-marker'),false);
- assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v21');
+ assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v22');
 });
 test('ambiguous source labels and contradictory volume evidence fail closed',()=>{
  // These are declared metadata, not independent vendor authentication.
@@ -676,7 +716,7 @@ test('an overflowing next-open comparator suppresses both matched markouts',()=>
 });
 test('completed hourly timestamps are safe and numeric rule changes have a new version',()=>{
  const report=studyHourlyFvgMidpoint(fixture(),source);
- assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v21');
+ assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v22');
  const lastSafeAlignedOpen=Math.floor(Number.MAX_SAFE_INTEGER/H)*H;
  assert.equal(Number.isSafeInteger(lastSafeAlignedOpen),true);
  assert.equal(Number.isSafeInteger(lastSafeAlignedOpen+H),false);
