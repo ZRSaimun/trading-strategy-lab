@@ -171,3 +171,23 @@ source authenticity or a real cost schedule. The declared risk distance is
 not an account cash-risk budget. No scenario is optimized using holdout
 outcomes, no capacity admission is changed, and no real or paper order is
 authorized. The branch remains disconnected, draft and undeployed.
+
+## Paired zero-cost guaranteed-winner erosion (26 October 2026)
+
+For every frozen **admitted and capacity-rejected** path, retain the same
+identity across declared 0, 5, 10 and 20-bps additional round-trip cost
+scenarios. Count only paths whose *entire* zero-additional-cost net-R
+interval is strictly positive. At each higher cost, count how many of those
+baseline-guaranteed winners (a) are guaranteed no longer strictly positive
+(higher-cost upper endpoint <= 0), (b) possibly no longer strictly positive
+(higher-cost lower endpoint <= 0), or (c) remain guaranteed strictly positive
+(higher-cost lower endpoint > 0).
+
+This is a paired sensitivity diagnostic, not a win probability, executable
+fill, proof of edge, trade recommendation or signal filter. It does not
+alter frozen admission, and it preserves uncertainty. Zero additional cost
+is not free execution. The audit fails closed on inconsistent paired
+intervals or nonmonotone erosion across cost scenarios. Tests include an
+independent discrete-outcome oracle and full-report population census.
+Source rights, clock mapping, quote-side costs, financing, untouched holdouts
+and trading profitability remain unverified.
