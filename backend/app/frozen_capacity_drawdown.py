@@ -136,31 +136,55 @@ def _strict_sign_count_envelope(lower, upper):
 
 
 
-def _validated_cost_trajectory(costs):
-    """Fail closed on any path that improves when *additional* cost increases.
+def _validated_cost_trajectory(costs, *, frozen_entry=None, frozen_stop=None,
+                               lower_gross_r=None, upper_gross_r=None):
+    """Verify each frozen path's exact illustrative cost erosion.
 
-    This is a per-path invariant, not merely a monotone cohort average: a
-    corrupted improving path must not be hidden by worse outcomes elsewhere.
-    It authenticates neither spreads nor the assumed cost schedule.
+    Check monotonicity and, when the complete frozen bracket/gross-R identity
+    is supplied, recompute each 0/5/10/20-bps net-R endpoint independently.
+    This detects monotone but undercharged/overcharged cost trajectories that
+    aggregate cohort checks can conceal. The 50-digit Decimal context matches
+    the upstream offline bracket evaluator's declared arithmetic convention;
+    it does NOT authenticate executable broker costs or source prices.
     """
     if not isinstance(costs, list) or len(costs) != len(_COSTS):
         raise ValueError("Incomplete per-path cost trajectory")
+    identity = (frozen_entry, frozen_stop, lower_gross_r, upper_gross_r)
+    if any(v is not None for v in identity) and not all(v is not None for v in identity):
+        raise ValueError("Incomplete per-path frozen cost identity")
+    check_identity = all(v is not None for v in identity)
+    if check_identity:
+        entry, stop = _decimal(frozen_entry), _decimal(frozen_stop)
+        risk = abs(entry - stop)
+        if entry == 0 or risk == 0:
+            raise ValueError("Invalid frozen bracket cost denominator")
+        gross_lower, gross_upper = _decimal(lower_gross_r), _decimal(upper_gross_r)
+        if gross_lower > gross_upper:
+            raise ValueError("Inverted frozen gross-R interval")
     bounds = []
-    for index, bps in enumerate(_COSTS):
-        scenario = costs[index]
-        if (not isinstance(scenario, dict)
-                or type(scenario.get("additional_round_trip_bps")) is not int
-                or scenario["additional_round_trip_bps"] != bps):
-            raise ValueError("Changed per-path cost trajectory identity")
-        lower = _decimal(scenario.get("lower_net_r"))
-        upper = _decimal(scenario.get("upper_net_r"))
-        if lower > upper:
-            raise ValueError("Inverted per-path cost trajectory interval")
-        if bounds and (lower > bounds[-1][0] or upper > bounds[-1][1]):
-            raise ValueError("Nonmonotone individual path cost trajectory")
-        bounds.append((lower, upper))
+    with localcontext() as ctx:
+        ctx.prec = 50
+        for index, bps in enumerate(_COSTS):
+            scenario = costs[index]
+            if (not isinstance(scenario, dict)
+                    or type(scenario.get("additional_round_trip_bps")) is not int
+                    or scenario["additional_round_trip_bps"] != bps):
+                raise ValueError("Changed per-path cost trajectory identity")
+            lower = _decimal(scenario.get("lower_net_r"))
+            upper = _decimal(scenario.get("upper_net_r"))
+            if lower > upper:
+                raise ValueError("Inverted per-path cost trajectory interval")
+            if bounds and (lower > bounds[-1][0] or upper > bounds[-1][1]):
+                raise ValueError("Nonmonotone individual path cost trajectory")
+            if check_identity:
+                # Same fixed, declared notional-price cost model as the
+                # independent bracket evaluator. Never substitute spread,
+                # slippage, financing, or an executable BID/ASK quotation.
+                cost = abs(entry) * Decimal(bps) / Decimal(10000) / risk
+                if lower != gross_lower - cost or upper != gross_upper - cost:
+                    raise ValueError("Incorrect per-path frozen cost erosion")
+            bounds.append((lower, upper))
     return tuple(bounds)
-
 
 def _worst_quartile_mean_envelope(lower, upper):
     """Exact bottom-quarter mean bounds for independently bounded net-R paths.
@@ -238,8 +262,15 @@ def audit_frozen_capacity_drawdown(
     # Validate every eligible path (including capacity-rejected opportunities)
     # before reporting any cohort. Aggregate cost monotonicity alone could hide
     # one path whose optimistic/pessimistic return *improves* at higher costs.
+    frozen_by_id = {row["path_id"]: row for row in manifest["eligible_signals"]}
     cost_trajectories = {
-        path_id: _validated_cost_trajectory(path.get("cost_scenarios"))
+        path_id: _validated_cost_trajectory(
+            path.get("cost_scenarios"),
+            frozen_entry=frozen_by_id[path_id]["entry"],
+            frozen_stop=frozen_by_id[path_id]["stop"],
+            lower_gross_r=path.get("lower_gross_r"),
+            upper_gross_r=path.get("upper_gross_r"),
+        )
         for path_id, path in by_id.items()
     }
 
