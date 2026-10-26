@@ -74,3 +74,26 @@ decompression may already have occurred; do not call this a TLS-wire digest.
 
 The adapter must remain disconnected until the owner approves any potential
 API credit usage and verifies the instrument entitlement and data rights.
+
+
+## Explicit no-surprise API-credit gate (26 October 2026)
+
+The one-shot bridge now **defaults to refusing all provider calls**, even when
+an API key and valid calendar manifest are present. A caller must explicitly
+pass **both** `owner_approved_api_credit_use=True` and
+`owner_asserted_data_rights=True` for that invocation. The guard checks exact
+boolean values (not truthy strings or integers) **before** the network call;
+missing, false or malformed approvals fail with a sanitized error and consume
+no provider credits. The synthetic tests confirm that the request stub is never
+called in these cases. The resulting report records
+`owner_call_approval_scope=explicit-per-call-assertion-only` and still sets
+`provider_entitlement_verified=false` and all live/execution flags false.
+
+**Important limitation:** These parameters are unverified owner declarations,
+not authentication, a legal license, independent account entitlement evidence,
+a durable rate/credit budget or a secure one-time approval token. They do not
+permit autonomous polling or deployment. An eventual authenticated owner route
+must verify rights and plan limits out of band, bind approval to exact provider,
+instrument, purpose and request, and enforce a durable budget/rate limiter.
+Do not pass either flag automatically from a configuration default. No actual
+Twelve Data request was made while developing this safeguard.
