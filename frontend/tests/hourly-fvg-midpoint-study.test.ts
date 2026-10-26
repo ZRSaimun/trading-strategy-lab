@@ -42,7 +42,8 @@ test('formation census preserves unknown outcomes and distinguishes paired from 
   midpointTouch:{PASS:1,FAIL:0,INSUFFICIENT_DATA:0},
   strictCandidate:{PASS:0,FAIL:0,INSUFFICIENT_DATA:1},
   markout:{PASS:1,FAIL:0,INSUFFICIENT_DATA:0},
-  pairedMarkouts:1,blindOnlyMarkouts:0,
+  pairedMarkouts:1,strictPairedMarkouts:0,nonStrictPairedMarkouts:1,
+  blindOnlyMarkouts:0,
  });
  const failedWick=[...bars];
  failedWick[3]=candle(3,105,106,101,102.5,200);
@@ -68,6 +69,31 @@ test('formation census preserves unknown outcomes and distinguishes paired from 
  assert.equal(missingTouch.midpointTouch.INSUFFICIENT_DATA,1);
  assert.equal(missingTouch.formations,1);
 });
+test('paired FVG census does not conflate wick-only pairs with strict declared-volume candidates',()=>{
+ const declared=studyHourlyFvgMidpoint(fixture(),source);
+ const strictObservation=target(fixture());
+ assert.equal(strictObservation.gates.strictCandidate,'PASS');
+ assert.ok(declared.cohort.strictPairedMarkouts>=1);
+ const unknownSource={...source,volumeType:'unverified' as const,volumeVerified:false};
+ const unknown=studyHourlyFvgMidpoint(fixture(),unknownSource);
+ assert.equal(target(fixture(),unknownSource).gates.strictCandidate,'INSUFFICIENT_DATA');
+ assert.equal(unknown.cohort.strictPairedMarkouts,0);
+ assert.ok(unknown.cohort.nonStrictPairedMarkouts>=1,
+  'a valid wick alone must not be counted as strict volume evidence');
+ const below=fixture();
+ below[33].volume=120;
+ assert.equal(target(below).gates.strictCandidate,'FAIL');
+ const rejected=studyHourlyFvgMidpoint(below,source);
+ for(const report of [declared,unknown,rejected]){
+  assert.equal(report.cohort.pairedMarkouts,
+   report.cohort.strictPairedMarkouts+report.cohort.nonStrictPairedMarkouts);
+ }
+ assert.equal(rejected.cohort.strictPairedMarkouts,0);
+ assert.ok(rejected.cohort.nonStrictPairedMarkouts>=1);
+ // Even a synthetic strict PASS is only a caller declaration, not proof of
+ // authenticated source volume, an executable fill or profitability.
+ assert.equal(strictObservation.eligibleForLiveTrading,false);
+});
 test('research report source metadata excludes arbitrary caller properties',()=>{
  // TypeScript structural typing does not remove runtime fields. A caller
  // may pass a richer vendor object; its extra data must never be exported.
@@ -78,7 +104,7 @@ test('research report source metadata excludes arbitrary caller properties',()=>
  assert.deepEqual(Object.keys(report.source).sort(),Object.keys(source).sort());
  assert.equal(JSON.stringify(report).includes('synthetic-private-marker'),false);
  assert.equal(JSON.stringify(report).includes('synthetic-account-marker'),false);
- assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v11');
+ assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v12');
 });
 test('ambiguous source labels and contradictory volume evidence fail closed',()=>{
  // These are declared metadata, not independent vendor authentication.
@@ -412,7 +438,7 @@ test('an overflowing next-open comparator suppresses both matched markouts',()=>
 });
 test('completed hourly timestamps are safe and numeric rule changes have a new version',()=>{
  const report=studyHourlyFvgMidpoint(fixture(),source);
- assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v11');
+ assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v12');
  const lastSafeAlignedOpen=Math.floor(Number.MAX_SAFE_INTEGER/H)*H;
  assert.equal(Number.isSafeInteger(lastSafeAlignedOpen),true);
  assert.equal(Number.isSafeInteger(lastSafeAlignedOpen+H),false);
