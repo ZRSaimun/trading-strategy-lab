@@ -7,7 +7,7 @@
  */
 import type {Bar} from './research.ts';
 
-export const HOURLY_FVG_VERSION='hourly-fvg-first-midpoint-touch-v2';
+export const HOURLY_FVG_VERSION='hourly-fvg-first-midpoint-touch-v3';
 export type Evidence='PASS'|'FAIL'|'INSUFFICIENT_DATA';
 export type Side='BULLISH'|'BEARISH';
 export type FvgSource={
@@ -116,9 +116,12 @@ export function studyHourlyFvgMidpoint(
   const direction:Side=bull?'BULLISH':'BEARISH';
   const gapLow=bull?first.high:third.high;
   const gapHigh=bull?third.low:first.low;
-  // Summing two large finite endpoints can overflow before division.
+  // Both gap endpoints are strictly positive and ordered, so their
+  // difference is finite. Half-summing subnormal endpoints can round each
+  // half down before addition and move the midpoint by one price ULP,
+  // changing first-touch classification. Subtract first, then halve.
   // An unrepresentable midpoint must not be rounded to either gap edge.
-  const midpoint=gapLow/2+gapHigh/2;
+  const midpoint=gapLow+(gapHigh-gapLow)/2;
   if(!Number.isFinite(midpoint)||midpoint<=gapLow||midpoint>=gapHigh)
    throw Error('FVG midpoint cannot be represented strictly inside the gap');
   const gates:FvgObservation['gates']={
