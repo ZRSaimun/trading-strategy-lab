@@ -38,7 +38,7 @@ def test_live_mode_still_only_reads():
 
 
 @pytest.mark.parametrize("changes", [
-    {"endpoint": "orders"}, {"endpoint": "/api/v0/equity/orders/market"},
+    {"endpoint": []}, {"environment": []}, {"endpoint": "orders"}, {"endpoint": "/api/v0/equity/orders/market"},
     {"environment": "UNKNOWN"}, {"account_type": "CFD"},
     {"api_key": "bad\nkey"}, {"api_key": "colon:key"},
     {"api_secret": ""}, {"api_secret": "bad\rsecret"},
@@ -58,6 +58,7 @@ def test_rejects_unsafe_requests_before_network(changes):
     httpx.Response(200, content=b"not-json", headers={"content-type": "application/json"}),
     httpx.Response(200, json=7),
     httpx.Response(200, json={}, headers={"content-length": str(9*1024*1024)}),
+    httpx.Response(200, json={}, headers={"content-length": "9"*10000}),
     httpx.Response(200, content=b"{" + b" "*(8*1024*1024) + b"}", headers={"content-type": "application/json"}),
 ])
 def test_bad_responses_fail_closed_without_leaking_body(response):
