@@ -181,7 +181,7 @@ def test_provider_acceptance_requires_exact_sent_text_echo(echo):
     if echo is not None:
         result["text"] = echo
     fake = FakeOpener(Reply(json.dumps({"ok": True, "result": result}).encode()))
-    with pytest.raises(DeliveryUncertain, match="manual reconciliation"):
+    with pytest.raises(DeliveryUncertain, match="acceptance not independently established"):
         send_telegram_once(bot_token=TOKEN, chat_id=CHAT,
                            text="Forecast review only", opener=fake)
     assert len(fake.calls) == 1
