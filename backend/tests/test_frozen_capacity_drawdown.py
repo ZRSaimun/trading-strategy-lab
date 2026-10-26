@@ -12,6 +12,7 @@ from app.frozen_capacity_drawdown import (_maximum_drawdown,
                                           _first_pseudo_recovery_event,
                                           _first_pseudo_loss_barrier_event,
                                           _longest_strict_negative_streak,
+                                          _strict_sign_count_envelope,
                                           audit_frozen_capacity_drawdown)
 from test_frozen_capacity_week_fragility import CUTOFF, sample, move
 
@@ -342,3 +343,84 @@ def test_ambiguous_outcomes_preserve_negative_streak_interval():
     lower = scenario["holdout_pseudo_settlement_minimum_longest_strict_negative_path_streak"]
     upper = scenario["holdout_pseudo_settlement_maximum_longest_strict_negative_path_streak"]
     assert 0 <= lower <= upper <= 36
+
+
+def test_strict_sign_census_zero_is_neither_win_nor_loss():
+    d = Decimal
+    assert _strict_sign_count_envelope(
+        [d("-2"), d("0"), d("-1"), d("2")],
+        [d("1"), d("0"), d("-0.1"), d("2")],
+    ) == dict(
+        admitted_paths=4,
+        guaranteed_strict_positive=1,
+        possible_strict_positive=2,
+        guaranteed_strict_negative=1,
+        possible_strict_negative=2,
+        guaranteed_exact_zero=1,
+        possible_exact_zero=2,
+    )
+    assert _strict_sign_count_envelope([], [])["admitted_paths"] == 0
+    with pytest.raises(ValueError, match="intervals"):
+        _strict_sign_count_envelope([d("1")], [d("0")])
+    with pytest.raises(ValueError, match="intervals"):
+        _strict_sign_count_envelope([d("1")], [])
+
+
+def test_strict_sign_census_matches_exhaustive_independent_integer_oracle():
+    # All 4,680 complete interval-compatible synthetic histories across
+    # lengths 1..4 are independently counted for all three strict sign classes.
+    # An interval spanning zero is never retrospectively forced to a winner.
+    choices = ((-2, -1), (-1, 1), (0, 0), (1, 2))
+    checked_histories = 0
+    for length in range(1, 5):
+        for intervals in product(choices, repeat=length):
+            actual = _strict_sign_count_envelope(
+                [Decimal(a) for a, _ in intervals],
+                [Decimal(b) for _, b in intervals],
+            )
+            observed = []
+            for values in product(*(range(a, b + 1) for a, b in intervals)):
+                observed.append((
+                    sum(value > 0 for value in values),
+                    sum(value < 0 for value in values),
+                    sum(value == 0 for value in values),
+                ))
+                checked_histories += 1
+            for name, index in (("strict_positive", 0),
+                                ("strict_negative", 1),
+                                ("exact_zero", 2)):
+                assert actual[f"guaranteed_{name}"] == min(row[index] for row in observed)
+                assert actual[f"possible_{name}"] == max(row[index] for row in observed)
+    assert checked_histories == 4680
+
+
+def test_complete_frozen_report_includes_cost_sensitive_sign_census():
+    m, p = sample()
+    r = run(m, p)
+    assert r["verified_profitability"] is False
+    assert r["may_execute_order"] is False
+    for label in ("training", "holdout"):
+        admitted = r["admission_counts"][f"{label}_admitted"]
+        previous = None
+        for scenario in r["cost_scenarios"]:
+            counts = scenario[f"{label}_pseudo_settlement_strict_sign_census"]
+            assert counts["admitted_paths"] == admitted
+            assert 0 <= counts["guaranteed_strict_positive"] <= counts["possible_strict_positive"] <= admitted
+            assert 0 <= counts["guaranteed_strict_negative"] <= counts["possible_strict_negative"] <= admitted
+            assert 0 <= counts["guaranteed_exact_zero"] <= counts["possible_exact_zero"] <= admitted
+            if previous is not None:
+                assert counts["possible_strict_positive"] <= previous["possible_strict_positive"]
+                assert counts["guaranteed_strict_positive"] <= previous["guaranteed_strict_positive"]
+                assert counts["possible_strict_negative"] >= previous["possible_strict_negative"]
+                assert counts["guaranteed_strict_negative"] >= previous["guaranteed_strict_negative"]
+            previous = counts
+
+
+def test_ambiguous_outcome_retains_possible_signs_not_fake_win_rate():
+    m, p = sample()
+    p[40]["bars"][0].update(high="103", low="98", close="100")
+    s = run(m, p)["cost_scenarios"][0]
+    counts = s["holdout_pseudo_settlement_strict_sign_census"]
+    assert counts["admitted_paths"] == 36
+    assert counts["guaranteed_strict_positive"] <= counts["possible_strict_positive"]
+    assert counts["guaranteed_strict_negative"] <= counts["possible_strict_negative"]
