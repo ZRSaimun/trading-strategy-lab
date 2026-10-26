@@ -22,19 +22,19 @@ def _receipts(at="2026-10-26T19:30:00Z"):
         "data": [
             {
                 "ticker": "AAPL_US_EQ", "currencyCode": "USD", "type": "STOCK",
-                "workingScheduleId": 3, "maxOpenQuantity": 100,
+                "workingScheduleId": 7, "maxOpenQuantity": 100,
                 "extendedHours": True, "name": "Apple Inc", "shortName": "Apple",
             },
             {
                 "ticker": "SPY_US_EQ", "currencyCode": "USD", "type": "ETF",
-                "workingScheduleId": 3, "maxOpenQuantity": 20,
+                "workingScheduleId": 7, "maxOpenQuantity": 20,
                 "extendedHours": False, "name": "SPDR S&P 500", "shortName": "SPY",
             },
         ],
     }
     exchanges = {
         **common, "endpoint": "exchanges",
-        "data": [{"id": 3, "name": "Synthetic Exchange", "workingSchedules": []}],
+        "data": [{"id": 3, "name": "Synthetic Exchange", "workingSchedules": [{"id": 7, "timeEvents": []}]}],
     }
     return instruments, exchanges
 
@@ -88,7 +88,7 @@ def test_detects_added_and_removed_as_declared_population_only():
     pair[2]["data"].pop(0)
     pair[2]["data"].append({
         "ticker": "MSFT_US_EQ", "currencyCode": "USD", "type": "STOCK",
-        "workingScheduleId": 3, "maxOpenQuantity": 50,
+        "workingScheduleId": 7, "maxOpenQuantity": 50,
         "extendedHours": False, "name": "Microsoft", "shortName": "MSFT",
     })
     report = _compare(pair, requested_tickers=["AAPL_US_EQ", "MSFT_US_EQ"])
@@ -102,7 +102,7 @@ def test_detects_added_and_removed_as_declared_population_only():
 
 def test_exchange_schedule_change_triggers_review_even_with_unchanged_tickers():
     pair = _pair()
-    pair[3]["data"][0]["workingSchedules"] = [{"dayOfWeek": "MONDAY"}]
+    pair[3]["data"][0]["workingSchedules"][0]["timeEvents"] = [{"date": "2026-10-26T14:30:00Z", "type": "OPEN"}]
     report = _compare(pair)
     assert report["changed_shared_instruments_count"] == 0
     assert report["catalog_digest_changed"] is True

@@ -92,6 +92,9 @@ def reconcile_trading212_instrument_catalog(
             or not isinstance(exchanges, list) or not 1 <= len(exchanges) <= _MAX_EXCHANGES):
         raise InstrumentCatalogError("Invalid metadata population")
     exchange_ids = {}
+    # workingScheduleId points to nested WorkingSchedule.id, NOT Exchange.id.
+    # Keep this declared linkage separate from any verified trading calendar.
+    schedule_to_exchange = {}
     canonical_exchanges = []
     for item in exchanges:
         if not isinstance(item, dict):
@@ -100,10 +103,25 @@ def reconcile_trading212_instrument_catalog(
         if type(ident) is not int or not 0 <= ident <= 2**63 - 1 or ident in exchange_ids:
             raise InstrumentCatalogError("Invalid or duplicate exchange identifier")
         name = _text(item.get("name"))
-        if not isinstance(item.get("workingSchedules"), list):
-            raise InstrumentCatalogError("Missing exchange schedule declaration")
+        schedules = item.get("workingSchedules")
+        if not isinstance(schedules, list) or len(schedules) > 1000:
+            raise InstrumentCatalogError("Invalid exchange schedule collection")
+        normalized_schedules = []
+        for entry in schedules:
+            if not isinstance(entry, dict):
+                raise InstrumentCatalogError("Invalid working schedule entry")
+            schedule_id, events = entry.get("id"), entry.get("timeEvents")
+            if (type(schedule_id) is not int or not 0 <= schedule_id <= 2**63 - 1
+                    or schedule_id in schedule_to_exchange
+                    or not isinstance(events, list) or len(events) > 10_000):
+                raise InstrumentCatalogError("Invalid or duplicate working schedule")
+            schedule_to_exchange[schedule_id] = (ident, name)
+            normalized_schedules.append(entry)
+        # Schedule ordering is not a catalog change. Event contents remain
+        # opaque fingerprinted metadata, not verified open-market evidence.
+        normalized_schedules.sort(key=lambda entry: entry["id"])
         exchange_ids[ident] = name
-        canonical_exchanges.append([ident, name, item["workingSchedules"]])
+        canonical_exchanges.append([ident, name, normalized_schedules])
     by_ticker = {}
     types = Counter()
     canonical = []
@@ -119,7 +137,7 @@ def reconcile_trading212_instrument_catalog(
                 or ticker in by_ticker or not isinstance(currency, str)
                 or not _CURRENCY.fullmatch(currency)
                 or not isinstance(kind, str) or kind not in _TYPES
-                or type(schedule) is not int or schedule not in exchange_ids
+                or type(schedule) is not int or schedule not in schedule_to_exchange
                 or type(quantity) not in (int, float) or not math.isfinite(quantity)
                 or not 0 <= quantity <= 1_000_000_000_000
                 or type(item.get("extendedHours")) is not bool):
@@ -128,12 +146,13 @@ def reconcile_trading212_instrument_catalog(
         short_name = _text(item.get("shortName"))
         # Metadata names and schedules are descriptive only; no market-hours
         # interpretation, trade eligibility, price or liquidity inference.
+        exchange_id, exchange_name = schedule_to_exchange[schedule]
         record = {"ticker": ticker, "type": kind, "currency": currency,
-                  "exchange_id": schedule, "exchange_name": exchange_ids[schedule],
-                  "name": name}
+                  "exchange_id": exchange_id, "exchange_name": exchange_name,
+                  "working_schedule_id": schedule, "name": name}
         by_ticker[ticker] = record
         types[kind] += 1
-        canonical.append([ticker, kind, currency, schedule, name, short_name,
+        canonical.append([ticker, kind, currency, schedule, exchange_id, name, short_name,
                           item["extendedHours"], quantity])
     canonical.sort(key=lambda item: item[0])
     canonical_exchanges.sort(key=lambda item: item[0])

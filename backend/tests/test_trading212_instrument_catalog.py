@@ -15,14 +15,14 @@ def receipts():
                   received_at_utc="2026-10-26T19:30:00+00:00")
     a = dict(common, endpoint="instruments", data=[
         dict(ticker="AAPL_US_EQ", currencyCode="USD", type="STOCK",
-             workingScheduleId=3, maxOpenQuantity=100.0, extendedHours=True,
+             workingScheduleId=7, maxOpenQuantity=100.0, extendedHours=True,
              name="Apple Inc", shortName="Apple"),
         dict(ticker="SPY_US_EQ", currencyCode="USD", type="ETF",
-             workingScheduleId=3, maxOpenQuantity=20, extendedHours=False,
+             workingScheduleId=7, maxOpenQuantity=20, extendedHours=False,
              name="SPDR S&P 500", shortName="SPY"),
     ])
     b = dict(common, endpoint="exchanges", data=[
-        dict(id=3, name="Example Exchange", workingSchedules=[]),
+        dict(id=3, name="Example Exchange", workingSchedules=[dict(id=7, timeEvents=[])]),
     ])
     return a, b
 
@@ -117,7 +117,7 @@ def test_catalog_digest_detects_schedule_or_quantity_drift():
     a["data"][0]["maxOpenQuantity"] = 101
     assert run(a,b)["catalog_sha256"] != base
     a,b=receipts()
-    b["data"][0]["workingSchedules"] = [{"dayOfWeek": "MONDAY"}]
+    b["data"][0]["workingSchedules"][0]["timeEvents"] = [{"date": "2026-10-26T14:30:00Z", "type": "OPEN"}]
     assert run(a,b)["catalog_sha256"] != base
 
 
@@ -127,3 +127,51 @@ def test_catalog_digest_does_not_depend_on_exchange_order():
     before=run(a,b)["catalog_sha256"]
     b["data"].reverse()
     assert run(a,b)["catalog_sha256"] == before
+
+def test_working_schedule_joins_nested_schedule_not_exchange_id():
+    a, b = receipts()
+    selected = run(a, b, requested_tickers=["AAPL_US_EQ"])["requested"][0]
+    assert selected["working_schedule_id"] == 7
+    assert selected["exchange_id"] == 3
+    assert selected["exchange_name"] == "Example Exchange"
+
+
+@pytest.mark.parametrize("bad_schedules", [
+    [], [dict(id=3, timeEvents=[])],
+    [dict(id=7, timeEvents=[]), dict(id=7, timeEvents=[])],
+    [dict(id=True, timeEvents=[])], [dict(id=-1, timeEvents=[])],
+    [dict(id=7, timeEvents={})], ["not a schedule"],
+    [dict(id=7, timeEvents=[])] * 1001,
+])
+def test_reject_missing_malformed_or_duplicate_working_schedule(bad_schedules):
+    a, b = receipts()
+    b["data"][0]["workingSchedules"] = bad_schedules
+    with pytest.raises(InstrumentCatalogError):
+        run(a, b)
+
+
+def test_duplicate_schedule_id_across_exchanges_fails_closed():
+    a, b = receipts()
+    b["data"].append(dict(id=5, name="Other Exchange",
+                          workingSchedules=[dict(id=7, timeEvents=[])]))
+    with pytest.raises(InstrumentCatalogError):
+        run(a, b)
+
+
+def test_schedule_moved_to_other_exchange_changes_digest_and_link():
+    a, b = receipts()
+    previous = run(a, b)["catalog_sha256"]
+    b["data"][0]["workingSchedules"] = []
+    b["data"].append(dict(id=5, name="Other Exchange",
+                          workingSchedules=[dict(id=7, timeEvents=[])]))
+    current = run(a, b, requested_tickers=["AAPL_US_EQ"])
+    assert current["catalog_sha256"] != previous
+    assert current["requested"][0]["exchange_id"] == 5
+
+
+def test_schedule_list_order_is_not_a_catalog_change():
+    a, b = receipts()
+    b["data"][0]["workingSchedules"].append(dict(id=8, timeEvents=[]))
+    before = run(a, b)["catalog_sha256"]
+    b["data"][0]["workingSchedules"].reverse()
+    assert run(a, b)["catalog_sha256"] == before

@@ -3,12 +3,14 @@
 `app.trading212_instrument_catalog.reconcile_trading212_instrument_catalog`
 accepts **two already-obtained, caller-supplied** responses from the opt-in
 read-only Trading 212 adapter: `instruments` and `exchanges`. It validates
-response declarations, joins each instrument's `workingScheduleId` to a
-unique exchange `id`, checks the documented instrument type/currency/quantity
+response declarations, joins each instrument's `workingScheduleId` to a unique nested
+`Exchange.workingSchedules[].id`, then associates that schedule with its
+parent `Exchange.id` (these are distinct identifiers). It rejects missing
+or duplicate schedule IDs across exchanges, and checks type/currency/quantity
 fields, and produces a stable SHA-256 fingerprint of selected instrument and
 exchange schedule metadata. This helps identify *declared* accessible equity
 instruments and catalog drift; it does **not** connect an account or request
-market data. Unknown exchange references, duplicate tickers/IDs, mismatched
+market data. Unknown schedule references, duplicate tickers/exchange/schedule IDs, mismatched
 account type/environment, or receipts more than ten minutes apart fail closed.
 
 The output contains aggregate counts and **only explicitly requested** ticker
@@ -63,3 +65,23 @@ account identity, permissions, market-data rights, independently validated
 sessions and freshness, authenticated staging, private durable storage,
 production backup restoration, rollback and health checks. No order or
 production data path is activated by this change.
+
+## Correct schedule linkage (26 October 2026)
+
+The official Trading 212 OpenAPI schema defines `TradableInstrument.workingScheduleId`
+as a reference to `WorkingSchedule.id` nested inside
+`Exchange.workingSchedules`; it does **not** reference `Exchange.id`.
+The previous implementation incorrectly joined these unrelated IDs,
+which could reject legitimate catalogs or accept instruments whose
+working schedules were absent. This version validates nested schedule
+identifiers, rejects duplicates across exchanges, and returns both the
+actual `exchange_id` and `working_schedule_id` for selected tickers.
+Schedule order is normalized before hashing; event data is fingerprinted
+but never interpreted as a verified trading calendar.
+
+The canonical catalog fingerprint format changes with this correction.
+Do not compare old fingerprints to new ones as if they had identical
+semantics; reconcile a fresh pair before drift comparisons. All tests
+use synthetic metadata and no broker credentials or requests.
+Official schema: https://docs.trading212.com/_bundle/api.json?download=
+(`TradableInstrument`, `Exchange`, `WorkingSchedule`).
