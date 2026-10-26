@@ -64,7 +64,8 @@ def _state_valid(state, now):
 
 
 def audit_forecast_alert_health(records, expected_keys, *, as_of,
-                                queue_warning_seconds=60, uncertain_warning_seconds=30):
+                                queue_warning_seconds=60, uncertain_warning_seconds=30,
+                                expiry_warning_seconds=30):
     """Audit a caller-declared exact alert population without sending anything.
 
     `records`: [{"sessionId": str, "state": unpacked_outbox_state}, ...]
@@ -75,7 +76,8 @@ def audit_forecast_alert_health(records, expected_keys, *, as_of,
     if not _epoch(as_of):
         raise ValueError("Invalid alert health audit time")
     if (type(queue_warning_seconds) is not int or not 1 <= queue_warning_seconds <= 3600 or
-            type(uncertain_warning_seconds) is not int or not 1 <= uncertain_warning_seconds <= 3600):
+            type(uncertain_warning_seconds) is not int or not 1 <= uncertain_warning_seconds <= 3600 or
+            type(expiry_warning_seconds) is not int or not 1 <= expiry_warning_seconds <= 3600):
         raise ValueError("Invalid alert health warning budget")
     if (type(records) is not list or type(expected_keys) is not list or
             len(records) > _MAX_ROWS or len(expected_keys) > _MAX_ROWS):
@@ -116,6 +118,11 @@ def audit_forecast_alert_health(records, expected_keys, *, as_of,
                 if age >= queue_warning_seconds:
                     counts["QUEUE_DELAY_WARNING"] += 1
                     warning_keys.append(key)
+                # Short-lived alerts may approach expiry before the normal
+                # queue-age threshold. Surface them for operator review early.
+                if state["expiresAt"] - as_of <= expiry_warning_seconds:
+                    counts["EXPIRING_SOON_WARNING"] += 1
+                    warning_keys.append(key)
         elif status == "IN_FLIGHT_UNCERTAIN":
             counts[status] += 1
             age = as_of - state["claimedAt"]
@@ -139,9 +146,10 @@ def audit_forecast_alert_health(records, expected_keys, *, as_of,
     statuses = ("QUEUED", "EXPIRED_UNCLAIMED", "IN_FLIGHT_UNCERTAIN",
                 "EXPIRED_IN_FLIGHT_UNCERTAIN", "ACK_RECORDED_UNVERIFIED",
                 "ACK_AT_OR_AFTER_EXPIRY_WARNING", "CANCELLED",
-                "QUEUE_DELAY_WARNING", "UNCERTAIN_DELAY_WARNING")
+                "QUEUE_DELAY_WARNING", "UNCERTAIN_DELAY_WARNING",
+                "EXPIRING_SOON_WARNING")
     requires_review = bool(counts["EXPIRED_UNCLAIMED"] or counts["IN_FLIGHT_UNCERTAIN"] or
-                           counts["QUEUE_DELAY_WARNING"] or
+                           counts["QUEUE_DELAY_WARNING"] or counts["EXPIRING_SOON_WARNING"] or
                            counts["ACK_AT_OR_AFTER_EXPIRY_WARNING"])
     return {"populationEvidence": "DECLARED_ONLY_NOT_INDEPENDENTLY_VERIFIED",
             "status": "NO_DECLARED_ALERTS" if not expected else
