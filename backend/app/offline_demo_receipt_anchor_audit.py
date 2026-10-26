@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import re
 
+from app.offline_demo_order_receipt_replay import _validate_scope
 from app.offline_demo_receipt_sqlite_journal import _key, _load, _open
 
 _MAX_ANCHORS = 32
@@ -36,6 +37,7 @@ def audit_declared_demo_receipt_anchor_evidence(
         raise ValueError("Anchor population must be nonempty and bounded")
     if type(scope) is not dict:
         raise ValueError("Invalid declared order scope")
+    _validate_scope(scope)
     key = _key(scope)
     conn = _open(db_path, writable=False)
     try:
@@ -44,6 +46,8 @@ def audit_declared_demo_receipt_anchor_evidence(
         conn.close()
     if not snapshots:
         raise ValueError("No matching local declared order history")
+    if snapshots[-1]["payload"]["scope"]["as_of_ms"] > evaluation_as_of_ms:
+        raise ValueError("Journal head unavailable at evaluation cutoff")
 
     last_revision = 0
     last_witnessed_at = 0
