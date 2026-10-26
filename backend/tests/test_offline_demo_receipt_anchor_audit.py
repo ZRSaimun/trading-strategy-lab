@@ -163,3 +163,18 @@ def test_bad_evaluation_cutoff_rejected(tmp_path):
     for bad in (True, None, 0, -1, "500"):
         with pytest.raises(ValueError, match="cutoff"):
             audit(path, s, [anchor(first)], bad)
+
+
+def test_future_local_head_is_not_visible_at_evaluation_cutoff(tmp_path):
+    path, s, first = seed(tmp_path)
+    extend(path, first)
+    with pytest.raises(ValueError, match="unavailable at evaluation cutoff"):
+        audit(path, s, [anchor(first)], 300)
+
+
+def test_invalid_caller_source_scope_fails_closed(tmp_path):
+    path, s, first = seed(tmp_path)
+    malformed = copy.deepcopy(s)
+    malformed["provider"] = ""
+    with pytest.raises(ValueError, match="Invalid order scope"):
+        audit(path, malformed, [anchor(first)], 500)
