@@ -44,6 +44,12 @@ claiming provider or recipient delivery. Multiple warnings for one alert yield
 one `warningKeys` entry. These warning counters overlap their underlying
 status counts and must **not** be summed as mutually exclusive populations.
 
+The standalone audit rejects impossible zero-lifetime or greater-than-one-hour
+outbox expiries before producing any health report. This mirrors the
+`ForecastAlertOutbox.queue` age limit; it is **not** a substitute for journal
+reconciliation, which additionally checks the target candle close. A valid
+one-hour upper bound does not establish authentic market data or delivery.
+
 The expiry comparison uses the caller-supplied `as_of` and stored timestamps;
 neither is cryptographically attested. An ACK timestamp before expiry is still
 not proof of delivery or timely reading. This change remains read-only and
