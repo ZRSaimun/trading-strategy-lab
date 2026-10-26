@@ -152,3 +152,37 @@ def test_bridge_rejects_missing_budget_before_provider_call(monkeypatch):
             owner_asserted_data_rights=True,
         ))
     assert calls == []
+
+
+def test_bridge_reservation_is_not_refunded_after_provider_failure(tmp_path, monkeypatch):
+    path = ledger(tmp_path, monkeypatch, cap=1)
+    monkeypatch.setattr(bridge, "_wall_clock", lambda: NOW)
+    t = NOW - 180
+    m = compile_expected_m1_manifest(
+        provider="twelvedata", symbol="XAU/USD", venue="UNVERIFIED",
+        price_side="UNSPECIFIED", calendar_id="synthetic",
+        calendar_revision="r1", calendar_source="synthetic fixture",
+        observed_at_utc=NOW, sessions_utc=[(t, t + 120)],
+        exclusions_utc=[],
+    )
+    calls = []
+    async def failed_provider(*args, **kwargs):
+        calls.append(1)
+        raise bridge.ProviderError("synthetic quota failure", 429)
+    monkeypatch.setattr(bridge, "retrieve", failed_provider)
+
+    def review(request_id):
+        return asyncio.run(bridge.review_twelvedata_completed_m1(
+            api_key="synthetic-key", manifest=m,
+            owner_approved_api_credit_use=True,
+            owner_asserted_data_rights=True,
+            budget_db_path=path, budget_request_id=f"{request_id:032x}",
+        ))
+
+    with pytest.raises(bridge.ProspectiveReceiptError, match="Provider receipt rejected"):
+        review(1)
+    assert calls == [1]
+    # Unknown vendor billing outcome cannot silently refund or retry.
+    with pytest.raises(bridge.ProspectiveReceiptError, match="Durable"):
+        review(2)
+    assert calls == [1]
