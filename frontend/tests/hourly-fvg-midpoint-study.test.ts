@@ -49,6 +49,33 @@ test('hourly candle fields are snapshotted once before validation and research',
  assert.throws(()=>studyHourlyFvgMidpoint(invalid,source),/Invalid, incomplete/);
 });
 
+test('source metadata is snapshotted once across validation, volume gates and export',()=>{
+ const baseline=studyHourlyFvgMidpoint(fixture(),source);
+ const changing={...source};
+ const reads:Partial<Record<keyof FvgSource,number>>={};
+ for(const field of Object.keys(source) as (keyof FvgSource)[]){
+  let count=0;
+  Object.defineProperty(changing,field,{get(){
+   count++;
+   reads[field]=count;
+   return count===1?source[field]:undefined;
+  }});
+ }
+ const report=studyHourlyFvgMidpoint(fixture(),changing);
+ assert.deepEqual(report,baseline,
+  'a validated declaration must not change before volume gating or export');
+ for(const field of Object.keys(source) as (keyof FvgSource)[])
+  assert.equal(reads[field],1,field+' must be read exactly once');
+ const invalid={...source};
+ let providerReads=0;
+ Object.defineProperty(invalid,'provider',{get(){
+  providerReads++;
+  return providerReads===1?' invalid-source':'valid-source';
+ }});
+ assert.throws(()=>studyHourlyFvgMidpoint(fixture(),invalid),/Invalid source/);
+ assert.equal(providerReads,1,'invalid initial identity must not be reread into validity');
+});
+
 test('formation census preserves unknown outcomes and distinguishes paired from blind-only markouts',()=>{
  const bars=[
   candle(0,99,100,98,99),candle(1,100,102,99,101),
@@ -230,7 +257,7 @@ test('research report source metadata excludes arbitrary caller properties',()=>
  assert.deepEqual(Object.keys(report.source).sort(),Object.keys(source).sort());
  assert.equal(JSON.stringify(report).includes('synthetic-private-marker'),false);
  assert.equal(JSON.stringify(report).includes('synthetic-account-marker'),false);
- assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v18');
+ assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v19');
 });
 test('ambiguous source labels and contradictory volume evidence fail closed',()=>{
  // These are declared metadata, not independent vendor authentication.
@@ -605,7 +632,7 @@ test('an overflowing next-open comparator suppresses both matched markouts',()=>
 });
 test('completed hourly timestamps are safe and numeric rule changes have a new version',()=>{
  const report=studyHourlyFvgMidpoint(fixture(),source);
- assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v18');
+ assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v19');
  const lastSafeAlignedOpen=Math.floor(Number.MAX_SAFE_INTEGER/H)*H;
  assert.equal(Number.isSafeInteger(lastSafeAlignedOpen),true);
  assert.equal(Number.isSafeInteger(lastSafeAlignedOpen+H),false);
