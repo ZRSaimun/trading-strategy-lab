@@ -22,8 +22,8 @@ def audit_persisted_forecast_alerts(session_ids, expected_keys, *, as_of,
     """Reconcile one bounded SQL statement snapshot of persisted forecast state.
 
     The caller supplies the registered session/alert inventory. Every persisted
-    ``forecast-alert:`` row in the same database is enumerated in the *same*
-    SELECT as requested journals. Unregistered alerts, missing rows, excessive
+    ``forecast-events:`` and ``forecast-alert:`` row is enumerated in the
+    *same* SELECT, including rows absent from the caller's inventory. Unregistered alerts, missing rows, excessive
     size, corruption, and inconsistent journal/alert contents fail closed.
     No claim, retry, send, or order is performed. A concurrent later write can
     change the database after the statement; this is NOT a delivery guarantee.
@@ -55,10 +55,10 @@ def audit_persisted_forecast_alerts(session_ids, expected_keys, *, as_of,
 
     # One SELECT matters: separate journal and outbox reads under the default
     # READ COMMITTED isolation could observe different committed revisions.
-    # The bounded scan also catches alert rows omitted from the declared list.
-    predicate = Record.key.like("forecast-alert:%")
-    if journal_keys:
-        predicate = or_(predicate, Record.key.in_(journal_keys))
+    # The bounded scan catches BOTH omitted journals and omitted alerts.
+    # Checking only requested journals would miss a session with no alerts.
+    predicate = or_(Record.key.like("forecast-alert:%"),
+                    Record.key.like("forecast-events:%"))
     with session_factory() as db:
         rows = db.execute(select(Record.key, Record.value).where(predicate)
                           .order_by(Record.key).limit(_MAX_ROWS + 1)).all()
@@ -73,6 +73,8 @@ def audit_persisted_forecast_alerts(session_ids, expected_keys, *, as_of,
         if total_bytes > _MAX_TOTAL_BYTES:
             raise ValueError("Forecast snapshot byte limit exceeded")
         if key not in journal_keys and key not in alert_keys:
+            if key.startswith("forecast-events:"):
+                raise ValueError("Undeclared persisted forecast journal")
             raise ValueError("Undeclared persisted forecast alert")
         if key in raw:
             raise ValueError("Duplicate persisted forecast row")
