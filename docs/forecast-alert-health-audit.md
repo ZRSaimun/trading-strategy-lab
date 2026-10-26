@@ -70,3 +70,22 @@ bypass entitlement, completed-candle verification, recipient opt-in or durable
 claim reconciliation. The report remains caller-declared and does not measure
 real notification delivery, forecasting accuracy, paper returns or trading
 profitability. No sender or order execution is activated.
+
+
+## Target-completion and causal issuance bounds (26 October 2026)
+
+The disconnected health census now independently rejects an outbox state whose
+base start is not candle-aligned, whose issuance is before the completed base
+candle or at/after the next candle completion, or whose expiry exceeds the
+forecast target candle's completion (baseStart + (horizon + 1) * seconds).
+It also rejects target-end timestamp overflow. These bounds mirror the
+prospective ForecastEventStore issuance window and ForecastAlertOutbox.queue
+expiry clamp, rather than trusting a caller-declared alert TTL alone.
+The pre-existing one-hour TTL limit still applies. Synthetic regression cases
+cover invalid chronology and the exact valid target-end boundary; a legitimate
+one-hour TTL is tested with a sufficiently long candle interval.
+
+This is a read-only audit, not an authentication or sending gate. A caller can
+still omit records, supply a false as_of, or lack independent expected-bar
+inventory. It never turns historical BID candles into live quotes, authorizes
+notification delivery, places paper/live orders or proves profitable returns.
