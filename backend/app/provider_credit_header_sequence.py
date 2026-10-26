@@ -29,11 +29,13 @@ def audit_twelvedata_credit_header_sequence(
     receipt_reports: list[dict], *,
     declared_window_start_utc: int, declared_window_end_utc: int,
 ) -> dict:
-    """Flag inconsistent credit counters inside one *operator-declared* window.
+    """Review caller-selected receipts without comparing across UTC-minute resets.
 
-    A clean result only says that a caller-selected, self-attested sequence is
-    arithmetically consistent. It never asserts account-wide usage, actual
-    quota-window boundaries, source authenticity or that no calls are missing.
+    Twelve Data documents a per-minute quota reset. A multi-minute selection
+    therefore cannot be a single monotone counter sequence. Only receipts
+    whose request and response stay within the SAME declared UTC minute may
+    be compared; all minute transitions and straddling requests require review.
+    Even a clean single-minute sequence is self-attested, never reconciled.
     """
     now = int(time.time())
     if (type(declared_window_start_utc) is not int
@@ -80,29 +82,37 @@ def audit_twelvedata_credit_header_sequence(
                 raise CreditHeaderSequenceError("Invalid observed header pair")
         else:
             raise CreditHeaderSequenceError("Invalid header evidence status")
-        observations.append((received, rid, used, left))
+        observations.append((received, rid, used, left, start // 60 != received // 60))
 
     observations.sort()
     contradictory = 0
     unexplained = 0
     compared = 0
-    # Never compare across a missing receipt/header or tied response timestamp.
-    # This also prevents a partial sequence from being described as complete.
+    minute_transitions = 0
+    straddling_requests = sum(x[4] for x in observations)
+    # The provider documents minute-based resets; a caller-selected interval
+    # spanning several minutes is NOT a single quota window. Never label a
+    # reset as contradictory consumption or assume the response minute is
+    # the charged minute for a request that straddles the boundary.
     for previous, current in zip(observations, observations[1:]):
-        t0, _, u0, l0 = previous
-        t1, _, u1, l1 = current
-        if None in (u0, l0, u1, l1) or t0 == t1:
+        t0, _, u0, l0, spans0 = previous
+        t1, _, u1, l1, spans1 = current
+        if t0 // 60 != t1 // 60:
+            minute_transitions += 1
+            continue
+        if spans0 or spans1 or None in (u0, l0, u1, l1) or t0 == t1:
             continue
         compared += 1
         if u0 + l0 != u1 + l1 or u1 < u0 or l1 > l0:
             contradictory += 1
         elif u1 - u0 != 1:
             # A non-unit increase might reflect other account clients,
-            # provider caching, a reset, or omitted caller receipts.
+            # provider caching, or omitted caller receipts.
             unexplained += 1
     tied_times = len(observations) - len({x[0] for x in observations})
     review = (len(observations) < 2 or missing_headers > 0
               or contradictory > 0 or unexplained > 0 or tied_times > 0
+              or minute_transitions > 0 or straddling_requests > 0
               or compared != len(observations) - 1)
     return {
         "status": "REVIEW_REQUIRED" if review else "SELF_ATTESTED_SEQUENCE_ONLY",
@@ -114,6 +124,8 @@ def audit_twelvedata_credit_header_sequence(
         "contradictory_counter_pairs": contradictory,
         "unexplained_credit_deltas": unexplained,
         "ambiguous_response_timestamp_pairs": tied_times,
+        "utc_minute_transitions_not_compared": minute_transitions,
+        "requests_crossing_utc_minute": straddling_requests,
         "declared_window_independently_verified": False,
         "provider_account_credit_usage_reconciled": False,
         "receipt_population_complete": False,

@@ -11,7 +11,7 @@ T = int(datetime(2026, 10, 26, 8, tzinfo=timezone.utc).timestamp())
 
 def receipt(i, *, used=None, left=None, stamp=None):
     if stamp is None:
-        stamp = T + i * 60
+        stamp = T + i * 10
     return {
         "credit_budget_reservation_id": f"{i:032x}",
         "server_request_started_at_utc": stamp,
@@ -46,6 +46,7 @@ def test_consistent_sorted_or_reversed_is_only_self_attested():
         result = audit(reports)
         assert result["status"] == "SELF_ATTESTED_SEQUENCE_ONLY"
         assert result["compared_adjacent_pairs"] == 1
+        assert result["utc_minute_transitions_not_compared"] == 0
         assert result["provider_account_credit_usage_reconciled"] is False
         assert result["receipt_population_complete"] is False
         assert result["source_authenticated"] is False
@@ -134,3 +135,46 @@ def test_missing_header_pair_with_counter_denied():
     x["provider_credit_header_status"] = "MISSING_REVIEW_REQUIRED"
     with pytest.raises(CreditHeaderSequenceError):
         audit([x])
+
+def test_reset_at_minute_boundary_not_mislabeled_counter_contradiction():
+    a = receipt(0, used=100, left=700, stamp=T + 58)
+    b = receipt(1, used=1, left=799, stamp=T + 60)
+    result = audit([a, b])
+    assert result["status"] == "REVIEW_REQUIRED"
+    assert result["utc_minute_transitions_not_compared"] == 1
+    assert result["compared_adjacent_pairs"] == 0
+    assert result["contradictory_counter_pairs"] == 0
+    assert result["unexplained_credit_deltas"] == 0
+    assert result["provider_account_credit_usage_reconciled"] is False
+
+
+def test_request_straddling_utc_minute_never_inferred_charged_minute():
+    a = receipt(0, stamp=T + 59)
+    a["server_response_received_at_utc"] = T + 60
+    b = receipt(1, stamp=T + 61)
+    result = audit([a, b])
+    assert result["status"] == "REVIEW_REQUIRED"
+    assert result["requests_crossing_utc_minute"] == 1
+    assert result["utc_minute_transitions_not_compared"] == 0
+    assert result["compared_adjacent_pairs"] == 0
+
+
+def test_mixed_minutes_compare_only_within_minute_and_review_whole_series():
+    rows = [
+        receipt(0, used=1, left=799, stamp=T + 10),
+        receipt(1, used=2, left=798, stamp=T + 20),
+        receipt(2, used=1, left=799, stamp=T + 61),
+        receipt(3, used=2, left=798, stamp=T + 71),
+    ]
+    result = audit(rows)
+    assert result["status"] == "REVIEW_REQUIRED"
+    assert result["compared_adjacent_pairs"] == 2
+    assert result["utc_minute_transitions_not_compared"] == 1
+    assert result["contradictory_counter_pairs"] == 0
+
+
+def test_counter_drop_within_same_minute_still_flagged():
+    result = audit([receipt(0, used=100, left=700), receipt(1, used=1, left=799)])
+    assert result["contradictory_counter_pairs"] == 1
+    assert result["utc_minute_transitions_not_compared"] == 0
+    assert result["status"] == "REVIEW_REQUIRED"
