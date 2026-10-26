@@ -25,6 +25,41 @@ The report also measures **terminal underwater drawdown**, the maximum cumulativ
 
 The report also records the **first later pseudo-settlement event** that regains the selected peak level for each minimum/maximum drawdown scenario. The recovery event is `null` if there was no positive drawdown or if the selected peak was never recovered before the last booking. This is a retrospective, fixed-horizon booking-index diagnostic: it is **not** an actual broker recovery time, intrabar cash balance, execution timestamp, forecast, or a reason to admit/reject any trade. The regression oracle checks both the selected peak/trough and first subsequent recovery against all 3,125 five-event sequences.
 
+## Strict underwater pseudo-booking burden (26 October 2026)
+
+For each frozen training/holdout admitted cohort and each illustrative
+0/5/10/20-bps additional round-trip cost scenario, report both the **total
+number of underwater pseudo-booking events** and the **longest consecutive
+underwater event streak**. Event zero is the fixed initial zero baseline;
+event N is after N full-horizon pseudo-returns are booked. An event is strictly
+underwater if its cumulative pseudo-net-R is **below** its highest preceding
+or current cumulative level (including event zero). Equal-peak recovery ends
+an underwater run. An underwater event can follow a flat or profitable
+individual trade: it is not the same as a negative-return streak.
+
+The four fields per cohort are
+`{training|holdout}_pseudo_settlement_{minimum|maximum}_total_underwater_events`
+and
+`{training|holdout}_pseudo_settlement_{minimum|maximum}_longest_underwater_event_streak`.
+Every prefix drawdown is the maximum of the negative sums over its contiguous
+ending return intervals. Therefore, increasing any path's return cannot
+create an underwater event: **all-upper** interval outcomes give the exact
+minimum of both counts, while **all-lower** give the exact maximum.
+The report checks the envelope and cohort size without inspecting outcomes
+to change capacity admission. An independent exhaustive oracle enumerates
+all interval-compatible integer outcomes across **340 short interval
+populations**, independently recomputes prefix peaks and both burdens, and
+checks both endpoint extrema. A full-report regression also verifies the
+cohort/cost census and non-authorization flags.
+
+These are **counts of artificial full-horizon booking events**, not elapsed
+market minutes, actual time underwater, observed fills, broker equity,
+capital-at-risk, a probability of recovery, or proof of profitable trading.
+Overlapping exposures, financing, FX, spread/slippage, source rights,
+timestamp integrity and independently untouched holdouts remain unverified.
+They must not select a strategy, trigger a signal, or authorize paper or
+real-money orders.
+
 ## Fixed initial-equity pseudo-loss barrier first passage
 
 For each frozen training/holdout cohort and illustrative 0/5/10/20-bps additional round-trip cost, the report now includes **10% and 20% of fixed initial pseudo-equity** cumulative-loss barriers. Each event is a predeclared full-horizon pseudo-booking, not an observed fill or calendar timestamp. Touching the negative threshold counts as a breach.
