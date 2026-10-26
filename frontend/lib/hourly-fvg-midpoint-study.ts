@@ -7,7 +7,7 @@
  */
 import type {Bar} from './research.ts';
 
-export const HOURLY_FVG_VERSION='hourly-fvg-first-midpoint-touch-v5';
+export const HOURLY_FVG_VERSION='hourly-fvg-first-midpoint-touch-v6';
 export type Evidence='PASS'|'FAIL'|'INSUFFICIENT_DATA';
 export type Side='BULLISH'|'BEARISH';
 export type FvgSource={
@@ -237,7 +237,12 @@ export function studyHourlyFvgMidpoint(
    }
    break; // FIRST midpoint touch only
   }
-  if(touch===null&&windowComplete&&!openingGapThrough)gates.midpointTouch='FAIL';
+  // A fully observed waiting horizon without a touch is a known rejection,
+  // not missing evidence. Keep incomplete/gap-through windows unknown.
+  if(touch===null&&windowComplete&&!openingGapThrough){
+   gates.midpointTouch='FAIL';
+   gates.strictCandidate='FAIL';
+  }
   observations.push({direction,formationClosedAt:third.time+HOUR,
    gapLow,gapHigh,midpoint,firstTouchClosedAt:touch===null?null:bars[touch].time+HOUR,
    rejectionWickFraction:wickFraction,gates,
