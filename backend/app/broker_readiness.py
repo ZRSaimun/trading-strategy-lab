@@ -125,10 +125,23 @@ def calculate_stress_preview(body: StressPreview) -> dict:
 
     # Compare with the unrounded cash budget to avoid approval near a rounding boundary.
     stress_within_budget = stressed_loss <= body.account_equity * body.risk_budget_percent / 100
-    margin_covered = assumed_margin <= body.account_equity
-    leverage_within_limit = effective_leverage <= body.max_leverage
+    # Initial-equity margin/leverage can pass even though the hypothetical
+    # stop-gap loss leaves insufficient equity to support the same exposure.
+    # Keep the initial leverage metric for compatibility, but gate on stressed
+    # equity. A rounded-away loss is not evidence of safe remaining equity.
+    stressed_equity = body.account_equity - stressed_loss
+    stressed_equity_positive = (math.isfinite(stressed_equity)
+                                and 0 < stressed_equity < body.account_equity)
+    stressed_leverage = (notional / stressed_equity
+                         if stressed_equity_positive else float('nan'))
+    stressed_leverage_valid = (math.isfinite(stressed_leverage)
+                               and stressed_leverage > 0)
+    margin_covered = stressed_equity_positive and assumed_margin <= stressed_equity
+    leverage_within_limit = (stressed_leverage_valid
+                             and stressed_leverage <= body.max_leverage)
     all_checks = (base['within_user_risk_budget'] and stress_within_budget
-                  and margin_covered and leverage_within_limit)
+                  and stressed_equity_positive and margin_covered
+                  and leverage_within_limit)
     warnings = list(base['warnings'])
     warnings.extend([
         'Stressed exit is user-supplied; worse gaps, partial fills, spread widening and outages can cause larger losses.',
@@ -137,10 +150,12 @@ def calculate_stress_preview(body: StressPreview) -> dict:
     ])
     if not stress_within_budget:
         warnings.append('The stressed stop-gap loss exceeds the specified risk budget.')
+    if not stressed_equity_positive:
+        warnings.append('Stressed equity is exhausted or cannot be calculated safely.')
     if not margin_covered:
-        warnings.append('Illustrative margin requirement exceeds hypothetical account equity.')
+        warnings.append('Illustrative margin requirement exceeds remaining stressed equity.')
     if not leverage_within_limit:
-        warnings.append('Illustrative leverage exceeds the selected cap.')
+        warnings.append('Illustrative stressed-equity leverage exceeds the selected cap.')
     if stressed_loss > body.account_equity:
         warnings.append('The selected stress scenario loses more than the assumed account equity.')
     return {
@@ -152,6 +167,11 @@ def calculate_stress_preview(body: StressPreview) -> dict:
         'assumed_margin_required': assumed_margin,
         'assumed_margin_covered_by_equity': margin_covered,
         'assumed_effective_leverage': effective_leverage,
+        'stressed_equity_remaining_cash': stressed_equity if math.isfinite(stressed_equity) else None,
+        'stressed_equity_positive': stressed_equity_positive,
+        'assumed_stressed_effective_leverage': (
+            stressed_leverage if stressed_leverage_valid else None
+        ),
         'within_user_leverage_cap': leverage_within_limit,
         'all_hypothetical_limits_pass': all_checks,
         'may_execute_real_order': False,
@@ -224,7 +244,20 @@ def calculate_order_gate_preview(body: OrderGatePreview, now_ms: int) -> dict:
     proposed_gross = stress['estimated_exposure']
     combined_margin = reserved_margin + proposed_margin
     combined_gross = existing_gross + proposed_gross
-    combined_leverage = combined_gross / body.risk.account_equity
+    # Current equity already includes marked P&L. Deduct only incremental
+    # reserved downside on other positions, then the proposed stress loss;
+    # never double-count already marked unrealized losses.
+    portfolio_stressed_equity = (body.risk.account_equity
+                                 - body.controls.other_positions_reserved_stress_loss_cash
+                                 - stress['stressed_loss_if_filled'])
+    portfolio_stressed_equity_valid = (
+        math.isfinite(portfolio_stressed_equity)
+        and 0 < portfolio_stressed_equity < body.risk.account_equity
+        and (body.controls.other_positions_reserved_stress_loss_cash == 0
+             or portfolio_stressed_equity < stress['stressed_equity_remaining_cash'])
+    )
+    combined_leverage = (combined_gross / portfolio_stressed_equity
+                         if portfolio_stressed_equity_valid else float('nan'))
     # Detect both overflow and lost positive increments due to float rounding:
     # a new order must not disappear when added to a large existing exposure.
     margin_arithmetic_ok = math.isfinite(combined_margin) and combined_margin > reserved_margin
@@ -234,11 +267,14 @@ def calculate_order_gate_preview(body: OrderGatePreview, now_ms: int) -> dict:
                               and combined_leverage > 0)
     checks['portfolio_margin_arithmetic_valid'] = margin_arithmetic_ok
     checks['portfolio_gross_arithmetic_valid'] = notional_arithmetic_ok
+    checks['portfolio_stressed_equity_positive'] = portfolio_stressed_equity_valid
     checks['portfolio_margin_within_equity'] = (
-        margin_arithmetic_ok and combined_margin <= body.risk.account_equity
+        margin_arithmetic_ok and portfolio_stressed_equity_valid
+        and combined_margin <= portfolio_stressed_equity
     )
     checks['portfolio_gross_leverage_within_cap'] = (
-        notional_arithmetic_ok and combined_leverage <= body.risk.max_leverage
+        notional_arithmetic_ok and portfolio_stressed_equity_valid
+        and combined_leverage <= body.risk.max_leverage
     )
     # Trading 212's official public API covers cash Invest/Stocks ISA only.
     # A SELL entry with a protective stop above entry represents opening a
@@ -252,7 +288,8 @@ def calculate_order_gate_preview(body: OrderGatePreview, now_ms: int) -> dict:
     )
     checks['cash_account_gross_fully_funded'] = (
         not cash_account or (
-            notional_arithmetic_ok and combined_gross <= body.risk.account_equity
+            notional_arithmetic_ok and portfolio_stressed_equity_valid
+            and combined_gross <= portfolio_stressed_equity
         )
     )
     gate.update(
@@ -267,6 +304,7 @@ def calculate_order_gate_preview(body: OrderGatePreview, now_ms: int) -> dict:
             'position_cap_broker_verified': False,
             'assumed_margin_required': stress['assumed_margin_required'],
             'all_hypothetical_limits_pass': stress['all_hypothetical_limits_pass'],
+            'stressed_equity_remaining_cash': stress['stressed_equity_remaining_cash'],
         },
         account_wide_daily_loss_scenario={
             'realized_pnl_cash': body.controls.daily_realized_pnl_cash,
@@ -285,6 +323,9 @@ def calculate_order_gate_preview(body: OrderGatePreview, now_ms: int) -> dict:
             'proposed_margin_cash': proposed_margin,
             'proposed_gross_notional_cash': proposed_gross,
             'combined_margin_cash': combined_margin if math.isfinite(combined_margin) else None,
+            'remaining_stressed_equity_cash': (
+                portfolio_stressed_equity if math.isfinite(portfolio_stressed_equity) else None
+            ),
             'combined_gross_notional_cash': combined_gross if math.isfinite(combined_gross) else None,
             'combined_gross_leverage': combined_leverage if math.isfinite(combined_leverage) else None,
             'inputs_broker_verified': False,
@@ -296,6 +337,7 @@ def calculate_order_gate_preview(body: OrderGatePreview, now_ms: int) -> dict:
             'Even a fully passing preview uses owner-declared inputs, not a signed provider feed.',
             'The broker is NOT connected; per-order owner confirmation and a durable, atomic kill switch are not implemented.',
             'Portfolio gross exposure and margin reservations are owner-declared; defaults of zero do not verify that the account has no other positions.',
+            'Margin, cash funding and leverage are checked against remaining hypothetical stressed equity, not broker buying power.',
         ],
     )
     return gate
