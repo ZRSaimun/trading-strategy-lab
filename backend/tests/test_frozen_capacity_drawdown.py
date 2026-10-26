@@ -81,6 +81,27 @@ def test_holdout_drawdown_window_counts_booked_events_not_broker_fills():
 
 
 
+def test_report_preserves_distinct_optimistic_and_pessimistic_peak_events():
+    # First holdout opportunity is intrabar ambiguous: the upper return
+    # reaches the target and creates a peak at booking event 1; the lower
+    # return touches the stop and leaves the peak at event zero. Previously
+    # the optimistic peak was written under the maximum key and overwritten.
+    manifest, paths = sample()
+    paths[36]["bars"][0].update(high="103", low="98", close="100")
+    report = run(manifest, paths)
+    for scenario in report["cost_scenarios"]:
+        assert scenario["holdout_pseudo_settlement_minimum_max_drawdown_peak_event"] == 1
+        assert scenario["holdout_pseudo_settlement_maximum_max_drawdown_peak_event"] == 0
+        assert scenario["holdout_pseudo_settlement_minimum_max_drawdown_trough_event"] == 36
+        assert scenario["holdout_pseudo_settlement_maximum_max_drawdown_trough_event"] == 36
+        assert (
+            Decimal(scenario["holdout_pseudo_settlement_minimum_max_drawdown_pct_initial"])
+            <= Decimal(scenario["holdout_pseudo_settlement_maximum_max_drawdown_pct_initial"])
+        )
+        assert scenario["training_pseudo_settlement_minimum_max_drawdown_peak_event"] == 0
+        assert scenario["training_pseudo_settlement_maximum_max_drawdown_peak_event"] == 0
+
+
 def test_terminal_underwater_differs_from_historical_maximum_drawdown():
     seq = [Decimal("2"), Decimal("-3"), Decimal("3"), Decimal("-1")]
     assert _maximum_drawdown(seq) == 3
