@@ -15,9 +15,10 @@ Run from repository root:
 
 The standard-library script refuses non-manual deploy triggers, unexpected
 resource types, paid plans, absent /api/health, enabled paid data feeds,
-missing secret placeholders, extra environment keys and duplicate keys.
+missing secret placeholders, extra environment keys, duplicate keys and any
+unreviewed non-comment Blueprint directive.
 Diagnostics contain only policy labels, never credential values.
-The backend test suite includes 19 synthetic positive/negative cases.
+The backend test suite includes 20 synthetic positive/negative cases.
 
 The script is a narrow text-policy checker, **not** a YAML parser, Render
 schema validator, live-state attestation, backup drill or deployment
