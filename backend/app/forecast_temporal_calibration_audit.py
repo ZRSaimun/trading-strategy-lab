@@ -75,15 +75,21 @@ def audit_temporal_forecast_calibration(snapshot, *, min_per_window=30,
         boundary = late[0]["issuedAt"] if late else None
         # The early baseline cannot learn from an outcome resolved after the
         # late evaluation period began. This is a strict chronological purge.
-        train_eligible = [r for r in early if r["status"] == "SETTLED"
-                          and boundary is not None and r["resolvedAt"] < boundary]
-        test_eligible = [r for r in late if r["status"] == "SETTLED"]
-        train = _nonoverlapping(train_eligible)
-        test = _nonoverlapping(test_eligible)
+        # Select the independent-ish sampling census from ALL issued forecasts
+        # before inspecting settlement status. Selecting settled rows first can
+        # shift the sample to later, conveniently observed outcomes when an
+        # earlier forecast is pending/void (outcome-dependent selection).
+        early_census = _nonoverlapping(early)
+        late_census = _nonoverlapping(late)
+        train = [r for r in early_census if r["status"] == "SETTLED"
+                 and boundary is not None and r["resolvedAt"] < boundary]
+        test = [r for r in late_census if r["status"] == "SETTLED"]
         # A SETTLED outcome learned only after the late cohort begins is
         # unavailable to the frozen baseline. Count it as boundary missingness
         # even though the retrospective journal eventually contains a label.
-        early_purged = sum(r["status"] == "SETTLED" for r in early) - len(train_eligible)
+        early_purged = sum(r["status"] == "SETTLED"
+                           and (boundary is None or r["resolvedAt"] >= boundary)
+                           for r in early)
         early_unavailable = early_unresolved + early_purged
         early_rate = early_unavailable / len(early) if early else 1.0
         late_rate = late_unresolved / len(late) if late else 1.0
@@ -99,6 +105,8 @@ def audit_temporal_forecast_calibration(snapshot, *, min_per_window=30,
             "earlyUnavailableAtBoundary": early_unavailable,
             "earlyUnavailableAtBoundaryFraction": early_rate,
             "lateUnresolvedOrVoidFraction": late_rate,
+            "earlyNonoverlappingIssued": len(early_census),
+            "lateNonoverlappingIssued": len(late_census),
             "earlyNonoverlappingSettled": len(train),
             "lateNonoverlappingSettled": len(test),
             "earlyBrier": None, "lateBrier": None, "lateBrierDelta": None,
