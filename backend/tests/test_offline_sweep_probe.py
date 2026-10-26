@@ -132,3 +132,34 @@ def test_adverse_source_open_gap_does_not_credit_exact_stop(
     assert D(cases[0]["mean_net_r"]) == D("-4.6"), direction
     assert D(cases[1]["mean_net_r"]) < D("-4.6")
     assert result["may_execute_order"] is False
+
+
+def test_uncensored_positive_cohort_has_exact_cost_zero_crossing():
+    # A single unambiguous +2R long: entry=103, stop=98, target=113.
+    # Additional round-trip bps deduct (103/5)/10000 R per bp.
+    rows = synthetic_bars()
+    b = rows[32]
+    rows[32] = Bar(b.time, D(103), D(114), D(99), D(113), b.segment)
+    cohort = research(rows)["cohorts"]["development"]
+    assert cohort["cost_scenarios"][0]["count"] == 1
+    assert D(cohort["uncensored_mean_gross_r"]) == D(2)
+    assert D(cohort["mean_r_cost_per_additional_bps"]) == D(103) / D(50000)
+    threshold = D(cohort["positive_mean_break_even_additional_bps"])
+    assert abs(threshold - D(100000) / D(103)) < D("0.00000001")
+    for case in cohort["cost_scenarios"]:
+        bps = D(case["additional_round_trip_bps"])
+        assert D(case["mean_net_r"]) == D(2) - bps * D(103) / D(50000)
+    assert research(rows)["may_execute_order"] is False
+
+
+def test_cost_threshold_withheld_for_nonpositive_and_empty_cohorts():
+    report = research(synthetic_bars())["cohorts"]
+    loss = report["development"]
+    empty = report["exploratory_later"]
+    assert loss["cost_scenarios"][0]["count"] == 1
+    assert D(loss["uncensored_mean_gross_r"]) == D(-1)
+    assert loss["positive_mean_break_even_additional_bps"] is None
+    assert empty["cost_scenarios"][0]["count"] == 0
+    assert empty["uncensored_mean_gross_r"] is None
+    assert empty["mean_r_cost_per_additional_bps"] is None
+    assert empty["positive_mean_break_even_additional_bps"] is None
