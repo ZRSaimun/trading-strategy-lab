@@ -1,6 +1,8 @@
-# Hourly FVG first-touch midpoint rejection versus blind limit (research v21)
+# Hourly FVG first-touch midpoint rejection versus blind limit (research v22)
 
 **Status: proposed, deterministic, read-only hypothesis.** This standalone TypeScript library is not yet wired to the terminal UI, production broker, archive query or cloud service. No actual BID/ASK executions, licensed news data, verified performance, live trades or profitability claims are included. It deliberately does **not** duplicate PR #24's sweep/MSS/FVG confluence risk-path experiment or PR #33's 4H CRT/15m confirmation screen.
+
+**Version 22: causal strict-candidate and markout evidence clocks.** Each formation now includes `strictCandidateObservedAt` and `markoutOutcomeObservedAt`. A strict PASS/FAIL becomes knowable at the completed first-touch bar (or the completed no-touch deadline), while a hypothetical return becomes knowable only at the fixed exit bar close. A known no-entry FAIL is knowable only when the waiting window completes. Missing, gap-through and right-censored evidence have null clocks. One bullish/bearish synthetic regression covers paired, blind-only, no-touch, truncated and gap-through cases. These clocks do not authenticate broker quotes or fills, establish profitability, or permit trading. Frozen rule: `hourly-fvg-first-midpoint-touch-v22`.
 
 **Version 21: bound hypothetical CFD cost-scenario arrays before copying.** The study now checks the supplied cost array's length (1–10) **before** using `Array.from`. Previously an array with an enormous declared length could trigger a very large allocation or element getters before the later configuration validation rejected it. A synthetic regression supplies a billion-element declared length with a throwing getter and verifies rejection without reading the getter; a valid three-scenario configuration remains unchanged. This is a bounded-memory input safety check, **not** measured broker spread, executable two-sided quotes or evidence of profitable trading. Frozen rule ID: `hourly-fvg-first-midpoint-touch-v21`.
 
@@ -64,6 +66,6 @@ The research still lacks an authenticated broker's timestamped BID/ASK observati
 
 ## Verification
 
-35 synthetic Node tests cover bullish and bearish gap geometry, first-touch freeze, strict volume gating, incomplete and missing candles, gap-through uncertainty, causal next-open timing, common-horizon cost arithmetic and source validation. Run `cd frontend && npm test && npm run typecheck && npm run build`; repository CI also exercises backend and container smoke. Synthetic passing tests do not establish a statistical edge.
+36 synthetic Node tests cover bullish and bearish gap geometry, first-touch freeze, strict volume gating, incomplete and missing candles, gap-through uncertainty, causal next-open timing, common-horizon cost arithmetic and source validation. Run `cd frontend && npm test && npm run typecheck && npm run build`; repository CI also exercises backend and container smoke. Synthetic passing tests do not establish a statistical edge.
 
 **Deployment safety:** isolated draft PR; no secrets, private datasets, paid APIs, orders, production database changes, merge or Render deployment.
