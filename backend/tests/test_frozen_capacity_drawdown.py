@@ -97,7 +97,7 @@ def test_declared_exclusions_withhold():
 
 def test_insufficient_admitted_holdout_withholds():
     m, p = sample()
-    for i in range(37, 45):
+    for i in range(37, 49):
         move(m, p, i, CUTOFF + (i - 36) * 60)
     assert run(m, p)["cost_scenarios"] == []
 
