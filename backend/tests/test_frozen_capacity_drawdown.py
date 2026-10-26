@@ -13,6 +13,7 @@ from app.frozen_capacity_drawdown import (_maximum_drawdown,
                                           _first_pseudo_loss_barrier_event,
                                           _longest_strict_negative_streak,
                                           _strict_sign_count_envelope,
+                                           _zero_cost_winner_erosion,
                                           _worst_quartile_mean_envelope,
                                           _validated_cost_trajectory,
                                           audit_frozen_capacity_drawdown)
@@ -703,3 +704,70 @@ def test_full_auditor_rejects_monotone_but_false_cost_schedule(monkeypatch):
     manifest, paths = sample()
     with pytest.raises(ValueError, match="Incorrect per-path frozen cost erosion"):
         run(manifest, paths)
+
+
+def test_paired_zero_cost_winner_erosion_exact_and_fail_closed():
+    d = Decimal
+    result = _zero_cost_winner_erosion(
+        [d("1"), d("1"), d("1"), d("-1"), d("0")],
+        [d("1"), d("2"), d("2"), d("1"), d("0")],
+        [d("-0.1"), d("-0.5"), d("0.1"), d("-2"), d("0")],
+        [d("-0.1"), d("0.5"), d("1.1"), d("0"), d("0")],
+    )
+    assert result == dict(
+        evaluated_paths=5, zero_cost_guaranteed_strict_positive=3,
+        guaranteed_no_longer_strict_positive=1,
+        possible_no_longer_strict_positive=2,
+        still_guaranteed_strict_positive=1,
+    )
+    with pytest.raises(ValueError, match="Mismatched"):
+        _zero_cost_winner_erosion([d("1")], [d("1")], [], [])
+    with pytest.raises(ValueError, match="nonmonotone"):
+        _zero_cost_winner_erosion([d("1")], [d("2")], [d("2")], [d("2")])
+    with pytest.raises(ValueError, match="interval"):
+        _zero_cost_winner_erosion([d("2")], [d("1")], [d("1")], [d("1")])
+
+
+def test_paired_erosion_matches_independent_discrete_outcome_oracle():
+    # Enumerate possible gross returns before applying a fixed cost decrement.
+    d = Decimal
+    intervals = [(lo, hi) for lo in range(-2, 3)
+                 for hi in range(lo, 3)]
+    for lo, hi in intervals:
+        for cost in (0, 1, 2, 3):
+            observed = _zero_cost_winner_erosion(
+                [d(lo)], [d(hi)], [d(lo - cost)], [d(hi - cost)])
+            outcomes = list(range(lo, hi + 1))
+            baseline = all(x > 0 for x in outcomes)
+            possible = baseline and any(x - cost <= 0 for x in outcomes)
+            guaranteed = baseline and all(x - cost <= 0 for x in outcomes)
+            survive = baseline and all(x - cost > 0 for x in outcomes)
+            assert observed["zero_cost_guaranteed_strict_positive"] == int(baseline)
+            assert observed["possible_no_longer_strict_positive"] == int(possible)
+            assert observed["guaranteed_no_longer_strict_positive"] == int(guaranteed)
+            assert observed["still_guaranteed_strict_positive"] == int(survive)
+
+
+def test_full_report_paired_erosion_covers_admitted_and_rejected_population():
+    manifest, paths = sample()
+    report = run(manifest, paths)
+    for label in ("training", "holdout"):
+        for population in ("admitted", "unadmitted"):
+            key = f"{label}_pseudo_settlement_{population}_zero_cost_winner_erosion"
+            rows = [scenario[key] for scenario in report["cost_scenarios"]]
+            expected_size = report["admission_counts"][f"{label}_{population}"]
+            assert all(row["evaluated_paths"] == expected_size for row in rows)
+            assert all(row["zero_cost_guaranteed_strict_positive"]
+                       == rows[0]["zero_cost_guaranteed_strict_positive"] for row in rows)
+            assert rows[0]["guaranteed_no_longer_strict_positive"] == 0
+            assert rows[0]["possible_no_longer_strict_positive"] == 0
+            assert [row["possible_no_longer_strict_positive"] for row in rows] == sorted(
+                row["possible_no_longer_strict_positive"] for row in rows)
+            assert [row["guaranteed_no_longer_strict_positive"] for row in rows] == sorted(
+                row["guaranteed_no_longer_strict_positive"] for row in rows)
+            for row in rows:
+                assert (row["possible_no_longer_strict_positive"]
+                        + row["still_guaranteed_strict_positive"]
+                        == row["zero_cost_guaranteed_strict_positive"])
+                assert (row["guaranteed_no_longer_strict_positive"]
+                        <= row["possible_no_longer_strict_positive"])
