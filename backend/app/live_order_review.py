@@ -104,13 +104,21 @@ def build_review_packet(order, *, now_ms, max_quote_age_ms=3000,
                                                else o['stressed_exit_price'] > o['stop_price'])
     checks['entry_not_better_than_quote'] = (o['entry_price'] >= o['quote_ask'] if o['direction'] == 'BUY'
                                              else o['entry_price'] <= o['quote_bid'])
+    # A touched protective stop is a reconciliation hold, not a fill guarantee.
+    checks['protective_stop_not_breached'] = (
+        o['quote_bid'] > o['stop_price'] if o['direction'] == 'BUY'
+        else o['quote_ask'] < o['stop_price'])
     with localcontext() as ctx:
         ctx.prec = 80
         spread = (o['quote_ask'] / o['quote_bid'] - 1) * 10000
         checks['spread_within_cap'] = checks['uncrossed_quote'] and spread <= o['max_spread_bps']
         notional = o['entry_price'] * o['quantity'] * o['point_value_cash']
         margin = notional * o['margin_rate_percent'] / 100
-        loss = (abs(o['entry_price'] - o['stressed_exit_price']) * o['quantity']
+        # Price downside at the worse of declared stress and executable quote.
+        adverse_exit = (min(o['stressed_exit_price'], o['quote_bid'])
+                        if o['direction'] == 'BUY'
+                        else max(o['stressed_exit_price'], o['quote_ask']))
+        loss = (abs(o['entry_price'] - adverse_exit) * o['quantity']
                 * o['point_value_cash'] + o['estimated_total_cost_cash'])
         combined_notional = o['existing_gross_notional_cash'] + notional
         combined_margin = o['existing_reserved_margin_cash'] + margin
@@ -133,6 +141,12 @@ def build_review_packet(order, *, now_ms, max_quote_age_ms=3000,
         checks['projected_daily_loss_below_cap'] = effective_daily > -o['max_daily_loss_cash']
         checks['portfolio_margin_within_equity'] = combined_margin <= o['account_equity_cash']
         checks['portfolio_leverage_within_cap'] = combined_notional <= o['account_equity_cash'] * o['max_gross_leverage']
+        stressed_equity = o['account_equity_cash'] - loss
+        checks['stressed_equity_positive'] = stressed_equity > 0
+        checks['stressed_portfolio_margin_within_equity'] = (
+            stressed_equity > 0 and combined_margin <= stressed_equity)
+        checks['stressed_portfolio_leverage_within_cap'] = (
+            stressed_equity > 0 and combined_notional <= stressed_equity * o['max_gross_leverage'])
         checks['cash_account_fully_funded'] = (o['broker'] == 'Trading212-CFD'
                                                  or combined_notional <= o['account_equity_cash'])
     canonical = _canonical_order(o)
