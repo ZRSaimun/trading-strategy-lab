@@ -19,3 +19,9 @@ Run from backend: PYTHONPATH=. pytest -q tests/test_forecast_telegram_transport.
 Do not connect or deploy this sender until legitimate Telegram bot and opted-in recipient, securely scoped secrets, independently authenticated prospective source receipts, source/session/gap checks, durable claim/reconciliation worker, concurrency and process-crash acceptance, full latest-head CI, restorable backup, rollback and post-release health are verified. Historical BID and replay observations are never live executable broker quotes. No measured forward returns, drawdown or profitable edge.
 
 **Loop 1:** Provide licensed/authenticated completed-candle receipts, trusted server clocks, expected-bar and session register, exact provider/venue/side identity and stale/gap rejection. **Loop 4:** Broker risk, demo fill reconciliation and owner-specific real-order approval are separate; this transport can never place orders.
+
+## Malformed-response and uncertain-outcome hardening (26 October 2026)
+
+The single-attempt adapter now maps incomplete HTTP response reads, HTTP framing errors, decoder recursion failures, and malformed injected HTTP response objects to a sanitized `DeliveryUncertain` exception. An HTTP failure can occur after the provider accepted a send: **do not automatically retry** an uncertain claim. Never log raw HTTP exception bodies, token-bearing request URLs or response text. This hardening does not authenticate market observations, establish provider delivery or authorize any send.
+
+Five additional isolated synthetic cases bring the transport suite to **27 passing tests locally** on Python 3.13. Tests use fake openers and zero network calls. Full latest-head GitHub CI is required before considering any integration; no production deployment, credential configuration, broker order or notification was performed.
