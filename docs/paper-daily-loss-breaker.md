@@ -7,3 +7,20 @@ A caller explicitly initializes one account alias, ISO UTC day, currency, and im
 The `Record` compare-and-swap update and `Audit` insertion commit together. A failed CAS returns `False` and the caller must reload and retry from fresh state. Corrupt records and invalid monetary inputs raise errors. Account aliases are hashed in record keys and audit details. Audit actor `system` does not impersonate an authenticated owner.
 
 Run `cd backend && python -m pytest -q tests/test_paper_daily_loss_breaker.py`. SQLite tests are synthetic. The isolated PostgreSQL race and audit-rollback acceptance suite runs on a disposable loopback PostgreSQL 16 service in GitHub Actions (`postgres-risk-acceptance`). Run it locally only with `TSL_PG_RISK_TEST_URL` pointing to a disposable loopback database whose name ends in `_test`; it creates and drops a random test schema. The suite tests simultaneous writers and atomic rollback when an audit insert fails. Passing these tests does not authenticate P&L, validate production isolation or authorize execution. Integrate only after coordinating PR #26 reservations and journal persistence; authenticated broker account balances, position reconciliation, session boundary rules, signed observations, and owner-approved reset workflow are all missing. **Do not merge into an execution gate until these are implemented and tested.**
+
+## Stored-state integrity checks
+
+On both `load` and `observe`, the decoded UTC policy day must match the
+requested account/day record key. A revision-zero record must have a zero
+sequence, timestamp, and all-zero P&L/reserved/peak amounts. A revised record
+must have a nonzero timestamp within its declared UTC day and a sequence no
+smaller than its revision. Any mismatch fails closed as corrupt state; neither
+the latch nor its audit trail is silently reset. Nine synthetic regression
+cases cover cross-day substitution, fabricated initial observations and
+impossible revised-state transitions.
+
+These are **consistency checks, not cryptographic authentication**: a malicious
+database writer can still forge a self-consistent record. This monitor remains
+disconnected from order execution and must not be treated as a broker-confirmed
+risk circuit breaker. Independent authenticated receipts, append-only audit
+verification and crash-recovery acceptance remain future integration work.
