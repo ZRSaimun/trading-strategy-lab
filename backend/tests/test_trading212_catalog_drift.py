@@ -118,7 +118,7 @@ def test_instrument_order_does_not_trigger_false_drift():
 @pytest.mark.parametrize("mutate", [
     lambda p: p[2].update(received_at_utc="2026-10-26T19:30:00Z"),
     lambda p: p[2].update(received_at_utc="2026-10-26T19:20:00Z"),
-    lambda p: p[2].update(received_at_utc="2026-10-26T19:40:00Z"),
+    lambda p: p[2].update(received_at_utc="2026-10-26T19:29:00Z"),
     lambda p: p[2].update(environment="LIVE"),
     lambda p: p[3].update(account_type_declared="STOCKS_ISA"),
     lambda p: p[0].update(market_data_feed=True),
