@@ -7,7 +7,7 @@
  */
 import type {Bar} from './research.ts';
 
-export const HOURLY_FVG_VERSION='hourly-fvg-first-midpoint-touch-v21';
+export const HOURLY_FVG_VERSION='hourly-fvg-first-midpoint-touch-v22';
 export type Evidence='PASS'|'FAIL'|'INSUFFICIENT_DATA';
 export type Side='BULLISH'|'BEARISH';
 export type FvgSource={
@@ -33,6 +33,12 @@ export type FvgObservation={
  // Earliest closed hourly bar at which this disposition is observable.
  // Null means the waiting window is incomplete, not a known negative.
  firstTouchOutcomeObservedAt:number|null;
+ // Known strict eligibility is observed only at the touch-bar close or the
+ // completed no-touch deadline, not at formation.
+ strictCandidateObservedAt:number|null;
+ // A hypothetical markout is observed at the exit-bar close, not entry.
+ // Known no-entry failure is observed at the completed no-touch deadline.
+ markoutOutcomeObservedAt:number|null;
  firstTouchOutcome:FirstTouchOutcome;rejectionWickFraction:number|null;
  gates:{midpointTouch:Evidence;wickRejection:Evidence;verifiedVolume:Evidence;
   strictCandidate:Evidence;markout:Evidence};
@@ -278,6 +284,7 @@ export function studyHourlyFvgMidpoint(
   let touch:number|null=null;
   let wickFraction:number|null=null;
   let blind:Markout|null=null,confirmed:Markout|null=null;
+  let markoutExitObservedAt:number|null=null;
   let windowComplete=true;
   let openingGapThrough=false;
   let outcomeObservedAt:number|null=null;
@@ -346,6 +353,7 @@ export function studyHourlyFvgMidpoint(
      blind=blindCandidate;
      confirmed=confirmedCandidate;
      gates.markout='PASS';
+     markoutExitObservedAt=exitAt;
     }
    }
    break; // FIRST midpoint touch only
@@ -365,6 +373,9 @@ export function studyHourlyFvgMidpoint(
   observations.push({direction,formationClosedAt:third.time+HOUR,
    gapLow,gapHigh,midpoint,firstTouchClosedAt:touch===null?null:bars[touch].time+HOUR,
    firstTouchOutcomeObservedAt:outcomeObservedAt,
+   strictCandidateObservedAt:gates.strictCandidate==='INSUFFICIENT_DATA'?null:outcomeObservedAt,
+   markoutOutcomeObservedAt:gates.markout==='PASS'?markoutExitObservedAt:
+    gates.markout==='FAIL'?outcomeObservedAt:null,
    firstTouchOutcome:openingGapThrough?'OPEN_GAP_THROUGH':
     touch!==null?'TOUCH':windowComplete?'NO_TOUCH':'INCOMPLETE_WINDOW',
    rejectionWickFraction:wickFraction,gates,
