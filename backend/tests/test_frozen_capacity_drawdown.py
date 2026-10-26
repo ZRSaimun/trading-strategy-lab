@@ -1,11 +1,14 @@
 """Synthetic-only pseudo-settlement drawdown regression tests."""
 from copy import deepcopy
 from decimal import Decimal
+from itertools import product
 
 import pytest
 
 from app.frozen_bracket_population import fingerprint_population_manifest
-from app.frozen_capacity_drawdown import _maximum_drawdown, audit_frozen_capacity_drawdown
+from app.frozen_capacity_drawdown import (_maximum_drawdown,
+                                          _maximum_drawdown_with_window,
+                                          audit_frozen_capacity_drawdown)
 from test_frozen_capacity_week_fragility import CUTOFF, sample, move
 
 
@@ -20,6 +23,44 @@ def test_exact_drawdown_includes_initial_zero_peak():
     assert _maximum_drawdown([Decimal("-1"), Decimal("-2"), Decimal("3")]) == 3
     assert _maximum_drawdown([Decimal("2"), Decimal("-3"), Decimal("-1")]) == 4
     assert _maximum_drawdown([Decimal("1"), Decimal("2")]) == 0
+
+
+
+def test_drawdown_window_uses_earliest_peak_and_trough_ties():
+    assert _maximum_drawdown_with_window([Decimal("2"), Decimal("-1"),
+                                          Decimal("1"), Decimal("-1")]) == (Decimal("1"), 1, 2)
+    assert _maximum_drawdown_with_window([Decimal("-2"), Decimal("3"),
+                                          Decimal("-2")]) == (Decimal("2"), 0, 1)
+    assert _maximum_drawdown_with_window([Decimal("1"), Decimal("2")]) == (Decimal(0), 0, 0)
+    assert _maximum_drawdown_with_window([]) == (Decimal(0), 0, 0)
+
+
+def test_exhaustive_drawdown_windows_match_independent_quadratic_oracle():
+    # 3,125 complete five-event histories, including flat/negative/equal peaks.
+    for sequence in product((-2, -1, 0, 1, 2), repeat=5):
+        increments = [Decimal(x) for x in sequence]
+        equity = [Decimal(0)]
+        for increment in increments:
+            equity.append(equity[-1] + increment)
+        expected = (Decimal(0), 0, 0)
+        for trough in range(1, len(equity)):
+            for peak in range(trough):
+                loss = equity[peak] - equity[trough]
+                if loss > expected[0]:
+                    expected = (loss, peak, trough)
+        assert _maximum_drawdown_with_window(increments) == expected
+        assert _maximum_drawdown(increments) == expected[0]
+
+
+def test_holdout_drawdown_window_counts_booked_events_not_broker_fills():
+    manifest, paths = sample()
+    report = run(manifest, paths)
+    scenario = report["cost_scenarios"][0]
+    assert scenario["holdout_pseudo_settlement_maximum_max_drawdown_peak_event"] == 0
+    assert scenario["holdout_pseudo_settlement_maximum_max_drawdown_trough_event"] == 36
+    assert scenario["training_pseudo_settlement_maximum_max_drawdown_peak_event"] == 0
+    assert scenario["training_pseudo_settlement_maximum_max_drawdown_trough_event"] == 0
+
 
 
 def test_complete_frozen_cohorts_and_losses():
