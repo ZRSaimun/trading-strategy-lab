@@ -115,6 +115,30 @@ def review_paper_market_session(source, session, quote, *, now_ms,
         ctx.prec = 80
         spread = (q['ask'] - q['bid']) / q['bid'] * Decimal('10000')
     checks['spread_within_cap'] = checks['uncrossed_quote'] and spread <= spread_cap
+    # Replay checkpoints are not trustworthy merely because their sequence
+    # numbers are adjacent. Validate their original timing and price envelope
+    # before comparing them with the current declared observations.
+    checks['previous_session_time_order'] = bool(
+        ps is not None and ps['observed_ms'] <= ps['received_ms'] <= now_ms)
+    checks['previous_quote_time_order'] = bool(
+        pq is not None and pq['observed_ms'] <= pq['received_ms'] <= now_ms)
+    checks['previous_session_transport_ok'] = bool(
+        ps is not None and checks['previous_session_time_order']
+        and ps['received_ms'] - ps['observed_ms'] <= max_transport_lag_ms)
+    checks['previous_quote_transport_ok'] = bool(
+        pq is not None and checks['previous_quote_time_order']
+        and pq['received_ms'] - pq['observed_ms'] <= max_transport_lag_ms)
+    checks['previous_quote_after_session_event'] = bool(
+        ps is not None and pq is not None
+        and pq['observed_ms'] >= ps['observed_ms'])
+    checks['previous_quote_uncrossed'] = bool(
+        pq is not None and pq['ask'] > pq['bid'])
+    with localcontext() as ctx:
+        ctx.prec = 80
+        previous_spread = ((pq['ask'] - pq['bid']) / pq['bid'] * Decimal('10000')
+                           if pq is not None else None)
+    checks['previous_spread_within_cap'] = bool(
+        checks['previous_quote_uncrossed'] and previous_spread <= spread_cap)
     checks['complete_prior_checkpoint'] = ps is not None and pq is not None
     checks['session_sequence_contiguous'] = bool(ps is not None and s['sequence'] == ps['sequence'] + 1)
     checks['quote_sequence_contiguous'] = bool(pq is not None and q['sequence'] == pq['sequence'] + 1)
