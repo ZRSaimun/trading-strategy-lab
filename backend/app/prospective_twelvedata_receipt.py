@@ -109,6 +109,7 @@ async def review_twelvedata_completed_m1(
         if (type(wire) is not dict or set(wire) != {
             "decoded_http_body_sha256", "decoded_http_body_bytes",
             "normalized_snapshot_sha256", "http_status",
+            "provider_credit_header_observation",
         } or type(wire["decoded_http_body_bytes"]) is not int
                 or not 0 < wire["decoded_http_body_bytes"] <= 3_000_000
                 or type(wire["http_status"]) is not int or wire["http_status"] != 200
@@ -117,6 +118,25 @@ async def review_twelvedata_completed_m1(
                        for k in ("decoded_http_body_sha256", "normalized_snapshot_sha256"))
                 or wire["normalized_snapshot_sha256"] != hashlib.sha256(snapshot).hexdigest()):
             raise ValueError("Invalid provider wire evidence")
+        credit_headers = wire["provider_credit_header_observation"]
+        if (type(credit_headers) is not dict or set(credit_headers) != {
+            "status", "api_credits_used", "api_credits_left",
+            "quota_window_verified", "account_usage_reconciled",
+        } or credit_headers["status"] not in (
+            "OBSERVED_UNVERIFIED", "MISSING_REVIEW_REQUIRED",
+        ) or credit_headers["quota_window_verified"] is not False
+                or credit_headers["account_usage_reconciled"] is not False):
+            raise ValueError("Invalid provider credit header observation")
+        used = credit_headers["api_credits_used"]
+        left = credit_headers["api_credits_left"]
+        if credit_headers["status"] == "MISSING_REVIEW_REQUIRED":
+            if used is not None or left is not None:
+                raise ValueError("Invalid missing provider credit header pair")
+        elif (type(used) is not int or type(left) is not int
+                or not 1 <= used <= 1_000_000_000
+                or not 0 <= left <= 1_000_000_000
+                or used + left > 1_000_000_000):
+            raise ValueError("Invalid provider credit counters")
         # No price-side inference: Twelve Data's normalized OHLC do not prove
         # an executable BID, ASK or spread, even over authenticated HTTPS.
         receipts = [{
@@ -130,6 +150,8 @@ async def review_twelvedata_completed_m1(
         if server_manifest.expected_minutes != manifest.expected_minutes:
             raise ValueError("Expected-bar population changed")
         report = audit_m1_receipts_against_manifest(receipts, server_manifest)
+        if credit_headers["status"] == "MISSING_REVIEW_REQUIRED":
+            report["status"] = "REVIEW_REQUIRED"
     except (ProviderError, ValueError, TypeError, OverflowError, OSError, KeyError):
         raise ProspectiveReceiptError("Provider receipt rejected; no data accepted") from None
 
@@ -148,6 +170,11 @@ async def review_twelvedata_completed_m1(
         "decoded_http_body_bytes": wire["decoded_http_body_bytes"],
         "http_body_hash_semantics": "httpx-decoded-response-body-not-TLS-wire",
         "provider_http_status": wire["http_status"],
+        "provider_credit_header_status": credit_headers["status"],
+        "provider_api_credits_used": used,
+        "provider_api_credits_left": left,
+        "provider_credit_quota_window_verified": False,
+        "provider_account_credit_usage_reconciled": False,
         "source_authenticated": False,
         "owner_call_approval_scope": "explicit-per-call-assertion-plus-durable-budget",
         "credit_budget_reservation_id": budget["reservation_id"],
