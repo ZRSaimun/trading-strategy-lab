@@ -14,6 +14,8 @@ from sqlalchemy.exc import IntegrityError
 from .db import Record, Audit, Session
 
 MAX_CHECKPOINT_BYTES = 8_000_000
+# The stored envelope adds identity, revision and checksum metadata to the JSON.
+MAX_ENVELOPE_BYTES = MAX_CHECKPOINT_BYTES + 4_096
 MAX_ACTIONS = 50_000
 MAX_REVISION = 2**53 - 1
 _ID = re.compile(r"[A-Za-z0-9_-]{1,64}\Z")
@@ -70,12 +72,14 @@ def _checkpoint(raw, identity):
         value = _strict_json(raw)
     except (ValueError, TypeError, RecursionError) as exc:
         raise ValueError("Invalid paper checkpoint JSON") from exc
-    if not isinstance(value, dict) or set(value) != _CHECKPOINT_KEYS or value["version"] != 1:
+    if (not isinstance(value, dict) or set(value) != _CHECKPOINT_KEYS
+            or type(value["version"]) is not int or value["version"] != 1):
         raise ValueError("Invalid paper checkpoint schema")
     _identity(value["identity"])
     if value["identity"] != identity:
         raise ValueError("Paper checkpoint source identity mismatch")
-    if any(not isinstance(value[k], list) for k in ("actions", "orders", "events")) or len(value["actions"]) > MAX_ACTIONS:
+    if any(not isinstance(value[k], list) or len(value[k]) > MAX_ACTIONS
+           for k in ("actions", "orders", "events")):
         raise ValueError("Invalid paper checkpoint collections")
     # The TypeScript PaperReplayJournal.restore() must independently replay and
     # validate every action; this store deliberately does not certify paper fills.
@@ -105,6 +109,10 @@ class PaperJournalStore:
     @staticmethod
     def _decode(value):
         try:
+            # Never parse an unbounded database value: a damaged or hostile
+            # record must fail closed before JSON allocation and replay.
+            if not isinstance(value, str) or len(value.encode("utf-8")) > MAX_ENVELOPE_BYTES:
+                raise ValueError("Oversized paper journal envelope")
             doc = _strict_json(value)
             if not isinstance(doc, dict) or set(doc) != {"revision", "identity", "json", "sha256"}:
                 raise ValueError()
