@@ -104,20 +104,28 @@ def research(bars, *, lookback=16, horizon=16, embargo=16):
     """Frozen sweep/reclaim + next-bar displacement; next-open entry.
 
     Chronological 70/30 exploratory split, no hyperparameter search. Stops win
-    same-bar stop/target collisions. Missing observations censor outcomes.
+    same-bar stop/target collisions. Missing observations censor entered
+    outcomes; confirmed signals without a verifiable entry are counted apart.
     """
     if not (lookback >= 2 and horizon >= 1 and embargo >= horizon):
         raise ValueError("Invalid frozen research protocol")
     split = len(bars) * 7 // 10
     cohorts = {"development": [], "exploratory_later": []}
     censored = {"development": 0, "exploratory_later": 0}
+    # A confirmed signal must not vanish from the sample simply because its
+    # *future* entry bar is missing, crosses a source gap, or enters embargo.
+    # These have no observable fill and must not be counted as entered trades.
+    entry_unobservable = {"development": 0, "exploratory_later": 0}
     next_free = 0
-    for i in range(lookback, len(bars) - 2):
+    for i in range(lookback, len(bars) - 1):
         cohort = ("development" if i < split - embargo else
                   "exploratory_later" if i >= split + embargo else None)
         if cohort is None or i < next_free:
             continue
-        window = bars[i-lookback:i+3]
+        # Only lookback, sweep and completed confirmation may establish the
+        # signal. Validating the *future entry bar* here silently dropped
+        # confirmed signals whenever entry data was missing (selection bias).
+        window = bars[i-lookback:i+2]
         if any(x.segment != window[0].segment for x in window):
             continue
         if any(b.time-a.time != BAR_STEP for a, b in zip(window, window[1:])):
@@ -138,6 +146,15 @@ def research(bars, *, lookback=16, horizon=16, embargo=16):
         if is_short and confirmation.c >= sweep.l:
             continue
         entry_index = i + 2
+        if (entry_index >= len(bars) or
+                bars[entry_index].segment != confirmation.segment or
+                bars[entry_index].time - confirmation.time != BAR_STEP or
+                (cohort == "development" and entry_index >= split - embargo) or
+                (cohort == "exploratory_later" and entry_index < split + embargo)):
+            entry_unobservable[cohort] += 1
+            # No entry observation means no demonstrated position exposure.
+            # Do not manufacture a fill, return or position reservation.
+            continue
         entry = bars[entry_index].o
         stop = sweep.l if is_long else sweep.h
         risk = entry - stop if is_long else stop - entry
@@ -209,6 +226,7 @@ def research(bars, *, lookback=16, horizon=16, embargo=16):
                                   strictly_positive=sum(v > 0 for v in net)))
             reports[name] = dict(
                 censored_due_to_gaps_or_boundaries=censored[name],
+                confirmed_signals_without_observable_entry=entry_unobservable[name],
                 uncensored_mean_gross_r=(str(mean_gross_r) if trades else None),
                 mean_r_cost_per_additional_bps=(str(cost_slope) if trades else None),
                 positive_mean_break_even_additional_bps=(
