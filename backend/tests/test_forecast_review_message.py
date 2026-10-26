@@ -111,3 +111,32 @@ def test_untrusted_evidence_rejected():
     s["evidence"] = "AUTHENTICATED_LIVE"
     with pytest.raises(ValueError):
         render(s, v)
+
+
+@pytest.mark.parametrize("probability,expected", [
+    (1e-12, "<0.01%"),
+    (0.000099, "<0.01%"),
+    (0.0001, "0.01%"),
+    (0.9999, "99.99%"),
+    (0.999901, ">99.99%"),
+    (1 - 1e-12, ">99.99%"),
+])
+def test_extreme_nonzero_probabilities_never_render_as_zero_or_certain(probability, expected):
+    s, v = fixture()
+    s["forecasts"][0]["probability"] = probability
+    s["events"][0]["probability"] = probability
+    msg = render(s, v)
+    assert f"P(up vs base close): {expected} (UNCALIBRATED)" in msg
+    assert "0.00%" not in msg
+    assert "100.00%" not in msg
+
+
+def test_expiry_must_not_outlive_target_completed_candle():
+    s, v = fixture()
+    # The outbox queue clamps expiry to targetStart + candle seconds.
+    # A forged/stale view must not advertise validity beyond that boundary.
+    v["expiresAt"] = 301
+    with pytest.raises(ValueError, match="chronology"):
+        render(s, v)
+    v["expiresAt"] = 300
+    assert "NOT LIVE" in render(s, v)
