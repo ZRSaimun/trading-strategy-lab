@@ -188,6 +188,7 @@ def audit_frozen_capacity_drawdown(
     slots = upstream["policy"]["effective_full_horizon_slots"]
     active = []
     admitted = ([], [])
+    unadmitted = ([], [])
     rejected = [0, 0]
     peak_slots = 0
     for row in sorted(manifest["eligible_signals"],
@@ -198,6 +199,7 @@ def audit_frozen_capacity_drawdown(
         cohort = int(row["signal_at"] >= cutoff_utc_minute)
         if len(active) >= slots:
             rejected[cohort] += 1
+            unadmitted[cohort].append((entry + horizon, row["signal_at"], row["path_id"]))
         else:
             end = entry + horizon
             heapq.heappush(active, (end, row["path_id"]))
@@ -211,6 +213,33 @@ def audit_frozen_capacity_drawdown(
         raise ValueError("Independent admission census disagrees")
     if len(upstream["cost_scenarios"]) != len(_COSTS):
         raise ValueError("Incomplete upstream cost population")
+    admitted_ids = {row[2] for cohort in admitted for row in cohort}
+    unadmitted_ids = {row[2] for cohort in unadmitted for row in cohort}
+    if (admitted_ids & unadmitted_ids or admitted_ids | unadmitted_ids != set(by_id)
+            or any(len(unadmitted[i]) != rejected[i] for i in (0, 1))):
+        raise ValueError("Incomplete or overlapping capacity population partition")
+
+    def _bounds_for_population(population, cost_index, expected_bps):
+        """Read every frozen path, including capacity-rejected outcomes, without filtering."""
+        lower_values, upper_values = [], []
+        for _, _, path_id in sorted(population):
+            path = by_id[path_id]
+            if path["status"] not in ("DETERMINATE", "AMBIGUOUS"):
+                raise ValueError("Unresolved frozen path")
+            costs = path.get("cost_scenarios")
+            if not isinstance(costs, list) or len(costs) != len(_COSTS):
+                raise ValueError("Incomplete per-path cost population")
+            cost = costs[cost_index]
+            if (type(cost.get("additional_round_trip_bps")) is not int
+                    or cost["additional_round_trip_bps"] != expected_bps):
+                raise ValueError("Changed per-path cost identity")
+            lower = _decimal(cost.get("lower_net_r"))
+            upper = _decimal(cost.get("upper_net_r"))
+            if lower > upper:
+                raise ValueError("Inverted return interval")
+            lower_values.append(lower)
+            upper_values.append(upper)
+        return lower_values, upper_values
 
     with localcontext() as ctx:
         ctx.prec = 80
@@ -221,23 +250,7 @@ def audit_frozen_capacity_drawdown(
                 raise ValueError("Changed upstream cost identity")
             report = dict(additional_round_trip_bps=bps)
             for cohort, label in enumerate(("training", "holdout")):
-                lo, hi = [], []
-                for _, _, path_id in sorted(admitted[cohort]):
-                    path = by_id[path_id]
-                    if path["status"] not in ("DETERMINATE", "AMBIGUOUS"):
-                        raise ValueError("Unresolved admitted path")
-                    costs = path.get("cost_scenarios")
-                    if not isinstance(costs, list) or len(costs) != len(_COSTS):
-                        raise ValueError("Incomplete per-path cost population")
-                    cost = costs[index]
-                    if type(cost.get("additional_round_trip_bps")) is not int or cost["additional_round_trip_bps"] != bps:
-                        raise ValueError("Changed per-path cost identity")
-                    lower = _decimal(cost.get("lower_net_r"))
-                    upper = _decimal(cost.get("upper_net_r"))
-                    if lower > upper:
-                        raise ValueError("Inverted return interval")
-                    lo.append(lower)
-                    hi.append(upper)
+                lo, hi = _bounds_for_population(admitted[cohort], index, bps)
                 if (sum(lo) / len(lo) != _decimal(original[f"{label}_admitted_mean_lower_net_r"])
                         or sum(hi) / len(hi) != _decimal(original[f"{label}_admitted_mean_upper_net_r"])):
                     raise ValueError("Capacity return bounds disagree")
@@ -308,6 +321,15 @@ def audit_frozen_capacity_drawdown(
                 report[f"{label}_pseudo_settlement_maximum_longest_strict_negative_path_streak"] = max_streak
                 report[f"{label}_pseudo_settlement_strict_sign_census"] = (
                     _strict_sign_count_envelope(lo, hi))
+                # Capacity-rejected signals remain in the frozen opportunity set.
+                # Their sign census is descriptive and NEVER changes admissions.
+                skipped_lo, skipped_hi = _bounds_for_population(
+                    unadmitted[cohort], index, bps)
+                skipped_signs = _strict_sign_count_envelope(skipped_lo, skipped_hi)
+                skipped_signs["unadmitted_paths"] = skipped_signs.pop("admitted_paths")
+                if skipped_signs["unadmitted_paths"] != counts[f"{label}_unadmitted"]:
+                    raise ValueError("Capacity-rejected outcome census disagrees")
+                report[f"{label}_pseudo_settlement_unadmitted_strict_sign_census"] = skipped_signs
                 report[f"{label}_pseudo_settlement_final_lower_pct_initial"] = str(sum(lo) * factor)
                 report[f"{label}_pseudo_settlement_final_upper_pct_initial"] = str(sum(hi) * factor)
             # Increasing *additional* round-trip costs cannot create strict
@@ -316,14 +338,16 @@ def audit_frozen_capacity_drawdown(
             if reports:
                 previous = reports[-1]
                 for label in ("training", "holdout"):
-                    old = previous[f"{label}_pseudo_settlement_strict_sign_census"]
-                    new = report[f"{label}_pseudo_settlement_strict_sign_census"]
-                    for key in ("guaranteed_strict_positive", "possible_strict_positive"):
-                        if new[key] > old[key]:
-                            raise ValueError("Nonmonotone pseudo-winner cost census")
-                    for key in ("guaranteed_strict_negative", "possible_strict_negative"):
-                        if new[key] < old[key]:
-                            raise ValueError("Nonmonotone pseudo-loser cost census")
+                    for population in ("strict_sign_census", "unadmitted_strict_sign_census"):
+                        key_prefix = f"{label}_pseudo_settlement_{population}"
+                        old = previous[key_prefix]
+                        new = report[key_prefix]
+                        for key in ("guaranteed_strict_positive", "possible_strict_positive"):
+                            if new[key] > old[key]:
+                                raise ValueError("Nonmonotone pseudo-winner cost census")
+                        for key in ("guaranteed_strict_negative", "possible_strict_negative"):
+                            if new[key] < old[key]:
+                                raise ValueError("Nonmonotone pseudo-loser cost census")
             reports.append(report)
 
     return dict(
