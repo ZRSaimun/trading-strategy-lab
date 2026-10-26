@@ -383,6 +383,39 @@ def _chronological_quartile_net_r_envelope(lower, upper):
     )
 
 
+
+def _worst_single_deletion_mean_envelope(lower, upper):
+    """Retrospective fragility of a fixed cohort to removing exactly one path.
+
+    Each deletion is a diagnostic, NOT an alternate admission or a trading
+    decision. For interval-valued returns the minimum over deletions is
+    coordinatewise monotone, so evaluating all-lower/all-upper endpoints
+    gives the exact pessimistic/optimistic bounds. Ties select the earliest
+    1-based artificial booking event, never an actual fill timestamp.
+    """
+    if (len(lower) != len(upper) or len(lower) < 2
+            or any(a > b for a, b in zip(lower, upper))):
+        raise ValueError("Invalid single-deletion return intervals")
+    count = len(lower)
+    denominator = Decimal(count - 1)
+    lower_total = sum(lower, Decimal(0))
+    upper_total = sum(upper, Decimal(0))
+    lower_means = [(lower_total - value) / denominator for value in lower]
+    upper_means = [(upper_total - value) / denominator for value in upper]
+    worst_lower, worst_upper = min(lower_means), min(upper_means)
+    if worst_lower > worst_upper:
+        raise ValueError("Inverted single-deletion return envelope")
+    return dict(
+        booked_paths=count,
+        minimum_worst_deletion_mean_net_r=str(worst_lower),
+        maximum_worst_deletion_mean_net_r=str(worst_upper),
+        minimum_worst_deletion_removed_booking_event=lower_means.index(worst_lower) + 1,
+        maximum_worst_deletion_removed_booking_event=upper_means.index(worst_upper) + 1,
+        guaranteed_strict_positive_after_any_one_deletion=worst_lower > 0,
+        possible_strict_positive_after_any_one_deletion=worst_upper > 0,
+    )
+
+
 def _withheld(upstream, reason):
     return dict(
         protocol="frozen-m1-capacity-drawdown-v1",
@@ -620,6 +653,8 @@ def audit_frozen_capacity_drawdown(
                     _worst_quartile_mean_envelope(lo, hi))
                 report[f"{label}_pseudo_settlement_chronological_quartiles"] = (
                     _chronological_quartile_net_r_envelope(lo, hi))
+                report[f"{label}_pseudo_settlement_worst_single_deletion_mean"] = (
+                    _worst_single_deletion_mean_envelope(lo, hi))
                 # Capacity-rejected signals remain in the frozen opportunity set.
                 # Their sign census is descriptive and NEVER changes admissions.
                 skipped_lo, skipped_hi = _bounds_for_population(
@@ -648,6 +683,18 @@ def audit_frozen_capacity_drawdown(
                         if (_decimal(report[tail_key][bound])
                                 > _decimal(previous[tail_key][bound])):
                             raise ValueError("Nonmonotone downside tail cost envelope")
+                    deletion_key = f"{label}_pseudo_settlement_worst_single_deletion_mean"
+                    new_deletion, old_deletion = report[deletion_key], previous[deletion_key]
+                    if new_deletion["booked_paths"] != old_deletion["booked_paths"]:
+                        raise ValueError("Changed single-deletion cohort size")
+                    for bound in ("minimum_worst_deletion_mean_net_r",
+                                  "maximum_worst_deletion_mean_net_r"):
+                        if _decimal(new_deletion[bound]) > _decimal(old_deletion[bound]):
+                            raise ValueError("Nonmonotone single-deletion cost envelope")
+                    for flag in ("guaranteed_strict_positive_after_any_one_deletion",
+                                 "possible_strict_positive_after_any_one_deletion"):
+                        if new_deletion[flag] and not old_deletion[flag]:
+                            raise ValueError("Nonmonotone single-deletion positivity")
                     quartile_key = f"{label}_pseudo_settlement_chronological_quartiles"
                     current_quartiles = report[quartile_key]
                     prior_quartiles = previous[quartile_key]
