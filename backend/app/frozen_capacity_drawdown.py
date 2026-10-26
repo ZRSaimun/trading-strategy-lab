@@ -115,6 +115,26 @@ def _longest_strict_negative_streak(increments):
     return longest
 
 
+def _strict_sign_count_envelope(lower, upper):
+    """Exact bounds on sign counts for independent pseudo-net-R intervals.
+
+    Counts are not probabilities or observed executable win rates. An interval
+    spanning zero can contribute to both *possible* positive and negative
+    counts; zero is neither a strict win nor a strict loss.
+    """
+    if len(lower) != len(upper) or any(a > b for a, b in zip(lower, upper)):
+        raise ValueError("Inconsistent pseudo-return sign intervals")
+    return dict(
+        admitted_paths=len(lower),
+        guaranteed_strict_positive=sum(a > 0 for a in lower),
+        possible_strict_positive=sum(b > 0 for b in upper),
+        guaranteed_strict_negative=sum(b < 0 for b in upper),
+        possible_strict_negative=sum(a < 0 for a in lower),
+        guaranteed_exact_zero=sum(a == b == 0 for a, b in zip(lower, upper)),
+        possible_exact_zero=sum(a <= 0 <= b for a, b in zip(lower, upper)),
+    )
+
+
 def _withheld(upstream, reason):
     return dict(
         protocol="frozen-m1-capacity-drawdown-v1",
@@ -286,8 +306,24 @@ def audit_frozen_capacity_drawdown(
                     raise ValueError("Inconsistent negative streak envelope")
                 report[f"{label}_pseudo_settlement_minimum_longest_strict_negative_path_streak"] = min_streak
                 report[f"{label}_pseudo_settlement_maximum_longest_strict_negative_path_streak"] = max_streak
+                report[f"{label}_pseudo_settlement_strict_sign_census"] = (
+                    _strict_sign_count_envelope(lo, hi))
                 report[f"{label}_pseudo_settlement_final_lower_pct_initial"] = str(sum(lo) * factor)
                 report[f"{label}_pseudo_settlement_final_upper_pct_initial"] = str(sum(hi) * factor)
+            # Increasing *additional* round-trip costs cannot create strict
+            # pseudo-winners or eliminate strict pseudo-losers. Fail closed
+            # if an upstream per-path cost scenario violates this ordering.
+            if reports:
+                previous = reports[-1]
+                for label in ("training", "holdout"):
+                    old = previous[f"{label}_pseudo_settlement_strict_sign_census"]
+                    new = report[f"{label}_pseudo_settlement_strict_sign_census"]
+                    for key in ("guaranteed_strict_positive", "possible_strict_positive"):
+                        if new[key] > old[key]:
+                            raise ValueError("Nonmonotone pseudo-winner cost census")
+                    for key in ("guaranteed_strict_negative", "possible_strict_negative"):
+                        if new[key] < old[key]:
+                            raise ValueError("Nonmonotone pseudo-loser cost census")
             reports.append(report)
 
     return dict(
