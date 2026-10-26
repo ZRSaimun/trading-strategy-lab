@@ -187,7 +187,7 @@ class PairedM1PreflightTests(unittest.TestCase):
                                 '1.19990' if side == 'bid' else '1.20002',
                                 '1e-400')
                         else:
-                            row = row.replace(',0\\n', ',1e-400\\n')
+                            row = row.replace(',0\n', ',1e-400\n')
                         bid = row if side == 'bid' else BID
                         ask = row if side == 'ask' else ASK
                         with self.assertRaisesRegex(ValueError, 'underflows to zero'):
