@@ -136,6 +136,32 @@ def _strict_sign_count_envelope(lower, upper):
 
 
 
+def _validated_cost_trajectory(costs):
+    """Fail closed on any path that improves when *additional* cost increases.
+
+    This is a per-path invariant, not merely a monotone cohort average: a
+    corrupted improving path must not be hidden by worse outcomes elsewhere.
+    It authenticates neither spreads nor the assumed cost schedule.
+    """
+    if not isinstance(costs, list) or len(costs) != len(_COSTS):
+        raise ValueError("Incomplete per-path cost trajectory")
+    bounds = []
+    for index, bps in enumerate(_COSTS):
+        scenario = costs[index]
+        if (not isinstance(scenario, dict)
+                or type(scenario.get("additional_round_trip_bps")) is not int
+                or scenario["additional_round_trip_bps"] != bps):
+            raise ValueError("Changed per-path cost trajectory identity")
+        lower = _decimal(scenario.get("lower_net_r"))
+        upper = _decimal(scenario.get("upper_net_r"))
+        if lower > upper:
+            raise ValueError("Inverted per-path cost trajectory interval")
+        if bounds and (lower > bounds[-1][0] or upper > bounds[-1][1]):
+            raise ValueError("Nonmonotone individual path cost trajectory")
+        bounds.append((lower, upper))
+    return tuple(bounds)
+
+
 def _worst_quartile_mean_envelope(lower, upper):
     """Exact bottom-quarter mean bounds for independently bounded net-R paths.
 
@@ -209,6 +235,14 @@ def audit_frozen_capacity_drawdown(
             r["path_id"] for r in manifest["eligible_signals"]}:
         raise ValueError("Changed frozen path population")
 
+    # Validate every eligible path (including capacity-rejected opportunities)
+    # before reporting any cohort. Aggregate cost monotonicity alone could hide
+    # one path whose optimistic/pessimistic return *improves* at higher costs.
+    cost_trajectories = {
+        path_id: _validated_cost_trajectory(path.get("cost_scenarios"))
+        for path_id, path in by_id.items()
+    }
+
     # Reconstruct FIFO capacity without inspecting prices, returns or exits.
     horizon = manifest["source"]["horizon_minutes"] * 60
     slots = upstream["policy"]["effective_full_horizon_slots"]
@@ -252,17 +286,9 @@ def audit_frozen_capacity_drawdown(
             path = by_id[path_id]
             if path["status"] not in ("DETERMINATE", "AMBIGUOUS"):
                 raise ValueError("Unresolved frozen path")
-            costs = path.get("cost_scenarios")
-            if not isinstance(costs, list) or len(costs) != len(_COSTS):
-                raise ValueError("Incomplete per-path cost population")
-            cost = costs[cost_index]
-            if (type(cost.get("additional_round_trip_bps")) is not int
-                    or cost["additional_round_trip_bps"] != expected_bps):
+            if _COSTS[cost_index] != expected_bps:
                 raise ValueError("Changed per-path cost identity")
-            lower = _decimal(cost.get("lower_net_r"))
-            upper = _decimal(cost.get("upper_net_r"))
-            if lower > upper:
-                raise ValueError("Inverted return interval")
+            lower, upper = cost_trajectories[path_id][cost_index]
             lower_values.append(lower)
             upper_values.append(upper)
         return lower_values, upper_values
