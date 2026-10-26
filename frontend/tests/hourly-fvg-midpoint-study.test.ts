@@ -473,7 +473,8 @@ test('bearish opening gap entirely above midpoint blocks a later return',()=>{
  assert.equal(x.confirmedNextOpen,null);
 });
 test('sparse and changing cost arrays cannot pass validation then rewrite net markouts',()=>{
- const sparse:number[]=[0,,15];
+ const sparse=new Array<number>(3);
+ sparse[0]=0;sparse[2]=15;
  assert.throws(()=>studyHourlyFvgMidpoint(fixture(),source,{
   hypotheticalRoundTripCostsBps:sparse,
  }),/Invalid source/,'missing cost cells must not serialize as null scenarios');
