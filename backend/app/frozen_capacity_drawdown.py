@@ -135,6 +135,32 @@ def _strict_sign_count_envelope(lower, upper):
     )
 
 
+
+def _worst_quartile_mean_envelope(lower, upper):
+    """Exact bottom-quarter mean bounds for independently bounded net-R paths.
+
+    Use ceil(N/4) observations, fixed before examining any outcome. Sorting
+    outcomes here only computes a retrospective downside statistic: it never
+    selects signals, admits positions, or alters the frozen holdout. This is
+    not a probability, confidence interval, expected shortfall estimate or
+    broker loss measure.
+    """
+    if (not lower or len(lower) != len(upper)
+            or any(a > b for a, b in zip(lower, upper))):
+        raise ValueError("Invalid worst-quartile return intervals")
+    count = (len(lower) + 3) // 4
+    pessimistic = sum(sorted(lower)[:count], Decimal(0)) / count
+    optimistic = sum(sorted(upper)[:count], Decimal(0)) / count
+    if pessimistic > optimistic:
+        raise ValueError("Inverted worst-quartile return envelope")
+    return dict(
+        admitted_paths=len(lower),
+        worst_quartile_paths=count,
+        minimum_worst_quartile_mean_net_r=str(pessimistic),
+        maximum_worst_quartile_mean_net_r=str(optimistic),
+    )
+
+
 def _withheld(upstream, reason):
     return dict(
         protocol="frozen-m1-capacity-drawdown-v1",
@@ -321,6 +347,8 @@ def audit_frozen_capacity_drawdown(
                 report[f"{label}_pseudo_settlement_maximum_longest_strict_negative_path_streak"] = max_streak
                 report[f"{label}_pseudo_settlement_strict_sign_census"] = (
                     _strict_sign_count_envelope(lo, hi))
+                report[f"{label}_pseudo_settlement_worst_quartile_net_r"] = (
+                    _worst_quartile_mean_envelope(lo, hi))
                 # Capacity-rejected signals remain in the frozen opportunity set.
                 # Their sign census is descriptive and NEVER changes admissions.
                 skipped_lo, skipped_hi = _bounds_for_population(
@@ -338,6 +366,12 @@ def audit_frozen_capacity_drawdown(
             if reports:
                 previous = reports[-1]
                 for label in ("training", "holdout"):
+                    tail_key = f"{label}_pseudo_settlement_worst_quartile_net_r"
+                    for bound in ("minimum_worst_quartile_mean_net_r",
+                                  "maximum_worst_quartile_mean_net_r"):
+                        if (_decimal(report[tail_key][bound])
+                                > _decimal(previous[tail_key][bound])):
+                            raise ValueError("Nonmonotone downside tail cost envelope")
                     for population in ("strict_sign_census", "unadmitted_strict_sign_census"):
                         key_prefix = f"{label}_pseudo_settlement_{population}"
                         old = previous[key_prefix]
