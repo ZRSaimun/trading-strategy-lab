@@ -78,7 +78,7 @@ test('research report source metadata excludes arbitrary caller properties',()=>
  assert.deepEqual(Object.keys(report.source).sort(),Object.keys(source).sort());
  assert.equal(JSON.stringify(report).includes('synthetic-private-marker'),false);
  assert.equal(JSON.stringify(report).includes('synthetic-account-marker'),false);
- assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v10');
+ assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v11');
 });
 test('ambiguous source labels and contradictory volume evidence fail closed',()=>{
  // These are declared metadata, not independent vendor authentication.
@@ -252,12 +252,17 @@ test('complete no-touch horizon is a known candidate failure, while truncated ho
   assert.equal(complete.gates.strictCandidate,'FAIL',
    'observed no-touch must count as a known rejection, not missingness');
   assert.equal(complete.firstTouchClosedAt,null);
-  assert.equal(complete.gates.markout,'INSUFFICIENT_DATA');
+  assert.equal(complete.gates.markout,'FAIL',
+   'fully observed no-touch has no possible comparator entry');
   assert.equal(complete.blindMidpointTouch,null);
   assert.equal(complete.confirmedNextOpen,null);
+  const cohort=studyHourlyFvgMidpoint(series,source).cohort;
+  assert.ok(cohort.markout.FAIL>=1,'known no-touch belongs in the markout attrition census');
   const truncated=target(series.slice(0,44));
   assert.equal(truncated.gates.midpointTouch,'INSUFFICIENT_DATA');
   assert.equal(truncated.gates.strictCandidate,'INSUFFICIENT_DATA');
+  assert.equal(truncated.gates.markout,'INSUFFICIENT_DATA',
+   'right-censored waiting windows cannot be marked as known no-entry');
  }
 });
 test('missing 1H bar in pre-touch path is unknown, not a false negative or later cherry-picked touch',()=>{
@@ -407,7 +412,7 @@ test('an overflowing next-open comparator suppresses both matched markouts',()=>
 });
 test('completed hourly timestamps are safe and numeric rule changes have a new version',()=>{
  const report=studyHourlyFvgMidpoint(fixture(),source);
- assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v10');
+ assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v11');
  const lastSafeAlignedOpen=Math.floor(Number.MAX_SAFE_INTEGER/H)*H;
  assert.equal(Number.isSafeInteger(lastSafeAlignedOpen),true);
  assert.equal(Number.isSafeInteger(lastSafeAlignedOpen+H),false);

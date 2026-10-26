@@ -7,7 +7,7 @@
  */
 import type {Bar} from './research.ts';
 
-export const HOURLY_FVG_VERSION='hourly-fvg-first-midpoint-touch-v10';
+export const HOURLY_FVG_VERSION='hourly-fvg-first-midpoint-touch-v11';
 export type Evidence='PASS'|'FAIL'|'INSUFFICIENT_DATA';
 export type Side='BULLISH'|'BEARISH';
 export type FvgSource={
@@ -278,6 +278,10 @@ export function studyHourlyFvgMidpoint(
   if(touch===null&&windowComplete&&!openingGapThrough){
    gates.midpointTouch='FAIL';
    gates.strictCandidate='FAIL';
+   // All waiting bars were observed without a fill opportunity. This is a
+   // known no-entry outcome, not a missing future return. Keep gap-through
+   // and truncated windows unknown; neither establishes a limit fill.
+   gates.markout='FAIL';
   }
   observations.push({direction,formationClosedAt:third.time+HOUR,
    gapLow,gapHigh,midpoint,firstTouchClosedAt:touch===null?null:bars[touch].time+HOUR,
