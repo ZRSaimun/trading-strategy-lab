@@ -7,7 +7,7 @@
  */
 import type {Bar} from './research.ts';
 
-export const HOURLY_FVG_VERSION='hourly-fvg-first-midpoint-touch-v15';
+export const HOURLY_FVG_VERSION='hourly-fvg-first-midpoint-touch-v16';
 export type Evidence='PASS'|'FAIL'|'INSUFFICIENT_DATA';
 export type Side='BULLISH'|'BEARISH';
 export type FvgSource={
@@ -21,7 +21,10 @@ export type FvgConfig={
  hypotheticalRoundTripCostsBps?:readonly number[];
 };
 export type Markout={
- entryObservedAt:number;entryPrice:number;exitObservedAt:number;exitPrice:number;
+ // The historical BID entry price is evidenced only by its completed bar.
+ // A next-open execution time is hypothetical; an intrabar limit time is unknown.
+ entryObservedAt:number;hypotheticalEntryAt:number|null;
+ entryPrice:number;exitObservedAt:number;exitPrice:number;
  grossBps:number;netBpsByCost:readonly {costBps:number;netBps:number}[];
 };
 export type FvgObservation={
@@ -139,7 +142,7 @@ function wickMeetsFraction(bar:Bar,bull:boolean,minimum:number):boolean{
  return lhs>=rhs;
 }
 function markout(entryAt:number,entry:number,exitAt:number,exit:number,
- direction:Side,costs:readonly number[]):Markout|null{
+ direction:Side,costs:readonly number[],hypotheticalEntryAt:number|null):Markout|null{
  const sign=direction==='BULLISH'?1:-1;
  const grossBps=sign*(exit-entry)/entry*10000;
  // Finite source OHLC can still overflow a bps ratio. Infinity is not a
@@ -147,7 +150,7 @@ function markout(entryAt:number,entry:number,exitAt:number,exit:number,
  if(!Number.isFinite(grossBps))return null;
  const netBpsByCost=costs.map(costBps=>({costBps,netBps:grossBps-costBps}));
  if(netBpsByCost.some(x=>!Number.isFinite(x.netBps)))return null;
- return {entryObservedAt:entryAt,entryPrice:entry,exitObservedAt:exitAt,
+ return {entryObservedAt:entryAt,hypotheticalEntryAt,entryPrice:entry,exitObservedAt:exitAt,
   exitPrice:exit,grossBps,netBpsByCost};
 }
 // Account for the full observed formation population, not just attractive
@@ -293,9 +296,13 @@ export function studyHourlyFvgMidpoint(
     // OHLC can establish a midpoint intersection only when the touch bar
     // closes. Its open timestamp is NOT an observed intrabar fill time.
     // The hypothetical limit price remains unchanged; no fill is certified.
-    const blindCandidate=markout(b.time+HOUR,midpoint,exitAt,exit.close,direction,costs);
+    const blindCandidate=markout(b.time+HOUR,midpoint,exitAt,exit.close,direction,costs,null);
+    // The next-open BID is a hypothetical execution price, not an independently
+    // timestamped first-available quote. Completed OHLC proves that price only
+    // at the NEXT bar close; keep the proposed opening time separately.
     const confirmedCandidate=gates.wickRejection==='PASS'?
-     markout(bars[j+1].time,bars[j+1].open,exitAt,exit.close,direction,costs):null;
+     markout(bars[j+1].time+HOUR,bars[j+1].open,exitAt,exit.close,
+      direction,costs,bars[j+1].time):null;
     // Preserve the matched comparison cohort. If either required return
     // overflows, do not report the other as a selectively retained outcome.
     if(blindCandidate&&(gates.wickRejection!=='PASS'||confirmedCandidate)){

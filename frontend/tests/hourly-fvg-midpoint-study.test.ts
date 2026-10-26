@@ -208,7 +208,7 @@ test('research report source metadata excludes arbitrary caller properties',()=>
  assert.deepEqual(Object.keys(report.source).sort(),Object.keys(source).sort());
  assert.equal(JSON.stringify(report).includes('synthetic-private-marker'),false);
  assert.equal(JSON.stringify(report).includes('synthetic-account-marker'),false);
- assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v15');
+ assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v16');
 });
 test('ambiguous source labels and contradictory volume evidence fail closed',()=>{
  // These are declared metadata, not independent vendor authentication.
@@ -256,11 +256,30 @@ test('first bullish midpoint touch has a hypothetical blind limit and later next
  assert.equal(x.gates.markout,'PASS');
  assert.equal(x.blindMidpointTouch?.entryPrice,102);
  assert.equal(x.confirmedNextOpen?.entryPrice,105.5);
- assert.equal(x.confirmedNextOpen?.entryObservedAt,BASE+34*H);
+ assert.equal(x.confirmedNextOpen?.entryObservedAt,BASE+35*H);
+ assert.equal(x.confirmedNextOpen?.hypotheticalEntryAt,BASE+34*H);
  assert.equal(x.blindMidpointTouch?.exitObservedAt,BASE+37*H);
  assert.equal(x.confirmedNextOpen?.exitObservedAt,BASE+37*H);
  assert.ok((x.blindMidpointTouch?.grossBps??0)>(x.confirmedNextOpen?.grossBps??0));
  assert.equal(x.eligibleForLiveTrading,false);
+});
+test('hypothetical next-open entry time is not mislabelled as observed BID evidence',()=>{
+ for(const bearish of [false,true]){
+  const bars=bearish?fixture().map(b=>({...b,open:220-b.open,
+   high:220-b.low,low:220-b.high,close:220-b.close})):fixture();
+  const x=target(bars);
+  assert.equal(x.gates.wickRejection,'PASS');
+  assert.equal(x.blindMidpointTouch?.hypotheticalEntryAt,null,
+   'hourly OHLC has no observed intrabar midpoint execution timestamp');
+  assert.equal(x.blindMidpointTouch?.entryObservedAt,BASE+34*H);
+  assert.equal(x.confirmedNextOpen?.hypotheticalEntryAt,BASE+34*H,
+   'the hypothetical entry is at the following hourly opening');
+  assert.equal(x.confirmedNextOpen?.entryObservedAt,BASE+35*H,
+   'historical next-open BID is evidenced only when its full bar closes');
+  assert.equal(x.confirmedNextOpen?.entryPrice,bars[34].open);
+  assert.equal(x.confirmedNextOpen?.exitObservedAt,BASE+37*H);
+  assert.equal(x.eligibleForLiveTrading,false);
+ }
 });
 test('blind midpoint observation is timestamped at touch close, never at bar open',()=>{
  for(const bars of [fixture(),fixture().map(b=>({...b,
@@ -542,7 +561,7 @@ test('an overflowing next-open comparator suppresses both matched markouts',()=>
 });
 test('completed hourly timestamps are safe and numeric rule changes have a new version',()=>{
  const report=studyHourlyFvgMidpoint(fixture(),source);
- assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v15');
+ assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v16');
  const lastSafeAlignedOpen=Math.floor(Number.MAX_SAFE_INTEGER/H)*H;
  assert.equal(Number.isSafeInteger(lastSafeAlignedOpen),true);
  assert.equal(Number.isSafeInteger(lastSafeAlignedOpen+H),false);
