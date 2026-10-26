@@ -16,7 +16,9 @@ def receipt(**changes):
         "cfd_supported": False, "may_execute_order": False,
         "response_sha256": "a" * 64,
         "received_at_utc": "2026-10-26T21:00:00+00:00",
-        "data": [{"ticker": "PRIVATE"}],
+        "data": [{"ticker": "PRIVATE", "currencyCode": "USD", "type": "STOCK",
+                  "workingScheduleId": 1, "maxOpenQuantity": 100.0,
+                  "extendedHours": False, "name": "Private Test", "shortName": "Private"}],
         "rate_limit_observation": {
             "status": "OBSERVED_UNVERIFIED", "account_quota_verified": False,
             "safe_to_make_another_request": False,
@@ -84,7 +86,7 @@ def test_invalid_or_overstated_receipts_rejected(changes):
 
 
 def test_empty_or_missing_quota_is_review_not_verified():
-    for data, status in (([], "OBSERVED_UNVERIFIED"), ([{"ticker": "X"}], "MISSING_REVIEW_REQUIRED")):
+    for data, status in (([], "OBSERVED_UNVERIFIED"), (receipt()["data"], "MISSING_REVIEW_REQUIRED")):
         r = receipt(data=data)
         r["rate_limit_observation"]["status"] = status
         out = probe._validate_receipt(r, endpoint="instruments", account_type="INVEST")
