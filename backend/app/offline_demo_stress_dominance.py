@@ -71,8 +71,17 @@ def audit_declared_demo_stress_dominance(
     )
     originals = {quote["quote_id"]: quote for quote in quotes}
     requested = intent["requested_contracts"]
+    expected_identity = {key: scope[key] for key in
+                         ("provider", "venue", "account_alias", "instrument")}
+    if (report["source_identity"] != expected_identity
+            or report["as_of_ms"] != scope["as_of_ms"]
+            or report["requested_contracts"] != requested
+            or len(report["stresses"]) != len(stresses)):
+        raise ValueError("Stress report changed source, cutoff or scenario population")
     slip = Decimal(scope["adverse_slippage_price"])
     baseline = report["baseline"]
+    if baseline["quote_tape_sha256"] != expected_quote_tape_sha256:
+        raise ValueError("Stress report changed baseline quote fingerprint")
     _check_fill_accounting(baseline, requested, originals, intent["side"],
                            slip, scope["as_of_ms"])
     baseline_filled = baseline["hypothetical_filled_contracts"]
