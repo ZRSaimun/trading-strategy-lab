@@ -140,6 +140,16 @@ class AtomicPaperQuoteJournalStore:
                       previous_journal["revision"] != expected_journal_revision):
                     return _decision("JOURNAL_REVISION_OR_IDENTITY_MISMATCH")
 
+                if previous_quote is not None:
+                    if now_ms < previous_quote["accepted_at_ms"]:
+                        return _decision("SERVER_CLOCK_REGRESSION")
+                    if quote_hash in previous_quote["recent_quote_hashes"]:
+                        return _decision("REUSED_QUOTE_ID")
+                    if quote["sequence"] <= previous_quote["sequence"]:
+                        return _decision("NON_INCREASING_SEQUENCE")
+                    if (observed <= previous_quote["observed_at_ms"] or
+                            received <= previous_quote["received_at_ms"]):
+                        return _decision("REPLAYED_QUOTE_TIME")
                 if previous_journal is not None:
                     # Check the history loaded from this transaction, not a
                     # caller-declared predecessor. The journal full-value CAS
@@ -152,16 +162,6 @@ class AtomicPaperQuoteJournalStore:
                     if not continuity["assumption_checks_pass"]:
                         return _decision("JOURNAL_HISTORY_CONTINUITY_FAILED")
 
-                if previous_quote is not None:
-                    if now_ms < previous_quote["accepted_at_ms"]:
-                        return _decision("SERVER_CLOCK_REGRESSION")
-                    if quote_hash in previous_quote["recent_quote_hashes"]:
-                        return _decision("REUSED_QUOTE_ID")
-                    if quote["sequence"] <= previous_quote["sequence"]:
-                        return _decision("NON_INCREASING_SEQUENCE")
-                    if (observed <= previous_quote["observed_at_ms"] or
-                            received <= previous_quote["received_at_ms"]):
-                        return _decision("REPLAYED_QUOTE_TIME")
                 quote_revision = 0 if previous_quote is None else previous_quote["revision"] + 1
                 if quote_revision > _MAX_SEQ:
                     return _decision("QUOTE_REVISION_EXHAUSTED")

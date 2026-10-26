@@ -169,7 +169,8 @@ JOURNAL_IDENTITY = {
 def _checkpoint_json(sequence):
     return json.dumps({
         "version": 1, "identity": JOURNAL_IDENTITY,
-        "actions": [f"synthetic-{sequence}"], "orders": [], "events": [],
+        "actions": [f"synthetic-{i}" for i in range(1, sequence + 1)],
+        "orders": [], "events": [],
     }, separators=(",", ":"))
 
 
@@ -351,3 +352,25 @@ def test_postgres_orphaned_owner_cannot_rebind_second_journal(pg_store):
     with factory() as db:
         assert len(db.scalars(select(Audit)).all()) == 1
         assert len(db.scalars(select(Record)).all()) == 3
+
+
+def test_postgres_atomic_rejects_rewritten_history_without_partial_commit(pg_store):
+    quotes, _engine, factory = pg_store
+    atomic = AtomicPaperQuoteJournalStore(factory)
+    journal = PaperJournalStore(factory)
+    assert _atomic_checkpoint(atomic, 1)["status"] == "CHECKPOINT_RECORDED_UNVERIFIED"
+    before_quote = quotes.load_marker(SOURCE)
+    before_journal = journal.load("pg-atomic-journal")
+    proposed = json.loads(_checkpoint_json(2))
+    proposed["actions"][0] = "rewritten-history"
+    result = atomic.checkpoint(
+        SOURCE, quote(2), "pg-atomic-journal", JOURNAL_IDENTITY, 0, 1,
+        json.dumps(proposed, separators=(",", ":")), now_ms=NOW + 130,
+    )
+    assert result["status"] == "HOLD_RECONCILIATION"
+    assert result["reason"] == "JOURNAL_HISTORY_CONTINUITY_FAILED"
+    assert result["paper_order_permitted"] is result["live_order_permitted"] is False
+    assert quotes.load_marker(SOURCE) == before_quote
+    assert journal.load("pg-atomic-journal") == before_journal
+    with factory() as db:
+        assert len(db.scalars(select(Audit)).all()) == 1
