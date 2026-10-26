@@ -135,16 +135,16 @@ def test_malformed_response_object_is_uncertain(reply):
 
 
 @pytest.mark.parametrize("unsafe", [
-    "review\\u202eEDART A TON",  # bidirectional override
-    "review\\u200e",  # directional mark
-    "review\\u200d",  # zero-width joiner
-    "review\\ufeff",  # zero-width no-break space
-    "review\\ud800",  # lone surrogate
-    "review\\u2028",  # Unicode line separator
-    "review\\u2029",  # Unicode paragraph separator
-    "review\\x7f",  # DEL control
-    "review\\r",  # carriage-return overwrite
-    "review\\x85",  # next-line control
+    "review\u202eEDART A TON",  # bidirectional override
+    "review\u200e",  # directional mark
+    "review\u200d",  # zero-width joiner
+    "review\ufeff",  # zero-width no-break space
+    "review\ud800",  # lone surrogate
+    "review\u2028",  # Unicode line separator
+    "review\u2029",  # Unicode paragraph separator
+    "review\x7f",  # DEL control
+    "review\r",  # carriage-return overwrite
+    "review\x85",  # next-line control
 ])
 def test_unicode_spoofing_or_malformed_text_rejected_before_network(unsafe):
     fake = FakeOpener(Reply(accepted()))
