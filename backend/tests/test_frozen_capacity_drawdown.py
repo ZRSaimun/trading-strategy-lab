@@ -10,6 +10,7 @@ from app.frozen_capacity_drawdown import (_maximum_drawdown,
                                           _maximum_drawdown_with_window,
                                           _terminal_drawdown,
                                           _first_pseudo_recovery_event,
+                                          _first_pseudo_loss_barrier_event,
                                           audit_frozen_capacity_drawdown)
 from test_frozen_capacity_week_fragility import CUTOFF, sample, move
 
@@ -209,3 +210,77 @@ def test_risk_bps_scale_pseudo_equity_not_broker_margin():
     m, p = sample()
     s = run(m, p, per_position_risk_bps=50)["cost_scenarios"][0]
     assert Decimal(s["holdout_pseudo_settlement_maximum_max_drawdown_pct_initial"]) == 9
+
+
+def test_pseudo_loss_barrier_first_touch_and_no_touch():
+    d = Decimal
+    assert _first_pseudo_loss_barrier_event([d("-1"), d("-1")], d(1), d(2)) == 2
+    assert _first_pseudo_loss_barrier_event([d("-2"), d("3")], d(1), d(2)) == 1
+    assert _first_pseudo_loss_barrier_event([d("2"), d("-2")], d(1), d(1)) is None
+    assert _first_pseudo_loss_barrier_event([], d(1), d(1)) is None
+    assert _first_pseudo_loss_barrier_event([d("-1")], d("0.5"), d("0.5")) == 1
+    with pytest.raises(ValueError, match="Positive"):
+        _first_pseudo_loss_barrier_event([d("-1")], d(0), d(1))
+    with pytest.raises(ValueError, match="Positive"):
+        _first_pseudo_loss_barrier_event([d("-1")], d(1), d(0))
+
+
+def test_loss_barrier_envelope_matches_independent_all_path_oracle():
+    # Enumerate every integer outcome inside each interval. This independent
+    # oracle compares earliest *possible* breach and earliest *unavoidable*
+    # breach over all complete pseudo-return sequences (no random sampling).
+    interval_choices = ((-2, -1), (-1, 1), (0, 0), (1, 2))
+    for length in range(1, 5):
+        for intervals in product(interval_choices, repeat=length):
+            lo = [Decimal(pair[0]) for pair in intervals]
+            hi = [Decimal(pair[1]) for pair in intervals]
+            paths = product(*[range(a, b + 1) for a, b in intervals])
+            histories = []
+            for increments in paths:
+                running = Decimal(0)
+                prefix = []
+                for value in increments:
+                    running += Decimal(value)
+                    prefix.append(running)
+                histories.append(prefix)
+            for barrier in (Decimal(1), Decimal(2), Decimal(4)):
+                firsts = [
+                    next((i for i, value in enumerate(history, 1)
+                          if value <= -barrier), None)
+                    for history in histories
+                ]
+                actual_possible = _first_pseudo_loss_barrier_event(lo, Decimal(1), barrier)
+                actual_unavoidable = _first_pseudo_loss_barrier_event(hi, Decimal(1), barrier)
+                observed = [i for i in firsts if i is not None]
+                expected_possible = min(observed) if observed else None
+                expected_unavoidable = max(observed) if len(observed) == len(firsts) else None
+                assert (actual_possible, actual_unavoidable) == (
+                    expected_possible, expected_unavoidable)
+
+
+def test_complete_report_has_both_declared_pseudo_loss_barriers():
+    m, p = sample()
+    report = run(m, p)
+    assert report["verified_profitability"] is False
+    assert report["may_execute_order"] is False
+    scenario = report["cost_scenarios"][0]
+    holdout = scenario["holdout_pseudo_settlement_loss_barriers"]
+    training = scenario["training_pseudo_settlement_loss_barriers"]
+    assert [b["threshold_pct_initial"] for b in holdout] == [10, 20]
+    assert holdout[0] == {
+        "threshold_pct_initial": 10,
+        "first_possible_event": 20,
+        "first_unavoidable_event": 20,
+        "envelope_status": "UNAVOIDABLE_WITHIN_INTERVAL_ENVELOPE",
+    }
+    assert holdout[1]["envelope_status"] == "NOT_REACHED_WITHIN_INTERVAL_ENVELOPE"
+    assert all(b["first_possible_event"] is None for b in training)
+
+
+def test_interval_ambiguity_keeps_possible_distinct_from_unavoidable():
+    # The two endpoints can cross a threshold at different times; this
+    # classification must not become a probability or execution decision.
+    lo = [Decimal("-2"), Decimal("-1"), Decimal("2")]
+    hi = [Decimal("-1"), Decimal("1"), Decimal("2")]
+    assert _first_pseudo_loss_barrier_event(lo, Decimal(1), Decimal(2)) == 1
+    assert _first_pseudo_loss_barrier_event(hi, Decimal(1), Decimal(2)) is None
