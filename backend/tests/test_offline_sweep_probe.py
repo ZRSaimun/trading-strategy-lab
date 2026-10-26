@@ -79,3 +79,27 @@ def test_invalid_minute_alignment_and_volume(tmp_path):
             z.writestr("DAT_ASCII_XAUUSD_M1_2025.csv", row)
         with pytest.raises(ValueError, match="Invalid M1 row"):
             read_archive(path)
+
+
+def test_censored_entry_reserves_full_horizon_no_overlapping_hypotheses():
+    # A long remains unresolved when a continuity segment ends. A later short
+    # also qualifies before the gap, but must NOT be admitted while that
+    # censored long's holding horizon is still reserved.
+    rows = synthetic_bars()
+    replacements = {
+        30: (100, 101, 80, 100),  # long sweep; stop 80, target 149
+        31: (100, 103, 99, 102),  # long confirmation
+        32: (103, 104, 99, 103),  # long hypothetical entry
+        33: (103, 106, 101, 103), # short sweep; high above prior 104
+        34: (101, 102, 99, 100),  # short confirmation
+        35: (100, 101, 99, 100),  # short hypothetical entry if not blocked
+    }
+    for i, (o, h, l, c) in replacements.items():
+        b = rows[i]
+        rows[i] = Bar(b.time, D(o), D(h), D(l), D(c), 0)
+    rows[37:] = [Bar(b.time, b.o, b.h, b.l, b.c, 1) for b in rows[37:]]
+    result = research(rows)
+    development = result["cohorts"]["development"]
+    assert development["censored_due_to_gaps_or_boundaries"] == 1
+    assert development["cost_scenarios"][0]["count"] == 0
+    assert result["may_execute_order"] is False
