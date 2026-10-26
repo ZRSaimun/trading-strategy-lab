@@ -62,6 +62,36 @@ def _terminal_drawdown(increments):
     return peak - equity
 
 
+
+def _underwater_event_burden(increments):
+    """Return total and longest consecutive *pseudo-booking* underwater events.
+
+    Event zero is the initial baseline and is never underwater. An event is
+    strictly underwater when its cumulative fixed-horizon pseudo-net-R is
+    below the highest equity reached at any preceding booking event. Reaching
+    the peak exactly ends the run. These are NOT broker cashflow durations,
+    market minutes, recovery probabilities, or live trading risk limits.
+
+    Each event's drawdown is max over preceding contiguous negative return
+    sums, so increasing any independent interval return cannot create an
+    underwater event. All-upper and all-lower paths give exact lower and
+    upper bounds on both counts and longest consecutive run.
+    """
+    equity = peak = Decimal(0)
+    total = current = longest = 0
+    for increment in increments:
+        equity += increment
+        if equity > peak:
+            peak = equity
+        if equity < peak:
+            total += 1
+            current += 1
+            longest = max(longest, current)
+        else:
+            current = 0
+    return total, longest
+
+
 def _first_pseudo_recovery_event(increments, peak_event, trough_event, maximum):
     """First later booking event recovering the selected drawdown peak.
 
@@ -396,6 +426,22 @@ def audit_frozen_capacity_drawdown(
                 report[f"{label}_pseudo_settlement_maximum_max_drawdown_recovery_event"] = worst_recovery
                 report[f"{label}_pseudo_settlement_minimum_terminal_underwater_pct_initial"] = str(best_terminal)
                 report[f"{label}_pseudo_settlement_maximum_terminal_underwater_pct_initial"] = str(worst_terminal)
+                # Count how many fixed-horizon pseudo-bookings are below
+                # their own running peak, and the longest consecutive run.
+                # No realized exit timing, signal selection or broker equity.
+                best_underwater_total, best_underwater_streak = (
+                    _underwater_event_burden(hi))
+                worst_underwater_total, worst_underwater_streak = (
+                    _underwater_event_burden(lo))
+                if not (0 <= best_underwater_streak <= best_underwater_total
+                        <= worst_underwater_total <= len(lo)
+                        and best_underwater_streak <= worst_underwater_streak
+                        <= worst_underwater_total):
+                    raise ValueError("Inconsistent pseudo-underwater event envelope")
+                report[f"{label}_pseudo_settlement_minimum_total_underwater_events"] = best_underwater_total
+                report[f"{label}_pseudo_settlement_maximum_total_underwater_events"] = worst_underwater_total
+                report[f"{label}_pseudo_settlement_minimum_longest_underwater_event_streak"] = best_underwater_streak
+                report[f"{label}_pseudo_settlement_maximum_longest_underwater_event_streak"] = worst_underwater_streak
                 # A cumulative lower endpoint touching the barrier means
                 # at least one interval-compatible pseudo-path can touch it.
                 # An upper endpoint touching it means every interval-compatible
