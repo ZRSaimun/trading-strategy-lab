@@ -73,3 +73,22 @@ No individual winning week, trade, or ambiguity is removed to improve returns. D
 These percentages are **not executable portfolio equity or risk-of-ruin forecasts**. Fixed-horizon booking may differ greatly from actual stop/target exit time; it excludes intrabar mark-to-market, variable contract sizes, margin, financing, currency conversion, slippage, gaps, forced liquidation, correlated portfolio cashflows and broker fills. The manifest SHA is caller-declared, not proof of independent preregistration. Source licensing, historical timestamp reconciliation and executable BID/ASK costs are not verified; no authenticated historical performance or profitable edge is established.
 
 Loop 1 must resolve source rights, clock/DST collisions and executable quote provenance; Loop 3 must freeze policies and protect holdouts independently; Loop 4 must validate broker paper-account statements, cash/margin/FX liabilities and hard risk gates before any account-level simulation. This research utility must not be used to authorize a trade.
+
+
+## Capacity-rejected opportunity-set sign census
+
+The auditor also retains **all capacity-rejected frozen opportunities** in a separate
+strict-sign uncertainty census for each training/holdout cohort and 0/5/10/20-bps
+illustrative cost scenario. It independently checks that admitted and unadmitted
+path IDs are disjoint and together equal the full audited population. Each
+unadmitted census reports `unadmitted_paths` plus guaranteed/possible strictly
+positive, strictly negative, and exactly-zero net-R counts. Zero rejected paths
+produces explicit zero counts; ambiguous rejected paths remain ambiguous.
+The same worsening-cost monotonicity check applies to both populations.
+
+Rejected paths are **not** re-admitted retrospectively even if their historical
+outcome was favorable. This census is an opportunity-set/selection transparency
+diagnostic, **not** a backtest of an executable alternative strategy, a claim
+of forgone profit, a reason to retune capacity using holdout outcomes, or evidence
+of independent source/holdout authentication. It never authorizes a paper or
+real-money order.
