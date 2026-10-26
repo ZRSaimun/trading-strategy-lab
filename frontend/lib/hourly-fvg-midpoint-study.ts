@@ -7,7 +7,7 @@
  */
 import type {Bar} from './research.ts';
 
-export const HOURLY_FVG_VERSION='hourly-fvg-first-midpoint-touch-v18';
+export const HOURLY_FVG_VERSION='hourly-fvg-first-midpoint-touch-v19';
 export type Evidence='PASS'|'FAIL'|'INSUFFICIENT_DATA';
 export type Side='BULLISH'|'BEARISH';
 export type FvgSource={
@@ -216,12 +216,24 @@ export function studyHourlyFvgMidpoint(
  // prevents a second read from silently changing reported net markouts.
  const suppliedCosts=config.hypotheticalRoundTripCostsBps??[0,5,15];
  const costs=Array.isArray(suppliedCosts)?Array.from(suppliedCosts):suppliedCosts;
- if(!source||!/^[a-f0-9]{64}$/.test(source.datasetId)||
-  !/^[a-f0-9]{64}$/.test(source.archiveSha256)||
-  !validSourceLabel(source.instrument)||!validSourceLabel(source.provider)||
-  source.priceSide!=='bid'||typeof source.volumeVerified!=='boolean'||
-  !['exchange','tick','none','unverified'].includes(source.volumeType)||
-  (source.volumeVerified&&!['exchange','tick'].includes(source.volumeType))||
+ // Snapshot the seven allowlisted source fields exactly once. A mutable or
+ // accessor-backed declaration must not pass validation as one identity,
+ // qualify volume under another, then export a third identity.
+ // This is consistency only; declarations are not independently authenticated.
+ if(!source||typeof source!=='object')
+  throw Error('Invalid source identity, volume provenance or frozen FVG study settings');
+ const declaredSource:FvgSource={
+  datasetId:source.datasetId,archiveSha256:source.archiveSha256,
+  instrument:source.instrument,provider:source.provider,
+  priceSide:source.priceSide,volumeType:source.volumeType,
+  volumeVerified:source.volumeVerified,
+ };
+ if(!declaredSource||!/^[a-f0-9]{64}$/.test(declaredSource.datasetId)||
+  !/^[a-f0-9]{64}$/.test(declaredSource.archiveSha256)||
+  !validSourceLabel(declaredSource.instrument)||!validSourceLabel(declaredSource.provider)||
+  declaredSource.priceSide!=='bid'||typeof declaredSource.volumeVerified!=='boolean'||
+  !['exchange','tick','none','unverified'].includes(declaredSource.volumeType)||
+  (declaredSource.volumeVerified&&!['exchange','tick'].includes(declaredSource.volumeType))||
   !Number.isSafeInteger(maxTouchWaitBars)||maxTouchWaitBars<1||maxTouchWaitBars>48||
   !Number.isSafeInteger(markoutBars)||markoutBars<1||markoutBars>48||
   !Number.isFinite(minimumRejectionWickFraction)||
@@ -295,7 +307,7 @@ export function studyHourlyFvgMidpoint(
     b.close<midpoint&&b.close<b.open;
    gates.wickRejection=reclaim&&wickMeetsFraction(b,bull,minimumRejectionWickFraction)?
     'PASS':'FAIL';
-   gates.verifiedVolume=verifiedVolume(bars,j,source,volumeMultiple);
+   gates.verifiedVolume=verifiedVolume(bars,j,declaredSource,volumeMultiple);
    gates.strictCandidate=gates.wickRejection==='FAIL'?'FAIL':
     gates.verifiedVolume;
    // Markout horizon is fixed in advance, never the best future close.
@@ -349,15 +361,8 @@ export function studyHourlyFvgMidpoint(
    blindMidpointTouch:blind,confirmedNextOpen:confirmed,
    eligibleForLiveTrading:false});
  }
- // Do not serialize arbitrary caller-supplied properties into a research
- // report. Structural TypeScript checks do not strip runtime vendor payloads,
- // access tokens, or other metadata attached to a source object.
- return {version:HOURLY_FVG_VERSION,source:{
-  datasetId:source.datasetId,archiveSha256:source.archiveSha256,
-  instrument:source.instrument,provider:source.provider,
-  priceSide:source.priceSide,volumeType:source.volumeType,
-  volumeVerified:source.volumeVerified,
- },
+ // The report and volume gates share the same validated allowlisted snapshot.
+ return {version:HOURLY_FVG_VERSION,source:declaredSource,
   config:{maxTouchWaitBars,markoutBars,minimumRejectionWickFraction,
    volumeMultiple,hypotheticalRoundTripCostsBps:[...costs]},
   observations,cohort:summarizeCohort(observations),
