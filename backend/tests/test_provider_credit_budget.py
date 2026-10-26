@@ -112,6 +112,9 @@ def test_policy_is_immutable_after_first_provision(tmp_path, monkeypatch):
             rights_evidence_sha256=RIGHTS, owner_confirmed=True,
         )
     assert reserve(path, 1)["remaining_credits"] == 1
+    with pytest.raises(budget.CreditBudgetError, match="Per-minute"):
+        reserve(path, 2)
+    monkeypatch.setattr(budget, "time", SimpleNamespace(time=lambda: NOW + 60))
     assert reserve(path, 2)["remaining_credits"] == 0
     with pytest.raises(budget.CreditBudgetError):
         reserve(path, 3)
