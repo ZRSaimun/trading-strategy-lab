@@ -10,8 +10,12 @@ linkage and source-isolation checks. For each separate model version and candle
 horizon (1, 3, 12), it splits **all issued forecasts** by issuance order, never
 by observed outcome. The first cohort's settled labels must have been resolved
 **before** the second cohort begins; later-resolving training labels are purged.
-Both cohorts discard overlapping outcome intervals (including shared endpoint
-closes), so effective samples can be far smaller than issued forecasts.
+Both cohorts first fix a nonoverlapping **issued-forecast census before
+looking at outcome status** (including shared endpoint closes). Only then are
+settled and chronologically available outcomes scored. This prevents a missing
+or void outcome from shifting the sampling window onto a conveniently settled
+neighbour. The report exposes both issued-census and eligible-settled counts.
+Effective samples can be far smaller than issued forecasts.
 
 When each cohort has at least 30 nonoverlapping settled outcomes and no more
 than 10% unavailable records, report Brier scores, late-minus-early Brier,
