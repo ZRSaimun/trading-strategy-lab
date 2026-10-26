@@ -19,8 +19,10 @@ submits an order, changes a reservation or grants approval. Every result is
   age, transport lag and snapshot age.
 - Prior working orders remain working or have a declared terminal receipt;
   no silent disappearance, unexplained new working order, duplicate IDs,
-  or ambiguous order outcomes. A filled terminal receipt requires a higher
-  fill sequence; a higher fill sequence without a declared fill is flagged.
+  or ambiguous order outcomes. The deliberately narrow receipt schema
+  requires one fill-sequence increment per declared terminal fill; multiple
+  partial fills require richer reconciliation and are quarantined. An
+  unexplained order-sequence increase also blocks structural clearance.
 - Risk revision changes during the outage require reconciliation. A prior
   unknown outcome remains quarantined even if it disappears from the later
   snapshot.
