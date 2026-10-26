@@ -18,7 +18,7 @@ resource types, paid plans, absent /api/health, enabled paid data feeds,
 missing secret placeholders, extra environment keys, duplicate keys and any
 unreviewed non-comment Blueprint directive.
 Diagnostics contain only policy labels, never credential values.
-The backend test suite includes 20 synthetic positive/negative cases.
+The backend test suite includes synthetic positive/negative cases, including\nreordered-key and reordered-environment-block rejection. The checker compares\nthe **ordered** non-comment lines with the reviewed layout; a multiset of\nmatching lines is insufficient. GitHub Actions `foundation-checks` also runs\nthe checker as an explicit backend-job step before installing dependencies,\nso Blueprint drift fails the normal PR/push CI gate.
 
 The script is a narrow text-policy checker, **not** a YAML parser, Render
 schema validator, live-state attestation, backup drill or deployment
