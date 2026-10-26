@@ -189,6 +189,19 @@ def reserve_one_credit(
             count, used = used_row
             if used != count or used < 0 or used >= cap:
                 raise CreditBudgetError("Daily provider credit budget exhausted or invalid")
+            # A daily ceiling alone does not protect a vendor's per-minute
+            # quota. Keep the one-shot adapter to one attempt per UTC minute,
+            # even when an operator has provisioned a larger daily allowance.
+            # This check and the reservation INSERT share the same IMMEDIATE
+            # transaction, so concurrent workers cannot bypass the ceiling.
+            minute_start = now - now % 60
+            minute_count = conn.execute(
+                "SELECT COUNT(*) FROM credit_reservation WHERE utc_day=? "
+                "AND reserved_at_utc>=? AND reserved_at_utc<?",
+                (utc_day, minute_start, minute_start + 60),
+            ).fetchone()[0]
+            if type(minute_count) is not int or minute_count != 0:
+                raise CreditBudgetError("Per-minute provider request safety limit reached")
             conn.execute(
                 "INSERT INTO credit_reservation VALUES (?, ?, ?, ?, 1)",
                 (request_id, utc_day, manifest_sha256, now),
