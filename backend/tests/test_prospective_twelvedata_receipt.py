@@ -51,6 +51,11 @@ def fixture(monkeypatch, *, candles=None, raw=None, now=NOW, wire=None):
             "decoded_http_body_bytes": len(provider_body),
             "normalized_snapshot_sha256": hashlib.sha256(raw).hexdigest(),
             "http_status": 200,
+            "provider_credit_header_observation": {
+                "status": "OBSERVED_UNVERIFIED", "api_credits_used": 1,
+                "api_credits_left": 799, "quota_window_verified": False,
+                "account_usage_reconciled": False,
+            },
         }
 
     async def fake_retrieve(key, instrument, limit, end, started, *, include_wire_evidence=False):
@@ -114,6 +119,10 @@ def test_complete_observation_server_stamped_and_still_not_live(monkeypatch):
     assert report["source_snapshot_sha256"] == hashlib.sha256(snapshot(rows(T, T+60))).hexdigest()
     assert report["decoded_http_body_sha256"] != report["source_snapshot_sha256"]
     assert report["decoded_http_body_bytes"] > 0
+    assert report["provider_credit_header_status"] == "OBSERVED_UNVERIFIED"
+    assert report["provider_api_credits_used"] == 1
+    assert report["provider_api_credits_left"] == 799
+    assert report["provider_account_credit_usage_reconciled"] is False
     assert report["http_body_hash_semantics"] == "httpx-decoded-response-body-not-TLS-wire"
     assert report["source_authenticated"] is False
     assert report["expected_calendar_verified"] is False
@@ -238,5 +247,53 @@ def test_provider_failure_is_sanitized(monkeypatch):
 ])
 def test_invalid_or_unbound_wire_receipt_is_rejected(monkeypatch, bad_wire):
     fixture(monkeypatch, wire=bad_wire)
+    with pytest.raises(adapter.ProspectiveReceiptError, match="Provider receipt rejected"):
+        run()
+
+
+def test_missing_credit_headers_force_review_without_inventing_account_usage(monkeypatch):
+    wire = {
+        "decoded_http_body_sha256": "a" * 64,
+        "decoded_http_body_bytes": 64,
+        "normalized_snapshot_sha256": hashlib.sha256(snapshot(rows(T, T + 60))).hexdigest(),
+        "http_status": 200,
+        "provider_credit_header_observation": {
+            "status": "MISSING_REVIEW_REQUIRED",
+            "api_credits_used": None, "api_credits_left": None,
+            "quota_window_verified": False, "account_usage_reconciled": False,
+        },
+    }
+    fixture(monkeypatch, wire=wire)
+    report = run()
+    assert report["status"] == "REVIEW_REQUIRED"
+    assert report["provider_api_credits_used"] is None
+    assert report["provider_api_credits_left"] is None
+    assert report["live"] is False
+
+
+@pytest.mark.parametrize("bad_credit", [
+    {"status": "OBSERVED_UNVERIFIED", "api_credits_used": True,
+     "api_credits_left": 799, "quota_window_verified": False,
+     "account_usage_reconciled": False},
+    {"status": "OBSERVED_UNVERIFIED", "api_credits_used": 1,
+     "api_credits_left": -1, "quota_window_verified": False,
+     "account_usage_reconciled": False},
+    {"status": "OBSERVED_UNVERIFIED", "api_credits_used": 1,
+     "api_credits_left": 799, "quota_window_verified": True,
+     "account_usage_reconciled": False},
+    {"status": "MISSING_REVIEW_REQUIRED", "api_credits_used": 1,
+     "api_credits_left": None, "quota_window_verified": False,
+     "account_usage_reconciled": False},
+    {},
+])
+def test_corrupt_provider_credit_observation_is_rejected(monkeypatch, bad_credit):
+    raw = snapshot(rows(T, T + 60))
+    fixture(monkeypatch, wire={
+        "decoded_http_body_sha256": "a" * 64,
+        "decoded_http_body_bytes": 64,
+        "normalized_snapshot_sha256": hashlib.sha256(raw).hexdigest(),
+        "http_status": 200,
+        "provider_credit_header_observation": bad_credit,
+    })
     with pytest.raises(adapter.ProspectiveReceiptError, match="Provider receipt rejected"):
         run()
