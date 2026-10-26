@@ -32,3 +32,19 @@ worker implements one-time claims, provider correlation and crash recovery.
 Production backup restore, rollback and post-release health checks remain
 separate release gates. Synthetic tests cover census integrity and latency
 classification only; no real notifications or trades are made.
+
+## Expiry-aware audit (26 October 2026)
+
+An in-flight uncertain claim observed at or after its forecast expiry is
+counted both as `IN_FLIGHT_UNCERTAIN` and
+`EXPIRED_IN_FLIGHT_UNCERTAIN`; it remains **non-retryable**. A self-attested
+ACK timestamp at or after the alert's expiry increments
+`ACK_AT_OR_AFTER_EXPIRY_WARNING` and forces operator review, without
+claiming provider or recipient delivery. Multiple warnings for one alert yield
+one `warningKeys` entry. These warning counters overlap their underlying
+status counts and must **not** be summed as mutually exclusive populations.
+
+The expiry comparison uses the caller-supplied `as_of` and stored timestamps;
+neither is cryptographically attested. An ACK timestamp before expiry is still
+not proof of delivery or timely reading. This change remains read-only and
+does not enable any sender, paper fill, broker order, or production deployment.
