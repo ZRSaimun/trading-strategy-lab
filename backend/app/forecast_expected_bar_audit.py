@@ -50,6 +50,7 @@ def audit_expected_completed_bars(snapshot, expected_identity, expected_starts, 
         previous = start
     seen = []
     previous_receipt = -1
+    previous_candle_seq = 0
     for event in snapshot["events"]:
         if type(event) is not dict:
             raise ValueError("Malformed expected-bar journal event")
@@ -58,12 +59,15 @@ def audit_expected_completed_bars(snapshot, expected_identity, expected_starts, 
         if set(event) != {"kind", "seq", "receivedAt", "start", "close"}:
             raise ValueError("Malformed completed-candle event")
         start, receipt, close = event["start"], event["receivedAt"], event["close"]
-        if (type(close) not in (int, float) or not math.isfinite(close) or close <= 0
+        seq = event["seq"]
+        if (type(seq) is not int or seq <= previous_candle_seq or seq > _MAX_BARS
+                or type(close) not in (int, float) or not math.isfinite(close) or close <= 0
                 or not _epoch(start)
                 or start % seconds or not _epoch(receipt)
-                or receipt < start + seconds or receipt > as_of
-                or receipt < previous_receipt):
-            raise ValueError("Invalid completed-candle receipt chronology")
+                or receipt < start + seconds or receipt > start + seconds + 3600
+                or receipt > as_of or receipt < previous_receipt):
+            raise ValueError("Invalid completed-candle receipt chronology or sequence")
+        previous_candle_seq = seq
         previous_receipt = receipt
         seen.append(start)
         if len(seen) > _MAX_BARS:
