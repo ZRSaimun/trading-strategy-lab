@@ -14,9 +14,17 @@ Both cohorts discard overlapping outcome intervals (including shared endpoint
 closes), so effective samples can be far smaller than issued forecasts.
 
 When each cohort has at least 30 nonoverlapping settled outcomes and no more
-than 10% pending/void records, report Brier scores, late-minus-early Brier,
+than 10% unavailable records, report Brier scores, late-minus-early Brier,
 late observed-up fraction, mean probability, absolute calibration gap, and
 late Brier skill versus a **frozen early-only Jeffreys-smoothed climatology**.
+For the early cohort, unavailable means **pending + void + settled labels
+resolved at or after the late cohort's first issuance**. These purged labels
+cannot be used to fit the frozen baseline and must count toward the same
+missingness threshold; otherwise delayed outcomes could silently bias the
+reported early score. The audit reports `earlyPurgedForChronology`,
+`earlyUnavailableAtBoundary`, and its fraction separately from the late
+pending/void fraction. This remains a descriptive selection-risk safeguard,
+not independent authentication of outcome timing.
 A Brier increase of at least 0.05 is a configurable *review flag*, not a
 significance test or proof of concept drift. Incomplete, sparse or selectively
 resolved cohorts withhold all numerical performance scores. Early/late group
