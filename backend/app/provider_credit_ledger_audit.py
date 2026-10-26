@@ -6,6 +6,7 @@ all writers; WAL/journal sidecars are rejected instead of silently ignored.
 """
 from __future__ import annotations
 
+from contextlib import closing
 from datetime import datetime, timezone
 import hashlib
 import os
@@ -111,7 +112,7 @@ def audit_provider_credit_ledger(
         raise CreditLedgerAuditError("Invalid server UTC clock")
     try:
         uri = "file:" + quote(str(path), safe="/") + "?mode=ro&immutable=1"
-        with sqlite3.connect(uri, uri=True, timeout=1) as conn:
+        with closing(sqlite3.connect(uri, uri=True, timeout=1)) as conn:
             conn.execute("PRAGMA query_only=ON")
             conn.execute("PRAGMA trusted_schema=OFF")
             schema = set(conn.execute(
