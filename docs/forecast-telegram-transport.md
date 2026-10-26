@@ -25,3 +25,9 @@ Do not connect or deploy this sender until legitimate Telegram bot and opted-in 
 The single-attempt adapter now maps incomplete HTTP response reads, HTTP framing errors, decoder recursion failures, and malformed injected HTTP response objects to a sanitized `DeliveryUncertain` exception. An HTTP failure can occur after the provider accepted a send: **do not automatically retry** an uncertain claim. Never log raw HTTP exception bodies, token-bearing request URLs or response text. This hardening does not authenticate market observations, establish provider delivery or authorize any send.
 
 Five additional isolated synthetic cases bring the transport suite to **27 passing tests locally** on Python 3.13. Tests use fake openers and zero network calls. Full latest-head GitHub CI is required before considering any integration; no production deployment, credential configuration, broker order or notification was performed.
+
+## Unicode safety hardening (26 October 2026)
+
+The disconnected transport now rejects Unicode bidirectional controls, zero-width formatting marks, lone surrogate code points, Unicode paragraph/line separators, carriage returns and other control characters **before opening a connection**. Ordinary non-ASCII letters and emoji remain permitted. This prevents a direct caller from visually disguising the mandatory research-only / non-trade warning or triggering an unexpected encoding exception. Only newline and tab controls are permitted in a review message.
+
+Thirteen additional isolated fake-opener tests exercise rejection before any network call and acceptance of safe Unicode. This is **message-integrity hardening, not source authentication, delivery verification, or trading authorization**. The adapter remains disconnected, and ambiguous provider outcomes remain non-retryable. Run the isolated transport tests and exact-head CI before any merge. No Telegram messages or broker orders were sent.
