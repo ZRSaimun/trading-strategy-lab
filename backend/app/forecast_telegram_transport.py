@@ -8,6 +8,7 @@ outcomes automatically. No orders or broker API calls exist in this module.
 from http.client import HTTPException
 import json
 import re
+import unicodedata
 import urllib.error
 import urllib.request
 
@@ -34,6 +35,17 @@ def _unique_pairs(pairs):
     return result
 
 
+def _safe_review_text(text):
+    """Reject Unicode formatting that could disguise a research-only warning.
+
+    Also reject lone surrogates before JSON encoding, so they cannot escape as
+    unexpected Unicode errors. Ordinary non-ASCII letters and emoji are fine.
+    """
+    return (type(text) is str and 1 <= len(text) <= 1000 and
+            all(c in "\n\t" or unicodedata.category(c) not in
+                {"Cc", "Cf", "Cs", "Zl", "Zp"} for c in text))
+
+
 def send_telegram_once(*, bot_token, chat_id, text, timeout=5, opener=None):
     """One HTTP attempt; return provider acceptance metadata, never delivery proof.
 
@@ -46,9 +58,7 @@ def send_telegram_once(*, bot_token, chat_id, text, timeout=5, opener=None):
         raise ValueError("Invalid Telegram bot token shape")
     if not isinstance(chat_id, str) or not _CHAT.fullmatch(chat_id):
         raise ValueError("Invalid Telegram chat ID")
-    if not isinstance(text, str) or not 1 <= len(text) <= 1000 or any(
-        ord(c) < 32 and c not in "\n\t" for c in text
-    ):
+    if not _safe_review_text(text):
         raise ValueError("Invalid review alert text")
     if type(timeout) not in (int, float) or not 1 <= timeout <= 10:
         raise ValueError("Invalid timeout")
