@@ -47,7 +47,10 @@ def test_real_budget_and_mock_get_return_redacted_receipt(ledger):
     def handler(request):
         calls.append(str(request.url))
         assert request.method == "GET"
-        return httpx.Response(200, json=[{"ticker": "SENSITIVE_TEST_TICKER"}], headers={
+        return httpx.Response(200, json=[{"ticker": "SENSITIVE_TEST_TICKER", "currencyCode": "USD",
+             "type": "STOCK", "workingScheduleId": 1,
+             "maxOpenQuantity": 10.0, "extendedHours": False,
+             "name": "Sensitive Test", "shortName": "Sensitive"}], headers={
             "x-ratelimit-limit": "50", "x-ratelimit-period": "60",
             "x-ratelimit-remaining": "49", "x-ratelimit-used": "1",
             "x-ratelimit-reset": "1793037660",
