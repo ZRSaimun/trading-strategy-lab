@@ -54,3 +54,19 @@ The expiry comparison uses the caller-supplied `as_of` and stored timestamps;
 neither is cryptographically attested. An ACK timestamp before expiry is still
 not proof of delivery or timely reading. This change remains read-only and
 does not enable any sender, paper fill, broker order, or production deployment.
+
+## Pre-expiry queue warning (26 October 2026)
+
+The read-only audit now flags an **unclaimed, still-valid** alert when its
+remaining lifetime is at most `expiry_warning_seconds` (default 30 seconds,
+configurable from 1 to 3,600). The `EXPIRING_SOON_WARNING` counter is separate
+from `QUEUE_DELAY_WARNING`: short-lived alerts can be at risk of expiring
+before their issuance-age queue threshold is reached. At exact expiry the
+record is `EXPIRED_UNCLAIMED` instead, never `EXPIRING_SOON_WARNING`.
+Overlapping warnings for one record yield only one `warningKeys` identity.
+
+This is an **operator-review signal**, not authorization to rush a send or
+bypass entitlement, completed-candle verification, recipient opt-in or durable
+claim reconciliation. The report remains caller-declared and does not measure
+real notification delivery, forecasting accuracy, paper returns or trading
+profitability. No sender or order execution is activated.
