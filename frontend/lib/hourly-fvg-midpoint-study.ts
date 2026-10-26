@@ -228,7 +228,7 @@ export function studyHourlyFvgMidpoint(
   priceSide:source.priceSide,volumeType:source.volumeType,
   volumeVerified:source.volumeVerified,
  };
- if(!declaredSource||!/^[a-f0-9]{64}$/.test(declaredSource.datasetId)||
+ if(!/^[a-f0-9]{64}$/.test(declaredSource.datasetId)||
   !/^[a-f0-9]{64}$/.test(declaredSource.archiveSha256)||
   !validSourceLabel(declaredSource.instrument)||!validSourceLabel(declaredSource.provider)||
   declaredSource.priceSide!=='bid'||typeof declaredSource.volumeVerified!=='boolean'||
