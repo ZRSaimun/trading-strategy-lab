@@ -123,3 +123,26 @@ Overlapping signals, synthetic full-horizon settlement, unverified
 market-data provenance, financing and executable quote costs limit
 interpretation. In particular, do **not** use this descriptive metric
 to tune filters on an untouched holdout or authorize a trade.
+
+
+## Per-path cost-trajectory integrity (26 October 2026)
+
+Before reporting **any** cost scenario, the auditor now validates every eligible
+frozen path's complete 0/5/10/20-bps additional round-trip cost trajectory,
+including paths rejected by capacity. The lower and upper net-R endpoints must
+each be non-increasing as the assumed additional cost rises; each scenario must
+have the exact expected integer cost label and a valid ordered finite Decimal
+return interval. One corrupted or missing trajectory raises an error and
+withholds the entire report rather than silently dropping a path.
+
+This is stricter than checking only cohort means, worst-quartile statistics or
+win/loss counts. A path whose returns improve at a higher assumed cost can be
+hidden by another path deteriorating more, leaving aggregate statistics
+monotone. Synthetic tests explicitly exercise that masking case, both endpoint
+violations, missing scenarios, inverted intervals and boolean cost labels.
+
+**Scope:** This is a software-integrity guard, not evidence that 0/5/10/20 bps
+represent real broker costs. It does not authenticate source archives, infer
+spread/slippage/financing, establish profitable expectancy, unlock the holdout,
+authorize an order or change capacity admissions. The draft feature remains
+offline and unmerged until its production release gates are verified.
