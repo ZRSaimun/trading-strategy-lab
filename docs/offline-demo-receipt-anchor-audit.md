@@ -31,7 +31,8 @@ The example times are synthetic epoch milliseconds, not actual market times.
 The audit validates the entire stored receipt history before comparing up to
 32 ascending anchored revisions. It checks immutable order identity, SHA-256
 links, declared snapshot cutoffs, witness chronology, duplicate evidence refs,
-missing revisions and any unanchored later local head. It never modifies the
+missing revisions, invalid source scopes, future-dated journal heads and any
+unanchored later local head. It never modifies the
 SQLite journal. An unanchored newer head yields
 `HOLD_LOCAL_HEAD_NOT_EXTERNALLY_ANCHORED`, not an approval.
 
