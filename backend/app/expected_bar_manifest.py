@@ -12,7 +12,7 @@ import re
 
 from app.prospective_receipt_census import audit_declared_m1_receipts
 
-_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9 ._:/-]{0,79}\\Z")
+_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9 ._:/-]{0,79}\Z")
 _MAX_MINUTES = 10_000
 
 
