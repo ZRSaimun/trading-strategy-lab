@@ -11,7 +11,12 @@ It checks the ledger's owner-only file/directory permissions, size bound,
 absence of WAL/SHM/rollback-journal sidecars, expected two-table schema,
 SQLite integrity and foreign keys, policy identities/evidence-hash shapes,
 reservation IDs, manifest digest shapes, reservation UTC-day timestamps,
-and per-day budget overspend. The entire ledger is SHA-256 fingerprinted before
+per-day budget overspend, and multiple reservations within a single UTC
+minute. The minute check is an offline consistency invariant for the
+one-shot adapter's conservative per-minute limit, not an independently
+verified vendor quota. Existing ledgers with historical same-minute
+reservations will fail this audit until separately investigated; never
+silently rewrite historical reservations. The entire ledger is SHA-256 fingerprinted before
 and after the audit, and any mismatch is rejected. It returns only aggregate
 counts and a file digest; no keys, request IDs or evidence references.
 
