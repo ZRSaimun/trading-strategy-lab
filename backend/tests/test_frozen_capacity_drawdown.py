@@ -861,3 +861,77 @@ def test_full_report_paired_erosion_covers_admitted_and_rejected_population():
                         == row["zero_cost_guaranteed_strict_positive"])
                 assert (row["guaranteed_no_longer_strict_positive"]
                         <= row["possible_no_longer_strict_positive"])
+
+
+def test_continuous_cost_tolerance_is_exact_at_strict_break_even():
+    from app.frozen_capacity_drawdown import _baseline_strict_winner_cost_tolerance
+    d = Decimal
+    population = [(1, 1, "A"), (2, 2, "B"), (3, 3, "C")]
+    frozen = {
+        "A": {"entry": "100", "stop": "99"},
+        "B": {"entry": "200", "stop": "198"},
+        "C": {"entry": "100", "stop": "99"},
+    }
+    trajectories = {
+        "A": ((d("0.1"), d("0.3")),),
+        "B": ((d("0.2"), d("0.4")),),
+        "C": ((d("-0.1"), d("0.9")),),
+    }
+    report = _baseline_strict_winner_cost_tolerance(population, frozen, trajectories)
+    assert report["population_paths"] == 3
+    assert report["baseline_guaranteed_strict_positive_paths"] == 2
+    assert report["additional_bps_to_erase_guaranteed_positive"] == {
+        "minimum": "10.0", "median": "15.0", "maximum": "20.0",
+    }
+    assert report["additional_bps_to_erase_possible_positive"] == {
+        "minimum": "30.0", "median": "35.0", "maximum": "40.0",
+    }
+    for name in ("A", "B"):
+        entry, stop = d(frozen[name]["entry"]), d(frozen[name]["stop"])
+        risk = abs(entry - stop)
+        for gross, threshold in zip(trajectories[name][0],
+                                    (gross * d(10000) * risk / abs(entry)
+                                     for gross in trajectories[name][0])):
+            for bps in (d(0), d(5), d(10), d(20), d(30), d(40), d(41)):
+                net = gross - abs(entry) * bps / d(10000) / risk
+                assert (net > 0) == (bps < threshold)
+
+
+def test_cost_tolerance_empty_winners_and_invalid_brackets():
+    from app.frozen_capacity_drawdown import _baseline_strict_winner_cost_tolerance
+    population = [(1, 1, "X")]
+    frozen = {"X": {"entry": "100", "stop": "99"}}
+    no_winner = {"X": ((Decimal("-1"), Decimal("1")),)}
+    report = _baseline_strict_winner_cost_tolerance(population, frozen, no_winner)
+    assert report["baseline_guaranteed_strict_positive_paths"] == 0
+    assert report["additional_bps_to_erase_guaranteed_positive"] == {
+        "minimum": None, "median": None, "maximum": None,
+    }
+    assert report["additional_bps_to_erase_possible_positive"] == {
+        "minimum": None, "median": None, "maximum": None,
+    }
+    with pytest.raises(ValueError, match="denominator"):
+        _baseline_strict_winner_cost_tolerance(
+            population, {"X": {"entry": "100", "stop": "100"}},
+            {"X": ((Decimal("1"), Decimal("2")),)},
+        )
+
+
+def test_full_report_continuous_cost_tolerance_matches_frozen_zero_cost_census():
+    manifest, paths = sample()
+    report = run(manifest, paths)
+    summaries = report["break_even_tolerance"]
+    zero = report["cost_scenarios"][0]
+    for cohort in ("training", "holdout"):
+        for status in ("admitted", "unadmitted"):
+            key = f"{cohort}_{status}"
+            census_key = f"{cohort}_pseudo_settlement_" + (
+                "strict_sign_census" if status == "admitted"
+                else "unadmitted_strict_sign_census")
+            census = zero[census_key]
+            assert summaries[key]["population_paths"] == census[
+                "admitted_paths" if status == "admitted" else "unadmitted_paths"]
+            assert summaries[key]["baseline_guaranteed_strict_positive_paths"] == (
+                census["guaranteed_strict_positive"])
+    assert report["verified_profitability"] is False
+    assert report["may_execute_order"] is False
