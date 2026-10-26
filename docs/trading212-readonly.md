@@ -86,3 +86,31 @@ Do not use account metadata as market prices.
 This is a disconnected optional integration, **not** a production activation.
 PR #65 remains draft pending full CI, main reconciliation, production recovery,
 rollback and post-deploy health verification. No live-money order code is enabled.
+
+
+## Rate-limit response evidence (offline-tested, not account-verified)
+
+Successful HTTP 200 reads now include a sanitized `rate_limit_observation` from
+the official documented `x-ratelimit-limit`, `x-ratelimit-period`,
+`x-ratelimit-remaining`, `x-ratelimit-reset` and `x-ratelimit-used`
+response headers. The adapter never copies arbitrary headers, Authorization,
+cookies, keys or secrets into this field. It rejects malformed/duplicate
+counter values; absent, incomplete or internally inconsistent counters are
+explicitly marked `MISSING_REVIEW_REQUIRED`,
+`PARTIAL_REVIEW_REQUIRED` or `INCONSISTENT_REVIEW_REQUIRED`.
+An internally consistent set is only `OBSERVED_UNVERIFIED`.
+
+Every outcome has `account_quota_verified=false` and
+`safe_to_make_another_request=false`. This is **not** a rate limiter, a
+provider-signed receipt, a guarantee of account capacity or authorization for
+a second call. The broker documents rate limits **per account across API
+keys**; other clients may consume capacity between observations. There is no
+automatic retry, polling, subscription or call to an account with this change.
+
+Official reference (rechecked 26 October 2026):
+https://docs.trading212.com/api
+
+Mock-only regression tests:
+`cd backend && PYTHONPATH=. pytest -q tests/test_trading212_readonly.py`.
+Do not turn header observations into permission to spend provider credits or
+into market-price freshness, live status or execution authority.
