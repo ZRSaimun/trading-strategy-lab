@@ -40,6 +40,8 @@ def _recompile(manifest: ExpectedM1Manifest, observed_at: int) -> ExpectedM1Mani
 
 async def review_twelvedata_completed_m1(
     *, api_key: str, manifest: ExpectedM1Manifest,
+    owner_approved_api_credit_use: bool = False,
+    owner_asserted_data_rights: bool = False,
 ) -> dict:
     """One operator-invoked HTTPS read, stamped by backend clock after response.
 
@@ -50,6 +52,12 @@ async def review_twelvedata_completed_m1(
     if (not isinstance(api_key, str) or not 1 <= len(api_key) <= 512
             or any(ord(ch) < 33 or ord(ch) == 127 for ch in api_key)):
         raise ProspectiveReceiptError("Invalid credential shape")
+    # No potentially billable vendor request without two explicit per-call
+    # owner declarations. These are NOT independently verified entitlements.
+    # Exact booleans reject truthy strings and integers.
+    if (owner_approved_api_credit_use is not True
+            or owner_asserted_data_rights is not True):
+        raise ProspectiveReceiptError("Explicit per-call API-credit and data-rights approval required")
     if type(manifest) is not ExpectedM1Manifest or (
         manifest.provider, manifest.symbol, manifest.venue, manifest.price_side
     ) != _IDENTITY:
@@ -128,6 +136,7 @@ async def review_twelvedata_completed_m1(
         "http_body_hash_semantics": "httpx-decoded-response-body-not-TLS-wire",
         "provider_http_status": wire["http_status"],
         "source_authenticated": False,
+        "owner_call_approval_scope": "explicit-per-call-assertion-only",
         "provider_entitlement_verified": False,
         "retention_and_display_rights_verified": False,
         "expected_calendar_verified": False,
