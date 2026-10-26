@@ -297,3 +297,39 @@ source rights, quote-side spreads, slippage, financing, independent holdout
 or profitable edge is authenticated. The diagnostic cannot generate or
 authorize a paper or real-money order. The PR remains draft and undeployed
 until production rollback and health gates are independently verified.
+
+
+## Frozen chronological pseudo-booking quartile fragility (26 October 2026)
+
+For each training/holdout **capacity-admitted** population and each predeclared
+0/5/10/20-bps additional round-trip cost, the report now includes
+`{training|holdout}_pseudo_settlement_chronological_quartiles`.
+This differs from the existing return-ranked **worst quartile**: these four
+quartiles are **contiguous in the frozen full-horizon pseudo-settlement booking
+order**, not sorted by profitability. Partition boundaries are always
+`floor(i * N / 4)` for `i = 0..4`, independently of prices and outcomes.
+Every admitted path is counted exactly once; the quartiles differ in size
+by at most one path. Neither an early target/stop nor the eventual outcome
+can change admission, booking order, a partition boundary or membership.
+
+Each quartile reports its 1-based label, 0-based start/end **booking-event**
+boundaries, number of booked paths, and exact-Decimal lower/upper mean net-R.
+The report also counts how many of the four quartile means are **guaranteed
+strictly positive** (lower bound > 0) or **possibly strictly positive**
+(upper bound > 0), and the minimum of the four lower and upper means.
+The latter two values bound the *weakest chronological quartile's* mean.
+The report checks that no quartile's endpoint mean improves when additional
+modeled costs increase, that boundaries remain identical across scenarios,
+and that counts of positive quartiles cannot increase with costs.
+
+This is an **ex post diagnostic**, not an algorithm for selecting profitable
+time windows. It does not identify true calendar quarters, independent market
+regimes, broker fills, spread/slippage/financing, or an executable edge.
+Chronological quartiles can still overlap exposures and share correlated
+market conditions. Four partitions are a declared reporting convention,
+not four independent experiments; do not tune partition count or strategy
+parameters using the untouched holdout. No trading permission or signal
+is derived. Synthetic regressions enumerate 243 interval populations and
+7,776 endpoint outcome combinations, plus complete-report cost checks.
+Authenticated source data, independent holdout and broker costs remain
+unverified; this draft PR is unmerged and undeployed.
