@@ -103,3 +103,32 @@ def test_censored_entry_reserves_full_horizon_no_overlapping_hypotheses():
     assert development["censored_due_to_gaps_or_boundaries"] == 1
     assert development["cost_scenarios"][0]["count"] == 0
     assert result["may_execute_order"] is False
+
+
+@pytest.mark.parametrize(
+    "direction,signal,confirm,entry,adverse_bar",
+    [
+        ("long", (100, 101, 98, 100), (100, 103, 99, 102),
+         (103, 110, 99, 103), (80, 114, 79, 100)),
+        ("short", (100, 102, 99, 100), (100, 100, 97, 98),
+         (97, 100, 90, 95), (120, 121, 86, 100)),
+    ],
+)
+def test_adverse_source_open_gap_does_not_credit_exact_stop(
+    direction, signal, confirm, entry, adverse_bar
+):
+    # Long: entry 103, stop 98, gap open 80 -> -23/5 = -4.6 R.
+    # Short: entry 97, stop 102, gap open 120 -> -23/5 = -4.6 R.
+    # Both gap bars ALSO touch the 2R target; stop-first still wins.
+    rows = synthetic_bars()
+    for index, values in zip((30, 31, 32, 33),
+                             (signal, confirm, entry, adverse_bar)):
+        b = rows[index]
+        rows[index] = Bar(b.time, *(D(v) for v in values), b.segment)
+    result = research(rows)
+    assert result["protocol"] == "source-local-sweep-confirmation-v2"
+    cases = result["cohorts"]["development"]["cost_scenarios"]
+    assert cases[0]["count"] == 1, direction
+    assert D(cases[0]["mean_net_r"]) == D("-4.6"), direction
+    assert D(cases[1]["mean_net_r"]) < D("-4.6")
+    assert result["may_execute_order"] is False
