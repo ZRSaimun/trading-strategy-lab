@@ -7,7 +7,7 @@
  */
 import type {Bar} from './research.ts';
 
-export const HOURLY_FVG_VERSION='hourly-fvg-first-midpoint-touch-v22';
+export const HOURLY_FVG_VERSION='hourly-fvg-first-midpoint-touch-v23';
 export type Evidence='PASS'|'FAIL'|'INSUFFICIENT_DATA';
 export type Side='BULLISH'|'BEARISH';
 export type FvgSource={
@@ -388,4 +388,29 @@ export function studyHourlyFvgMidpoint(
    volumeMultiple,hypotheticalRoundTripCostsBps:[...costs]},
   observations,cohort:summarizeCohort(observations),
   warning:'Read-only hourly BID OHLC research. Midpoint touch is a hypothetical blind limit, not an executable fill. Rejection entry uses only the next observed hourly open. Markouts omit intrabar stops, spreads, financing, news, slippage and broker contracts; bps costs are illustrative, not measured. No strategy edge or live execution is established.'};
+}
+
+// Evaluate an immutable completed-hour prefix even when a chart has already
+// loaded later candles. Future OHLC/volume are never inspected. The cutoff
+// is the close of the latest hour permitted to influence this report.
+export function studyHourlyFvgMidpointAsOf(
+ suppliedBars:readonly Bar[],source:FvgSource,asOfClosedAt:number,config:FvgConfig={},
+):FvgStudy{
+ if(!Number.isSafeInteger(asOfClosedAt)||asOfClosedAt<HOUR||asOfClosedAt%HOUR!==0)
+  throw Error('Invalid UTC hourly as-of close');
+ if(!Array.isArray(suppliedBars)||suppliedBars.length>20000)
+  throw Error('Invalid or oversized hourly research window');
+ const prefix:Bar[]=[];
+ for(const bar of suppliedBars){
+  // Only a future bar's timestamp is needed to establish the boundary.
+  // Never inspect its OHLC, volume or observed-minute count.
+  const time=bar?.time;
+  if(!Number.isSafeInteger(time)||time<0||time%HOUR!==0||
+   !Number.isSafeInteger(time+HOUR))
+   throw Error('Invalid hourly as-of input timestamp');
+  if(time+HOUR>asOfClosedAt)break;
+  prefix.push({time,open:bar.open,high:bar.high,low:bar.low,
+   close:bar.close,volume:bar.volume,observed_minutes:bar.observed_minutes});
+ }
+ return studyHourlyFvgMidpoint(prefix,source,config);
 }

@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {studyHourlyFvgMidpoint,type FvgSource} from '../lib/hourly-fvg-midpoint-study.ts';
+import {studyHourlyFvgMidpoint,studyHourlyFvgMidpointAsOf,type FvgSource} from '../lib/hourly-fvg-midpoint-study.ts';
 import type {Bar} from '../lib/research.ts';
 
 const H=3600,BASE=Date.UTC(2026,9,20)/1000;
@@ -27,6 +27,36 @@ const target=(bars:Bar[],s:FvgSource=source)=>{
  assert.ok(found,'expected exact 3-candle FVG');
  return found;
 };
+test('as-of hourly study never reads future OHLC or promotes right-censored returns',()=>{
+ const bars=fixture();
+ const formationClose=BASE+33*H,touchClose=BASE+34*H,exitClose=BASE+37*H;
+ const formationOnly=studyHourlyFvgMidpointAsOf(bars,source,formationClose);
+ assert.deepEqual(formationOnly,studyHourlyFvgMidpoint(bars.slice(0,33),source));
+ const before=formationOnly.observations.find(x=>x.formationClosedAt===formationClose);
+ assert.ok(before);
+ assert.equal(before.gates.strictCandidate,'INSUFFICIENT_DATA');
+ assert.equal(before.gates.markout,'INSUFFICIENT_DATA');
+ assert.equal(before.firstTouchOutcomeObservedAt,null);
+ const futureProtected=fixture();
+ Object.defineProperty(futureProtected[34],'open',{get(){throw Error('future open read');}});
+ Object.defineProperty(futureProtected[34],'volume',{get(){throw Error('future volume read');}});
+ const touchOnly=studyHourlyFvgMidpointAsOf(futureProtected,source,touchClose);
+ assert.deepEqual(touchOnly,studyHourlyFvgMidpoint(bars.slice(0,34),source));
+ const atTouch=touchOnly.observations.find(x=>x.formationClosedAt===formationClose);
+ assert.ok(atTouch);
+ assert.equal(atTouch.gates.strictCandidate,'PASS');
+ assert.equal(atTouch.gates.markout,'INSUFFICIENT_DATA');
+ assert.equal(atTouch.markoutOutcomeObservedAt,null);
+ const atExit=studyHourlyFvgMidpointAsOf(bars,source,exitClose);
+ assert.deepEqual(atExit,studyHourlyFvgMidpoint(bars.slice(0,37),source));
+ const matured=atExit.observations.find(x=>x.formationClosedAt===formationClose);
+ assert.ok(matured);
+ assert.equal(matured.gates.markout,'PASS');
+ assert.equal(matured.markoutOutcomeObservedAt,exitClose);
+ for(const cutoff of [NaN,Infinity,-H,BASE+H/2,Number.MAX_SAFE_INTEGER])
+  assert.throws(()=>studyHourlyFvgMidpointAsOf(bars,source,cutoff),/Invalid UTC hourly as-of close/);
+});
+
 test('strict and markout clocks are causal for bullish/bearish paired, rejected and censored cases',()=>{
  for(const bearish of [false,true]){
   const flip=(series:Bar[])=>bearish?series.map(b=>({...b,
@@ -341,7 +371,7 @@ test('research report source metadata excludes arbitrary caller properties',()=>
  assert.deepEqual(Object.keys(report.source).sort(),Object.keys(source).sort());
  assert.equal(JSON.stringify(report).includes('synthetic-private-marker'),false);
  assert.equal(JSON.stringify(report).includes('synthetic-account-marker'),false);
- assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v22');
+ assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v23');
 });
 test('ambiguous source labels and contradictory volume evidence fail closed',()=>{
  // These are declared metadata, not independent vendor authentication.
@@ -716,7 +746,7 @@ test('an overflowing next-open comparator suppresses both matched markouts',()=>
 });
 test('completed hourly timestamps are safe and numeric rule changes have a new version',()=>{
  const report=studyHourlyFvgMidpoint(fixture(),source);
- assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v22');
+ assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v23');
  const lastSafeAlignedOpen=Math.floor(Number.MAX_SAFE_INTEGER/H)*H;
  assert.equal(Number.isSafeInteger(lastSafeAlignedOpen),true);
  assert.equal(Number.isSafeInteger(lastSafeAlignedOpen+H),false);
