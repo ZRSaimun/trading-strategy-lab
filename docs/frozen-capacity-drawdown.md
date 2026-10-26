@@ -333,3 +333,36 @@ is derived. Synthetic regressions enumerate 243 interval populations and
 7,776 endpoint outcome combinations, plus complete-report cost checks.
 Authenticated source data, independent holdout and broker costs remain
 unverified; this draft PR is unmerged and undeployed.
+
+
+## Worst single-deletion mean fragility (retrospective only)
+
+For each frozen **admitted** training/holdout cohort and each declared 0/5/10/20
+additional round-trip basis-point scenario, the auditor computes the smallest
+arithmetic mean net-R remaining after removing **exactly one** artificial
+fixed-horizon booking from the cohort. This exposes an aggregate mean that
+depends disproportionately on one unusually favorable path. It does not
+retroactively remove any trade from admission, return totals or other reports.
+
+With N >= 2 and lower/upper interval endpoints `L_i, U_i`, the exact
+endpoint bounds are `min_j (sum_i L_i - L_j)/(N-1)` and
+`min_j (sum_i U_i - U_j)/(N-1)`. The auditor reports the respective
+**1-based booking events removed** by these worst-case deletions, choosing
+the earliest event on ties. The two events can differ because uncertainty
+can change which path is most influential. It also reports whether **every
+possible single deletion** leaves the mean guaranteed strictly positive
+(lower bound > 0), or whether some interval-compatible outcome can leave
+the worst-deletion mean strictly positive (upper bound > 0). Zero is **not**
+strictly positive.
+
+The return endpoints are independently bounded; this is a deterministic
+sensitivity envelope, not a bootstrap, confidence interval, p-value,
+forecast, evidence of independence, or an out-of-sample profitability claim.
+Deleting a path is a **hypothetical ex post diagnostic**, never a new
+capacity policy, a valid live trading action or permission to optimize a
+strategy on the holdout. The cohort size is fixed across cost scenarios,
+and both mean bounds and strict-positivity flags must not improve as
+illustrative costs increase. Three synthetic regression tests include an
+independent 7,776-realization endpoint oracle. Source rights, timestamp
+authentication, executable broker costs and untouched holdout independence
+remain unverified. No real-money or paper order path is changed.
