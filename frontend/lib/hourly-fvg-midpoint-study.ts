@@ -7,7 +7,7 @@
  */
 import type {Bar} from './research.ts';
 
-export const HOURLY_FVG_VERSION='hourly-fvg-first-midpoint-touch-v6';
+export const HOURLY_FVG_VERSION='hourly-fvg-first-midpoint-touch-v7';
 export type Evidence='PASS'|'FAIL'|'INSUFFICIENT_DATA';
 export type Side='BULLISH'|'BEARISH';
 export type FvgSource={
@@ -249,7 +249,15 @@ export function studyHourlyFvgMidpoint(
    blindMidpointTouch:blind,confirmedNextOpen:confirmed,
    eligibleForLiveTrading:false});
  }
- return {version:HOURLY_FVG_VERSION,source:{...source},
+ // Do not serialize arbitrary caller-supplied properties into a research
+ // report. Structural TypeScript checks do not strip runtime vendor payloads,
+ // access tokens, or other metadata attached to a source object.
+ return {version:HOURLY_FVG_VERSION,source:{
+  datasetId:source.datasetId,archiveSha256:source.archiveSha256,
+  instrument:source.instrument,provider:source.provider,
+  priceSide:source.priceSide,volumeType:source.volumeType,
+  volumeVerified:source.volumeVerified,
+ },
   config:{maxTouchWaitBars,markoutBars,minimumRejectionWickFraction,
    volumeMultiple,hypotheticalRoundTripCostsBps:[...costs]},
   observations,

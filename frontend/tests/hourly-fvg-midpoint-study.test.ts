@@ -27,6 +27,18 @@ const target=(bars:Bar[],s:FvgSource=source)=>{
  assert.ok(found,'expected exact 3-candle FVG');
  return found;
 };
+test('research report source metadata excludes arbitrary caller properties',()=>{
+ // TypeScript structural typing does not remove runtime fields. A caller
+ // may pass a richer vendor object; its extra data must never be exported.
+ const richerSource={...source,debugAccessToken:'synthetic-private-marker',
+  rawVendorPayload:{account:'synthetic-account-marker'}};
+ const report=studyHourlyFvgMidpoint(fixture(),richerSource);
+ assert.deepEqual(report.source,source);
+ assert.deepEqual(Object.keys(report.source).sort(),Object.keys(source).sort());
+ assert.equal(JSON.stringify(report).includes('synthetic-private-marker'),false);
+ assert.equal(JSON.stringify(report).includes('synthetic-account-marker'),false);
+ assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v7');
+});
 test('first bullish midpoint touch has a hypothetical blind limit and later next-open rejection markout',()=>{
  const x=target(fixture());
  assert.equal(x.direction,'BULLISH');
@@ -323,7 +335,7 @@ test('an overflowing next-open comparator suppresses both matched markouts',()=>
 });
 test('completed hourly timestamps are safe and numeric rule changes have a new version',()=>{
  const report=studyHourlyFvgMidpoint(fixture(),source);
- assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v6');
+ assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v7');
  const lastSafeAlignedOpen=Math.floor(Number.MAX_SAFE_INTEGER/H)*H;
  assert.equal(Number.isSafeInteger(lastSafeAlignedOpen),true);
  assert.equal(Number.isSafeInteger(lastSafeAlignedOpen+H),false);
