@@ -12,10 +12,10 @@ import hashlib
 import json
 import re
 
-_ACCOUNT = re.compile(r"[0-9]{3}-[0-9]{3}-[0-9]{4,12}-[0-9]{3}\\Z")
-_ID = re.compile(r"[1-9][0-9]{0,19}\\Z")
-_SHA = re.compile(r"[0-9a-f]{64}\\Z")
-_TYPE = re.compile(r"[A-Z][A-Z0-9_]{1,63}\\Z")
+_ACCOUNT = re.compile(r"[0-9]{3}-[0-9]{3}-[0-9]{4,12}-[0-9]{3}\Z")
+_ID = re.compile(r"[1-9][0-9]{0,19}\Z")
+_SHA = re.compile(r"[0-9a-f]{64}\Z")
+_TYPE = re.compile(r"[A-Z][A-Z0-9_]{1,63}\Z")
 _PER_WINDOW = 100
 _MAX_WINDOWS = 20
 _MAX_IDS = _PER_WINDOW * _MAX_WINDOWS
