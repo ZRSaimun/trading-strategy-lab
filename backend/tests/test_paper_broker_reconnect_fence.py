@@ -145,6 +145,23 @@ def test_declared_fill_requires_fill_sequence_advance():
     assert audit(before, after)["structural_checks_pass"] is True
 
 
+def test_multiple_unexplained_fill_sequence_jumps_block():
+    before, after = example()
+    after["working_order_ids"] = []
+    after["terminal_receipts"] = [{
+        "client_order_id": "order-001", "outcome": "FILLED",
+        "observed_at_ms": NOW - 500,
+    }]
+    after["fill_sequence"] = 4
+    assert "fill_sequence_matches_declared_terminal_fills" in audit(before, after)["failed_checks"]
+
+
+def test_unexplained_order_sequence_advance_blocks():
+    before, after = example()
+    after["order_sequence"] = 4
+    assert "no_unexplained_order_sequence_change" in audit(before, after)["failed_checks"]
+
+
 def test_unexplained_fill_sequence_advance_blocks():
     before, after = example()
     after["fill_sequence"] = 3
