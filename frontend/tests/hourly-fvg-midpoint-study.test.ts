@@ -37,7 +37,24 @@ test('research report source metadata excludes arbitrary caller properties',()=>
  assert.deepEqual(Object.keys(report.source).sort(),Object.keys(source).sort());
  assert.equal(JSON.stringify(report).includes('synthetic-private-marker'),false);
  assert.equal(JSON.stringify(report).includes('synthetic-account-marker'),false);
- assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v7');
+ assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v8');
+});
+test('ambiguous source labels and contradictory volume evidence fail closed',()=>{
+ // These are declared metadata, not independent vendor authentication.
+ // Exact source identities must not acquire aliases or log delimiters.
+ for(const invalid of [
+  {...source,instrument:' NSXUSD-CFD'},
+  {...source,instrument:'NSXUSD-CFD '},
+  {...source,provider:'feed\nsecond'},
+  {...source,provider:'feed\u2028second'},
+  {...source,provider:'p'.repeat(129)},
+  {...source,volumeType:'none' as const,volumeVerified:true},
+  {...source,volumeType:'unverified' as const,volumeVerified:true},
+ ]){
+  assert.throws(()=>studyHourlyFvgMidpoint(fixture(),invalid),/Invalid source/);
+ }
+ const exact={...source,instrument:'NSXUSD-CFD / BID',provider:'Research feed A'};
+ assert.deepEqual(studyHourlyFvgMidpoint(fixture(),exact).source,exact);
 });
 test('first bullish midpoint touch has a hypothetical blind limit and later next-open rejection markout',()=>{
  const x=target(fixture());
@@ -335,7 +352,7 @@ test('an overflowing next-open comparator suppresses both matched markouts',()=>
 });
 test('completed hourly timestamps are safe and numeric rule changes have a new version',()=>{
  const report=studyHourlyFvgMidpoint(fixture(),source);
- assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v7');
+ assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v8');
  const lastSafeAlignedOpen=Math.floor(Number.MAX_SAFE_INTEGER/H)*H;
  assert.equal(Number.isSafeInteger(lastSafeAlignedOpen),true);
  assert.equal(Number.isSafeInteger(lastSafeAlignedOpen+H),false);

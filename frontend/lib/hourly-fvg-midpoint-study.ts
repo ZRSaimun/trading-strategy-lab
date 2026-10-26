@@ -7,7 +7,7 @@
  */
 import type {Bar} from './research.ts';
 
-export const HOURLY_FVG_VERSION='hourly-fvg-first-midpoint-touch-v7';
+export const HOURLY_FVG_VERSION='hourly-fvg-first-midpoint-touch-v8';
 export type Evidence='PASS'|'FAIL'|'INSUFFICIENT_DATA';
 export type Side='BULLISH'|'BEARISH';
 export type FvgSource={
@@ -38,6 +38,14 @@ export type FvgStudy={
  warning:string;
 };
 const HOUR=3600;
+// Preserve exact provider/instrument identities in exported research reports.
+// Whitespace aliases, control characters and unbounded labels can poison
+// provenance comparisons or logs; never silently normalize an identity.
+function validSourceLabel(value:unknown):value is string{
+ return typeof value==='string'&&value.length>=1&&value.length<=128&&
+  value.trim()===value&&
+  !/[\u0000-\u001f\u007f-\u009f\u2028\u2029]/.test(value);
+}
 function validateBars(bars:readonly Bar[]){
  if(!Array.isArray(bars)||bars.length>20000)
   throw Error('Invalid or oversized hourly research window');
@@ -137,9 +145,10 @@ export function studyHourlyFvgMidpoint(
  const costs=config.hypotheticalRoundTripCostsBps??[0,5,15];
  if(!source||!/^[a-f0-9]{64}$/.test(source.datasetId)||
   !/^[a-f0-9]{64}$/.test(source.archiveSha256)||
-  !source.instrument?.trim()||!source.provider?.trim()||
+  !validSourceLabel(source.instrument)||!validSourceLabel(source.provider)||
   source.priceSide!=='bid'||typeof source.volumeVerified!=='boolean'||
   !['exchange','tick','none','unverified'].includes(source.volumeType)||
+  (source.volumeVerified&&!['exchange','tick'].includes(source.volumeType))||
   !Number.isSafeInteger(maxTouchWaitBars)||maxTouchWaitBars<1||maxTouchWaitBars>48||
   !Number.isSafeInteger(markoutBars)||markoutBars<1||markoutBars>48||
   !Number.isFinite(minimumRejectionWickFraction)||

@@ -1,6 +1,8 @@
-# Hourly FVG first-touch midpoint rejection versus blind limit (research v7)
+# Hourly FVG first-touch midpoint rejection versus blind limit (research v8)
 
 **Status: proposed, deterministic, read-only hypothesis.** This standalone TypeScript library is not yet wired to the terminal UI, production broker, archive query or cloud service. No actual BID/ASK executions, licensed news data, verified performance, live trades or profitability claims are included. It deliberately does **not** duplicate PR #24's sweep/MSS/FVG confluence risk-path experiment or PR #33's 4H CRT/15m confirmation screen.
+
+**Version 8: source identity metadata integrity.** The engine rejects leading/trailing whitespace, control characters and labels over 128 characters in declared provider/instrument identities rather than silently treating ambiguous or log-breaking strings as distinct valid sources. A claimed `volumeVerified=true` cannot accompany `none` or `unverified` volume classification. These checks reject internally contradictory or malformed declarations; they do **not** independently authenticate a provider, dataset, price, or volume. The frozen rule identifier is `hourly-fvg-first-midpoint-touch-v8`; a synthetic regression covers invalid and valid declarations.
 
 **Version 7: exported source-field allowlist.** The read-only report now copies only the seven documented source identity and volume classification fields. TypeScript accepts richer runtime objects, but arbitrary caller metadata (including accidentally attached vendor payloads or credentials) must never be serialized into exported research reports. This is a data-minimization guard, **not** source authentication. The frozen rule identifier is `hourly-fvg-first-midpoint-touch-v7`; prior rule versions remain distinct. A synthetic regression injects extra fields and verifies they are absent from the output. No private data or actual secrets were used.
 
@@ -36,6 +38,6 @@ The research still lacks an authenticated broker's timestamped BID/ASK observati
 
 ## Verification
 
-Twenty-three synthetic Node tests cover bullish and bearish gap geometry, first-touch freeze, strict volume gating, incomplete and missing candles, gap-through uncertainty, causal next-open timing, common-horizon cost arithmetic and source validation. Run `cd frontend && npm test && npm run typecheck && npm run build`; repository CI also exercises backend and container smoke. Synthetic passing tests do not establish a statistical edge.
+26 synthetic Node tests cover bullish and bearish gap geometry, first-touch freeze, strict volume gating, incomplete and missing candles, gap-through uncertainty, causal next-open timing, common-horizon cost arithmetic and source validation. Run `cd frontend && npm test && npm run typecheck && npm run build`; repository CI also exercises backend and container smoke. Synthetic passing tests do not establish a statistical edge.
 
 **Deployment safety:** isolated draft PR; no secrets, private datasets, paid APIs, orders, production database changes, merge or Render deployment.
