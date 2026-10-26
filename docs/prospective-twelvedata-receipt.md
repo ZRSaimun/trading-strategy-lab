@@ -115,3 +115,32 @@ See [provider-credit-budget.md](provider-credit-budget.md) for provisioning,
 tests, concurrency boundaries and the critical warning that ephemeral cloud
 filesystems are not durable. This remains a disconnected component; it is not
 an authenticated owner route or a verified Twelve Data account entitlement.
+
+
+## Provider credit response-header observation (26 October 2026)
+
+The opt-in wire-evidence path now extracts **only** the documented Twelve
+Data `api-credits-used` and `api-credits-left` HTTP response headers.
+Counters must be single, bounded, non-negative decimal integers. Duplicate,
+partial, malformed or internally inconsistent headers cause a sanitized
+provider rejection. If **both headers are absent**, the one-shot census is
+explicitly `REVIEW_REQUIRED`; it does **not** invent account usage.
+
+Reports expose the two observed integers (or nulls), an
+`OBSERVED_UNVERIFIED` / `MISSING_REVIEW_REQUIRED` status, and permanently
+false `provider_credit_quota_window_verified` and
+`provider_account_credit_usage_reconciled` flags. No raw headers, API key or
+HTTP response body is persisted in the report. The historical client's
+default two-item return shape is unchanged.
+
+**These headers are not an independently signed billing statement.** Their
+counter window depends on the owner's plan (paid minute quota versus Basic
+daily quota). Other API keys/applications may consume credits on the same
+account; a local daily SQLite reservation is not comparable to the vendor's
+per-minute counter without separately verified account and window context.
+No automatic retries, credit refunds, paid requests, broker calls or live
+activation are introduced.
+
+Official source (checked 26 October 2026):
+https://support.twelvedata.com/en/articles/5615854-credits
+and https://support.twelvedata.com/en/articles/5713553-control-over-api-usage.
