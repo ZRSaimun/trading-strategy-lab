@@ -163,3 +163,39 @@ def test_cost_threshold_withheld_for_nonpositive_and_empty_cohorts():
     assert empty["uncensored_mean_gross_r"] is None
     assert empty["mean_r_cost_per_additional_bps"] is None
     assert empty["positive_mean_break_even_additional_bps"] is None
+
+
+def test_confirmed_signal_with_missing_entry_is_censused_not_silently_dropped():
+    rows = synthetic_bars()
+    # The sweep at 30 and confirmation at 31 are fully observable. The entry
+    # at 32 belongs to a new source segment, so its open cannot be used.
+    b = rows[32]
+    rows[32] = Bar(b.time, b.o, b.h, b.l, b.c, 1)
+    report = research(rows)["cohorts"]["development"]
+    assert report["confirmed_signals_without_observable_entry"] == 1
+    assert report["censored_due_to_gaps_or_boundaries"] == 0
+    assert report["cost_scenarios"][0]["count"] == 0
+
+
+def test_confirmed_signal_at_archive_end_without_entry_is_censused():
+    rows = synthetic_bars()
+    # Remove the earlier trade; put a confirmed long in the final two bars.
+    b = rows[30]
+    rows[30] = Bar(b.time, D(100), D(101), D(99), D(100), 0)
+    for index, values in ((198, (100, 101, 98, 100)),
+                          (199, (100, 103, 99, 102))):
+        b = rows[index]
+        rows[index] = Bar(b.time, *(D(v) for v in values), b.segment)
+    report = research(rows)["cohorts"]["exploratory_later"]
+    assert report["confirmed_signals_without_observable_entry"] == 1
+    assert report["cost_scenarios"][0]["count"] == 0
+    assert report["censored_due_to_gaps_or_boundaries"] == 0
+
+
+def test_confirmed_signal_with_nonconsecutive_entry_is_censused():
+    rows = synthetic_bars()
+    b = rows[32]
+    rows[32] = Bar(b.time + timedelta(minutes=15), b.o, b.h, b.l, b.c, b.segment)
+    report = research(rows)["cohorts"]["development"]
+    assert report["confirmed_signals_without_observable_entry"] == 1
+    assert report["cost_scenarios"][0]["count"] == 0
