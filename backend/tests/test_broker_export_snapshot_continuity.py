@@ -167,3 +167,28 @@ def test_bounded_population_and_snapshot_clocks():
     a["coverage_end"] = a["exported_at"] + 1
     with pytest.raises(ValueError):
         audit(a, b)
+
+
+def test_position_id_cannot_pool_charges_across_instruments():
+    a, b = pair()
+    b["events"].append(event("oil-fee", occurred=260, recorded=270, cash="9.00"))
+    b["events"][-1]["instrument"] = "WTIUSD-CFD"
+    with pytest.raises(ValueError, match="Position ID reused across instruments"):
+        audit(a, b)
+
+
+def test_distinct_position_ids_may_have_distinct_instruments():
+    a, b = pair()
+    b["events"].append(event("oil-fee", occurred=260, recorded=270, cash="9.00"))
+    b["events"][-1].update(instrument="WTIUSD-CFD", position_id="p2")
+    result = audit(a, b)
+    assert result["new_event_count"] == 2
+    assert result["later_effective_cash_charges"]["FINANCING"] == "11.00"
+
+
+def test_position_instrument_conflict_is_rejected_within_earlier_snapshot():
+    a, b = pair()
+    a["events"].append(event("other", occurred=120, recorded=130, cash="1.00"))
+    a["events"][-1]["instrument"] = "WTIUSD-CFD"
+    with pytest.raises(ValueError, match="Position ID reused across instruments"):
+        audit(a, b)
