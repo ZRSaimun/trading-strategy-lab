@@ -424,3 +424,55 @@ def test_ambiguous_outcome_retains_possible_signs_not_fake_win_rate():
     assert counts["admitted_paths"] == 36
     assert counts["guaranteed_strict_positive"] <= counts["possible_strict_positive"]
     assert counts["guaranteed_strict_negative"] <= counts["possible_strict_negative"]
+
+
+def test_rejected_capacity_paths_have_separate_complete_sign_census():
+    m, p = sample()
+    move(m, p, 37, CUTOFF + 60)
+    r = run(m, p)
+    assert r["admission_counts"]["holdout_unadmitted"] == 1
+    for scenario in r["cost_scenarios"]:
+        admitted = scenario["holdout_pseudo_settlement_strict_sign_census"]
+        rejected = scenario["holdout_pseudo_settlement_unadmitted_strict_sign_census"]
+        assert admitted["admitted_paths"] == 35
+        assert rejected["unadmitted_paths"] == 1
+        assert rejected["guaranteed_strict_negative"] == 1
+        assert rejected["possible_strict_positive"] == 0
+        assert scenario["training_pseudo_settlement_unadmitted_strict_sign_census"] == {
+            "unadmitted_paths": 0,
+            "guaranteed_strict_positive": 0, "possible_strict_positive": 0,
+            "guaranteed_strict_negative": 0, "possible_strict_negative": 0,
+            "guaranteed_exact_zero": 0, "possible_exact_zero": 0,
+        }
+
+
+def test_rejected_ambiguous_path_preserves_both_possible_signs():
+    m, p = sample()
+    move(m, p, 37, CUTOFF + 60)
+    p[37]["bars"][0].update(high="103", low="98", close="100")
+    s = run(m, p)["cost_scenarios"][0]
+    rejected = s["holdout_pseudo_settlement_unadmitted_strict_sign_census"]
+    assert rejected["unadmitted_paths"] == 1
+    assert rejected["possible_strict_positive"] == 1
+    assert rejected["possible_strict_negative"] == 1
+    assert rejected["guaranteed_strict_positive"] == 0
+    assert rejected["guaranteed_strict_negative"] == 0
+    assert s["holdout_pseudo_settlement_strict_sign_census"]["admitted_paths"] == 35
+
+
+def test_rejected_outcome_changes_do_not_retroactively_change_admissions():
+    m, p = sample()
+    move(m, p, 37, CUTOFF + 60)
+    baseline = run(m, p)
+    for bar in p[37]["bars"]:
+        bar["close"] = "100.5"
+    changed = run(m, p)
+    assert changed["admission_counts"] == baseline["admission_counts"]
+    assert all(
+        a["holdout_pseudo_settlement_strict_sign_census"]
+        == b["holdout_pseudo_settlement_strict_sign_census"]
+        for a, b in zip(baseline["cost_scenarios"], changed["cost_scenarios"])
+    )
+    assert changed["cost_scenarios"][0][
+        "holdout_pseudo_settlement_unadmitted_strict_sign_census"
+    ]["guaranteed_strict_positive"] == 1
