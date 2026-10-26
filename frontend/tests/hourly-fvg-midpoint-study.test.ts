@@ -97,6 +97,29 @@ test('archive hashes must be primitive strings, not coercible objects',()=>{
  assert.equal(valid.source.archiveSha256,source.archiveSha256);
 });
 
+test('oversized hypothetical cost arrays fail before allocation or element access',()=>{
+ const oversized:number[]=[];
+ // Array.from would try to materialize one billion elements before the
+ // old post-copy length check, risking browser memory exhaustion.
+ oversized.length=1_000_000_000;
+ let reads=0;
+ Object.defineProperty(oversized,'0',{get(){
+  reads++;
+  throw Error('oversized array element must not be evaluated');
+ }});
+ assert.throws(()=>studyHourlyFvgMidpoint(fixture(),source,{
+  hypotheticalRoundTripCostsBps:oversized,
+ }),/Invalid source identity, volume provenance or frozen FVG study settings/);
+ assert.equal(reads,0,'reject array length before accessing any cost element');
+ assert.throws(()=>studyHourlyFvgMidpoint(fixture(),source,{
+  hypotheticalRoundTripCostsBps:[],
+ }),/Invalid source/);
+ const valid=studyHourlyFvgMidpoint(fixture(),source,{
+  hypotheticalRoundTripCostsBps:[0,5,15],
+ });
+ assert.deepEqual(valid.config.hypotheticalRoundTripCostsBps,[0,5,15]);
+});
+
 test('formation census preserves unknown outcomes and distinguishes paired from blind-only markouts',()=>{
  const bars=[
   candle(0,99,100,98,99),candle(1,100,102,99,101),
@@ -278,7 +301,7 @@ test('research report source metadata excludes arbitrary caller properties',()=>
  assert.deepEqual(Object.keys(report.source).sort(),Object.keys(source).sort());
  assert.equal(JSON.stringify(report).includes('synthetic-private-marker'),false);
  assert.equal(JSON.stringify(report).includes('synthetic-account-marker'),false);
- assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v20');
+ assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v21');
 });
 test('ambiguous source labels and contradictory volume evidence fail closed',()=>{
  // These are declared metadata, not independent vendor authentication.
