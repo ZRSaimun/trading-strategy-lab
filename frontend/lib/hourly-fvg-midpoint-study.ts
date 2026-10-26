@@ -62,8 +62,13 @@ function verifiedVolume(bars:readonly Bar[],j:number,source:FvgSource,multiple:n
   now.volume===null||now.volume<=0||
   history.some(b=>b.volume===null||b.volume<=0))
   return 'INSUFFICIENT_DATA';
- const mean=history.reduce((sum,b)=>sum+(b.volume??0),0)/20;
- return mean>0&&now.volume>multiple*mean?'PASS':'FAIL';
+ // Sum-before-divide can overflow for valid finite volumes; dividing
+ // every volume by a positive observed baseline also avoids underflow when
+ // the entire 20-bar history is subnormal. Ratios are only used for this
+ // strict comparison, never emitted as authenticated volume evidence.
+ const scale=Math.max(...history.map(b=>b.volume??0));
+ const meanRelative=history.reduce((sum,b)=>sum+(b.volume??0)/scale,0)/20;
+ return now.volume/scale>multiple*meanRelative?'PASS':'FAIL';
 }
 function markout(entryAt:number,entry:number,exitAt:number,exit:number,
  direction:Side,costs:readonly number[]):Markout|null{

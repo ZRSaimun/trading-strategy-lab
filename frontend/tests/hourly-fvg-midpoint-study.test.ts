@@ -100,6 +100,26 @@ test('unverified, placeholder or insufficient 20-bar volume cannot pass',()=>{
  assert.equal(target(low).gates.verifiedVolume,'FAIL');
  assert.equal(target(low).gates.strictCandidate,'FAIL');
 });
+test('verified prior-20 volume uses a scale-safe strict threshold for extreme finite values',()=>{
+ // The naive sum of twenty 1e308 values is Infinity, hiding a valid PASS.
+ // Dividing each 5e-324 value by 20 underflows and also loses the comparison.
+ for(const {baseline,touch,expected} of [
+  {baseline:1e308,touch:1.7e308,expected:'PASS'},
+  {baseline:1e308,touch:1.4e308,expected:'FAIL'},
+  {baseline:5e-324,touch:1e-323,expected:'PASS'},
+  {baseline:5e-324,touch:5e-324,expected:'FAIL'},
+ ] as const){
+  const bars=fixture();
+  for(let i=13;i<=32;i++)bars[i].volume=baseline;
+  bars[33].volume=touch;
+  const x=target(bars);
+  assert.equal(x.gates.midpointTouch,'PASS');
+  assert.equal(x.gates.wickRejection,'PASS');
+  assert.equal(x.gates.verifiedVolume,expected);
+  assert.equal(x.gates.strictCandidate,expected);
+ }
+});
+
 test('missing 1H bar in pre-touch path is unknown, not a false negative or later cherry-picked touch',()=>{
  const bars=fixture().filter(b=>b.time!==BASE+33*H);
  const x=target(bars);
