@@ -76,6 +76,7 @@ def _validate(snapshot):
         raise ValueError("Unbounded broker event population")
     by_id = {}
     children = set()
+    instrument_by_position = {}
     for row in events:
         _exact(row, _EVENT, "normalized broker event")
         event_id = row["event_id"]
@@ -83,6 +84,11 @@ def _validate(snapshot):
             raise ValueError("Invalid or duplicate event ID")
         if not _id(row["instrument"]) or not _id(row["position_id"]) or not _sha(row["evidence_sha256"]):
             raise ValueError("Invalid event source identity")
+        # A normalized position key must never silently pool cash from two
+        # instruments. Provider-native ID reuse requires explicit namespacing.
+        prior_instrument = instrument_by_position.setdefault(row["position_id"], row["instrument"])
+        if prior_instrument != row["instrument"]:
+            raise ValueError("Position ID reused across instruments")
         if row["kind"] not in ("FILL",) + _CASH_KINDS:
             raise ValueError("Unsupported normalized event kind")
         if not all(_clock(row[k]) for k in ("occurred_at", "recorded_at")) or not (
