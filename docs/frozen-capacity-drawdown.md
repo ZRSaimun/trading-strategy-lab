@@ -267,3 +267,33 @@ profit probability, forecast calibration, validated historical edge, or
 permission to trade. In particular, a threshold is not a claim that any
 provider can execute at that cost. No signal selection or order path uses
 these retrospective summaries.
+
+
+## Worst contiguous 5/10 fixed-horizon pseudo-booking windows (26 October 2026)
+
+The offline report now includes `{training|holdout}_pseudo_settlement_fixed_window_adverse_sums`
+for each of the predeclared 0/5/10/20-bps illustrative cost scenarios.
+For each fixed **5- or 10-admitted-path** window in the unchanged full-horizon
+pseudo-settlement ordering, find the smallest sum of the path net-R returns,
+then scale it by the fixed initial-equity risk fraction. The all-lower
+return path supplies the **minimum possible worst-window sum**, while the
+all-upper path supplies the **maximum possible worst-window sum** under
+independent interval bounds. These sums can be positive if every window is
+profitable; a negative sum is not an actual broker cash loss.
+
+Both endpoint results include earliest-tie start and end **booking event
+indices**. Event 0 is the initial baseline, and a window from event 0 to
+event 5 contains the first five artificially booked outcomes. No market
+minutes, stop/target execution times, broker equity, or real positions
+are inferred. Unlike unrestricted maximum drawdown, these fixed-width
+windows make adverse **clustering over a predeclared number of bookings**
+visible, without selecting the window width from holdout performance.
+Admission decisions, cost identities, population and embargo remain frozen.
+
+Three synthetic regressions cover 3,125 exhaustive five-event sequences
+times four widths against an independent quadratic window oracle,
+invalid width inputs and full-cohort cost monotonicity. No historical
+source rights, quote-side spreads, slippage, financing, independent holdout
+or profitable edge is authenticated. The diagnostic cannot generate or
+authorize a paper or real-money order. The PR remains draft and undeployed
+until production rollback and health gates are independently verified.
