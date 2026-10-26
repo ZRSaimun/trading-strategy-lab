@@ -41,7 +41,11 @@ def stores(tmp_path):
 def append(store, i=1, session_id="paper-session-a", source=SOURCE, expected=None, **kwargs):
     return store.checkpoint(source, quote(i), session_id, IDENTITY, expected,
                             0 if expected is None else expected + 1,
-                            checkpoint(f"checkpoint-{i}"), now_ms=NOW + (i - 1) * 100 + 30,
+                            checkpoint(
+                                f"checkpoint-{i}",
+                                history=tuple(f"checkpoint-{j}" for j in range(1, i))
+                                if expected is not None else (),
+                            ), now_ms=NOW + (i - 1) * 100 + 30,
                             **kwargs)
 
 
@@ -316,3 +320,86 @@ def test_missing_reverse_owner_cannot_be_rebound_to_new_atomic_journal(stores):
     with factory() as db:
         assert len(db.scalars(select(Audit)).all()) == 1
         assert len(db.scalars(select(Record)).all()) == 3
+
+
+def _atomic_history_payload():
+    value = json.loads(checkpoint("initial"))
+    value["orders"] = [
+        {"clientOrderId": "order-a", "status": "pending"},
+        {"clientOrderId": "order-b", "status": "pending"},
+    ]
+    value["events"] = [{"kind": "paper", "id": "event-a"}]
+    return value
+
+
+def _atomic_write_payload(atomic, payload, *, i, expected):
+    return atomic.checkpoint(
+        SOURCE, quote(i), "paper-session-a", IDENTITY,
+        expected, 0 if expected is None else expected + 1,
+        json.dumps(payload, separators=(",", ":")),
+        now_ms=NOW + (i - 1) * 100 + 30,
+    )
+
+
+@pytest.mark.parametrize("violation", [
+    "rewrite_action", "truncate_actions", "rewrite_event",
+    "truncate_events", "remove_order", "reorder_orders",
+    "duplicate_order", "invalid_order_id", "no_new_action",
+])
+def test_atomic_history_violation_never_advances_quote_or_journal(stores, violation):
+    atomic, quotes, journal, _, factory = stores
+    first = _atomic_history_payload()
+    assert _atomic_write_payload(atomic, first, i=1, expected=None)["status"] == (
+        "CHECKPOINT_RECORDED_UNVERIFIED"
+    )
+    proposed = json.loads(json.dumps(first))
+    proposed["actions"].append("next")
+    if violation == "rewrite_action":
+        proposed["actions"][0] = "tampered"
+    elif violation == "truncate_actions":
+        proposed["actions"] = []
+    elif violation == "rewrite_event":
+        proposed["events"][0]["id"] = "tampered"
+    elif violation == "truncate_events":
+        proposed["events"] = []
+    elif violation == "remove_order":
+        proposed["orders"] = proposed["orders"][:1]
+    elif violation == "reorder_orders":
+        proposed["orders"].reverse()
+    elif violation == "duplicate_order":
+        proposed["orders"].append(dict(proposed["orders"][0]))
+    elif violation == "invalid_order_id":
+        proposed["orders"][0]["clientOrderId"] = "bad order id"
+    elif violation == "no_new_action":
+        proposed["actions"] = first["actions"][:]
+
+    before_quote = quotes.load_marker(SOURCE)
+    before_journal = journal.load("paper-session-a")
+    result = _atomic_write_payload(atomic, proposed, i=2, expected=0)
+    assert result["status"] == "HOLD_RECONCILIATION"
+    assert result["reason"] == "JOURNAL_HISTORY_CONTINUITY_FAILED"
+    assert result["paper_order_permitted"] is result["live_order_permitted"] is False
+    assert quotes.load_marker(SOURCE) == before_quote
+    assert journal.load("paper-session-a") == before_journal
+    with factory() as db:
+        assert len(db.scalars(select(Audit)).all()) == 1
+
+
+def test_atomic_history_append_and_derived_status_update_remain_unverified(stores):
+    atomic, quotes, journal, _, factory = stores
+    first = _atomic_history_payload()
+    assert _atomic_write_payload(atomic, first, i=1, expected=None)["status"] == (
+        "CHECKPOINT_RECORDED_UNVERIFIED"
+    )
+    proposed = json.loads(json.dumps(first))
+    proposed["actions"].append("next")
+    proposed["orders"][0]["status"] = "cancelled"
+    proposed["events"].append({"kind": "paper", "id": "event-b"})
+    result = _atomic_write_payload(atomic, proposed, i=2, expected=0)
+    assert result["status"] == "CHECKPOINT_RECORDED_UNVERIFIED"
+    assert result["quote_authenticated"] is result["journal_fills_verified"] is False
+    assert result["paper_order_permitted"] is result["live_order_permitted"] is False
+    assert quotes.load_marker(SOURCE)["revision"] == 1
+    assert journal.load("paper-session-a")["revision"] == 1
+    with factory() as db:
+        assert len(db.scalars(select(Audit)).all()) == 2

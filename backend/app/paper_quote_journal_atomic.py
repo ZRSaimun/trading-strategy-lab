@@ -19,6 +19,7 @@ from .paper_quote_replay_store import (
 from .paper_journal_store import (
     PaperJournalStore, _checkpoint, _identity, _revision,
 )
+from .paper_journal_continuity_preflight import review_paper_journal_continuity
 
 
 def _decision(reason, *, accepted=False, quote_revision=None, journal_revision=None):
@@ -138,6 +139,18 @@ class AtomicPaperQuoteJournalStore:
                       previous_journal["identity"] != journal_identity or
                       previous_journal["revision"] != expected_journal_revision):
                     return _decision("JOURNAL_REVISION_OR_IDENTITY_MISMATCH")
+
+                if previous_journal is not None:
+                    # Check the history loaded from this transaction, not a
+                    # caller-declared predecessor. The journal full-value CAS
+                    # below arbitrates concurrent changes before commit.
+                    continuity = review_paper_journal_continuity(
+                        previous_journal["json"], checkpoint_json,
+                        expected_revision=expected_journal_revision,
+                        next_revision=next_journal_revision,
+                    )
+                    if not continuity["assumption_checks_pass"]:
+                        return _decision("JOURNAL_HISTORY_CONTINUITY_FAILED")
 
                 if previous_quote is not None:
                     if now_ms < previous_quote["accepted_at_ms"]:
