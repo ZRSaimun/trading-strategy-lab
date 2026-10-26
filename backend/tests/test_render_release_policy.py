@@ -45,3 +45,29 @@ def test_unsafe_blueprint_is_rejected(unsafe):
 def test_oversize_and_nontext_rejected():
     assert check_blueprint("x" * 16385) == ["BLUEPRINT_SIZE_OR_TYPE"]
     assert check_blueprint(None) == ["BLUEPRINT_SIZE_OR_TYPE"]
+
+def test_blueprint_key_order_cannot_be_rearranged():
+    # An unordered line-multiset check accepts both of these despite the
+    # source no longer matching the reviewed Blueprint layout.
+    swapped_docker = BLUEPRINT.replace(
+        "    dockerfilePath: ./deploy/free.Dockerfile\n    dockerContext: .",
+        "    dockerContext: .\n    dockerfilePath: ./deploy/free.Dockerfile",
+    )
+    assert swapped_docker != BLUEPRINT
+    assert "UNREVIEWED_BLUEPRINT_STRUCTURE" in check_blueprint(swapped_docker)
+
+    swapped_service = BLUEPRINT.replace(
+        "    autoDeployTrigger: 'off'\n    healthCheckPath: /api/health",
+        "    healthCheckPath: /api/health\n    autoDeployTrigger: 'off'",
+    )
+    assert swapped_service != BLUEPRINT
+    assert "UNREVIEWED_BLUEPRINT_STRUCTURE" in check_blueprint(swapped_service)
+
+
+def test_blueprint_reordering_whole_env_blocks_is_rejected():
+    first = '      - key: DEPLOYMENT_PROFILE\n        value: free-cloud'
+    second = '      - key: FREE_ONLY\n        value: "true"'
+    assert first in BLUEPRINT and second in BLUEPRINT
+    rearranged = BLUEPRINT.replace(first + "\n" + second, second + "\n" + first)
+    assert rearranged != BLUEPRINT
+    assert "UNREVIEWED_BLUEPRINT_STRUCTURE" in check_blueprint(rearranged)
