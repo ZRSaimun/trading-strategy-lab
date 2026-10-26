@@ -14,6 +14,7 @@ from app.frozen_capacity_drawdown import (_maximum_drawdown,
                                           _longest_strict_negative_streak,
                                           _strict_sign_count_envelope,
                                           _worst_quartile_mean_envelope,
+                                          _validated_cost_trajectory,
                                           audit_frozen_capacity_drawdown)
 from test_frozen_capacity_week_fragility import CUTOFF, sample, move
 
@@ -554,3 +555,60 @@ def test_admitted_tail_envelope_is_cost_monotone_and_capacity_frozen():
         for cohort in ("training", "holdout"):
             key = f"{cohort}_pseudo_settlement_worst_quartile_net_r"
             assert old[key] == new[key]
+
+
+def test_individual_path_cost_trajectory_is_exact_and_monotone():
+    rows = [
+        {"additional_round_trip_bps": bps,
+         "lower_net_r": lower, "upper_net_r": upper}
+        for bps, lower, upper in (
+            (0, "-2", "1"), (5, "-2.1", "0.9"),
+            (10, "-2.2", "0.8"), (20, "-2.4", "0.6"))
+    ]
+    assert _validated_cost_trajectory(rows) == (
+        (Decimal("-2"), Decimal("1")),
+        (Decimal("-2.1"), Decimal("0.9")),
+        (Decimal("-2.2"), Decimal("0.8")),
+        (Decimal("-2.4"), Decimal("0.6")),
+    )
+    with pytest.raises(ValueError, match="Incomplete"):
+        _validated_cost_trajectory(rows[:-1])
+    with pytest.raises(ValueError, match="identity"):
+        _validated_cost_trajectory([dict(r, additional_round_trip_bps=True)
+                                    if i == 1 else r for i, r in enumerate(rows)])
+    with pytest.raises(ValueError, match="Inverted"):
+        _validated_cost_trajectory([dict(r, lower_net_r="2")
+                                    if i == 2 else r for i, r in enumerate(rows)])
+    with pytest.raises(ValueError, match="Nonmonotone"):
+        _validated_cost_trajectory([dict(r, lower_net_r="-1.9")
+                                    if i == 1 else r for i, r in enumerate(rows)])
+    with pytest.raises(ValueError, match="Nonmonotone"):
+        _validated_cost_trajectory([dict(r, upper_net_r="1.1")
+                                    if i == 1 else r for i, r in enumerate(rows)])
+
+
+def test_aggregate_cost_erosion_cannot_hide_an_improving_individual_path():
+    # Across two paths the *cohort* lower/upper means deteriorate,
+    # yet one path's lower return improves as additional cost rises.
+    # Aggregate-only checks would miss this corrupt per-path trajectory.
+    improving = [
+        {"additional_round_trip_bps": bps,
+         "lower_net_r": lo, "upper_net_r": hi}
+        for bps, lo, hi in (
+            (0, "-2", "1"), (5, "-1.9", "0.9"),
+            (10, "-2.1", "0.8"), (20, "-2.2", "0.7"))
+    ]
+    worsening = [
+        {"additional_round_trip_bps": bps,
+         "lower_net_r": lo, "upper_net_r": hi}
+        for bps, lo, hi in (
+            (0, "-2", "1"), (5, "-4", "-1"),
+            (10, "-5", "-2"), (20, "-6", "-3"))
+    ]
+    for key in ("lower_net_r", "upper_net_r"):
+        sums = [sum((Decimal(rows[i][key]) for rows in (improving, worsening)),
+                    Decimal(0)) for i in range(4)]
+        assert sums == sorted(sums, reverse=True)
+    assert len(_validated_cost_trajectory(worsening)) == 4
+    with pytest.raises(ValueError, match="Nonmonotone individual"):
+        _validated_cost_trajectory(improving)
