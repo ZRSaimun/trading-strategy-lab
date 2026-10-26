@@ -612,3 +612,24 @@ def test_aggregate_cost_erosion_cannot_hide_an_improving_individual_path():
     assert len(_validated_cost_trajectory(worsening)) == 4
     with pytest.raises(ValueError, match="Nonmonotone individual"):
         _validated_cost_trajectory(improving)
+
+
+def test_full_auditor_rejects_corrupt_path_even_before_cohort_mean(monkeypatch):
+    # Upstream capacity totals remain unchanged; only a single audited
+    # per-path scenario is corrupted. The new guard must reject it before
+    # aggregate reconciliation can obscure the precise integrity failure.
+    from app import frozen_capacity_drawdown as module
+    original = module.audit_frozen_bracket_population
+
+    def corrupted(manifest, paths, digest):
+        report = original(manifest, paths, digest)
+        scenarios = report["outcome_audit"]["paths"][0]["cost_scenarios"]
+        scenarios[1]["upper_net_r"] = str(
+            Decimal(scenarios[0]["upper_net_r"]) + Decimal("0.01")
+        )
+        return report
+
+    monkeypatch.setattr(module, "audit_frozen_bracket_population", corrupted)
+    manifest, paths = sample()
+    with pytest.raises(ValueError, match="Nonmonotone individual path"):
+        run(manifest, paths)
