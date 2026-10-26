@@ -1,5 +1,6 @@
 """Offline deterministic Telegram transport acceptance tests: no network calls."""
 import json
+from http.client import IncompleteRead, HTTPException
 from io import BytesIO
 from urllib.error import HTTPError, URLError
 
@@ -90,7 +91,9 @@ def test_untrusted_response_fails_closed(payload):
 
 @pytest.mark.parametrize("failure", [
     URLError("secret token:123456"), TimeoutError("secret timeout"),
-    HTTPError("https://api.telegram.org/secret", 302, "redirect", {}, None)
+    HTTPError("https://api.telegram.org/secret", 302, "redirect", {}, None),
+    IncompleteRead(b"secret partial body", 99),
+    HTTPException("secret HTTP framing failure"),
 ])
 def test_network_failures_never_expose_secret_or_retry(failure):
     fake = FakeOpener(error=failure)
@@ -103,5 +106,29 @@ def test_network_failures_never_expose_secret_or_retry(failure):
 def test_non_200_is_uncertain():
     fake = FakeOpener(Reply(accepted(), status=202))
     with pytest.raises(DeliveryUncertain):
+        send_telegram_once(bot_token=TOKEN, chat_id=CHAT, text="review", opener=fake)
+    assert len(fake.calls) == 1
+
+
+def test_json_decoder_recursion_failure_is_uncertain(monkeypatch):
+    # JSON decoder recursion limits differ by Python version; inject the error
+    # deterministically rather than relying on a specific nesting threshold.
+    def decoder_failure(*_args, **_kwargs):
+        raise RecursionError("secret nested response")
+
+    monkeypatch.setattr("app.forecast_telegram_transport.json.loads", decoder_failure)
+    fake = FakeOpener(Reply(accepted()))
+    with pytest.raises(DeliveryUncertain, match="manual reconciliation") as err:
+        send_telegram_once(bot_token=TOKEN, chat_id=CHAT, text="review", opener=fake)
+    assert "secret" not in str(err.value) and len(fake.calls) == 1
+
+
+@pytest.mark.parametrize("reply", [
+    object(),  # malformed response context manager
+    Reply(b"invalid utf8\\xff"),  # malformed HTTP response body
+])
+def test_malformed_response_object_is_uncertain(reply):
+    fake = FakeOpener(reply=reply)
+    with pytest.raises(DeliveryUncertain, match="manual reconciliation"):
         send_telegram_once(bot_token=TOKEN, chat_id=CHAT, text="review", opener=fake)
     assert len(fake.calls) == 1
