@@ -104,6 +104,20 @@ def test_delivery_after_cutoff_is_not_fabricated():
     assert report["stresses"][0]["hypothetical_fills"] == []
 
 
+def test_latency_cannot_promote_quote_received_before_order_eligibility():
+    _, _, quotes = sample()
+    quotes[0]["observed_at_ms"] = 105
+    quotes[0]["received_at_ms"] = 110  # before eligible_after_ms=120
+    spec = stress()
+    spec.update(quote_delivery_delay_ms=20, spread_widen_price="0",
+                extra_adverse_slippage_price="0")
+    report = run(quotes=quotes, stresses=[spec])
+    assert report["baseline"]["hypothetical_filled_contracts"] == 4
+    assert report["stresses"][0]["hypothetical_filled_contracts"] == 4
+    assert report["stresses"][0]["derived_quote_count"] == 1
+    assert [f["quote_id"] for f in report["stresses"][0]["hypothetical_fills"]] == ["q2"]
+
+
 def test_cancellation_race_under_delayed_quotes():
     _, intent, _ = sample()
     intent.update(cancel_requested_at_ms=155, cancel_effective_at_ms=165)
