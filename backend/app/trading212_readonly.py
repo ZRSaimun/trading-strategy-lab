@@ -8,6 +8,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 import hashlib
 import json
+import math
 
 import httpx
 
@@ -22,6 +23,27 @@ _MAX_RESPONSE_BYTES = 8 * 1024 * 1024
 
 class ReadOnlyBrokerError(ValueError):
     """Sanitized broker read error; never contains keys or response bodies."""
+
+
+def _unique_object_pairs(pairs: list[tuple[str, object]]) -> dict:
+    """Reject ambiguous JSON objects rather than accepting the last duplicate."""
+    obj = {}
+    for key, value in pairs:
+        if key in obj:
+            raise ValueError("duplicate JSON key")
+        obj[key] = value
+    return obj
+
+
+def _finite_float(value: str) -> float:
+    result = float(value)
+    if not math.isfinite(result):
+        raise ValueError("nonfinite JSON number")
+    return result
+
+
+def _reject_constant(_value: str) -> None:
+    raise ValueError("nonstandard JSON constant")
 
 
 def fetch_trading212_readonly(
@@ -49,27 +71,38 @@ def fetch_trading212_readonly(
         with httpx.Client(transport=transport, timeout=8.0, follow_redirects=False,
                           trust_env=False) as client:
             with client.stream("GET", url, auth=httpx.BasicAuth(api_key, api_secret),
-                               headers={"Accept": "application/json"}) as response:
+                               headers={"Accept": "application/json", "Accept-Encoding": "identity"}) as response:
                 if response.status_code != 200:
                     raise ReadOnlyBrokerError("Broker read refused or unavailable")
                 if response.headers.get("content-type", "").split(";", 1)[0].strip().lower() != "application/json":
                     raise ReadOnlyBrokerError("Unexpected broker response content type")
+                # Never let an automatic decompressor allocate an unbounded chunk.
+                if response.headers.get("content-encoding", "identity").strip().lower() != "identity":
+                    raise ReadOnlyBrokerError("Compressed broker responses not supported")
                 size = response.headers.get("content-length")
                 if size is not None and (not size.isascii() or not size.isdecimal()
                                          or len(size) > 8 or int(size) > _MAX_RESPONSE_BYTES):
                     raise ReadOnlyBrokerError("Broker response exceeds size limit")
-                chunks, total = [], 0
-                for chunk in response.iter_bytes():
-                    total += len(chunk)
-                    if total > _MAX_RESPONSE_BYTES:
+                # MockTransport may return an already-buffered Response; real
+                # streamed responses are consumed as raw, undecoded bytes.
+                if response.is_stream_consumed and transport is not None:
+                    raw = response.content
+                    if len(raw) > _MAX_RESPONSE_BYTES:
                         raise ReadOnlyBrokerError("Broker response exceeds size limit")
-                    chunks.append(chunk)
-                raw = b"".join(chunks)
+                else:
+                    chunks, total = [], 0
+                    for chunk in response.iter_raw(chunk_size=65536):
+                        total += len(chunk)
+                        if total > _MAX_RESPONSE_BYTES:
+                            raise ReadOnlyBrokerError("Broker response exceeds size limit")
+                        chunks.append(chunk)
+                    raw = b"".join(chunks)
     except httpx.HTTPError:
         raise ReadOnlyBrokerError("Broker transport unavailable") from None
 
     try:
-        payload = json.loads(raw)
+        payload = json.loads(raw, object_pairs_hook=_unique_object_pairs,
+                             parse_float=_finite_float, parse_constant=_reject_constant)
     except (ValueError, UnicodeError, RecursionError):
         raise ReadOnlyBrokerError("Invalid broker JSON") from None
     if not isinstance(payload, (dict, list)):
