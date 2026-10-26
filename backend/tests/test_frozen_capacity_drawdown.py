@@ -90,7 +90,7 @@ def test_incomplete_path_withholds_all_drawdown_statistics():
 
 def test_declared_exclusions_withhold():
     m, p = sample()
-    m["excluded_signals"].append(dict(path_id="excluded", signal_at=CUTOFF - 7 * 86400,
+    m["excluded_signals"].append(dict(path_id="excluded", signal_at=CUTOFF - 37 * 7 * 86400,
                                       reason="PRE_SIGNAL_DATA_GAP"))
     assert run(m, p)["cost_scenarios"] == []
 
