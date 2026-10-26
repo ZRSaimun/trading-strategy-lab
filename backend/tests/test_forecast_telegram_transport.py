@@ -132,3 +132,35 @@ def test_malformed_response_object_is_uncertain(reply):
     with pytest.raises(DeliveryUncertain, match="manual reconciliation"):
         send_telegram_once(bot_token=TOKEN, chat_id=CHAT, text="review", opener=fake)
     assert len(fake.calls) == 1
+
+
+@pytest.mark.parametrize("unsafe", [
+    "review\\u202eEDART A TON",  # bidirectional override
+    "review\\u200e",  # directional mark
+    "review\\u200d",  # zero-width joiner
+    "review\\ufeff",  # zero-width no-break space
+    "review\\ud800",  # lone surrogate
+    "review\\u2028",  # Unicode line separator
+    "review\\u2029",  # Unicode paragraph separator
+    "review\\x7f",  # DEL control
+    "review\\r",  # carriage-return overwrite
+    "review\\x85",  # next-line control
+])
+def test_unicode_spoofing_or_malformed_text_rejected_before_network(unsafe):
+    fake = FakeOpener(Reply(accepted()))
+    with pytest.raises(ValueError, match="Invalid review alert text"):
+        send_telegram_once(bot_token=TOKEN, chat_id=CHAT, text=unsafe, opener=fake)
+    assert fake.calls == []
+
+
+@pytest.mark.parametrize("safe", [
+    "UNVERIFIED RESEARCH - NOT LIVE / NOT A TRADE",
+    "Révision sans exécution",
+    "Review 🔎",
+])
+def test_normal_unicode_review_text_is_allowed(safe):
+    fake = FakeOpener(Reply(accepted()))
+    result = send_telegram_once(bot_token=TOKEN, chat_id=CHAT, text=safe, opener=fake)
+    assert result["providerAccepted"] is True
+    assert result["deliveryVerified"] is False
+    assert len(fake.calls) == 1
