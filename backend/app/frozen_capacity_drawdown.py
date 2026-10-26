@@ -46,6 +46,20 @@ def _maximum_drawdown(increments):
 
 
 
+def _terminal_drawdown(increments):
+    """Loss at final pseudo-booking relative to the highest earlier event.
+
+    Includes event-zero baseline. All-lower (all-upper) returns maximize
+    (minimize) this terminal drawdown. Not a broker mark-to-market balance.
+    """
+    equity = peak = Decimal(0)
+    for increment in increments:
+        equity += increment
+        if equity > peak:
+            peak = equity
+    return peak - equity
+
+
 def _first_pseudo_recovery_event(increments, peak_event, trough_event, maximum):
     """First later booking event recovering the selected drawdown peak.
 
@@ -179,6 +193,11 @@ def audit_frozen_capacity_drawdown(
                 best_r, best_peak, best_trough = _maximum_drawdown_with_window(hi)
                 worst_r, worst_peak, worst_trough = _maximum_drawdown_with_window(lo)
                 best, worst = best_r * factor, worst_r * factor
+                best_terminal = _terminal_drawdown(hi) * factor
+                worst_terminal = _terminal_drawdown(lo) * factor
+                if not (Decimal(0) <= best_terminal <= worst_terminal
+                        and best_terminal <= best and worst_terminal <= worst):
+                    raise ValueError("Inconsistent terminal drawdown envelope")
                 best_recovery = _first_pseudo_recovery_event(
                     hi, best_peak, best_trough, best_r)
                 worst_recovery = _first_pseudo_recovery_event(
@@ -193,6 +212,8 @@ def audit_frozen_capacity_drawdown(
                 report[f"{label}_pseudo_settlement_maximum_max_drawdown_trough_event"] = worst_trough
                 report[f"{label}_pseudo_settlement_minimum_max_drawdown_recovery_event"] = best_recovery
                 report[f"{label}_pseudo_settlement_maximum_max_drawdown_recovery_event"] = worst_recovery
+                report[f"{label}_pseudo_settlement_minimum_terminal_underwater_pct_initial"] = str(best_terminal)
+                report[f"{label}_pseudo_settlement_maximum_terminal_underwater_pct_initial"] = str(worst_terminal)
                 report[f"{label}_pseudo_settlement_final_lower_pct_initial"] = str(sum(lo) * factor)
                 report[f"{label}_pseudo_settlement_final_upper_pct_initial"] = str(sum(hi) * factor)
             reports.append(report)
