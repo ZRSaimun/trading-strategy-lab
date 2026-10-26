@@ -203,7 +203,7 @@ def test_corrupt_version_cannot_masquerade_as_daily_loss_policy(setup, version):
 
 @pytest.mark.parametrize("padding", [
     " " * 9000,
-    "\\u0020" * 1500,
+    "\t" * 9000,
 ])
 def test_oversized_stored_daily_loss_state_fails_before_json_parse(setup, padding):
     _, factory = setup
