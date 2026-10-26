@@ -208,7 +208,7 @@ test('research report source metadata excludes arbitrary caller properties',()=>
  assert.deepEqual(Object.keys(report.source).sort(),Object.keys(source).sort());
  assert.equal(JSON.stringify(report).includes('synthetic-private-marker'),false);
  assert.equal(JSON.stringify(report).includes('synthetic-account-marker'),false);
- assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v16');
+ assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v17');
 });
 test('ambiguous source labels and contradictory volume evidence fail closed',()=>{
  // These are declared metadata, not independent vendor authentication.
@@ -472,6 +472,27 @@ test('bearish opening gap entirely above midpoint blocks a later return',()=>{
  assert.equal(x.blindMidpointTouch,null);
  assert.equal(x.confirmedNextOpen,null);
 });
+test('sparse and changing cost arrays cannot pass validation then rewrite net markouts',()=>{
+ const sparse:number[]=[0,,15];
+ assert.throws(()=>studyHourlyFvgMidpoint(fixture(),source,{
+  hypotheticalRoundTripCostsBps:sparse,
+ }),/Invalid source/,'missing cost cells must not serialize as null scenarios');
+ let reads=0;
+ const changing=[0,5,15];
+ Object.defineProperty(changing,1,{enumerable:true,configurable:true,
+  get(){reads++;return reads===1?5:Number.NaN;}});
+ const report=studyHourlyFvgMidpoint(fixture(),source,{
+  hypotheticalRoundTripCostsBps:changing,
+ });
+ assert.equal(reads,1,'each supplied cost must be captured exactly once');
+ assert.deepEqual(report.config.hypotheticalRoundTripCostsBps,[0,5,15]);
+ const observation=report.observations.find(o=>o.formationClosedAt===BASE+33*H);
+ assert.ok(observation?.blindMidpointTouch&&observation.confirmedNextOpen);
+ for(const result of [observation.blindMidpointTouch,observation.confirmedNextOpen]){
+  assert.deepEqual(result.netBpsByCost.map(x=>x.costBps),[0,5,15]);
+  assert.ok(result.netBpsByCost.every(x=>Number.isFinite(x.netBps)));
+ }
+});
 test('hypothetical costs are deducted identically and cannot be confused with broker quotes',()=>{
  const x=target(fixture());
  for(const result of [x.blindMidpointTouch,x.confirmedNextOpen]){
@@ -561,7 +582,7 @@ test('an overflowing next-open comparator suppresses both matched markouts',()=>
 });
 test('completed hourly timestamps are safe and numeric rule changes have a new version',()=>{
  const report=studyHourlyFvgMidpoint(fixture(),source);
- assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v16');
+ assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v17');
  const lastSafeAlignedOpen=Math.floor(Number.MAX_SAFE_INTEGER/H)*H;
  assert.equal(Number.isSafeInteger(lastSafeAlignedOpen),true);
  assert.equal(Number.isSafeInteger(lastSafeAlignedOpen+H),false);

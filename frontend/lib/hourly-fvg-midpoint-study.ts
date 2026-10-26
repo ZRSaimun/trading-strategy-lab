@@ -7,7 +7,7 @@
  */
 import type {Bar} from './research.ts';
 
-export const HOURLY_FVG_VERSION='hourly-fvg-first-midpoint-touch-v16';
+export const HOURLY_FVG_VERSION='hourly-fvg-first-midpoint-touch-v17';
 export type Evidence='PASS'|'FAIL'|'INSUFFICIENT_DATA';
 export type Side='BULLISH'|'BEARISH';
 export type FvgSource={
@@ -200,7 +200,12 @@ export function studyHourlyFvgMidpoint(
  const markoutBars=config.markoutBars??3;
  const minimumRejectionWickFraction=config.minimumRejectionWickFraction??0.5;
  const volumeMultiple=config.volumeMultiple??1.5;
- const costs=config.hypotheticalRoundTripCostsBps??[0,5,15];
+ // Snapshot each caller-declared cost once before validating it. Array#some
+ // skips sparse holes, and accessor-backed arrays can change after validation.
+ // Array.from materializes holes as undefined (which fails validation) and
+ // prevents a second read from silently changing reported net markouts.
+ const suppliedCosts=config.hypotheticalRoundTripCostsBps??[0,5,15];
+ const costs=Array.isArray(suppliedCosts)?Array.from(suppliedCosts):suppliedCosts;
  if(!source||!/^[a-f0-9]{64}$/.test(source.datasetId)||
   !/^[a-f0-9]{64}$/.test(source.archiveSha256)||
   !validSourceLabel(source.instrument)||!validSourceLabel(source.provider)||
