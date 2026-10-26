@@ -7,6 +7,7 @@ Render filesystems or treat operator evidence hashes as verified licenses.
 """
 from __future__ import annotations
 
+from contextlib import closing
 from datetime import date, datetime, timezone
 import os
 from pathlib import Path
@@ -98,10 +99,8 @@ def provision_daily_budget(
         if not path.exists():
             fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
             os.close(fd)
-        with _connect(path) as conn:
-            conn.execute("BEGIN IMMEDIATE")
+        with closing(_connect(path)) as conn:
             conn.executescript(_SCHEMA)  # schema only; never contains user input
-            # executescript commits its own transaction: restart the policy write.
             conn.execute("BEGIN IMMEDIATE")
             conn.execute(
                 "INSERT INTO daily_policy VALUES (?, 'twelvedata', 'XAU/USD', "
@@ -132,7 +131,7 @@ def reserve_one_credit(
         raise CreditBudgetError("Invalid server UTC clock")
     utc_day = datetime.fromtimestamp(now, timezone.utc).date().isoformat()
     try:
-        with _connect(path) as conn:
+        with closing(_connect(path)) as conn:
             conn.execute("BEGIN IMMEDIATE")
             row = conn.execute(
                 "SELECT max_credits, entitlement_evidence_sha256, "
