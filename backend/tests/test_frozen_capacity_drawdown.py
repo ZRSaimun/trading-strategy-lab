@@ -9,6 +9,7 @@ from app.frozen_bracket_population import fingerprint_population_manifest
 from app.frozen_capacity_drawdown import (_maximum_drawdown,
                                           _maximum_drawdown_with_window,
                                           _terminal_drawdown,
+                                          _underwater_event_burden,
                                           _first_pseudo_recovery_event,
                                           _first_pseudo_loss_barrier_event,
                                           _longest_strict_negative_streak,
@@ -108,6 +109,74 @@ def test_terminal_underwater_differs_from_historical_maximum_drawdown():
     assert _terminal_drawdown(seq) == 1
     assert _terminal_drawdown([Decimal("1"), Decimal("2")]) == 0
     assert _terminal_drawdown([Decimal("-1"), Decimal("-2")]) == 3
+
+
+
+def test_underwater_burden_counts_booking_events_not_negative_trades():
+    d = Decimal
+    assert _underwater_event_burden([]) == (0, 0)
+    assert _underwater_event_burden([d("1"), d("2"), d("0")]) == (0, 0)
+    assert _underwater_event_burden([d("2"), d("-1"), d("0"), d("1")]) == (2, 2)
+    assert _longest_strict_negative_streak(
+        [d("2"), d("-1"), d("0"), d("1")]) == 1
+    assert _underwater_event_burden(
+        [d("2"), d("-1"), d("-1"), d("2"), d("-2"), d("-1"), d("4")]
+    ) == (4, 2)
+    assert _underwater_event_burden([d("-1"), d("-1"), d("-1")]) == (3, 3)
+
+
+def test_underwater_burden_matches_independent_exhaustive_interval_oracle():
+    # 340 distinct interval populations, all integer outcomes in each,
+    # independently compute each prefix equity and its preceding maximum.
+    # Exact lower/upper endpoints must bound both total and longest duration.
+    choices = ((-2, -1), (-1, 1), (0, 0), (1, 2))
+    populations = 0
+    for length in range(1, 5):
+        for intervals in product(choices, repeat=length):
+            lower = [Decimal(a) for a, _ in intervals]
+            upper = [Decimal(b) for _, b in intervals]
+            actual = []
+            for outcomes in product(*[range(a, b + 1) for a, b in intervals]):
+                equity = [Decimal(0)]
+                for value in outcomes:
+                    equity.append(equity[-1] + Decimal(value))
+                underwater = [
+                    equity[i] < max(equity[:i + 1])
+                    for i in range(1, len(equity))
+                ]
+                total = sum(underwater)
+                streak = longest = 0
+                for below_peak in underwater:
+                    streak = streak + 1 if below_peak else 0
+                    longest = max(longest, streak)
+                actual.append((total, longest))
+            assert _underwater_event_burden(upper) == (
+                min(x[0] for x in actual), min(x[1] for x in actual))
+            assert _underwater_event_burden(lower) == (
+                max(x[0] for x in actual), max(x[1] for x in actual))
+            populations += 1
+    assert populations == 340
+
+
+def test_full_report_underwater_event_bounds_preserve_frozen_cohorts():
+    manifest, paths = sample()
+    report = run(manifest, paths)
+    for scenario in report["cost_scenarios"]:
+        for label in ("training", "holdout"):
+            n = report["admission_counts"][f"{label}_admitted"]
+            prefix = f"{label}_pseudo_settlement_"
+            minimum_total = scenario[prefix + "minimum_total_underwater_events"]
+            maximum_total = scenario[prefix + "maximum_total_underwater_events"]
+            minimum_streak = scenario[prefix + "minimum_longest_underwater_event_streak"]
+            maximum_streak = scenario[prefix + "maximum_longest_underwater_event_streak"]
+            assert 0 <= minimum_streak <= minimum_total <= maximum_total <= n
+            assert minimum_streak <= maximum_streak <= maximum_total
+    zero = report["cost_scenarios"][0]
+    assert zero["training_pseudo_settlement_minimum_total_underwater_events"] == 0
+    assert zero["holdout_pseudo_settlement_maximum_total_underwater_events"] == 36
+    assert zero["holdout_pseudo_settlement_maximum_longest_underwater_event_streak"] == 36
+    assert report["verified_profitability"] is False
+    assert report["may_execute_order"] is False
 
 
 def test_pseudo_recovery_event_is_not_actual_fill_time():
