@@ -11,7 +11,7 @@ import re
 from .paper_journal_store import MAX_CHECKPOINT_BYTES, _checkpoint, _strict_json
 
 _MAX_REVISION = 2**53 - 1
-_ORDER_ID = re.compile(r"[A-Za-z0-9_-]{1,80}\\Z")
+_ORDER_ID = re.compile(r"[A-Za-z0-9_-]{1,80}\Z")
 
 
 def _canonical(value):
