@@ -66,7 +66,7 @@ def _summary(result):
     }
 
 
-def _stressed_tape(scope, quotes, stress):
+def _stressed_tape(scope, intent, quotes, stress):
     """Transform *copies* only; never relabel transformed quotes as authentic."""
     delay = stress["quote_delivery_delay_ms"]
     depth = stress["depth_percent"]
@@ -75,6 +75,10 @@ def _stressed_tape(scope, quotes, stress):
     with localcontext() as ctx:
         ctx.prec = 60
         for quote in quotes:
+            # A quote unavailable before order eligibility must not become
+            # newly fillable merely because its delivery was delayed.
+            if quote["received_at_ms"] < intent["eligible_after_ms"]:
+                continue
             received = quote["received_at_ms"] + delay
             if received > scope["as_of_ms"]:
                 # Not yet delivered at the fixed as-of time; NOT a proof of no fill.
@@ -115,7 +119,7 @@ def audit_declared_demo_execution_stress(
                 Decimal(scope["adverse_slippage_price"])
                 + Decimal(stress["extra_adverse_slippage_price"]), "f",
             )
-        stressed_quotes = _stressed_tape(scope, quotes, stress)
+        stressed_quotes = _stressed_tape(scope, intent, quotes, stress)
         tape_sha = fingerprint_demo_quote_tape(stressed_scope, stressed_quotes)
         outcome = simulate_declared_demo_quote_tape(
             stressed_scope, intent, stressed_quotes, tape_sha,
