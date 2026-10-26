@@ -49,6 +49,15 @@ def _state_valid(state, now):
     if (not state["baseStart"] <= state["issuedAt"] <= now or
             not state["issuedAt"] < state["expiresAt"] <= state["issuedAt"] + 3600):
         return False
+    # ForecastEventStore only issues after the base candle completes and
+    # before the following candle completes. Outbox.queue never advertises
+    # expiry beyond the target candle's completion, even for long TTLs.
+    seconds, base = feed["seconds"], state["baseStart"]
+    target_end = base + (state["horizon"] + 1) * seconds
+    if (base % seconds or target_end > 2**53 - 1 or
+            not base + seconds <= state["issuedAt"] < base + 2 * seconds or
+            state["expiresAt"] > target_end):
+        return False
     if type(state["status"]) is not str or state["status"] not in _STATES:
         return False
     if state["status"] in ("QUEUED", "CANCELLED"):
