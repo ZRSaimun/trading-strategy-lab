@@ -134,3 +134,44 @@ def test_no_input_mutation():
 def test_previous_future_event_fails_closed():
     result = run(previous_session=event(previous=True, received_ms=NOW+1))
     assert 'previous_events_not_future' in result['failed_checks']
+
+
+@pytest.mark.parametrize('prior_session,prior_quote,failed', [
+    ({'observed_ms': NOW - 700}, {}, 'previous_session_time_order'),
+    ({}, {'observed_ms': NOW - 700}, 'previous_quote_time_order'),
+    ({'observed_ms': NOW - 2500}, {}, 'previous_session_transport_ok'),
+    ({}, {'observed_ms': NOW - 2500}, 'previous_quote_transport_ok'),
+    ({}, {'bid': '100.02'}, 'previous_quote_uncrossed'),
+    ({}, {'ask': '105'}, 'previous_spread_within_cap'),
+    ({'observed_ms': NOW - 600}, {}, 'previous_quote_after_session_event'),
+])
+def test_prior_checkpoint_must_have_valid_time_and_price_envelope(
+        prior_session, prior_quote, failed):
+    result = run(
+        previous_session=event(previous=True, **prior_session),
+        previous_quote=event(quote=True, previous=True, **prior_quote))
+    assert failed in result['failed_checks']
+    assert result['assumption_checks_pass'] is False
+    assert result['status'] == 'HOLD_RECONCILIATION'
+    assert result['may_execute_paper_order'] is False
+    assert result['may_execute_real_order'] is False
+
+
+def test_prior_checkpoint_envelope_passes_for_normal_synthetic_events():
+    result = run()
+    for check in (
+        'previous_session_time_order', 'previous_quote_time_order',
+        'previous_session_transport_ok', 'previous_quote_transport_ok',
+        'previous_quote_after_session_event', 'previous_quote_uncrossed',
+        'previous_spread_within_cap',
+    ):
+        assert result['checks'][check] is True
+    assert result['assumption_checks_pass'] is True
+
+
+def test_prior_quote_price_change_is_bound_to_review_digest():
+    original = run()
+    changed = run(previous_quote=event(quote=True, previous=True, ask='100.03'))
+    assert changed['assumption_checks_pass']
+    assert original['review_sha256'] != changed['review_sha256']
+    assert changed['may_execute_real_order'] is False
