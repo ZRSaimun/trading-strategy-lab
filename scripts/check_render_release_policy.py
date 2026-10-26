@@ -4,7 +4,6 @@ This is deliberately a *narrow text-policy check*, not a YAML parser, Render
 schema validation, service-state attestation, backup drill or deployment gate.
 Unknown service layouts should be reviewed rather than silently accepted.
 """
-from collections import Counter
 from pathlib import Path
 import re
 import sys
@@ -48,7 +47,7 @@ def check_blueprint(text: str) -> list[str]:
         errors.append("NONCANONICAL_WHITESPACE")
     lines = [line for line in text.splitlines()
              if line.strip() and not line.lstrip().startswith("#")]
-    if Counter(lines) != Counter(_EXPECTED_LINES):
+    if lines != _EXPECTED_LINES:
         errors.append("UNREVIEWED_BLUEPRINT_STRUCTURE")
 
     def require_one(pattern: str, label: str) -> None:
