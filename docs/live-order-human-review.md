@@ -17,3 +17,10 @@ From `backend`: `PYTHONPATH=. python -m pytest -q tests/test_live_order_review.p
 ## Integration handoff
 
 Keep this isolated from draft PRs #26 (durable reservations), #34 (preview API), #35 (position sizing), and #36 (stop observation) until coordinated. To make a **future** authenticated review workflow, verify eligible provider/account/instrument and quote source; bind an authenticated owner session and immutable per-order review to a durable, single-use reservation, server-side risk recheck and independent audit record. Recheck all conditions after owner approval and immediately before submission; any changed price/quantity/stop, stale quote, expired review, concurrent order or kill-switch transition must require fresh approval. No blanket autonomous live trading. Production deployment requires selected Render workspace, backups, rollback and health verification; no deployment is performed by this PR.
+
+
+## Combined adverse-price and stressed-equity controls (26 October 2026)
+
+Reconciles the protective-stop/stressed-equity safeguards from draft PR #79 with the conservative timing and risk-policy ceilings in this PR. A BUY review fails when the executable BID touches or falls below its declared stop; a SELL review fails when the executable ASK touches or exceeds the stop. Hypothetical loss uses the worse of the declared stressed exit and current executable BID/ASK, and stressed equity must remain positive and cover declared combined margin and gross leverage. These checks run **in addition to**, not instead of, the 3-second/1-second quote timing ceilings and the declared 5%/10%/5x/100-bps policy ceilings.
+
+All broker/account/quote data remains caller-declared and unauthenticated. Neither these checks nor a SHA-256 review fingerprint authorize an order, prove stop placement, or cap real-world gap/slippage losses. Both may_execute_real_order and may_execute_paper_order remain false. This is a code-level reconciliation only; outstanding PR #79 should not be merged independently without checking the overlap. Deployment remains gated on verified production recovery and manual release readiness.
