@@ -11,6 +11,7 @@ from app.frozen_capacity_drawdown import (_maximum_drawdown,
                                           _terminal_drawdown,
                                           _first_pseudo_recovery_event,
                                           _first_pseudo_loss_barrier_event,
+                                          _longest_strict_negative_streak,
                                           audit_frozen_capacity_drawdown)
 from test_frozen_capacity_week_fragility import CUTOFF, sample, move
 
@@ -284,3 +285,60 @@ def test_interval_ambiguity_keeps_possible_distinct_from_unavoidable():
     hi = [Decimal("-1"), Decimal("1"), Decimal("2")]
     assert _first_pseudo_loss_barrier_event(lo, Decimal(1), Decimal(2)) == 1
     assert _first_pseudo_loss_barrier_event(hi, Decimal(1), Decimal(2)) is None
+
+
+def test_strict_negative_streak_zero_and_positive_break_runs():
+    d = Decimal
+    assert _longest_strict_negative_streak([]) == 0
+    assert _longest_strict_negative_streak([d("0"), d("1")]) == 0
+    assert _longest_strict_negative_streak(
+        [d("-1"), d("-2"), d("0"), d("-3"), d("1"), d("-4")]
+    ) == 2
+    assert _longest_strict_negative_streak([d("-0.0001")] * 4) == 4
+
+
+def test_strict_negative_streak_interval_bounds_against_exhaustive_oracle():
+    # Independent quadratic oracle checks every integer-valued path across
+    # 4,680 possible histories, including zero and sign-spanning intervals.
+    choices = ((-2, -1), (-1, 1), (0, 0), (1, 2))
+    checked = 0
+    for length in range(1, 5):
+        for intervals in product(choices, repeat=length):
+            observed = []
+            for values in product(*(range(a, b + 1) for a, b in intervals)):
+                expected = max((
+                    end - start
+                    for start in range(length)
+                    for end in range(start + 1, length + 1)
+                    if all(value < 0 for value in values[start:end])
+                ), default=0)
+                observed.append(expected)
+                checked += 1
+            assert min(observed) == _longest_strict_negative_streak(
+                [Decimal(hi) for _, hi in intervals]
+            )
+            assert max(observed) == _longest_strict_negative_streak(
+                [Decimal(lo) for lo, _ in intervals]
+            )
+    assert checked == 4680
+
+
+def test_report_strict_negative_streak_keeps_all_admitted_losses():
+    manifest, paths = sample()
+    report = run(manifest, paths)
+    scenario = report["cost_scenarios"][0]
+    assert scenario["holdout_pseudo_settlement_minimum_longest_strict_negative_path_streak"] == 36
+    assert scenario["holdout_pseudo_settlement_maximum_longest_strict_negative_path_streak"] == 36
+    assert scenario["training_pseudo_settlement_minimum_longest_strict_negative_path_streak"] == 0
+    assert scenario["training_pseudo_settlement_maximum_longest_strict_negative_path_streak"] == 0
+    assert report["verified_profitability"] is False
+    assert report["may_execute_order"] is False
+
+
+def test_ambiguous_outcomes_preserve_negative_streak_interval():
+    manifest, paths = sample()
+    paths[40]["bars"][0].update(high="103", low="98", close="100")
+    scenario = run(manifest, paths)["cost_scenarios"][0]
+    lower = scenario["holdout_pseudo_settlement_minimum_longest_strict_negative_path_streak"]
+    upper = scenario["holdout_pseudo_settlement_maximum_longest_strict_negative_path_streak"]
+    assert 0 <= lower <= upper <= 36
