@@ -1,6 +1,8 @@
-# Hourly FVG first-touch midpoint rejection versus blind limit (research v20)
+# Hourly FVG first-touch midpoint rejection versus blind limit (research v21)
 
 **Status: proposed, deterministic, read-only hypothesis.** This standalone TypeScript library is not yet wired to the terminal UI, production broker, archive query or cloud service. No actual BID/ASK executions, licensed news data, verified performance, live trades or profitability claims are included. It deliberately does **not** duplicate PR #24's sweep/MSS/FVG confluence risk-path experiment or PR #33's 4H CRT/15m confirmation screen.
+
+**Version 21: bound hypothetical CFD cost-scenario arrays before copying.** The study now checks the supplied cost array's length (1–10) **before** using `Array.from`. Previously an array with an enormous declared length could trigger a very large allocation or element getters before the later configuration validation rejected it. A synthetic regression supplies a billion-element declared length with a throwing getter and verifies rejection without reading the getter; a valid three-scenario configuration remains unchanged. This is a bounded-memory input safety check, **not** measured broker spread, executable two-sided quotes or evidence of profitable trading. Frozen rule ID: `hourly-fvg-first-midpoint-touch-v21`.
 
 **Version 20: reject coerced archive-hash identities.** The caller-declared dataset ID and archive SHA-256 must now be primitive lowercase 64-character hexadecimal strings before regex validation. JavaScript `RegExp#test` otherwise coerces an arbitrary object through `toString`/`Symbol.toPrimitive`: a malicious or accidental object could pass as a hash-shaped value while the research report exports that object rather than a stable archive identity. Regression tests reject both coercible objects and boxed strings for both fields, without invoking coercion, while retaining valid primitive hash declarations. This is local input validation only; a syntactically valid hash is **not** independently authenticated market data. Frozen rule ID: `hourly-fvg-first-midpoint-touch-v20`. No actual BID/ASK fills, measured CFD costs or profitability are established.
 
@@ -62,6 +64,6 @@ The research still lacks an authenticated broker's timestamped BID/ASK observati
 
 ## Verification
 
-34 synthetic Node tests cover bullish and bearish gap geometry, first-touch freeze, strict volume gating, incomplete and missing candles, gap-through uncertainty, causal next-open timing, common-horizon cost arithmetic and source validation. Run `cd frontend && npm test && npm run typecheck && npm run build`; repository CI also exercises backend and container smoke. Synthetic passing tests do not establish a statistical edge.
+35 synthetic Node tests cover bullish and bearish gap geometry, first-touch freeze, strict volume gating, incomplete and missing candles, gap-through uncertainty, causal next-open timing, common-horizon cost arithmetic and source validation. Run `cd frontend && npm test && npm run typecheck && npm run build`; repository CI also exercises backend and container smoke. Synthetic passing tests do not establish a statistical edge.
 
 **Deployment safety:** isolated draft PR; no secrets, private datasets, paid APIs, orders, production database changes, merge or Render deployment.
