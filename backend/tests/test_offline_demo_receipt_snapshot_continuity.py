@@ -131,6 +131,7 @@ def test_missing_previous_receipt_rejected():
     args[4], args[5] = history(args[3], [
         ("SUBMITTED", 100, 101, 0, None),
         ("ACCEPTED", 110, 111, 0, "broker-1")])
+    args[5]["manifest_recorded_at_ms"] = args[2]["manifest_recorded_at_ms"]
     with pytest.raises(ValueError, match="omitted"):
         audit(*args)
 
