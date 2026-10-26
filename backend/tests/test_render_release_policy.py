@@ -36,6 +36,7 @@ def test_current_blueprint_declares_manual_free_release():
     lambda t: t.replace("      - key: DATABASE_URL\n        sync: false",
                         "      - key: DATABASE_URL\n        sync: false\n        value: secret-in-git"),
     lambda t: t + "\n      - key: BROKER_SECRET\n        value: forbidden\n",
+    lambda t: t + "\n    buildCommand: unreviewed-command\n",
 ])
 def test_unsafe_blueprint_is_rejected(unsafe):
     assert check_blueprint(unsafe(BLUEPRINT))
