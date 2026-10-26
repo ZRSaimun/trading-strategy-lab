@@ -7,7 +7,7 @@
  */
 import type {Bar} from './research.ts';
 
-export const HOURLY_FVG_VERSION='hourly-fvg-first-midpoint-touch-v9';
+export const HOURLY_FVG_VERSION='hourly-fvg-first-midpoint-touch-v10';
 export type Evidence='PASS'|'FAIL'|'INSUFFICIENT_DATA';
 export type Side='BULLISH'|'BEARISH';
 export type FvgSource={
@@ -32,9 +32,15 @@ export type FvgObservation={
  blindMidpointTouch:Markout|null;confirmedNextOpen:Markout|null;
  eligibleForLiveTrading:false;
 };
+export type EvidenceCounts=Record<Evidence,number>;
+export type FvgCohort={
+ formations:number;
+ midpointTouch:EvidenceCounts;strictCandidate:EvidenceCounts;markout:EvidenceCounts;
+ pairedMarkouts:number;blindOnlyMarkouts:number;
+};
 export type FvgStudy={
  version:typeof HOURLY_FVG_VERSION;source:FvgSource;
- config:Required<FvgConfig>;observations:FvgObservation[];
+ config:Required<FvgConfig>;observations:FvgObservation[];cohort:FvgCohort;
  warning:string;
 };
 const HOUR=3600;
@@ -135,6 +141,26 @@ function markout(entryAt:number,entry:number,exitAt:number,exit:number,
  if(netBpsByCost.some(x=>!Number.isFinite(x.netBps)))return null;
  return {entryObservedAt:entryAt,entryPrice:entry,exitObservedAt:exitAt,
   exitPrice:exit,grossBps,netBpsByCost};
+}
+// Account for the full observed formation population, not just attractive
+// confirmed returns. Unknown outcomes remain unknown, and blind-only markouts
+// must not be presented as matched wick-versus-limit comparisons.
+function summarizeCohort(observations:readonly FvgObservation[]):FvgCohort{
+ const count=(gate:'midpointTouch'|'strictCandidate'|'markout'):EvidenceCounts=>{
+  const result:EvidenceCounts={PASS:0,FAIL:0,INSUFFICIENT_DATA:0};
+  for(const observation of observations)result[observation.gates[gate]]++;
+  return result;
+ };
+ return {
+  formations:observations.length,
+  midpointTouch:count('midpointTouch'),
+  strictCandidate:count('strictCandidate'),
+  markout:count('markout'),
+  pairedMarkouts:observations.filter(o=>
+   o.blindMidpointTouch!==null&&o.confirmedNextOpen!==null).length,
+  blindOnlyMarkouts:observations.filter(o=>
+   o.blindMidpointTouch!==null&&o.confirmedNextOpen===null).length,
+ };
 }
 export function studyHourlyFvgMidpoint(
  bars:readonly Bar[],source:FvgSource,config:FvgConfig={},
@@ -270,6 +296,6 @@ export function studyHourlyFvgMidpoint(
  },
   config:{maxTouchWaitBars,markoutBars,minimumRejectionWickFraction,
    volumeMultiple,hypotheticalRoundTripCostsBps:[...costs]},
-  observations,
+  observations,cohort:summarizeCohort(observations),
   warning:'Read-only hourly BID OHLC research. Midpoint touch is a hypothetical blind limit, not an executable fill. Rejection entry uses only the next observed hourly open. Markouts omit intrabar stops, spreads, financing, news, slippage and broker contracts; bps costs are illustrative, not measured. No strategy edge or live execution is established.'};
 }

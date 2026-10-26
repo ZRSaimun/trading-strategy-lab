@@ -27,6 +27,47 @@ const target=(bars:Bar[],s:FvgSource=source)=>{
  assert.ok(found,'expected exact 3-candle FVG');
  return found;
 };
+test('formation census preserves unknown outcomes and distinguishes paired from blind-only markouts',()=>{
+ const bars=[
+  candle(0,99,100,98,99),candle(1,100,102,99,101),
+  candle(2,105,106,104,105),candle(3,105,106,101,105.5,200),
+  candle(4,105.5,107,105,106),candle(5,106,108,105,107),
+  candle(6,107,111,106,110),
+ ];
+ const run=(series:Bar[])=>studyHourlyFvgMidpoint(series,source);
+ const paired=run(bars);
+ assert.equal(paired.observations.length,1);
+ assert.deepEqual(paired.cohort,{
+  formations:1,
+  midpointTouch:{PASS:1,FAIL:0,INSUFFICIENT_DATA:0},
+  strictCandidate:{PASS:0,FAIL:0,INSUFFICIENT_DATA:1},
+  markout:{PASS:1,FAIL:0,INSUFFICIENT_DATA:0},
+  pairedMarkouts:1,blindOnlyMarkouts:0,
+ });
+ const failedWick=[...bars];
+ failedWick[3]=candle(3,105,106,101,102.5,200);
+ const rejected=run(failedWick).cohort;
+ assert.equal(rejected.strictCandidate.FAIL,1);
+ assert.equal(rejected.markout.PASS,1,'blind-only result is still observed');
+ assert.equal(rejected.pairedMarkouts,0,'failed wick cannot enter matched cohort');
+ assert.equal(rejected.blindOnlyMarkouts,1);
+ const openingGap=[...bars];
+ openingGap[3]=candle(3,101,106,100,105.5,200);
+ const unknown=run(openingGap).cohort;
+ assert.equal(unknown.midpointTouch.INSUFFICIENT_DATA,1);
+ assert.equal(unknown.strictCandidate.INSUFFICIENT_DATA,1);
+ assert.equal(unknown.markout.INSUFFICIENT_DATA,1);
+ assert.equal(unknown.pairedMarkouts,0);
+ assert.equal(unknown.blindOnlyMarkouts,0);
+ const missingExit=run(bars.slice(0,4)).cohort;
+ assert.equal(missingExit.midpointTouch.PASS,1);
+ assert.equal(missingExit.markout.INSUFFICIENT_DATA,1);
+ assert.equal(missingExit.pairedMarkouts,0);
+ assert.equal(missingExit.blindOnlyMarkouts,0);
+ const missingTouch=run(bars.slice(0,3)).cohort;
+ assert.equal(missingTouch.midpointTouch.INSUFFICIENT_DATA,1);
+ assert.equal(missingTouch.formations,1);
+});
 test('research report source metadata excludes arbitrary caller properties',()=>{
  // TypeScript structural typing does not remove runtime fields. A caller
  // may pass a richer vendor object; its extra data must never be exported.
@@ -37,7 +78,7 @@ test('research report source metadata excludes arbitrary caller properties',()=>
  assert.deepEqual(Object.keys(report.source).sort(),Object.keys(source).sort());
  assert.equal(JSON.stringify(report).includes('synthetic-private-marker'),false);
  assert.equal(JSON.stringify(report).includes('synthetic-account-marker'),false);
- assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v9');
+ assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v10');
 });
 test('ambiguous source labels and contradictory volume evidence fail closed',()=>{
  // These are declared metadata, not independent vendor authentication.
@@ -366,7 +407,7 @@ test('an overflowing next-open comparator suppresses both matched markouts',()=>
 });
 test('completed hourly timestamps are safe and numeric rule changes have a new version',()=>{
  const report=studyHourlyFvgMidpoint(fixture(),source);
- assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v9');
+ assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v10');
  const lastSafeAlignedOpen=Math.floor(Number.MAX_SAFE_INTEGER/H)*H;
  assert.equal(Number.isSafeInteger(lastSafeAlignedOpen),true);
  assert.equal(Number.isSafeInteger(lastSafeAlignedOpen+H),false);

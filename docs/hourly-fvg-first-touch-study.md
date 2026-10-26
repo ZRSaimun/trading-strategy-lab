@@ -1,6 +1,8 @@
-# Hourly FVG first-touch midpoint rejection versus blind limit (research v9)
+# Hourly FVG first-touch midpoint rejection versus blind limit (research v10)
 
 **Status: proposed, deterministic, read-only hypothesis.** This standalone TypeScript library is not yet wired to the terminal UI, production broker, archive query or cloud service. No actual BID/ASK executions, licensed news data, verified performance, live trades or profitability claims are included. It deliberately does **not** duplicate PR #24's sweep/MSS/FVG confluence risk-path experiment or PR #33's 4H CRT/15m confirmation screen.
+
+**Version 10: full formation-cohort census.** The report now includes `cohort` counts for every detected formation and each `PASS`/`FAIL`/`INSUFFICIENT_DATA` midpoint-touch, strict-candidate and markout status. It separately counts **paired** blind-limit/next-open wick markouts versus **blind-only** markouts. A blind-only return is never a matched comparison, and missing/gap-through/unfinished outcomes remain in the denominator rather than silently disappearing. Counts are deterministic descriptions of the supplied synthetic or historical OHLC window, **not** trade win rates, profitable fills, or authenticated data. One regression tests a paired touch, a failed wick, opening gap-through, absent markout horizon and missing touch horizon. Frozen rule identifier: `hourly-fvg-first-midpoint-touch-v10`.
 
 **Version 9: Unicode source-identity spoofing guard.** Provider and instrument labels now reject bidirectional formatting controls (including isolate markers), zero-width/invisible format characters, Arabic letter mark and embedded BOM. Such characters can make two different feed identities appear identical or reverse a displayed symbol in logs and exported reports. Legitimate visible non-ASCII labels remain accepted. This is a local display/provenance integrity check, **not** authentication of the named provider or archive. Synthetic regressions cover both source fields and valid accented labels; the frozen rule identifier is `hourly-fvg-first-midpoint-touch-v9`.
 
@@ -40,6 +42,6 @@ The research still lacks an authenticated broker's timestamped BID/ASK observati
 
 ## Verification
 
-27 synthetic Node tests cover bullish and bearish gap geometry, first-touch freeze, strict volume gating, incomplete and missing candles, gap-through uncertainty, causal next-open timing, common-horizon cost arithmetic and source validation. Run `cd frontend && npm test && npm run typecheck && npm run build`; repository CI also exercises backend and container smoke. Synthetic passing tests do not establish a statistical edge.
+28 synthetic Node tests cover bullish and bearish gap geometry, first-touch freeze, strict volume gating, incomplete and missing candles, gap-through uncertainty, causal next-open timing, common-horizon cost arithmetic and source validation. Run `cd frontend && npm test && npm run typecheck && npm run build`; repository CI also exercises backend and container smoke. Synthetic passing tests do not establish a statistical edge.
 
 **Deployment safety:** isolated draft PR; no secrets, private datasets, paid APIs, orders, production database changes, merge or Render deployment.
