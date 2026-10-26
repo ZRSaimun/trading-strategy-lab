@@ -189,3 +189,35 @@ def test_ack_before_expiry_does_not_trigger_late_warning():
     assert result["counts"]["ACK_AT_OR_AFTER_EXPIRY_WARNING"] == 0
     assert result["status"] == "DECLARED_ONLY"
     assert result["warningKeys"] == []
+
+
+def test_short_lived_queue_warns_before_age_sla():
+    # At 30s old the default 60s queue-age SLA has not fired.
+    result = check(state(expiresAt=180), now=150)
+    assert result["counts"]["QUEUE_DELAY_WARNING"] == 0
+    assert result["counts"]["EXPIRING_SOON_WARNING"] == 1
+    assert result["counts"]["EXPIRED_UNCLAIMED"] == 0
+    assert result["status"] == "OPERATOR_REVIEW_REQUIRED"
+    assert result["warningKeys"] == [["s1", "f1"]]
+    assert result["maySendNotification"] is False
+
+
+def test_expiry_warning_boundary_and_override():
+    row = state(expiresAt=180)
+    assert check(row, now=149)["counts"]["EXPIRING_SOON_WARNING"] == 0
+    assert check(row, now=150)["counts"]["EXPIRING_SOON_WARNING"] == 1
+    assert check(row, now=150, expiry_warning_seconds=29)["counts"]["EXPIRING_SOON_WARNING"] == 0
+    assert check(row, now=179, expiry_warning_seconds=1)["counts"]["EXPIRING_SOON_WARNING"] == 1
+
+
+def test_approaching_expiry_and_queue_delay_have_single_warning_identity():
+    result = check(state(expiresAt=181), now=180)
+    assert result["counts"]["QUEUE_DELAY_WARNING"] == 1
+    assert result["counts"]["EXPIRING_SOON_WARNING"] == 1
+    assert result["warningKeys"] == [["s1", "f1"]]
+
+
+@pytest.mark.parametrize("bad", [0, 3601, True, 1.2, None])
+def test_invalid_expiry_warning_budget_fails_closed(bad):
+    with pytest.raises(ValueError, match="warning budget"):
+        check(expiry_warning_seconds=bad)
