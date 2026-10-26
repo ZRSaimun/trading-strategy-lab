@@ -13,7 +13,7 @@ IDENTITY = {"instrument": "XAUUSD", "provider": "synthetic", "venue": "test",
 def state(status="ACK_RECORDED_UNVERIFIED", cid="a" * 32):
     claimed = status in ("IN_FLIGHT_UNCERTAIN", "ACK_RECORDED_UNVERIFIED")
     return {"version": 1, "identity": IDENTITY.copy(), "forecastId": "f1",
-            "modelVersion": "m1", "horizon": 1, "baseStart": 120, "issueSeq": 2,
+            "modelVersion": "m1", "horizon": 1, "baseStart": 60, "issueSeq": 2,
             "issuedAt": 130, "expiresAt": 180, "status": status,
             "claimId": cid if claimed else None,
             "claimedAt": 135 if claimed else None,
