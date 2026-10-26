@@ -120,6 +120,26 @@ test('verified prior-20 volume uses a scale-safe strict threshold for extreme fi
  }
 });
 
+test('50% wick threshold uses exact observed prices rather than rounded wick/range',()=>{
+ const bars=fixture();
+ // 200 - 1e-200 rounds to 200, and 400 - 1e-200 rounds to 400.
+ // Their displayed quotient is 0.5, but the exact source-float wick
+ // fraction is strictly BELOW one half. Do not admit a false candidate.
+ bars[33]=candle(33,200,400,1e-200,250,200);
+ const rounded=(200-1e-200)/(400-1e-200);
+ assert.equal(rounded,0.5);
+ const below=target(bars);
+ assert.equal(below.gates.midpointTouch,'PASS');
+ assert.equal(below.rejectionWickFraction,0.5);
+ assert.equal(below.gates.wickRejection,'FAIL');
+ assert.equal(below.gates.strictCandidate,'FAIL');
+ // A genuine exact 50% lower wick remains eligible on the same source.
+ bars[33]=candle(33,250,400,100,300,200);
+ const equal=target(bars);
+ assert.equal(equal.gates.wickRejection,'PASS');
+ assert.equal(equal.gates.strictCandidate,'PASS');
+});
+
 test('strict prior-20 volume threshold does not round a true exceedance into equality',()=>{
  // 1.5000000000000001e100 is strictly above 1.5 times the exact
  // IEEE-754 value 1e100, but the old ratio rounds to precisely 1.5.
@@ -281,7 +301,7 @@ test('an overflowing next-open comparator suppresses both matched markouts',()=>
 });
 test('completed hourly timestamps are safe and numeric rule changes have a new version',()=>{
  const report=studyHourlyFvgMidpoint(fixture(),source);
- assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v4');
+ assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v5');
  const lastSafeAlignedOpen=Math.floor(Number.MAX_SAFE_INTEGER/H)*H;
  assert.equal(Number.isSafeInteger(lastSafeAlignedOpen),true);
  assert.equal(Number.isSafeInteger(lastSafeAlignedOpen+H),false);

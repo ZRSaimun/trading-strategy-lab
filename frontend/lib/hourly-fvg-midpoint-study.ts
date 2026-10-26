@@ -7,7 +7,7 @@
  */
 import type {Bar} from './research.ts';
 
-export const HOURLY_FVG_VERSION='hourly-fvg-first-midpoint-touch-v4';
+export const HOURLY_FVG_VERSION='hourly-fvg-first-midpoint-touch-v5';
 export type Evidence='PASS'|'FAIL'|'INSUFFICIENT_DATA';
 export type Side='BULLISH'|'BEARISH';
 export type FvgSource={
@@ -93,6 +93,27 @@ function verifiedVolume(bars:readonly Bar[],j:number,source:FvgSource,multiple:n
  if(factor.exponent>=0)rhs<<=BigInt(factor.exponent);
  else lhs<<=BigInt(-factor.exponent);
  return lhs>rhs?'PASS':'FAIL';
+}
+// Evaluate the wick threshold against the exact supplied IEEE-754 prices.
+// Subtracting a tiny positive low from a much larger wick/range can round
+// BOTH differences to a false 50% equality. Keep the displayed fraction
+// descriptive, but do not let its rounded value decide eligibility.
+function wickMeetsFraction(bar:Bar,bull:boolean,minimum:number):boolean{
+ const low=positiveFloatParts(bar.low),high=positiveFloatParts(bar.high);
+ const anchor=positiveFloatParts(bull?Math.min(bar.open,bar.close):
+  Math.max(bar.open,bar.close));
+ const exponent=Math.min(low.exponent,high.exponent,anchor.exponent);
+ const scaled=(part:{mantissa:bigint;exponent:number})=>
+  part.mantissa<<BigInt(part.exponent-exponent);
+ const wick=bull?scaled(anchor)-scaled(low):scaled(high)-scaled(anchor);
+ const range=scaled(high)-scaled(low);
+ // A zero-range candle has a descriptive wick fraction of zero.
+ if(range===0n)return minimum===0;
+ const threshold=positiveFloatParts(minimum);
+ let lhs=wick,rhs=range*threshold.mantissa;
+ if(threshold.exponent>=0)rhs<<=BigInt(threshold.exponent);
+ else lhs<<=BigInt(-threshold.exponent);
+ return lhs>=rhs;
 }
 function markout(entryAt:number,entry:number,exitAt:number,exit:number,
  direction:Side,costs:readonly number[]):Markout|null{
@@ -185,7 +206,7 @@ export function studyHourlyFvgMidpoint(
    wickFraction=range>0?Math.max(0,wick)/range:0;
    const reclaim=bull?b.close>midpoint&&b.close>b.open:
     b.close<midpoint&&b.close<b.open;
-   gates.wickRejection=reclaim&&wickFraction>=minimumRejectionWickFraction?
+   gates.wickRejection=reclaim&&wickMeetsFraction(b,bull,minimumRejectionWickFraction)?
     'PASS':'FAIL';
    gates.verifiedVolume=verifiedVolume(bars,j,source,volumeMultiple);
    gates.strictCandidate=gates.wickRejection==='FAIL'?'FAIL':
