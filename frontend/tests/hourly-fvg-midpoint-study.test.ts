@@ -154,6 +154,28 @@ test('strict prior-20 volume threshold does not round a true exceedance into equ
  assert.equal(target(bars).gates.verifiedVolume,'FAIL',
   'an exactly equal 1.5x threshold must not pass');
 });
+test('complete no-touch horizon is a known candidate failure, while truncated horizon stays unknown',()=>{
+ const bars=fixture();
+ for(let i=33;i<45;i++){
+  if(i>=bars.length)bars.push(candle(i,105,106,104,105));
+  else bars[i]=candle(i,105,106,104,105);
+ }
+ for(const bearish of [false,true]){
+  const series=bearish?bars.map(b=>({...b,open:220-b.open,
+   high:220-b.low,low:220-b.high,close:220-b.close})):bars;
+  const complete=target(series);
+  assert.equal(complete.gates.midpointTouch,'FAIL');
+  assert.equal(complete.gates.strictCandidate,'FAIL',
+   'observed no-touch must count as a known rejection, not missingness');
+  assert.equal(complete.firstTouchClosedAt,null);
+  assert.equal(complete.gates.markout,'INSUFFICIENT_DATA');
+  assert.equal(complete.blindMidpointTouch,null);
+  assert.equal(complete.confirmedNextOpen,null);
+  const truncated=target(series.slice(0,44));
+  assert.equal(truncated.gates.midpointTouch,'INSUFFICIENT_DATA');
+  assert.equal(truncated.gates.strictCandidate,'INSUFFICIENT_DATA');
+ }
+});
 test('missing 1H bar in pre-touch path is unknown, not a false negative or later cherry-picked touch',()=>{
  const bars=fixture().filter(b=>b.time!==BASE+33*H);
  const x=target(bars);
@@ -301,7 +323,7 @@ test('an overflowing next-open comparator suppresses both matched markouts',()=>
 });
 test('completed hourly timestamps are safe and numeric rule changes have a new version',()=>{
  const report=studyHourlyFvgMidpoint(fixture(),source);
- assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v5');
+ assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v6');
  const lastSafeAlignedOpen=Math.floor(Number.MAX_SAFE_INTEGER/H)*H;
  assert.equal(Number.isSafeInteger(lastSafeAlignedOpen),true);
  assert.equal(Number.isSafeInteger(lastSafeAlignedOpen+H),false);
