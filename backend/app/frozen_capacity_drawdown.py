@@ -99,6 +99,22 @@ def _first_pseudo_loss_barrier_event(increments, factor, threshold_pct_initial):
     return None
 
 
+def _longest_strict_negative_streak(increments):
+    """Longest run of consecutive strictly negative pseudo-booked net-R paths.
+
+    Zero is not a loss and breaks the run. These are artificial full-horizon
+    bookings, not consecutive broker fills, trading days or calendar minutes.
+    """
+    longest = current = 0
+    for increment in increments:
+        if increment < 0:
+            current += 1
+            longest = max(longest, current)
+        else:
+            current = 0
+    return longest
+
+
 def _withheld(upstream, reason):
     return dict(
         protocol="frozen-m1-capacity-drawdown-v1",
@@ -260,6 +276,16 @@ def audit_frozen_capacity_drawdown(
                         ),
                     ))
                 report[f"{label}_pseudo_settlement_loss_barriers"] = barriers
+                # Every endpoint can be chosen independently within its R
+                # interval. The all-upper path minimizes the longest strict
+                # loss streak; the all-lower path maximizes it. No outcome
+                # selection or profitable-trade filtering is permitted.
+                min_streak = _longest_strict_negative_streak(hi)
+                max_streak = _longest_strict_negative_streak(lo)
+                if min_streak > max_streak:
+                    raise ValueError("Inconsistent negative streak envelope")
+                report[f"{label}_pseudo_settlement_minimum_longest_strict_negative_path_streak"] = min_streak
+                report[f"{label}_pseudo_settlement_maximum_longest_strict_negative_path_streak"] = max_streak
                 report[f"{label}_pseudo_settlement_final_lower_pct_initial"] = str(sum(lo) * factor)
                 report[f"{label}_pseudo_settlement_final_upper_pct_initial"] = str(sum(hi) * factor)
             reports.append(report)
