@@ -76,6 +76,27 @@ test('source metadata is snapshotted once across validation, volume gates and ex
  assert.equal(providerReads,1,'invalid initial identity must not be reread into validity');
 });
 
+test('archive hashes must be primitive strings, not coercible objects',()=>{
+ for(const field of ['datasetId','archiveSha256'] as const){
+  let coercions=0;
+  // RegExp#test historically coerced this object into a valid-looking hash,
+  // while the report exported the original object as its source identity.
+  const forged={
+   [Symbol.toPrimitive](){coercions++;return source[field];},
+   privatePayload:'not-a-hash',
+  };
+  const untrusted={...source,[field]:forged} as unknown as FvgSource;
+  assert.throws(()=>studyHourlyFvgMidpoint(fixture(),untrusted),/Invalid source/);
+  assert.equal(coercions,0,'hash validation must not invoke user coercion');
+  const boxed={...source,[field]:new String(source[field])} as unknown as FvgSource;
+  assert.throws(()=>studyHourlyFvgMidpoint(fixture(),boxed),/Invalid source/);
+ }
+ // Proper lowercase primitive hashes remain valid and preserve exact identity.
+ const valid=studyHourlyFvgMidpoint(fixture(),source);
+ assert.equal(valid.source.datasetId,source.datasetId);
+ assert.equal(valid.source.archiveSha256,source.archiveSha256);
+});
+
 test('formation census preserves unknown outcomes and distinguishes paired from blind-only markouts',()=>{
  const bars=[
   candle(0,99,100,98,99),candle(1,100,102,99,101),
@@ -257,7 +278,7 @@ test('research report source metadata excludes arbitrary caller properties',()=>
  assert.deepEqual(Object.keys(report.source).sort(),Object.keys(source).sort());
  assert.equal(JSON.stringify(report).includes('synthetic-private-marker'),false);
  assert.equal(JSON.stringify(report).includes('synthetic-account-marker'),false);
- assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v19');
+ assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v20');
 });
 test('ambiguous source labels and contradictory volume evidence fail closed',()=>{
  // These are declared metadata, not independent vendor authentication.
