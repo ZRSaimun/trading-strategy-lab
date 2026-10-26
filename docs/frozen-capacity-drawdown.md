@@ -146,3 +146,28 @@ represent real broker costs. It does not authenticate source archives, infer
 spread/slippage/financing, establish profitable expectancy, unlock the holdout,
 authorize an order or change capacity admissions. The draft feature remains
 offline and unmerged until its production release gates are verified.
+
+
+## Independent declared cost-erosion arithmetic (26 October 2026)
+
+The full-population auditor now verifies **each eligible path**, including
+capacity-rejected paths, against the *frozen* entry and stop plus the upstream
+gross-R lower/upper endpoints. For each 0/5/10/20-bps scenario it independently
+recomputes the **declared illustrative** round-trip cost in R units as
+
+`abs(frozen_entry) × additional_bps / 10000 / abs(frozen_entry − frozen_stop)`
+
+and requires both net-R endpoints to equal their respective gross-R endpoints
+minus that cost. The arithmetic uses the upstream bracket evaluator's 50-digit
+Decimal convention, with no floating-point conversion. A missing gross-R
+endpoint, zero bracket risk, inverted gross interval, changed scenario identity,
+or even a **monotone but undercharged** cost path now fails closed before
+publishing any cohort result. Three synthetic regression cases include an
+end-to-end corrupted upstream outcome.
+
+This is a *consistency audit of the supplied research model*, not independent
+validation of broker spread, bid/ask execution, fees, slippage, financing,
+source authenticity or a real cost schedule. The declared risk distance is
+not an account cash-risk budget. No scenario is optimized using holdout
+outcomes, no capacity admission is changed, and no real or paper order is
+authorized. The branch remains disconnected, draft and undeployed.
