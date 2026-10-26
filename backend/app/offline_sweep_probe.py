@@ -172,7 +172,10 @@ def research(bars, *, lookback=16, horizon=16, embargo=16):
                 next_free = last
         if outcome is None:
             censored[cohort] += 1
-            next_free = max(next_free, entry_index + 1)
+            # A censored position has no observed exit. Do not admit another
+            # hypothetical position inside its entire reserved holding window.
+            # This is an analysis-only exclusion, not proof of a flat account.
+            next_free = max(next_free, entry_index + horizon)
         else:
             cohorts[cohort].append((outcome, entry, risk))
     reports = {}
