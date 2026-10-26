@@ -40,7 +40,7 @@ def ledger(tmp_path, *, cap=2, rows=1):
                     "a"*64, "b"*64))
         for i in range(rows):
             db.execute("INSERT INTO credit_reservation VALUES (?,?,?,?,?)",
-                       (f"{i:032x}", DAY, "c"*64, STAMP, 1))
+                       (f"{i:032x}", DAY, "c"*64, STAMP + i * 60, 1))
     path.chmod(0o600)
     return path
 
@@ -76,6 +76,17 @@ def test_missing_policy_is_not_approval(tmp_path):
 def test_overspend_denied_even_if_schema_constraints_allow_it(tmp_path):
     path = ledger(tmp_path, cap=1, rows=2)
     with pytest.raises(CreditLedgerAuditError, match="exceeds"):
+        audit(path)
+
+
+def test_same_utc_minute_reservations_fail_offline_audit(tmp_path):
+    path = ledger(tmp_path, cap=2, rows=2)
+    with sqlite3.connect(path) as db:
+        db.execute(
+            "UPDATE credit_reservation SET reserved_at_utc=? WHERE request_id=?",
+            (STAMP + 30, f"{1:032x}"),
+        )
+    with pytest.raises(CreditLedgerAuditError, match="one UTC minute"):
         audit(path)
 
 
