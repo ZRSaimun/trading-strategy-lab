@@ -78,22 +78,38 @@ def _decode(raw, identity_sha):
             value[key] = item
         return value
     try:
-        if not isinstance(raw, str) or len(raw) > 8000:
+        if not isinstance(raw, str) or len(raw.encode("utf-8")) > 8000:
             raise ValueError("Oversized quote marker")
         doc = json.loads(raw, object_pairs_hook=unique)
-        if not isinstance(doc, dict) or set(doc) != _DOC_KEYS or doc["version"] != 1:
+        if (not isinstance(doc, dict) or set(doc) != _DOC_KEYS
+                or type(doc["version"]) is not int or doc["version"] != 1):
             raise ValueError("Invalid quote marker schema")
         if doc["identity_sha256"] != identity_sha:
             raise ValueError("Quote marker source mismatch")
         if not all(_integer(doc[k], _MAX_SEQ if k in ("revision", "sequence") else _MAX_MS)
                    for k in ("revision", "sequence", "observed_at_ms", "received_at_ms", "accepted_at_ms")):
             raise ValueError("Invalid quote marker counters")
+        # The marker is a replay checkpoint, not just a checksummed JSON blob.
+        # Its timestamps must be possible under the maximum accepted quote-age
+        # policy (60 s). Reject impossible records even if their checksum was
+        # recomputed after corruption or manual editing.
+        if (not doc["observed_at_ms"] <= doc["received_at_ms"] <= doc["accepted_at_ms"]
+                or doc["accepted_at_ms"] - doc["observed_at_ms"] > 60_000):
+            raise ValueError("Inconsistent stored quote chronology")
+        # Each accepted quote strictly increases sequence; a revision cannot
+        # exceed its latest sequence even when the first sequence starts at 0.
+        if doc["revision"] > doc["sequence"]:
+            raise ValueError("Inconsistent stored quote sequence")
         if not isinstance(doc["quote_sha256"], str) or not re.fullmatch(r"[0-9a-f]{64}", doc["quote_sha256"]):
             raise ValueError("Invalid quote marker digest")
         recent = doc["recent_quote_hashes"]
         if (not isinstance(recent, list) or not 1 <= len(recent) <= 64
                 or any(not isinstance(h, str) or not re.fullmatch(r"[0-9a-f]{64}", h) for h in recent)
-                or len(set(recent)) != len(recent) or recent[-1] != doc["quote_sha256"]):
+                or len(set(recent)) != len(recent) or recent[-1] != doc["quote_sha256"]
+                or len(recent) != min(doc["revision"] + 1, 64)):
+            # A truncated replay window could silently permit a recent
+            # duplicate quote identifier; only the bounded sliding window
+            # length produced by observe() is accepted.
             raise ValueError("Invalid quote marker replay history")
         checksum = doc.pop("checksum")
         if not isinstance(checksum, str) or checksum != _digest(doc):
