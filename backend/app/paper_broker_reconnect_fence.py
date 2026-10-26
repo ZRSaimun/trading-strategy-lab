@@ -8,7 +8,7 @@ import json
 import re
 
 _MAX_MS = 8_640_000_000_000_000
-_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:/+-]{0,79}\\Z")
+_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:/+-]{0,79}\Z")
 _SNAPSHOT_KEYS = frozenset({
     "broker", "account_id", "feed", "connection_epoch", "snapshot_revision",
     "captured_at_ms", "inventory_observed_at_ms", "quote_observed_at_ms",
@@ -137,7 +137,8 @@ def evaluate_paper_reconnect(before, after, *, disconnect_at_ms, reconnected_at_
         "quote_observed_after_reconnect": quote_chronology,
         "quote_sequence_advanced": current["quote_sequence"] > prior["quote_sequence"],
         "quote_fresh_at_current_time": (
-            quote_chronology and now - current["quote_observed_at_ms"] <= max_quote_age_ms
+            quote_chronology and post_chronology
+            and now - current["quote_observed_at_ms"] <= max_quote_age_ms
         ),
         "quote_transport_delay_within_cap": (
             current["quote_received_at_ms"] - current["quote_observed_at_ms"]
