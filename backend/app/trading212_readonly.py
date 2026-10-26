@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 import hashlib
 import json
 import math
+import re
 
 import httpx
 
@@ -46,6 +47,53 @@ def _reject_constant(_value: str) -> None:
     raise ValueError("nonstandard JSON constant")
 
 
+
+_RATE_HEADERS = (
+    "x-ratelimit-limit", "x-ratelimit-period", "x-ratelimit-remaining",
+    "x-ratelimit-reset", "x-ratelimit-used",
+)
+
+
+def _rate_limit_observation(headers: httpx.Headers) -> dict:
+    """Observe, never trust, broker account-wide quota counters.
+
+    No quota resets, account entitlements, or safe future request allowances
+    can be inferred from unverified HTTP response headers.
+    """
+    observed = {}
+    for name in _RATE_HEADERS:
+        values = headers.get_list(name)
+        if not values:
+            observed[name] = None
+            continue
+        if len(values) != 1 or re.fullmatch(r"[0-9]{1,13}", values[0]) is None:
+            raise ReadOnlyBrokerError("Invalid broker rate-limit headers")
+        observed[name] = int(values[0])
+
+    values = tuple(observed[name] for name in _RATE_HEADERS)
+    if all(value is None for value in values):
+        status = "MISSING_REVIEW_REQUIRED"
+    elif any(value is None for value in values):
+        status = "PARTIAL_REVIEW_REQUIRED"
+    else:
+        limit, period, remaining, reset, used = values
+        if (not 1 <= limit <= 10_000_000 or not 1 <= period <= 86_400
+                or not 0 <= remaining <= limit or not 0 <= used <= limit
+                or not 1 <= reset <= 253402300799
+                or used + remaining != limit):
+            status = "INCONSISTENT_REVIEW_REQUIRED"
+        else:
+            status = "OBSERVED_UNVERIFIED"
+    return {
+        "status": status,
+        "limit": values[0], "period_seconds": values[1],
+        "remaining": values[2], "reset_unix_seconds": values[3],
+        "used": values[4],
+        "account_quota_verified": False,
+        "safe_to_make_another_request": False,
+    }
+
+
 def fetch_trading212_readonly(
     *, endpoint: str, api_key: str, api_secret: str,
     account_type: str, environment: str = "DEMO",
@@ -76,6 +124,7 @@ def fetch_trading212_readonly(
                     raise ReadOnlyBrokerError("Broker read refused or unavailable")
                 if response.headers.get("content-type", "").split(";", 1)[0].strip().lower() != "application/json":
                     raise ReadOnlyBrokerError("Unexpected broker response content type")
+                quota_observation = _rate_limit_observation(response.headers)
                 # Never let an automatic decompressor allocate an unbounded chunk.
                 if response.headers.get("content-encoding", "identity").strip().lower() != "identity":
                     raise ReadOnlyBrokerError("Compressed broker responses not supported")
@@ -112,6 +161,7 @@ def fetch_trading212_readonly(
         "account_type_declared": account_type, "account_type_verified": False,
         "endpoint": endpoint, "received_at_utc": datetime.now(timezone.utc).isoformat(),
         "response_sha256": hashlib.sha256(raw).hexdigest(), "data": payload,
+        "rate_limit_observation": quota_observation,
         "server_clock_attested": False, "market_data_feed": False,
         "price_freshness_verified": False, "cfd_supported": False,
         "may_execute_order": False,
