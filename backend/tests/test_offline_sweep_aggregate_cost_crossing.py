@@ -56,9 +56,9 @@ def test_order_independent_and_does_not_mutate_input():
 @pytest.mark.parametrize("gross,cost5,expected", [
     ("0.10000", "-0.10000", "ROUNDED_OBSERVED_ONLY_INTERPOLATED_CROSSING"),
     ("-0.10000", "-0.20000", "NOT_STRICTLY_POSITIVE_AT_ZERO_BPS"),
-    ("0.00000", "-0.10000", "NOT_STRICTLY_POSITIVE_AT_ZERO_BPS"),
+    ("0.00000", "-0.10000", "ROUNDING_AMBIGUOUS_ENDPOINT"),
     ("0.10000", "0.05000", "NO_STRICT_CROSSING_WITHIN_DECLARED_0_TO_5_BPS"),
-    ("0.10000", "0.00000", "NO_STRICT_CROSSING_WITHIN_DECLARED_0_TO_5_BPS"),
+    ("0.10000", "0.00000", "ROUNDING_AMBIGUOUS_ENDPOINT"),
 ])
 def test_synthetic_endpoint_statuses(gross, cost5, expected):
     assert _crossing(D(gross), D(cost5), 1)["status"] == expected
@@ -92,3 +92,33 @@ def test_rejects_invalid_or_unsafe_aggregate_before_interpolation(mutation):
     mutation(p)
     with pytest.raises(ValueError):
         audit_cost_crossing(p)
+
+
+@pytest.mark.parametrize("gross,cost5", [
+    ("0.00000", "-0.00001"),
+    ("0.00000", "0.00000"),
+    ("0.00001", "0.00000"),
+    ("0.00001", "-0.00000"),
+])
+def test_rounded_zero_endpoints_never_claim_strict_crossing(gross, cost5):
+    result = _crossing(D(gross), D(cost5), 1)
+    assert result["status"] == "ROUNDING_AMBIGUOUS_ENDPOINT"
+    assert result["zero_crossing_extra_bps"] is None
+    assert result["lower_bound_extra_bps"] is None
+    assert result["upper_bound_extra_bps"] is None
+
+
+def test_one_last_place_signs_still_prove_strict_crossing():
+    result = _crossing(D("0.00001"), D("-0.00001"), 1)
+    assert result["status"] == "ROUNDED_OBSERVED_ONLY_INTERPOLATED_CROSSING"
+    assert D(result["lower_bound_extra_bps"]) > 0
+    assert D(result["upper_bound_extra_bps"]) < 5
+
+
+def test_nonzero_endpoint_classification_still_decisive():
+    assert _crossing(D("-0.00001"), D("-0.10000"), 1)["status"] == (
+        "NOT_STRICTLY_POSITIVE_AT_ZERO_BPS"
+    )
+    assert _crossing(D("0.10000"), D("0.00001"), 1)["status"] == (
+        "NO_STRICT_CROSSING_WITHIN_DECLARED_0_TO_5_BPS"
+    )
