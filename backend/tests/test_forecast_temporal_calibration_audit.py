@@ -256,3 +256,48 @@ def test_temporal_ece_is_withheld_with_other_scores_on_selection_risk():
     assert group["status"] == "UNRESOLVED_SELECTION_RISK"
     assert group["lateExpectedCalibrationError10"] is None
     assert group["lateAbsoluteCalibrationGap"] is None
+
+
+def test_temporal_ece_bin_population_is_reproducible():
+    s = fixture()
+    for i in range(80, 160):
+        low = ((i - 80) // 2) % 2 == 0
+        p = 0.2 if low else 0.8
+        s["forecasts"][i]["probability"] = p
+        s["forecasts"][i]["outcomeUp"] = low
+        s["events"][i]["probability"] = p
+    row = audit_temporal_forecast_calibration(s)["groups"][0]
+    bins = row["lateEceBins10"]
+    assert len(bins) == 10
+    assert [b["bin"] for b in bins] == list(range(10))
+    assert [b["count"] for b in bins] == [0, 0, 20, 0, 0, 0, 0, 0, 20, 0]
+    assert sum(b["count"] for b in bins) == row["lateNonoverlappingSettled"]
+    reconstructed = sum(
+        b["count"] * abs(b["meanProbability"] - b["observedUpRate"])
+        for b in bins if b["count"]
+    ) / row["lateNonoverlappingSettled"]
+    assert reconstructed == pytest.approx(row["lateExpectedCalibrationError10"])
+    assert bins[2]["observedUpRate"] == 1.0
+    assert bins[8]["observedUpRate"] == 0.0
+    assert bins[0]["meanProbability"] is None
+    assert bins[0]["observedUpRate"] is None
+
+
+def test_temporal_ece_bins_withheld_with_selection_risk():
+    s = fixture()
+    for i in (80, 82, 84):
+        s["forecasts"][i].update(status="PENDING", outcomeUp=None, resolvedAt=None)
+    row = audit_temporal_forecast_calibration(
+        s, max_unresolved_fraction=.05)["groups"][0]
+    assert row["status"] == "UNRESOLVED_SELECTION_RISK"
+    assert row["lateExpectedCalibrationError10"] is None
+    assert row["lateEceBins10"] is None
+
+
+def test_temporal_ece_bins_do_not_invent_rates_for_empty_bins():
+    row = audit_temporal_forecast_calibration(fixture())["groups"][0]
+    bins = row["lateEceBins10"]
+    assert sum(b["count"] for b in bins) == row["lateNonoverlappingSettled"]
+    assert sum(b["count"] > 0 for b in bins) == 1
+    assert all(b["meanProbability"] is None and b["observedUpRate"] is None
+               for b in bins if b["count"] == 0)
