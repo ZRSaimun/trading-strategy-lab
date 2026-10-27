@@ -32,6 +32,24 @@ def _interval_declarations_extend(previous: tuple, current: tuple) -> bool:
     )
 
 
+def _new_completed_interval_minutes(previous: tuple, current: tuple,
+                                    prior_observed_at_utc: int) -> int:
+    """Count retroactively appended completed minutes, including excluded spans.
+
+    Expected-minute continuity alone misses a newly declared session whose
+    entire historical range is excluded. Historical rewrites are quarantined
+    separately; this only counts valid append/final-extension declarations.
+    """
+    if not _interval_declarations_extend(previous, current):
+        return 0
+    additions = []
+    if previous and current[:len(previous)] != previous:
+        additions.append((previous[-1][1], current[len(previous) - 1][1]))
+    additions.extend(current[len(previous):])
+    return sum(max(0, min(end, prior_observed_at_utc) - start) // 60
+               for start, end in additions)
+
+
 _PRICE_FIELDS = ("open", "high", "low", "close")
 _ID_FIELDS = ("provider", "symbol", "venue", "price_side")
 
@@ -83,6 +101,12 @@ def audit_declared_m1_receipt_continuity(
         t for t in later[len(earlier):]
         if t + 60 <= previous_manifest.observed_at_utc
     ]
+    retroactive_sessions = _new_completed_interval_minutes(
+        previous_manifest.sessions_utc, current_manifest.sessions_utc,
+        previous_manifest.observed_at_utc)
+    retroactive_exclusions = _new_completed_interval_minutes(
+        previous_manifest.exclusions_utc, current_manifest.exclusions_utc,
+        previous_manifest.observed_at_utc)
 
     # Both calls independently reconstruct their manifests and validate all
     # row identity, UTC chronology, OHLC, bounds, and declared freshness.
@@ -109,7 +133,8 @@ def audit_declared_m1_receipt_continuity(
                        if after[t]["received_at_utc"] <= previous_manifest.observed_at_utc)
     anomalies = bool(removed or price_revisions or timestamp_revisions or backfills
                      or backdated or sessions_rewritten or exclusions_rewritten
-                     or retroactive_expected or previous["status"] == "REVIEW_REQUIRED"
+                     or retroactive_expected or retroactive_sessions or retroactive_exclusions
+                     or previous["status"] == "REVIEW_REQUIRED"
                      or current["status"] == "REVIEW_REQUIRED")
     digest = hashlib.sha256(json.dumps({
         "previous_manifest": previous_manifest.manifest_sha256,
@@ -138,6 +163,8 @@ def audit_declared_m1_receipt_continuity(
         "historical_session_declaration_rewritten": sessions_rewritten,
         "historical_exclusion_declaration_rewritten": exclusions_rewritten,
         "retroactive_new_expected_minutes": len(retroactive_expected),
+        "retroactive_new_session_declaration_minutes": retroactive_sessions,
+        "retroactive_new_exclusion_declaration_minutes": retroactive_exclusions,
         "retroactive_new_expected_utc_samples": [
             _iso(t) for t in retroactive_expected[:sample_limit]],
         "removed_utc_samples": [_iso(t) for t in removed[:sample_limit]],
