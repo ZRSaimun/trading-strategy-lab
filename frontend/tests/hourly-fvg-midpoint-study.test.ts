@@ -210,7 +210,8 @@ test('bounded FVG studies ignore untrusted array iterators for candles and costs
  Object.defineProperty(sparse,Symbol.iterator,{value(){
   throw Error('sparse candle iterator invoked');
  }});
- assert.throws(()=>studyHourlyFvgMidpoint(sparse as Bar[],source),TypeError);
+ assert.throws(()=>studyHourlyFvgMidpoint(sparse as Bar[],source),
+  /own-index candle evidence/);
 });
 
 test('research rejects candle and cost array resizing during evidence snapshots',()=>{
