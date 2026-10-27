@@ -3,7 +3,7 @@ from datetime import datetime, timedelta
 from decimal import Decimal as D
 from zipfile import ZipFile
 import pytest
-from app.offline_sweep_probe import Bar, read_archive, research
+from app.offline_sweep_probe import Bar, read_archive, research, prior_range_regime
 
 
 def synthetic_bars():
@@ -511,3 +511,87 @@ def test_censored_holding_prefix_does_not_invent_exit_or_financing():
     assert duration["censored_observed_prefix_15m_bars_max"] == 1
     assert all(x["mean_net_r"] is None for x in
                cohort["illustrative_observed_time_cost_scenarios"])
+
+
+def test_pre_signal_volatility_range_thresholds_are_exact_and_causal():
+    def prior(half_width):
+        bar = Bar(datetime(2025, 1, 1), D(100), D(100) + D(half_width),
+                  D(100) - D(half_width), D(100), 0)
+        return [bar] * 16
+    assert prior_range_regime(prior("0.049")) == "LOW_LT_10_BPS"
+    assert prior_range_regime(prior("0.05")) == "MID_10_TO_LT_30_BPS"
+    assert prior_range_regime(prior("0.149")) == "MID_10_TO_LT_30_BPS"
+    assert prior_range_regime(prior("0.15")) == "HIGH_GTE_30_BPS"
+    with pytest.raises(ValueError, match="Missing pre-signal"):
+        prior_range_regime([])
+
+
+@pytest.mark.parametrize("half_width,expected", [
+    ("0.04", "LOW_LT_10_BPS"),
+    ("0.10", "MID_10_TO_LT_30_BPS"),
+    ("1", "HIGH_GTE_30_BPS"),
+])
+def test_pre_signal_volatility_bins_reconcile_and_do_not_filter_trades(
+    half_width, expected
+):
+    rows = synthetic_bars()
+    for index in range(14, 30):
+        b = rows[index]
+        rows[index] = Bar(b.time, D(100), D(100) + D(half_width),
+                          D(100) - D(half_width), D(100), b.segment)
+    cohort = research(rows)["cohorts"]["development"]
+    census = cohort["pre_signal_volatility_regime_census"]
+    assert census["fixed_thresholds_bps"] == [10, 30]
+    assert census["lookback_completed_bars"] == 16
+    assert cohort["confirmed_signals"] == cohort["entered_positions"] == 1
+    assert cohort["observed_outcomes"] == 1
+    for key, cell in census["regimes"].items():
+        count = int(key == expected)
+        assert cell["confirmed_signals"] == count
+        assert cell["entered_positions"] == count
+        assert cell["observed_outcomes"] == count
+        assert cell["censored_entered_outcomes"] == 0
+        assert cell["confirmed_signals_without_observable_entry"] == 0
+        assert cell["invalid_entry_stop_or_target_geometry"] == 0
+        for i, scenario in enumerate(cell["observed_only_cost_scenarios"]):
+            assert scenario["observed_outcomes"] == count
+            assert scenario["additional_round_trip_bps"] == (0, 5, 10, 20)[i]
+            assert scenario["mean_net_r"] == (
+                cohort["cost_scenarios"][i]["mean_net_r"] if count else None)
+
+
+@pytest.mark.parametrize("mode", ["missing_entry", "censored", "invalid"])
+def test_pre_signal_volatility_censuses_nonreturn_populations(mode):
+    rows = synthetic_bars()
+    b = rows[32]
+    if mode == "missing_entry":
+        rows[32] = Bar(b.time, b.o, b.h, b.l, b.c, 1)
+    elif mode == "censored":
+        rows[32] = Bar(b.time, D(103), D(104), D(99), D(103), 0)
+        rows[33:] = [Bar(x.time, x.o, x.h, x.l, x.c, 1) for x in rows[33:]]
+    else:
+        rows[32] = Bar(b.time, D(97), D(114), D(97), D(100), 0)
+    cohort = research(rows)["cohorts"]["development"]
+    bins = cohort["pre_signal_volatility_regime_census"]["regimes"]
+    high = bins["HIGH_GTE_30_BPS"]
+    assert high["confirmed_signals"] == 1
+    assert high["observed_outcomes"] == 0
+    assert high["confirmed_signals_without_observable_entry"] == int(
+        mode == "missing_entry")
+    assert high["censored_entered_outcomes"] == int(mode == "censored")
+    assert high["invalid_entry_stop_or_target_geometry"] == int(mode == "invalid")
+    assert high["entered_positions"] == int(mode == "censored")
+    assert all(x["mean_net_r"] is None for x in high["observed_only_cost_scenarios"])
+    assert all(x["confirmed_signals"] == 0 for key, x in bins.items()
+               if key != "HIGH_GTE_30_BPS")
+
+
+def test_volatility_bins_sum_to_original_cost_scenario_without_reweighting():
+    cohort = research(synthetic_bars())["cohorts"]["development"]
+    cells = cohort["pre_signal_volatility_regime_census"]["regimes"].values()
+    for i, overall in enumerate(cohort["cost_scenarios"]):
+        weighted_sum = sum(
+            (D(cell["observed_only_cost_scenarios"][i]["mean_net_r"]) *
+             cell["observed_outcomes"]
+             for cell in cells if cell["observed_outcomes"]), D(0))
+        assert weighted_sum == D(overall["sum_net_r"])
