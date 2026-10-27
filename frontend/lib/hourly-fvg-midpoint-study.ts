@@ -7,7 +7,7 @@
  */
 import type {Bar} from './research.ts';
 
-export const HOURLY_FVG_VERSION='hourly-fvg-first-midpoint-touch-v31';
+export const HOURLY_FVG_VERSION='hourly-fvg-first-midpoint-touch-v32';
 export type Evidence='PASS'|'FAIL'|'INSUFFICIENT_DATA';
 export type Side='BULLISH'|'BEARISH';
 export type FvgSource={
@@ -63,7 +63,10 @@ export type PairedNetSignCells={
 };
 export type PairedNetSignCostCensus={
  scenarioIndex:number;costBps:number;
+ // Partition all matched outcomes by the declared strict evidence state.
+ // Unknown volume evidence must not be pooled with a known failed gate.
  all:PairedNetSignCells;strict:PairedNetSignCells;
+ strictFail:PairedNetSignCells;strictUnknown:PairedNetSignCells;
 };
 export type FvgCohort={
  formations:number;firstTouchOutcome:Record<FirstTouchOutcome,number>;
@@ -207,7 +210,7 @@ function summarizeCohort(observations:readonly FvgObservation[],costs:readonly n
   const empty=():PairedNetSignCells=>({
    bothPositive:0,blindOnlyPositive:0,confirmedOnlyPositive:0,neitherPositive:0,
   });
-  const all=empty(),strict=empty();
+  const all=empty(),strict=empty(),strictFail=empty(),strictUnknown=empty();
   for(const observation of observations){
    if(!paired(observation))continue;
    const blind=observation.blindMidpointTouch!.netBpsByCost[scenarioIndex];
@@ -220,8 +223,10 @@ function summarizeCohort(observations:readonly FvgObservation[],costs:readonly n
     confirmedPositive?'confirmedOnlyPositive':'neitherPositive';
    all[cell]++;
    if(observation.gates.strictCandidate==='PASS')strict[cell]++;
+   else if(observation.gates.strictCandidate==='FAIL')strictFail[cell]++;
+   else strictUnknown[cell]++;
   }
-  return {scenarioIndex,costBps,all,strict};
+  return {scenarioIndex,costBps,all,strict,strictFail,strictUnknown};
  });
  const firstTouchOutcome:Record<FirstTouchOutcome,number>={
   TOUCH:0,NO_TOUCH:0,OPEN_GAP_THROUGH:0,INCOMPLETE_WINDOW:0,
