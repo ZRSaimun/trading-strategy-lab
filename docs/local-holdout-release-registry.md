@@ -108,3 +108,16 @@ against population-locked registries; update those callers to supply the
 frozen census or use the guarded wrapper. It does not establish
 independent source authentication, immutable external preregistration or
 profitable backtest results.
+
+
+**Persisted-clock chronology guard (27 October 2026):** Before consuming
+any direct or guarded local release, the SQLite transaction now checks
+that the persisted registration, start and end timestamps are exact
+nonnegative integers satisfying `registered < start < end` and the
+bounded timestamp range. SQLite INTEGER affinity alone can store a
+fractional number, and its existing CHECK permits negative registration
+timestamps. Four synthetic corruption cases verify that such records
+cannot consume the sole release attempt, while a corrected record
+can still be claimed once. This detects inconsistent local records
+only; it does not independently timestamp registration or protect
+against coordinated database restoration/tampering.
