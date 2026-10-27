@@ -7,7 +7,7 @@
  */
 import type {Bar} from './research.ts';
 
-export const HOURLY_FVG_VERSION='hourly-fvg-first-midpoint-touch-v36';
+export const HOURLY_FVG_VERSION='hourly-fvg-first-midpoint-touch-v37';
 export type Evidence='PASS'|'FAIL'|'INSUFFICIENT_DATA';
 export type Side='BULLISH'|'BEARISH';
 export type FvgSource={
@@ -92,6 +92,9 @@ export type FvgCohort={
  // Descriptive paired gross-BID markout ordering; not realized execution P&L.
  pairedGrossOrdering:PairedGrossOrderingCensus;
  pairedHoldingWindowOverlap:PairedWindowOverlapCensus;
+ // Overlap within each declared strict evidence population; cross-status
+ // overlapping pairs are intentionally not assigned to either subgroup.
+ pairedHoldingWindowOverlapByStrictCandidate:Record<Evidence,PairedWindowOverlapCensus>;
  // Count matched and right-censored candidates by strict evidence status.
  pairedByStrictCandidate:EvidenceCounts;unpairedByStrictCandidate:EvidenceCounts;
  blindOnlyMarkouts:number;
@@ -239,7 +242,8 @@ function summarizeCohort(observations:readonly FvgObservation[],costs:readonly n
  // not the unknown intrabar blind-limit fill time. An exit exactly at the
  // next entry is not an overlap. The sweep is O(n log n), bounded by the
  // validated 20,000-candle source population.
- const pairedWindows=observations.filter(paired).map(o=>{
+ const countOverlaps=(eligible:readonly FvgObservation[]):PairedWindowOverlapCensus=>{
+ const pairedWindows=eligible.map(o=>{
   const confirmed=o.confirmedNextOpen!;
   const start=confirmed.hypotheticalEntryAt;
   if(start===null||start>=confirmed.exitObservedAt)
@@ -254,7 +258,15 @@ function summarizeCohort(observations:readonly FvgObservation[],costs:readonly n
   overlappingPairCombinations+=concurrent-1;
   maxConcurrentPairs=Math.max(maxConcurrentPairs,concurrent);
  }
- const pairedHoldingWindowOverlap={overlappingPairCombinations,maxConcurrentPairs};
+ return {overlappingPairCombinations,maxConcurrentPairs};
+ };
+ const matured=observations.filter(paired);
+ const pairedHoldingWindowOverlap=countOverlaps(matured);
+ const pairedHoldingWindowOverlapByStrictCandidate:Record<Evidence,PairedWindowOverlapCensus>={
+  PASS:countOverlaps(matured.filter(o=>o.gates.strictCandidate==='PASS')),
+  FAIL:countOverlaps(matured.filter(o=>o.gates.strictCandidate==='FAIL')),
+  INSUFFICIENT_DATA:countOverlaps(matured.filter(o=>o.gates.strictCandidate==='INSUFFICIENT_DATA')),
+ };
  const pairedByStrictCandidate:EvidenceCounts={PASS:0,FAIL:0,INSUFFICIENT_DATA:0};
  const unpairedByStrictCandidate:EvidenceCounts={PASS:0,FAIL:0,INSUFFICIENT_DATA:0};
  for(const observation of observations){
@@ -339,6 +351,7 @@ function summarizeCohort(observations:readonly FvgObservation[],costs:readonly n
  return {
   formations:observations.length,firstTouchOutcome,incompleteWindowByReason,
   pairedNetSignByCost,pairedGrossOrdering,pairedHoldingWindowOverlap,
+  pairedHoldingWindowOverlapByStrictCandidate,
   markoutCensoredByReason,
   midpointTouch:count('midpointTouch'),
   strictCandidate:count('strictCandidate'),
