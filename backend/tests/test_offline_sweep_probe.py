@@ -535,6 +535,10 @@ def test_pre_signal_volatility_bins_reconcile_and_do_not_filter_trades(
     half_width, expected
 ):
     rows = synthetic_bars()
+    # Keep the sweep strictly one-sided after narrowing the prior range:
+    # otherwise the original high=101 also pierces the reduced prior high.
+    b = rows[30]
+    rows[30] = Bar(b.time, D(100), D(100), D(98), D(100), b.segment)
     for index in range(14, 30):
         b = rows[index]
         rows[index] = Bar(b.time, D(100), D(100) + D(half_width),
