@@ -165,7 +165,9 @@ async def retrieve(key,instrument,limit,end,now,transport=None, *, include_wire_
                     raise ProviderError('Provider response length mismatch; no data imported.')
                 payload=json.loads(raw,object_pairs_hook=_reject_duplicate_response_keys,
                                    parse_constant=_reject_nonstandard_response_constant)
-    except (httpx.HTTPError,ValueError):
+    except (httpx.HTTPError,ValueError,RecursionError):
+        # Excessively nested but size-bounded JSON may raise RecursionError.
+        # Fail closed with a sanitized provider error rather than a server 500.
         # Never return exception strings: HTTP client exceptions can contain request details.
         raise ProviderError('Provider request failed or returned invalid JSON; no data imported.') from None
     rows,archive=normalize(payload,instrument,now)
