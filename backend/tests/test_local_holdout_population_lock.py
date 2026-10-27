@@ -6,7 +6,7 @@ import sqlite3
 import pytest
 
 from app import local_holdout_release_registry as registry
-from app.local_holdout_population_lock import register_population_locked_holdout
+from app.local_holdout_population_lock import register_population_locked_holdout, _ROW_SCHEMA, _source_key
 from app.declared_holdout_release_gate import (
     prepare_declared_holdout_census_sha256,
     prepare_declared_holdout_manifest_sha256,
@@ -20,10 +20,10 @@ def clock(monkeypatch):
     return value
 
 
-def _study(study="one", offset=0, source="a", candidate="frozen"):
+def _study(study="one", offset=0, source="a", candidate="frozen", decision_offset=0):
     census = [dict(observation_id=f"o{i}", row_sha256=f"{offset + i + 1:064x}",
-                   source_sha256=source * 64, decision_at_utc=2100 + i * 100,
-                   label_available_at_utc=2150 + i * 100)
+                   source_sha256=source * 64, decision_at_utc=2100 + decision_offset + i * 100,
+                   label_available_at_utc=2150 + decision_offset + i * 100)
               for i in range(35)]
     manifest = dict(study_id=study, candidate_id=candidate,
                     candidate_config_sha256="b" * 64,
@@ -45,6 +45,7 @@ def test_register_and_release_with_existing_one_attempt_gate(tmp_path, clock):
     manifest, census = _study()
     result = register_population_locked_holdout(path, manifest, census)
     assert result["locked_observation_count"] == 35
+    assert result["locked_decision_count"] == 35
     assert result["independently_trusted_registry"] is False
     assert result["manifest_sha256"] == prepare_declared_holdout_manifest_sha256(manifest)
     clock[0] = 20001
@@ -72,7 +73,7 @@ def test_partial_overlap_rejected_and_transaction_rolled_back(tmp_path, clock):
     path = tmp_path / "locked.sqlite"
     first, rows = _study()
     register_population_locked_holdout(path, first, rows)
-    second, overlapping = _study(study="two", offset=100)
+    second, overlapping = _study(study="two", offset=100, decision_offset=5000)
     # A late collision verifies that earlier inserted rows are rolled back.
     overlapping[20]["row_sha256"] = rows[0]["row_sha256"]
     second["holdout_census_sha256"] = prepare_declared_holdout_census_sha256(overlapping)
@@ -82,7 +83,7 @@ def test_partial_overlap_rejected_and_transaction_rolled_back(tmp_path, clock):
         assert conn.execute("SELECT count(*) FROM holdout_claims WHERE study_id='two'").fetchone() == (0,)
         assert conn.execute("SELECT count(*) FROM holdout_locked_rows").fetchone() == (35,)
     # A failed overlapping registration must not leave a partial claim.
-    disjoint, other_rows = _study(study="two", offset=100)
+    disjoint, other_rows = _study(study="two", offset=100, decision_offset=5000)
     assert register_population_locked_holdout(path, disjoint, other_rows)["locked_observation_count"] == 35
 
 
@@ -90,7 +91,7 @@ def test_disjoint_population_or_distinct_declared_feed_allowed(tmp_path, clock):
     path = tmp_path / "locked.sqlite"
     first, rows = _study()
     register_population_locked_holdout(path, first, rows)
-    disjoint, new_rows = _study(study="two", offset=100)
+    disjoint, new_rows = _study(study="two", offset=100, decision_offset=5000)
     register_population_locked_holdout(path, disjoint, new_rows)
     other_source, same_hash_rows = _study(study="three", source="d")
     other_source["source"]["provider"] = "DifferentVendor"
@@ -98,6 +99,7 @@ def test_disjoint_population_or_distinct_declared_feed_allowed(tmp_path, clock):
     with sqlite3.connect(path) as conn:
         assert conn.execute("SELECT count(*) FROM holdout_claims").fetchone() == (3,)
         assert conn.execute("SELECT count(*) FROM holdout_locked_rows").fetchone() == (105,)
+        assert conn.execute("SELECT count(*) FROM holdout_locked_decisions").fetchone() == (105,)
 
 
 def test_duplicate_study_and_malformed_census_fail_closed(tmp_path, clock):
@@ -192,3 +194,73 @@ def test_preexisting_legacy_registration_blocks_first_population_lock(tmp_path, 
             "SELECT count(*) FROM sqlite_master WHERE type='table' "
             "AND name='holdout_locked_rows'"
         ).fetchone() == (0,)
+
+
+def test_revised_row_hashes_cannot_reuse_same_feed_decision_times(tmp_path, clock):
+    path = tmp_path / "locked.sqlite"
+    first, original = _study()
+    register_population_locked_holdout(path, first, original)
+    revised, rows = _study(study="revised", offset=100)
+    # All hashes differ but the same source and decision timestamps are reused.
+    assert {r["row_sha256"] for r in original}.isdisjoint(
+        {r["row_sha256"] for r in rows})
+    with pytest.raises(sqlite3.IntegrityError):
+        register_population_locked_holdout(path, revised, rows)
+    with sqlite3.connect(path) as conn:
+        assert conn.execute("SELECT count(*) FROM holdout_claims").fetchone() == (1,)
+        assert conn.execute("SELECT count(*) FROM holdout_locked_rows").fetchone() == (35,)
+        assert conn.execute("SELECT count(*) FROM holdout_locked_decisions").fetchone() == (35,)
+
+
+def test_single_late_decision_collision_rolls_back_both_reservations(tmp_path, clock):
+    path = tmp_path / "locked.sqlite"
+    first, original = _study()
+    register_population_locked_holdout(path, first, original)
+    second, rows = _study(study="revised", offset=100, decision_offset=5000)
+    rows[-1]["decision_at_utc"] = original[0]["decision_at_utc"]
+    # Keep the census chronological while colliding with a previous study.
+    rows.sort(key=lambda r: r["decision_at_utc"])
+    second["holdout_census_sha256"] = prepare_declared_holdout_census_sha256(rows)
+    with pytest.raises(sqlite3.IntegrityError):
+        register_population_locked_holdout(path, second, rows)
+    with sqlite3.connect(path) as conn:
+        assert conn.execute("SELECT count(*) FROM holdout_claims").fetchone() == (1,)
+        assert conn.execute("SELECT count(*) FROM holdout_locked_rows").fetchone() == (35,)
+        assert conn.execute("SELECT count(*) FROM holdout_locked_decisions").fetchone() == (35,)
+
+
+def test_existing_row_only_registry_requires_explicit_clean_database(tmp_path, clock):
+    path = tmp_path / "old.sqlite"
+    manifest, census = _study()
+    with sqlite3.connect(path) as conn:
+        conn.execute(registry._SCHEMA)
+        conn.execute(_ROW_SCHEMA)
+        conn.execute(
+            "INSERT INTO holdout_claims VALUES (?, ?, ?, ?, ?, NULL)",
+            ("old", "a" * 64, 2000, 20000, 1251))
+        conn.execute(
+            "INSERT INTO holdout_locked_rows VALUES (?, ?, ?)",
+            (_source_key(manifest["source"]), census[0]["row_sha256"], "old"))
+    fresh, rows = _study(study="fresh", offset=100, decision_offset=5000)
+    with pytest.raises(ValueError, match="lacks decision-time reservations"):
+        register_population_locked_holdout(path, fresh, rows)
+    with sqlite3.connect(path) as conn:
+        assert conn.execute("SELECT count(*) FROM holdout_claims").fetchone() == (1,)
+        assert conn.execute(
+            "SELECT count(*) FROM sqlite_master WHERE name='holdout_locked_decisions'"
+        ).fetchone() == (0,)
+
+
+def test_incomplete_timestamp_reservation_population_rejected(tmp_path, clock):
+    path = tmp_path / "locked.sqlite"
+    first, original = _study()
+    register_population_locked_holdout(path, first, original)
+    with sqlite3.connect(path) as conn:
+        conn.execute("DELETE FROM holdout_locked_decisions WHERE decision_at_utc=?", (2100,))
+    fresh, rows = _study(study="fresh", offset=100, decision_offset=5000)
+    with pytest.raises(ValueError, match="Incomplete row or decision-time"):
+        register_population_locked_holdout(path, fresh, rows)
+    with sqlite3.connect(path) as conn:
+        assert conn.execute("SELECT count(*) FROM holdout_claims").fetchone() == (1,)
+        assert conn.execute("SELECT count(*) FROM holdout_locked_rows").fetchone() == (35,)
+        assert conn.execute("SELECT count(*) FROM holdout_locked_decisions").fetchone() == (34,)
