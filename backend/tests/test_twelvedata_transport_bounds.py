@@ -249,3 +249,35 @@ def test_exactly_completed_window_and_fractional_epoch_remain_valid():
     ))
     assert len(rows) == 1
     assert len(requests) == 1
+
+@pytest.mark.parametrize("media_type", [
+    "text/html", "text/plain", "application/problem+json",
+    "application/json; charset=iso-8859-1", "application/json, text/plain",
+])
+def test_explicit_non_json_or_ambiguous_media_type_is_rejected(media_type):
+    # A 200 response containing valid-looking JSON cannot override an
+    # explicitly conflicting HTTP media type.
+    with pytest.raises(ProviderError, match="Unsupported provider response media type") as exc:
+        _fetch(_body(), {"Content-Type": media_type})
+    assert exc.value.status == 502
+    assert "synthetic-only-key" not in str(exc.value)
+
+
+def test_duplicate_content_type_headers_are_rejected():
+    with pytest.raises(ProviderError, match="Unsupported provider response media type"):
+        _fetch(_body(), [
+            ("Content-Type", "application/json"),
+            ("content-type", "application/json"),
+        ])
+
+
+@pytest.mark.parametrize("media_type", [
+    "application/json", "Application/JSON",
+    "application/json; charset=UTF-8",
+    'application/json; charset="utf-8"',
+])
+def test_explicit_json_media_type_is_supported(media_type):
+    (rows, _, wire), seen = _fetch(_body(), {"Content-Type": media_type})
+    assert len(rows) == len(seen) == 1
+    assert wire["decoded_http_body_bytes"] == len(_body())
+
