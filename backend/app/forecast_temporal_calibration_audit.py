@@ -228,17 +228,29 @@ def _issuance_lag_diagnostics(rows, seconds):
     }
 
 
-def _issued_confidence_diagnostics(rows):
-    """Outcome-independent probability census for all late issued forecasts.
+def _issued_confidence_diagnostics(rows, seconds):
+    """Cross-check high-confidence issuance against declared base-close lag.
 
-    Unlike settled-only confidence errors, this includes pending, void and
-    overlapping records, without granting alert or trading permission.
+    Uses ALL late issued forecasts before settlement/outcome selection. A
+    forecast issued after half a candle is not necessarily a delayed alert;
+    timestamps and source completion remain unauthenticated.
     """
-    count = sum(r["probability"] <= .10 or r["probability"] >= .90 for r in rows)
+    high = [r for r in rows if r["probability"] <= .10
+            or r["probability"] >= .90]
+    other = [r for r in rows if .10 < r["probability"] < .90]
+    def delayed(row):
+        return 2 * (row["issuedAt"] - row["baseStart"] - seconds) > seconds
+    delayed_high = sum(delayed(r) for r in high)
+    delayed_other = sum(delayed(r) for r in other)
     return {
-        "lateIssuedHighConfidenceCount": count,
-        "lateIssuedHighConfidenceFraction": count / len(rows),
+        "lateIssuedHighConfidenceCount": len(high),
+        "lateIssuedHighConfidenceFraction": len(high) / len(rows),
         "lateIssuedMeanProbability": sum(r["probability"] for r in rows) / len(rows),
+        "lateIssuedHighConfidenceDelayedOverHalfCandleCount": delayed_high,
+        "lateIssuedHighConfidenceDelayedOverHalfCandleFraction":
+            delayed_high / len(high) if high else None,
+        "lateIssuedOtherDelayedOverHalfCandleFraction":
+            delayed_other / len(other) if other else None,
     }
 
 
@@ -380,7 +392,7 @@ def audit_temporal_forecast_calibration(snapshot, *, min_per_window=30,
             # It is descriptive even when outcome-scoring gates withhold metrics.
             **_issuance_lag_diagnostics(late, seconds),
             # All issued probabilities, independent of settlement selection.
-            **_issued_confidence_diagnostics(late),
+            **_issued_confidence_diagnostics(late, seconds),
             "earlyBrier": None, "lateBrier": None, "lateBrierDelta": None,
             "lateBrierBestCaseAllIssuedCensus": None,
             "lateBrierWorstCaseAllIssuedCensus": None,
