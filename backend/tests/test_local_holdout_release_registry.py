@@ -204,6 +204,7 @@ def test_real_declared_gate_integration_with_local_one_attempt(tmp_path, clock):
     assert result["declared_audit"]["net_cash"] == "195.0000"
     assert result["declared_audit"]["profitable_edge_verified"] is False
     assert result["local_release_claim"]["release_claimed_at_utc"] == clock[0]
+    assert result["local_release_claim"]["local_frozen_population_matched"] is True
     with pytest.raises(ValueError, match="already claimed"):
         registry.audit_declared_holdout_release_once(
             path, manifest, census, anchor, lambda: outcomes)
@@ -259,3 +260,51 @@ def test_expected_holdout_interval_arguments_fail_closed_before_claim(tmp_path, 
         path, study_id="study-1", manifest_sha256="a" * 64,
         expected_holdout_start_at_utc=200,
         expected_holdout_end_at_utc=300)["release_claimed_at_utc"] == 350
+
+
+
+def test_frozen_population_claim_rejects_legacy_unreserved_registry(tmp_path, clock):
+    path = tmp_path / "legacy-frozen.sqlite"
+    _register(path)
+    clock[0] = 350
+    with pytest.raises(ValueError, match="requires locked reservation tables"):
+        registry.claim_local_holdout_release(
+            path, study_id="study-1", manifest_sha256="a" * 64,
+            expected_holdout_start_at_utc=200,
+            expected_holdout_end_at_utc=300,
+            expected_population_rows=[("b" * 64, 210)],
+            expected_source_key_sha256="c" * 64)
+    with sqlite3.connect(path) as conn:
+        assert conn.execute(
+            "SELECT release_claimed_at_utc FROM holdout_claims"
+        ).fetchone() == (None,)
+    # Explicit legacy direct callers can still claim without asserting
+    # frozen-population verification; the result cannot claim a match.
+    result = _claim(path)
+    assert result["local_frozen_population_matched"] is False
+
+
+def test_frozen_wrapper_never_loads_outcomes_from_legacy_registry(tmp_path, clock):
+    from app.declared_holdout_release_gate import prepare_declared_holdout_manifest_sha256
+    from test_declared_holdout_release_gate import fixture as holdout_fixture
+
+    manifest, census, anchor, _, _ = holdout_fixture()
+    path = tmp_path / "legacy-wrapper.sqlite"
+    clock[0] = 1251
+    registry.register_local_holdout(
+        path, study_id=manifest["study_id"],
+        manifest_sha256=prepare_declared_holdout_manifest_sha256(manifest),
+        holdout_start_at_utc=manifest["holdout_start_at_utc"],
+        holdout_end_at_utc=manifest["holdout_end_at_utc"])
+    clock[0] = manifest["holdout_end_at_utc"] + 1
+
+    def forbidden_loader():
+        pytest.fail("Outcome loader called without frozen population reservations")
+
+    with pytest.raises(ValueError, match="requires locked reservation tables"):
+        registry.audit_declared_holdout_release_once(
+            path, manifest, census, anchor, forbidden_loader)
+    with sqlite3.connect(path) as conn:
+        assert conn.execute(
+            "SELECT release_claimed_at_utc FROM holdout_claims"
+        ).fetchone() == (None,)
