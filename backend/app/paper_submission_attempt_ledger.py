@@ -81,6 +81,12 @@ def _private_parent(path):
     """Reject unsafe SQLite sidecar directories before opening any ledger."""
     if os.name != 'posix' or not hasattr(os, 'geteuid'):
         raise ValueError('Ledger storage requires POSIX owner and mode checks')
+    # Path.absolute() retains '..' components. Checking only the resulting
+    # parent/ancestors can miss an intermediate symlink in 'link/../private':
+    # the kernel traverses 'link' before processing '..'. Reject rather than
+    # trusting a non-canonical pathname for SQLite's journal and DB opens.
+    if '..' in path.parts:
+        raise ValueError('Ledger path must not contain parent traversal components')
     parent = path.absolute().parent
     # A symlink anywhere in the directory path can redirect SQLite's journal
     # and database opens even when the final ledger path is not a symlink.
