@@ -177,3 +177,38 @@ The diagnostic is for inspecting **intrabar path uncertainty**, not for
 selecting a favorable fill rule or tuning against the repeatedly inspected
 later-period observations. Historical results cannot be called authenticated
 or independently held out without separate provenance and broker evidence.
+
+
+## Observed source-bar holding duration and illustrative time charges
+
+The additive observed_holding_duration_census reports the number of **contiguous,
+fully inspected source 15-minute candles** from hypothetical entry through
+the observed stop, target or horizon exit (including both entry and exit
+candles). It reconciles observed_outcomes_total with the existing
+observed exit census, and separately reports the inspected prefix of each
+**entered but censored** position. A censored prefix is **not** a holding
+duration, a settled position or evidence that exposure ended at a gap.
+Empty populations have null minimum, maximum and mean values rather than
+invented zero-length trades.
+
+The illustrative_observed_time_cost_scenarios retain the same frozen
+observed hypothetical trades and gross R outcomes. They apply **5
+additional illustrative round-trip basis points** plus one of **0, 0.05,
+or 0.2 further basis points per observed 15-minute source bar** to the
+absolute entry-price notional, divided by original stop distance. For
+observed trade i with gross return R_i, entry p_i, risk d_i and observed
+bar count h_i, the illustrative net return is:
+
+    R_i - abs(p_i)/d_i * (5 + h_i * per_bar_bps)/10000
+
+The per-bar assumption is **not** an actual overnight financing rate,
+calendar-day funding schedule, weekend charge, borrow fee, bid/ask quote,
+or upper bound on costs. Source-local time and source rights are
+unverified; no broker cashflow can be inferred. Entered censored trades
+have unknown final holding durations and are excluded from these
+observed-only mean returns, but their inspected prefixes remain disclosed.
+Do not combine these observed-only means with missing-exit loss stresses
+as though the result were a complete financing-adjusted backtest.
+This feature does not change signals, exits, chronological split,
+capacity reservations or the requirement for independently sealed
+holdouts and real executable broker-cost evidence.
