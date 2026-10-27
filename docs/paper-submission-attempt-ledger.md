@@ -212,3 +212,21 @@ paper/live execution flags remain false. Any future adapter must independently
 verify broker order/fill history and persist atomic risk reservations before
 allowing even paper execution. Never automatically retry an ambiguous broker
 POST or use this module as a live-order gate.
+
+
+## Fresh-ledger orphan rollback-journal quarantine (27 October 2026)
+
+A fresh SQLite ledger has **no earlier transaction to recover**. An existing
+regular `-journal` file can be a recovery artifact of a different database
+that previously occupied the pathname. Initialization now refuses **any**
+pre-existing rollback journal, even a regular owner-owned `0644` file, before
+exclusive database creation. It checks again after opening the new database
+and before beginning schema DDL to catch a journal injected between those
+steps. It never removes or rewrites the orphan; any newly created partial
+ledger is retained for manual quarantine. Existing initialized ledgers still
+allow validated rollback journals for legitimate crash recovery.
+
+Synthetic regression cases cover empty and nonempty ordinary orphan journals
+and an ordinary journal introduced immediately after SQLite opens. These
+pathname checks are best-effort against same-user replacement races; they do
+not authenticate broker reconciliation or permit paper/live order execution.
