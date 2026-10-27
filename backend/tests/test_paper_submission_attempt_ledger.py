@@ -1092,3 +1092,60 @@ def test_initialization_rejects_regular_journal_injected_after_open(tmp_path, mo
     monkeypatch.setattr(ledger, '_connect', real_connect)
     with pytest.raises(ValueError, match='schema'):
         inspect_ledger(db)
+
+
+def _inject_rehashed_event(db, *, broker, account, order, event, evidence, stamp):
+    """Synthetic corruption: valid local hashes and matching projection, illegal history."""
+    with sqlite3.connect(db) as conn:
+        seq, previous = conn.execute(
+            'SELECT seq,event_hash FROM events ORDER BY seq DESC LIMIT 1'
+        ).fetchone()
+        seq += 1
+        digest = ledger._event_hash(seq, broker, account, order, event,
+                                    evidence, stamp, previous)
+        conn.execute('INSERT INTO events VALUES (?,?,?,?,?,?,?,?,?)',
+                     (seq, broker, account, order, event, evidence, stamp,
+                      previous, digest))
+        if event == 'PREPARED':
+            conn.execute('INSERT INTO intents VALUES (?,?,?,?,?)',
+                         (broker, account, order, evidence, event))
+        else:
+            conn.execute('UPDATE intents SET status=? WHERE broker=? AND account=? AND order_id=?',
+                         (event, broker, account, order))
+
+
+@pytest.mark.parametrize('injected_event', ['PREPARED', 'ATTEMPT_UNKNOWN'])
+@pytest.mark.parametrize('operation', ['inspect', 'prepare'])
+def test_rehashed_history_cannot_bypass_account_unknown_quarantine(
+        db, injected_event, operation):
+    """A matching final projection and recomputed hashes must not legalize overlap."""
+    prep(db)
+    if injected_event == 'ATTEMPT_UNKNOWN':
+        prep(db, client_order_id='order-2', intent_sha256=E)
+    attempt(db)
+    _inject_rehashed_event(
+        db, broker=KEY['broker'], account=KEY['account_alias'],
+        order='order-2', event=injected_event, evidence=E, stamp=102)
+    with sqlite3.connect(db) as conn:
+        before = conn.execute('SELECT count(*) FROM events').fetchone()[0]
+    with pytest.raises(ValueError, match='Unresolved broker submission for account'):
+        if operation == 'inspect':
+            inspect_ledger(db)
+        else:
+            prepare_intent(db, broker=KEY['broker'], account_alias=KEY['account_alias'],
+                           client_order_id='order-3', intent_sha256='c' * 64,
+                           recorded_at_ms=103)
+    with sqlite3.connect(db) as conn:
+        assert conn.execute('SELECT count(*) FROM events').fetchone()[0] == before
+
+
+def test_reconciled_account_history_allows_new_local_evidence_but_not_execution(db):
+    prep(db)
+    attempt(db)
+    reconcile(db)
+    result = prepare_intent(db, broker=KEY['broker'], account_alias=KEY['account_alias'],
+                            client_order_id='order-2', intent_sha256=E,
+                            recorded_at_ms=103)
+    assert result['may_submit_paper_order'] is False
+    assert result['may_submit_real_order'] is False
+    assert inspect_ledger(db)['event_count'] == 4

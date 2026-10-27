@@ -230,3 +230,20 @@ Synthetic regression cases cover empty and nonempty ordinary orphan journals
 and an ordinary journal introduced immediately after SQLite opens. These
 pathname checks are best-effort against same-user replacement races; they do
 not authenticate broker reconciliation or permit paper/live order execution.
+
+
+## Historical unresolved-account quarantine replay (27 October 2026)
+
+The transactional writer already blocks new preparations and attempted submissions
+while a different order for the same broker/account remains `ATTEMPT_UNKNOWN`.
+The read-only audit now **also replays this invariant at every historical event**:
+no `PREPARED` or second `ATTEMPT_UNKNOWN` may occur in that account until
+its outstanding attempt has a declared terminal reconciliation. A local
+reconciliation is still **not authenticated broker proof** and never grants
+paper/live execution permission. This protects against internally inconsistent
+histories that have matching projections and recomputed, unanchored SHA-256
+chains; it does not defend against full database rollback, compromised owners,
+or fabricated external broker receipts. Four synthetic fail-closed regressions
+cover both invalid historical transitions on inspection and attempted writes;
+a fifth verifies that a declared terminal event only allows later *local
+recordkeeping*, with both execution flags remaining false.

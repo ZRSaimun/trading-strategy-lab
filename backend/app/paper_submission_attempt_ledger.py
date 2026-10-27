@@ -341,6 +341,10 @@ def _verify(conn):
     if len(rows) > MAX_EVENTS:
         raise ValueError('Ledger event capacity reached; no automatic truncation')
     state = {}
+    # Reconstruct the same per-account UNKNOWN quarantine enforced by _write.
+    # A locally rehashed history is not trusted merely because its final
+    # projection matches; every intermediate transition must be legal.
+    unresolved_accounts = {}
     previous = ZERO
     last_time = -1
     for n, row in enumerate(rows, 1):
@@ -354,18 +358,27 @@ def _verify(conn):
             raise ValueError('Ledger audit hash mismatch')
         key = (broker, account, order)
         old = state.get(key)
+        account_key = (broker, account)
         if event == 'PREPARED':
             if old is not None:
                 raise ValueError('Repeated preparation in audit')
+            if account_key in unresolved_accounts:
+                raise ValueError('Unresolved broker submission for account in audit history')
             state[key] = (evidence, 'PREPARED')
         elif event == 'ATTEMPT_UNKNOWN':
             if old is None or old[1] != 'PREPARED' or evidence != old[0]:
                 raise ValueError('Invalid attempt transition')
+            if account_key in unresolved_accounts:
+                raise ValueError('Unresolved broker submission for account in audit history')
             state[key] = (old[0], 'ATTEMPT_UNKNOWN')
+            unresolved_accounts[account_key] = key
         else:
             if old is None or old[1] != 'ATTEMPT_UNKNOWN':
                 raise ValueError('Invalid reconciliation transition')
+            if unresolved_accounts.get(account_key) != key:
+                raise ValueError('Unresolved broker submission for account in audit history')
             state[key] = (old[0], event)
+            del unresolved_accounts[account_key]
         previous = digest
         last_time = stamp
     # A hostile projection may contain far more rows than the audit. Never
