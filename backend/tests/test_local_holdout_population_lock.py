@@ -49,12 +49,29 @@ def test_register_and_release_with_existing_one_attempt_gate(tmp_path, clock):
     assert result["independently_trusted_registry"] is False
     assert result["manifest_sha256"] == prepare_declared_holdout_manifest_sha256(manifest)
     clock[0] = 20001
-    assert registry.claim_local_holdout_release(
-        path, study_id="one", manifest_sha256=result["manifest_sha256"]
-    )["local_one_attempt_claim_recorded"] is True
-    with pytest.raises(ValueError, match="already claimed"):
+    # A direct claim without the frozen census must not consume the only
+    # release attempt for a population-locked study.
+    with pytest.raises(ValueError, match="requires exact frozen census"):
         registry.claim_local_holdout_release(
             path, study_id="one", manifest_sha256=result["manifest_sha256"])
+    with sqlite3.connect(path) as conn:
+        assert conn.execute(
+            "SELECT release_claimed_at_utc FROM holdout_claims WHERE study_id='one'"
+        ).fetchone() == (None,)
+
+    frozen = {
+        "expected_population_rows": [
+            (r["row_sha256"], r["decision_at_utc"]) for r in census
+        ],
+        "expected_source_key_sha256": _source_key(manifest["source"]),
+    }
+    claim = registry.claim_local_holdout_release(
+        path, study_id="one", manifest_sha256=result["manifest_sha256"], **frozen)
+    assert claim["local_one_attempt_claim_recorded"] is True
+    assert claim["local_frozen_population_matched"] is True
+    with pytest.raises(ValueError, match="already claimed"):
+        registry.claim_local_holdout_release(
+            path, study_id="one", manifest_sha256=result["manifest_sha256"], **frozen)
 
 
 def test_same_population_different_candidate_or_study_rejected(tmp_path, clock):
