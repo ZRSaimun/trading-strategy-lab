@@ -24,6 +24,16 @@ def _brier(rows):
     return sum((r["probability"] - int(r["outcomeUp"])) ** 2 for r in rows) / len(rows)
 
 
+def _log_loss(rows):
+    """Bernoulli log score in natural-log units; descriptive, not trading P&L.
+
+    The journal validator requires strictly interior finite probabilities.
+    log1p(-p) preserves precision for negative outcomes with p near zero.
+    """
+    return sum(-math.log(r["probability"]) if r["outcomeUp"]
+               else -math.log1p(-r["probability"]) for r in rows) / len(rows)
+
+
 def _calibration_ece10(rows):
     """Descriptive 10-bin ECE; do not interpret as statistical significance.
 
@@ -169,6 +179,8 @@ def audit_temporal_forecast_calibration(snapshot, *, min_per_window=30,
             "earlyNonoverlappingSettled": len(train),
             "lateNonoverlappingSettled": len(test),
             "earlyBrier": None, "lateBrier": None, "lateBrierDelta": None,
+            "earlyLogLoss": None, "lateLogLoss": None, "lateLogLossDelta": None,
+            "lateLogLossSkillVsFrozenEarlyClimatology": None,
             "lateBrierSkillVsFrozenEarlyClimatology": None,
             "lateMeanProbability": None, "lateObservedUpRate": None,
             "lateAbsoluteCalibrationGap": None,
@@ -187,11 +199,17 @@ def audit_temporal_forecast_calibration(snapshot, *, min_per_window=30,
             prior_up = (sum(r["outcomeUp"] for r in train) + 0.5) / (len(train) + 1)
             baseline = sum((prior_up - int(r["outcomeUp"])) ** 2 for r in test) / len(test)
             delta = late_brier - early_brier
+            early_log, late_log = _log_loss(train), _log_loss(test)
+            frozen_log = sum(-math.log(prior_up) if r["outcomeUp"]
+                             else -math.log1p(-prior_up) for r in test) / len(test)
             late_bins = _calibration_bin_diagnostics10(test)
             occupied = [b["count"] for b in late_bins if b["count"]]
             entry.update(
                 earlyBrier=early_brier, lateBrier=late_brier,
                 lateBrierDelta=delta,
+                earlyLogLoss=early_log, lateLogLoss=late_log,
+                lateLogLossDelta=late_log - early_log,
+                lateLogLossSkillVsFrozenEarlyClimatology=1 - late_log / frozen_log,
                 lateBrierSkillVsFrozenEarlyClimatology=1 - late_brier / baseline,
                 lateMeanProbability=sum(r["probability"] for r in test) / len(test),
                 lateObservedUpRate=sum(r["outcomeUp"] for r in test) / len(test),
@@ -217,7 +235,9 @@ def audit_temporal_forecast_calibration(snapshot, *, min_per_window=30,
         "issuedTotal": len(snapshot["forecasts"]), "groups": reports,
         "limitations": "Caller journal unauthenticated; split is retrospective and not an "
                        "untouched holdout; dependent market regimes and sample selection remain; "
-                       "missing/void outcomes can bias scores; 10-bin ECE is bin-dependent "
+                       "missing/void outcomes can bias scores; log loss heavily penalizes "
+                       "confident wrong probabilities and is not financial loss; "
+                       "10-bin ECE is bin-dependent "
                        "and noisy with sparse bins; binomial Wilson ranges assume "
                        "independence that is not established; heuristic drift is not a p-value. "
                        "No executable BID/ASK, transaction costs, fills or trading returns.",
