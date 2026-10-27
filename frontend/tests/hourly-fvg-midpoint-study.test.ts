@@ -1639,3 +1639,39 @@ test('v44 inherited source identity and volume certification cannot qualify evid
   'explicit null is valid missing evidence, not an inherited value');
  assert.deepEqual(studyHourlyFvgMidpoint(fixture(),source),baseline);
 });
+
+test('v45 inherited settings cannot alter the frozen first-touch research protocol',()=>{
+ const bars=fixture();
+ const baseline=studyHourlyFvgMidpoint(bars,source);
+ const settings=[
+  ['maxTouchWaitBars',1],['markoutBars',1],
+  ['minimumRejectionWickFraction',0.9],['volumeMultiple',10],
+  ['hypotheticalRoundTripCostsBps',[999]],
+ ] as const;
+ for(const [field,value] of settings){
+  const inherited=Object.create({[field]:value});
+  assert.throws(()=>studyHourlyFvgMidpoint(bars,source,inherited),
+   /Inherited FVG study settings/,field+' must not silently change the experiment');
+  assert.throws(()=>studyHourlyFvgMidpointAsOf(bars,source,BASE+40*H,inherited),
+   /Inherited FVG study settings/,field+' must not change as-of replay');
+ }
+ const poisoned=Object.create(null);
+ const prototype=Object.create(null);
+ Object.defineProperty(prototype,'volumeMultiple',{get(){
+  throw Error('Inherited volume getter must never execute');
+ }});
+ Object.setPrototypeOf(poisoned,prototype);
+ assert.throws(()=>studyHourlyFvgMidpoint(bars,source,poisoned),
+  /Inherited FVG study settings/);
+ let reads=0;
+ const explicit=Object.create(null);
+ Object.defineProperty(explicit,'volumeMultiple',{enumerable:true,get(){
+  reads++;
+  return 1.5;
+ }});
+ assert.deepEqual(studyHourlyFvgMidpoint(bars,source,explicit),baseline,
+  'an explicit own setting retains the frozen default protocol');
+ assert.equal(reads,1,'explicit own setting is captured once');
+ assert.deepEqual(studyHourlyFvgMidpoint(bars,source,Object.create(null)),baseline,
+  'a null-prototype settings object uses the same declared defaults');
+});

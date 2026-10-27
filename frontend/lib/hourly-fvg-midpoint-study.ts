@@ -7,7 +7,7 @@
  */
 import type {Bar} from './research.ts';
 
-export const HOURLY_FVG_VERSION='hourly-fvg-first-midpoint-touch-v44';
+export const HOURLY_FVG_VERSION='hourly-fvg-first-midpoint-touch-v45';
 export type Evidence='PASS'|'FAIL'|'INSUFFICIENT_DATA';
 // First-touch volume evidence is not independent broker/source authentication.
 export type VolumeEvidenceReason='NOT_EVALUATED'|'SOURCE_UNVERIFIED'|
@@ -537,15 +537,29 @@ export function studyHourlyFvgMidpoint(
  }
  if(suppliedBars.length!==barCount)
   throw Error('Hourly research candle array length changed during snapshot');
- const maxTouchWaitBars=config.maxTouchWaitBars??12;
- const markoutBars=config.markoutBars??3;
- const minimumRejectionWickFraction=config.minimumRejectionWickFraction??0.5;
- const volumeMultiple=config.volumeMultiple??1.5;
+ // A research setting must be explicitly supplied or use its frozen default.
+ // An inherited prototype value can silently shorten the touch window,
+ // change the wick/volume threshold or replace the cost scenarios.
+ // Never evaluate an inherited accessor while checking this boundary.
+ if(!config||typeof config!=='object')
+  throw Error('Invalid FVG study settings');
+ const readOwnSetting=<K extends keyof FvgConfig>(field:K):FvgConfig[K]|undefined=>{
+  if(!hasOwnField(config,field)){
+   if(field in config)
+    throw Error('Inherited FVG study settings are not explicit research evidence');
+   return undefined;
+  }
+  return config[field];
+ };
+ const maxTouchWaitBars=readOwnSetting('maxTouchWaitBars')??12;
+ const markoutBars=readOwnSetting('markoutBars')??3;
+ const minimumRejectionWickFraction=readOwnSetting('minimumRejectionWickFraction')??0.5;
+ const volumeMultiple=readOwnSetting('volumeMultiple')??1.5;
  // Snapshot each caller-declared cost once before validating it. Array#some
  // skips sparse holes, and accessor-backed arrays can change after validation.
  // Array.from materializes holes as undefined (which fails validation) and
  // prevents a second read from silently changing reported net markouts.
- const suppliedCosts=config.hypotheticalRoundTripCostsBps??[0,5,15];
+ const suppliedCosts=readOwnSetting('hypotheticalRoundTripCostsBps')??[0,5,15];
  // Reject oversized arrays BEFORE Array.from: copying an untrusted array
  // with a huge declared length can exhaust memory before the later settings
  // validation runs. No scenario elements are read on this rejection path.
