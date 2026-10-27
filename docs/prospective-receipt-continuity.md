@@ -25,6 +25,13 @@ backdated newly added receipt timestamps, and genuinely new expected minutes.
   prefix (or extend only the last interval without changing its start).
   Splitting or rearranging historical intervals is `REVIEW_REQUIRED` even if
   the resulting expected-minute list and OHLC are identical.
+- Newly appended session or closure intervals are also checked for minutes
+  already completed at the previous checkpoint, **even if every such minute
+  is excluded and the expected-minute population remains unchanged**.
+  `retroactive_new_session_declaration_minutes` and
+  `retroactive_new_exclusion_declaration_minutes` force `REVIEW_REQUIRED`.
+  These counts concern declarations, not distinct tradable bars; overlapping
+  session and exclusion counts must not be added together as market coverage.
 - A newly expected minute that had **already completed** at the previous
   checkpoint is retrospective calendar expansion, not prospective coverage.
   The report counts it and emits bounded UTC samples as
