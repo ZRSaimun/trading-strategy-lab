@@ -553,7 +553,7 @@ test('research report source metadata excludes arbitrary caller properties',()=>
  assert.deepEqual(Object.keys(report.source).sort(),Object.keys(source).sort());
  assert.equal(JSON.stringify(report).includes('synthetic-private-marker'),false);
  assert.equal(JSON.stringify(report).includes('synthetic-account-marker'),false);
- assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v45');
+ assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v46');
 });
 test('ambiguous source labels and contradictory volume evidence fail closed',()=>{
  // These are declared metadata, not independent vendor authentication.
@@ -929,7 +929,7 @@ test('an overflowing next-open comparator suppresses both matched markouts',()=>
 });
 test('completed hourly timestamps are safe and numeric rule changes have a new version',()=>{
  const report=studyHourlyFvgMidpoint(fixture(),source);
- assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v45');
+ assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v46');
  const lastSafeAlignedOpen=Math.floor(Number.MAX_SAFE_INTEGER/H)*H;
  assert.equal(Number.isSafeInteger(lastSafeAlignedOpen),true);
  assert.equal(Number.isSafeInteger(lastSafeAlignedOpen+H),false);
@@ -1674,4 +1674,42 @@ test('v45 inherited settings cannot alter the frozen first-touch research protoc
  assert.equal(reads,1,'explicit own setting is captured once');
  assert.deepEqual(studyHourlyFvgMidpoint(bars,source,Object.create(null)),baseline,
   'a null-prototype settings object uses the same declared defaults');
+});
+
+test('v46 unknown own research settings fail closed, including hidden and symbol keys',()=>{
+ const bars=fixture(),cutoff=BASE+37*H;
+ const baseline=studyHourlyFvgMidpoint(bars,source);
+ const hidden=Object.create(null);
+ Object.defineProperty(hidden,'markoutBar',{value:1,enumerable:false});
+ const symbol=Symbol('undocumented-cost-model');
+ const symbolic={volumeMultiple:1.5,[symbol]:20};
+ const misspelled={maxTouchWaitBar:1};
+ const invalid=[hidden,symbolic,misspelled] as unknown as
+  Parameters<typeof studyHourlyFvgMidpoint>[2][];
+ for(const settings of invalid){
+  assert.throws(()=>studyHourlyFvgMidpoint(bars,source,settings),
+   /Unexpected FVG study setting/,
+   'an undeclared setting must never silently fall back to the frozen default');
+  assert.throws(()=>studyHourlyFvgMidpointAsOf(bars,source,cutoff,settings),
+   /Unexpected FVG study setting/,
+   'as-of replay must reject the same undeclared protocol settings');
+ }
+ let hostileReads=0;
+ const hostile={volumeMultiple:1.5};
+ Object.defineProperty(hostile,'undocumented',{enumerable:true,get(){
+  hostileReads++;
+  throw Error('unrecognized setting getter must not execute');
+ }});
+ assert.throws(()=>studyHourlyFvgMidpoint(bars,source,hostile),
+  /Unexpected FVG study setting/);
+ assert.equal(hostileReads,0,
+  'the unknown setting value is never read while validating its key');
+ assert.deepEqual(studyHourlyFvgMidpoint(bars,source,{
+  maxTouchWaitBars:12,markoutBars:3,minimumRejectionWickFraction:0.5,
+  volumeMultiple:1.5,hypotheticalRoundTripCostsBps:[0,5,15],
+ }),baseline,'the complete explicit allowlisted protocol remains unchanged');
+ assert.deepEqual(studyHourlyFvgMidpointAsOf(bars,source,cutoff,{
+  volumeMultiple:1.5,
+ }),studyHourlyFvgMidpointAsOf(bars,source,cutoff),
+ 'an ordinary partial explicit protocol remains valid in as-of replay');
 });

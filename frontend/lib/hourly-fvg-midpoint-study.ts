@@ -7,7 +7,7 @@
  */
 import type {Bar} from './research.ts';
 
-export const HOURLY_FVG_VERSION='hourly-fvg-first-midpoint-touch-v45';
+export const HOURLY_FVG_VERSION='hourly-fvg-first-midpoint-touch-v46';
 export type Evidence='PASS'|'FAIL'|'INSUFFICIENT_DATA';
 // First-touch volume evidence is not independent broker/source authentication.
 export type VolumeEvidenceReason='NOT_EVALUATED'|'SOURCE_UNVERIFIED'|
@@ -144,6 +144,11 @@ const HOUR=3600;
 const CANDLE_FIELDS=['time','open','high','low','close','volume','observed_minutes'] as const;
 const SOURCE_FIELDS=['datasetId','archiveSha256','instrument','provider',
  'priceSide','volumeType','volumeVerified'] as const;
+// Only these explicit knobs are part of the frozen, reviewable experiment.
+// Unknown own keys (including hidden or symbol keys) must not be ignored.
+const CONFIG_FIELDS=['maxTouchWaitBars','markoutBars',
+ 'minimumRejectionWickFraction','volumeMultiple',
+ 'hypotheticalRoundTripCostsBps'] as const;
 const hasOwnField=(value:object,field:PropertyKey)=>
  Object.prototype.hasOwnProperty.call(value,field);
 // Preserve exact provider/instrument identities in exported research reports.
@@ -543,6 +548,14 @@ export function studyHourlyFvgMidpoint(
  // Never evaluate an inherited accessor while checking this boundary.
  if(!config||typeof config!=='object')
   throw Error('Invalid FVG study settings');
+ // A typo or extra JSON key must not silently run with default settings
+ // while the exported report appears to represent the caller's experiment.
+ // Reflect.ownKeys catches nonenumerable and symbol fields without reading
+ // their potentially hostile values or invoking property getters.
+ for(const key of Reflect.ownKeys(config)){
+  if(!CONFIG_FIELDS.some(field=>field===key))
+   throw Error('Unexpected FVG study setting outside frozen protocol');
+ }
  const readOwnSetting=<K extends keyof FvgConfig>(field:K):FvgConfig[K]|undefined=>{
   if(!hasOwnField(config,field)){
    if(field in config)
