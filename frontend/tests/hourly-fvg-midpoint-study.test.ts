@@ -129,6 +129,33 @@ test('strict and markout clocks are causal for bullish/bearish paired, rejected 
  }
 });
 
+test('bounded FVG studies ignore untrusted array iterators for candles and costs',()=>{
+ const baseline=studyHourlyFvgMidpoint(fixture(),source);
+ const candles=fixture();
+ const costs=[0,5,15];
+ // Array.from and for...of can invoke an attacker-controlled iterator
+ // that yields an unlimited or substituted stream despite a short length.
+ Object.defineProperty(candles,Symbol.iterator,{value(){
+  throw Error('untrusted candle iterator invoked');
+ }});
+ Object.defineProperty(costs,Symbol.iterator,{value(){
+  throw Error('untrusted cost iterator invoked');
+ }});
+ const settings={hypotheticalRoundTripCostsBps:costs};
+ assert.deepEqual(studyHourlyFvgMidpoint(candles,source,settings),baseline);
+ const asOf=BASE+37*H;
+ assert.deepEqual(studyHourlyFvgMidpointAsOf(candles,source,asOf,settings),
+  studyHourlyFvgMidpointAsOf(fixture(),source,asOf));
+ // Sparse indexed candles must still fail closed rather than being
+ // filled or hidden by a custom iterator.
+ const sparse=fixture();
+ delete (sparse as Array<Bar|undefined>)[33];
+ Object.defineProperty(sparse,Symbol.iterator,{value(){
+  throw Error('sparse candle iterator invoked');
+ }});
+ assert.throws(()=>studyHourlyFvgMidpoint(sparse as Bar[],source),TypeError);
+});
+
 test('hourly candle fields are snapshotted once before validation and research',()=>{
  const stable=target(fixture());
  const bars=fixture();
@@ -403,7 +430,7 @@ test('research report source metadata excludes arbitrary caller properties',()=>
  assert.deepEqual(Object.keys(report.source).sort(),Object.keys(source).sort());
  assert.equal(JSON.stringify(report).includes('synthetic-private-marker'),false);
  assert.equal(JSON.stringify(report).includes('synthetic-account-marker'),false);
- assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v24');
+ assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v25');
 });
 test('ambiguous source labels and contradictory volume evidence fail closed',()=>{
  // These are declared metadata, not independent vendor authentication.
@@ -778,7 +805,7 @@ test('an overflowing next-open comparator suppresses both matched markouts',()=>
 });
 test('completed hourly timestamps are safe and numeric rule changes have a new version',()=>{
  const report=studyHourlyFvgMidpoint(fixture(),source);
- assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v24');
+ assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v25');
  const lastSafeAlignedOpen=Math.floor(Number.MAX_SAFE_INTEGER/H)*H;
  assert.equal(Number.isSafeInteger(lastSafeAlignedOpen),true);
  assert.equal(Number.isSafeInteger(lastSafeAlignedOpen+H),false);
