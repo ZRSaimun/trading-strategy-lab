@@ -326,3 +326,75 @@ def test_no_censor_stress_equals_observed_cost_scenarios():
         original = next(x for x in cohort["cost_scenarios"]
                         if x["additional_round_trip_bps"] == bps)
         assert D(scenario["mean_net_r_if_assumption"]) == D(original["mean_net_r"])
+
+
+def test_exit_path_census_regular_stop_and_empty_cohort():
+    reports = research(synthetic_bars())["cohorts"]
+    stop = reports["development"]["observed_exit_path_census"]
+    assert stop["observed_outcomes_total"] == 1
+    assert stop["stop_touch_without_adverse_open"] == 1
+    assert stop["stop_touch_with_adverse_open"] == 0
+    assert stop["target_touch"] == stop["horizon_close"] == 0
+    assert D(stop["adverse_source_open_extra_loss_r_sum"]) == 0
+    assert stop["adverse_source_open_extra_loss_r_max"] is None
+    empty = reports["exploratory_later"]["observed_exit_path_census"]
+    assert empty["observed_outcomes_total"] == 0
+    assert sum(empty[k] for k in (
+        "stop_touch_without_adverse_open", "stop_touch_with_adverse_open",
+        "target_touch", "horizon_close")) == 0
+
+
+@pytest.mark.parametrize("signal,confirm,entry,adverse_bar", [
+    ((100, 101, 98, 100), (100, 103, 99, 102),
+     (103, 110, 99, 103), (80, 114, 79, 100)),
+    ((100, 102, 99, 100), (100, 100, 97, 98),
+     (97, 100, 90, 95), (120, 121, 86, 100)),
+])
+def test_exit_path_census_adverse_source_open_long_and_short(
+    signal, confirm, entry, adverse_bar
+):
+    rows = synthetic_bars()
+    for index, values in zip((30, 31, 32, 33),
+                             (signal, confirm, entry, adverse_bar)):
+        b = rows[index]
+        rows[index] = Bar(b.time, *(D(v) for v in values), b.segment)
+    cohort = research(rows)["cohorts"]["development"]
+    paths = cohort["observed_exit_path_census"]
+    assert paths["observed_outcomes_total"] == 1
+    assert paths["stop_touch_with_adverse_open"] == 1
+    assert paths["stop_touch_without_adverse_open"] == 0
+    assert paths["target_touch"] == 0  # Stop-first even if target also touched.
+    assert D(paths["adverse_source_open_extra_loss_r_sum"]) == D("3.6")
+    assert D(paths["adverse_source_open_extra_loss_r_max"]) == D("3.6")
+    assert paths["interpretation"] == "SOURCE_OHLC_PROXY_NOT_EXECUTABLE_FILLS"
+
+
+def test_exit_path_census_target_and_horizon_close():
+    rows = synthetic_bars()
+    b = rows[32]
+    rows[32] = Bar(b.time, D(103), D(114), D(99), D(113), b.segment)
+    target = research(rows)["cohorts"]["development"]["observed_exit_path_census"]
+    assert target["target_touch"] == target["observed_outcomes_total"] == 1
+    assert target["horizon_close"] == 0
+    rows = synthetic_bars()
+    b = rows[32]
+    rows[32] = Bar(b.time, D(103), D(104), D(99), D(103), b.segment)
+    horizon = research(rows)["cohorts"]["development"]["observed_exit_path_census"]
+    assert horizon["horizon_close"] == horizon["observed_outcomes_total"] == 1
+    assert horizon["target_touch"] == 0
+    assert horizon["stop_touch_without_adverse_open"] == 0
+
+
+def test_exit_path_census_does_not_reclassify_censored_entry():
+    rows = synthetic_bars()
+    b = rows[32]
+    rows[32] = Bar(b.time, D(103), D(104), D(99), D(103), b.segment)
+    rows[33:] = [Bar(b.time, b.o, b.h, b.l, b.c, 1) for b in rows[33:]]
+    cohort = research(rows)["cohorts"]["development"]
+    assert cohort["entered_positions"] == cohort["censored_due_to_gaps_or_boundaries"] == 1
+    paths = cohort["observed_exit_path_census"]
+    assert paths["observed_outcomes_total"] == 0
+    assert sum(paths[k] for k in (
+        "stop_touch_without_adverse_open", "stop_touch_with_adverse_open",
+        "target_touch", "horizon_close")) == 0
+    assert paths["adverse_source_open_extra_loss_r_max"] is None

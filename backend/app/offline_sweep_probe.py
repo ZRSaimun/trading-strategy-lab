@@ -123,6 +123,15 @@ def research(bars, *, lookback=16, horizon=16, embargo=16):
     # *future* entry bar is missing, crosses a source gap, or enters embargo.
     # These have no observable fill and must not be counted as entered trades.
     entry_unobservable = {"development": 0, "exploratory_later": 0}
+    # Every *observed* exit has exactly one frozen path classification.
+    # These describe source OHLC proxy paths, never actual broker fills.
+    exit_path_counts = {
+        name: {"stop_touch_without_adverse_open": 0,
+               "stop_touch_with_adverse_open": 0,
+               "target_touch": 0, "horizon_close": 0}
+        for name in cohorts
+    }
+    adverse_open_extra_loss_r = {name: [] for name in cohorts}
     next_free = 0
     for i in range(lookback, len(bars) - 1):
         # The completed confirmation must also be inside the selected cohort;
@@ -197,16 +206,24 @@ def research(bars, *, lookback=16, horizon=16, embargo=16):
                 exit_proxy = b.o if adverse_open else stop
                 outcome = ((exit_proxy-entry)/risk if is_long
                            else (entry-exit_proxy)/risk)
+                if adverse_open:
+                    exit_path_counts[cohort]["stop_touch_with_adverse_open"] += 1
+                    adverse_open_extra_loss_r[cohort].append(
+                        abs(exit_proxy - stop) / risk)
+                else:
+                    exit_path_counts[cohort]["stop_touch_without_adverse_open"] += 1
                 next_free = j + 1
                 break
             if won:
                 outcome = Q(2)
+                exit_path_counts[cohort]["target_touch"] += 1
                 next_free = j + 1
                 break
         else:
             if last - entry_index == horizon:
                 last_close = bars[last-1].c
                 outcome = (last_close-entry)/risk if is_long else (entry-last_close)/risk
+                exit_path_counts[cohort]["horizon_close"] += 1
                 next_free = last
         if outcome is None:
             censored[cohort] += 1
@@ -223,6 +240,11 @@ def research(bars, *, lookback=16, horizon=16, embargo=16):
         for name, trades in cohorts.items():
             if entered[name] != censored[name] + len(trades):
                 raise RuntimeError("Entered-position outcome census mismatch")
+            if sum(exit_path_counts[name].values()) != len(trades):
+                raise RuntimeError("Observed exit-path census mismatch")
+            if (exit_path_counts[name]["stop_touch_with_adverse_open"] !=
+                    len(adverse_open_extra_loss_r[name])):
+                raise RuntimeError("Adverse source-open loss census mismatch")
             if censored[name] != len(censored_entry_risks[name]):
                 raise RuntimeError("Censored-entry risk census mismatch")
             if confirmed[name] != (entry_unobservable[name] +
@@ -283,6 +305,15 @@ def research(bars, *, lookback=16, horizon=16, embargo=16):
                 positive_mean_break_even_additional_bps=(
                     str(break_even_bps) if break_even_bps is not None else None),
                 cost_scenarios=cases,
+                observed_exit_path_census=dict(
+                    exit_path_counts[name],
+                    observed_outcomes_total=len(trades),
+                    adverse_source_open_extra_loss_r_sum=str(sum(
+                        adverse_open_extra_loss_r[name], Q(0))),
+                    adverse_source_open_extra_loss_r_max=(
+                        str(max(adverse_open_extra_loss_r[name]))
+                        if adverse_open_extra_loss_r[name] else None),
+                    interpretation="SOURCE_OHLC_PROXY_NOT_EXECUTABLE_FILLS"),
                 censored_entered_loss_stress_scenarios=censored_loss_stress)
     return dict(protocol="source-local-sweep-confirmation-v3",
                 source_authenticated=False, timezone_verified=False,

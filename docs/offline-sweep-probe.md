@@ -107,3 +107,31 @@ observed-only cost scenario. These are research sensitivity calculations,
 not broker fills, position-sizing rules, a confidence interval, evidence
 of positive expectancy, or permission to trade. The already-inspected
 historical later periods remain development-only.
+
+
+## Observed exit-path census and source-open stop-gap severity (v3 additive)
+
+Each frozen cohort now reports `observed_exit_path_census`. Every **observed**
+hypothetical outcome is assigned exactly one source-OHLC exit path:
+`stop_touch_without_adverse_open`, `stop_touch_with_adverse_open`,
+`target_touch`, or `horizon_close`. The four counts must sum to
+`observed_outcomes_total`, which equals `observed_outcomes`.
+An entered-but-censored position is **not** assigned an observed exit.
+
+For a source candle opening adversely beyond the stop and also touching
+the stop, the model already uses the adverse source open as a stop-exit
+proxy. The new `adverse_source_open_extra_loss_r_sum` is the sum of
+`abs(source_open - stop) / original_stop_distance` over those events,
+i.e. the **extra** modeled loss beyond a hypothetical exact -1R stop.
+`adverse_source_open_extra_loss_r_max` is the largest such extra modeled
+loss, or `null` when there are no adverse-source-open stop events.
+These statistics do **not** alter entry selection, exits, cost scenarios,
+missing-outcome stress, chronological boundaries, or the observed returns.
+
+A 3.6R extra source-open loss means the stop-path proxy is -4.6R before
+additional costs; it is **not** evidence that a broker would execute at
+that open. Source-local OHLC cannot establish real gaps, spread, slippage,
+liquidity or the maximum adverse fill. The diagnostic is not a finite
+worst-case bound, a probability estimate, a strategy selection criterion,
+or a live-order permission. Do not compare or tune candidate strategies
+against the already-inspected exploratory later periods as if untouched.
