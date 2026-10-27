@@ -96,7 +96,9 @@ def _validate(scope, days):
     hour, minute = map(int, scope["local_cutoff"].split(":"))
     charge_due = []
     late_evidence = []
+    due_charges_unavailable_at_open = []
     charged_multiplier = 0
+    previous_cutoff = None
     for i, row in enumerate(days):
         _exact(row, _ENTRY, "rollover day")
         day = _parse_day(row["local_date"])
@@ -116,6 +118,9 @@ def _validate(scope, days):
             int(utc.timestamp()) != row["cutoff_at_utc"] or
             int(local.utcoffset().total_seconds()) != row["offset_minutes"] * 60):
             raise ValueError("Nonexistent, ambiguous or mismatched local rollover cutoff")
+        if previous_cutoff is not None and row["cutoff_at_utc"] <= previous_cutoff:
+            raise ValueError("Daily rollover UTC cutoffs must increase strictly")
+        previous_cutoff = row["cutoff_at_utc"]
         if (not _epoch(row["published_at_utc"]) or not _epoch(row["ingested_at_utc"]) or
             not row["published_at_utc"] <= row["ingested_at_utc"] <= scope["registered_at_utc"] or
             type(row["evidence_sha256"]) is not str or not _SHA.fullmatch(row["evidence_sha256"])):
@@ -130,13 +135,17 @@ def _validate(scope, days):
                 raise ValueError("Unverified no-charge calendar declaration")
         else:
             raise ValueError("Unknown rollover calendar status")
+        # A late calendar declaration matters even when the position was not
+        # yet open (or had already closed): status covers the entire census.
+        if row["ingested_at_utc"] > row["cutoff_at_utc"]:
+            late_evidence.append(row["local_date"])
         if scope["opened_at_utc"] <= row["cutoff_at_utc"] < scope["closed_at_utc"]:
             if row["kind"] == "CHARGE":
                 charge_due.append(row["cutoff_at_utc"])
                 charged_multiplier += row["multiplier"]
-            if row["ingested_at_utc"] > row["cutoff_at_utc"]:
-                late_evidence.append(row["local_date"])
-    return charge_due, charged_multiplier, late_evidence, first, last
+                if row["ingested_at_utc"] > scope["opened_at_utc"]:
+                    due_charges_unavailable_at_open.append(row["local_date"])
+    return charge_due, charged_multiplier, late_evidence, due_charges_unavailable_at_open, first, last
 
 
 def fingerprint_declared_rollover_calendar(scope, days):
@@ -152,7 +161,7 @@ def audit_declared_rollover_calendar(scope, days, expected_calendar_sha256,
     A matching hash and census do not independently authenticate a calendar.
     The output cannot authorize any live/demo order or certify financing costs.
     """
-    charge_due, multiplier, late, first, last = _validate(scope, days)
+    charge_due, multiplier, late, unavailable_at_open, first, last = _validate(scope, days)
     digest = _digest({"protocol": _PROTOCOL, "scope": scope, "days": days})
     if (type(expected_calendar_sha256) is not str or not _SHA.fullmatch(expected_calendar_sha256)
             or digest != expected_calendar_sha256):
@@ -176,6 +185,9 @@ def audit_declared_rollover_calendar(scope, days, expected_calendar_sha256,
         "declared_total_multiplier": multiplier,
         "late_evidence_dates": late[:25],
         "late_evidence_count": len(late),
+        "all_due_charge_declarations_ingested_by_position_open": bool(charge_due) and not unavailable_at_open,
+        "due_charge_declarations_unavailable_at_open_dates": unavailable_at_open[:25],
+        "due_charge_declarations_unavailable_at_open_count": len(unavailable_at_open),
         "source_authenticated": False,
         "calendar_completeness_independently_verified": False,
         "rates_or_cash_charges_verified": False,
@@ -185,6 +197,7 @@ def audit_declared_rollover_calendar(scope, days, expected_calendar_sha256,
         "may_execute_real_order": False,
         "warning": ("Daily statuses, multipliers, source digests and timestamps are caller-declared; "
                     "matching declarations cannot prove broker calendar completeness or financing. "
-                    "Late evidence is not decision-time evidence. No rate, cash ledger, FX, "
+                    "Even pre-cutoff evidence may be unavailable at position entry; "
+                    "late evidence is not decision-time evidence. No rate, cash ledger, FX, "
                     "broker fills, untouched holdout or trading edge is verified."),
     }
