@@ -22,6 +22,22 @@ BROKERS = frozenset({'PAPER-LOCAL', 'T212-INVEST-DEMO', 'T212-STOCKSISA-DEMO',
 EVENTS = frozenset({'PREPARED', 'ATTEMPT_UNKNOWN', 'RECONCILED_FILLED',
                     'RECONCILED_REJECTED', 'RECONCILED_CANCELLED'})
 
+# Compare reviewed DDL, not just object names: a same-named replacement index
+# or permissive table must never silently pass a safety-critical audit.
+EXPECTED_SCHEMA_OBJECTS = {
+    ('table', 'intents'): (
+        'CREATE TABLE intents (broker TEXT NOT NULL, account TEXT NOT NULL, '
+        'order_id TEXT NOT NULL, intent_sha TEXT NOT NULL, status TEXT NOT NULL, '
+        'PRIMARY KEY (broker, account, order_id)) WITHOUT ROWID'),
+    ('index', 'unique_account_intent'): (
+        'CREATE UNIQUE INDEX unique_account_intent ON intents (broker, account, intent_sha)'),
+    ('table', 'events'): (
+        'CREATE TABLE events (seq INTEGER PRIMARY KEY, broker TEXT NOT NULL, '
+        'account TEXT NOT NULL, order_id TEXT NOT NULL, event TEXT NOT NULL, '
+        'evidence_sha TEXT NOT NULL, recorded_at_ms INTEGER NOT NULL, '
+        'prev_hash TEXT NOT NULL, event_hash TEXT NOT NULL)'),
+}
+
 
 def _id(value, field):
     if not isinstance(value, str) or not IDENTIFIER.fullmatch(value):
@@ -102,14 +118,15 @@ def _verify(conn):
         raise ValueError('Unexpected ledger schema version')
     if conn.execute('PRAGMA integrity_check').fetchone()[0] != 'ok':
         raise ValueError('SQLite integrity check failed')
-    names = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
-    if names != {'intents', 'events'}:
-        raise ValueError('Unexpected ledger tables')
-    indexes = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='index'")}
-    if indexes != {'unique_account_intent'}:
-        raise ValueError('Missing or unexpected ledger index')
+    objects = {(kind, name): sql for kind, name, sql in conn.execute(
+        "SELECT type,name,sql FROM sqlite_master WHERE name NOT LIKE 'sqlite_%'")}
+    if objects != EXPECTED_SCHEMA_OBJECTS:
+        raise ValueError('Ledger schema objects differ from reviewed DDL')
+    # Bound the SQL result before fetching: a hostile oversized ledger must not
+    # allocate arbitrary process memory prior to the MAX_EVENTS check.
     rows = conn.execute('SELECT seq,broker,account,order_id,event,evidence_sha,'
-                        'recorded_at_ms,prev_hash,event_hash FROM events ORDER BY seq').fetchall()
+                        'recorded_at_ms,prev_hash,event_hash FROM events ORDER BY seq '
+                        'LIMIT ?', (MAX_EVENTS + 1,)).fetchall()
     if len(rows) > MAX_EVENTS:
         raise ValueError('Ledger event capacity reached; no automatic truncation')
     state = {}
