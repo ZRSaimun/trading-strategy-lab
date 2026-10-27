@@ -19,7 +19,8 @@ Effective samples can be far smaller than issued forecasts.
 
 When each cohort has at least 30 nonoverlapping settled outcomes and no more
 than 10% unavailable records, report Brier scores, late-minus-early Brier,
-late observed-up fraction, mean probability, absolute calibration gap, and
+late observed-up fraction, mean probability, absolute calibration gap,
+**fixed ten-bin expected calibration error (ECE)**, and
 late Brier skill versus a **frozen early-only Jeffreys-smoothed climatology**.
 For the early cohort, unavailable means **pending + void + settled labels
 resolved at or after the late cohort's first issuance**. These purged labels
@@ -35,7 +36,7 @@ diluted to 3/80 when 80 overlapping forecasts were issued. The report exposes
 corresponding `Fraction` fields. Census selection is frozen before outcome
 inspection. This remains a descriptive selection-risk safeguard,
 not independent authentication of outcome timing.
-A Brier increase of at least 0.05 is a configurable *review flag*, not a
+The absolute global calibration gap can conceal offsetting errors: for example,\nlow-probability forecasts that always resolve UP and high-probability forecasts\nthat always resolve DOWN may have identical overall mean probability and\nobserved-up rate. Ten-bin ECE measures the weighted absolute within-bin gaps\non the **same frozen, nonoverlapping late scoring census**. It is withheld\nwhenever the other metrics are withheld. Bin boundaries are fixed in advance\n(no data-dependent bin tuning); sparse bins, dependent observations and\nfinite-sample binning bias make this descriptive, not a calibrated guarantee\nor significance test. See Guo et al., *On Calibration of Modern Neural\nNetworks* (2017), https://arxiv.org/abs/1706.04599, for calibration context.\n\nA Brier increase of at least 0.05 is a configurable *review flag*, not a
 significance test or proof of concept drift. Incomplete, sparse or selectively
 resolved cohorts withhold all numerical performance scores. Early/late group
 sizes and missingness remain visible.

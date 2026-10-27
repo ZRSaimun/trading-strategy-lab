@@ -224,3 +224,35 @@ def test_selected_early_post_boundary_labels_count_in_census_risk():
     assert row["earlyCensusUnavailableAtBoundaryFraction"] == pytest.approx(.075)
     assert row["status"] == "UNRESOLVED_SELECTION_RISK"
     assert row["lateBrierSkillVsFrozenEarlyClimatology"] is None
+
+
+def test_temporal_ece_detects_compensating_bin_miscalibration():
+    s = fixture()
+    # Fixed selected late census is every other row (80, 82, ...).
+    # Half the selected predictions are 0.2 but all resolve UP;
+    # the other half are 0.8 but all resolve DOWN. Overall means
+    # cancel to 0.5, hiding severe within-bin miscalibration.
+    for i in range(80, 160):
+        low_probability = ((i - 80) // 2) % 2 == 0
+        p = 0.2 if low_probability else 0.8
+        s["forecasts"][i]["probability"] = p
+        s["forecasts"][i]["outcomeUp"] = low_probability
+        s["events"][i]["probability"] = p
+    group = audit_temporal_forecast_calibration(s)["groups"][0]
+    assert group["status"] == "DESCRIPTIVE_BRIER_DETERIORATION_REVIEW"
+    assert group["lateNonoverlappingSettled"] == 40
+    assert group["lateMeanProbability"] == pytest.approx(0.5)
+    assert group["lateObservedUpRate"] == pytest.approx(0.5)
+    assert group["lateAbsoluteCalibrationGap"] == pytest.approx(0)
+    assert group["lateExpectedCalibrationError10"] == pytest.approx(0.8)
+
+
+def test_temporal_ece_is_withheld_with_other_scores_on_selection_risk():
+    s = fixture()
+    for i in (80, 82, 84):
+        s["forecasts"][i].update(status="PENDING", outcomeUp=None, resolvedAt=None)
+    group = audit_temporal_forecast_calibration(
+        s, max_unresolved_fraction=0.05)["groups"][0]
+    assert group["status"] == "UNRESOLVED_SELECTION_RISK"
+    assert group["lateExpectedCalibrationError10"] is None
+    assert group["lateAbsoluteCalibrationGap"] is None

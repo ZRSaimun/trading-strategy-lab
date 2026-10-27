@@ -24,6 +24,21 @@ def _brier(rows):
     return sum((r["probability"] - int(r["outcomeUp"])) ** 2 for r in rows) / len(rows)
 
 
+def _calibration_ece10(rows):
+    """Descriptive 10-bin ECE; do not interpret as statistical significance.
+
+    Sum absolute within-bin probability/outcome differences before weighting.
+    Unlike the global mean calibration gap, opposite errors cannot cancel
+    across bins. Sparse bins and dependent outcomes still limit reliability.
+    """
+    totals = [[0.0, 0] for _ in range(10)]
+    for row in rows:
+        bucket = totals[min(9, int(row["probability"] * 10))]
+        bucket[0] += row["probability"]
+        bucket[1] += int(row["outcomeUp"])
+    return sum(abs(predicted - observed) for predicted, observed in totals) / len(rows)
+
+
 def audit_temporal_forecast_calibration(snapshot, *, min_per_window=30,
                                         brier_deterioration=0.05,
                                         max_unresolved_fraction=0.10):
@@ -133,7 +148,8 @@ def audit_temporal_forecast_calibration(snapshot, *, min_per_window=30,
             "earlyBrier": None, "lateBrier": None, "lateBrierDelta": None,
             "lateBrierSkillVsFrozenEarlyClimatology": None,
             "lateMeanProbability": None, "lateObservedUpRate": None,
-            "lateAbsoluteCalibrationGap": None, "descriptiveDriftFlag": None,
+            "lateAbsoluteCalibrationGap": None,
+            "lateExpectedCalibrationError10": None, "descriptiveDriftFlag": None,
             "status": "INSUFFICIENT_NONOVERLAPPING_OUTCOMES" if not sufficient
                       else "UNRESOLVED_SELECTION_RISK" if not complete_enough
                       else "DESCRIPTIVE_ONLY",
@@ -153,6 +169,7 @@ def audit_temporal_forecast_calibration(snapshot, *, min_per_window=30,
                 lateObservedUpRate=sum(r["outcomeUp"] for r in test) / len(test),
                 lateAbsoluteCalibrationGap=abs(
                     sum(r["probability"] - int(r["outcomeUp"]) for r in test) / len(test)),
+                lateExpectedCalibrationError10=_calibration_ece10(test),
                 descriptiveDriftFlag=delta >= brier_deterioration,
             )
             if entry["descriptiveDriftFlag"]:
@@ -169,6 +186,7 @@ def audit_temporal_forecast_calibration(snapshot, *, min_per_window=30,
         "issuedTotal": len(snapshot["forecasts"]), "groups": reports,
         "limitations": "Caller journal unauthenticated; split is retrospective and not an "
                        "untouched holdout; dependent market regimes and sample selection remain; "
-                       "missing/void outcomes can bias scores; heuristic drift is not a p-value. "
+                       "missing/void outcomes can bias scores; 10-bin ECE is bin-dependent "
+                       "and noisy with sparse bins; heuristic drift is not a p-value. 
                        "No executable BID/ASK, transaction costs, fills or trading returns.",
     }
