@@ -7,7 +7,7 @@
  */
 import type {Bar} from './research.ts';
 
-export const HOURLY_FVG_VERSION='hourly-fvg-first-midpoint-touch-v33';
+export const HOURLY_FVG_VERSION='hourly-fvg-first-midpoint-touch-v34';
 export type Evidence='PASS'|'FAIL'|'INSUFFICIENT_DATA';
 export type Side='BULLISH'|'BEARISH';
 export type FvgSource={
@@ -227,10 +227,15 @@ function summarizeCohort(observations:readonly FvgObservation[],costs:readonly n
  };
  for(const observation of observations){
   if(!paired(observation))continue;
-  const blindGross=observation.blindMidpointTouch!.grossBps;
-  const confirmedGross=observation.confirmedNextOpen!.grossBps;
-  const cell:keyof PairedGrossOrderingCells=confirmedGross>blindGross?
-   'confirmedHigher':confirmedGross<blindGross?'blindHigher':'equal';
+  // For a shared positive exit, gross directional return is strictly
+  // monotone in entry: lower is better for longs, higher for shorts.
+  // Comparing rounded bps can falsely call one-ULP entry differences equal.
+  const blindEntry=observation.blindMidpointTouch!.entryPrice;
+  const confirmedEntry=observation.confirmedNextOpen!.entryPrice;
+  const cell:keyof PairedGrossOrderingCells=blindEntry===confirmedEntry?'equal':
+   observation.direction==='BULLISH'?
+    confirmedEntry<blindEntry?'confirmedHigher':'blindHigher':
+    confirmedEntry>blindEntry?'confirmedHigher':'blindHigher';
   pairedGrossOrdering.all[cell]++;
   if(observation.gates.strictCandidate==='PASS')pairedGrossOrdering.strict[cell]++;
   else if(observation.gates.strictCandidate==='FAIL')pairedGrossOrdering.strictFail[cell]++;
