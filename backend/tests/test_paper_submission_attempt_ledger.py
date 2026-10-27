@@ -717,10 +717,48 @@ def test_rollback_journal_swap_during_open_fails_closed(db, tmp_path, monkeypatc
     assert inspect_ledger(db)['event_count'] == 0
 
 
+@pytest.mark.parametrize('mode', [0o666, 0o620])
+@pytest.mark.parametrize('operation', ['inspect', 'prepare'])
+def test_writable_by_group_or_others_rollback_journal_is_quarantined(db, mode, operation):
+    """Do not trust a pre-existing journal writable by another OS identity."""
+    journal = ledger.Path(str(db) + '-journal')
+    journal.write_bytes(b'untrusted-journal')
+    journal.chmod(mode)
+    original = db.read_bytes()
+    try:
+        with pytest.raises(ValueError, match='Unsafe SQLite rollback journal'):
+            if operation == 'inspect':
+                inspect_ledger(db)
+            else:
+                prep(db)
+        assert journal.read_bytes() == b'untrusted-journal'
+        assert db.read_bytes() == original
+    finally:
+        journal.unlink()
+    assert inspect_ledger(db)['event_count'] == 0
+
+
+def test_initialize_refuses_group_writable_orphan_rollback_journal(tmp_path):
+    db = tmp_path / 'orphan-journal.sqlite'
+    journal = ledger.Path(str(db) + '-journal')
+    journal.write_bytes(b'untrusted')
+    journal.chmod(0o660)
+    try:
+        with pytest.raises(ValueError, match='Unsafe SQLite rollback journal'):
+            initialize_ledger(db)
+        assert not db.exists()
+        assert journal.read_bytes() == b'untrusted'
+    finally:
+        journal.unlink()
+
+
 def test_regular_private_parent_rollback_journal_does_not_disable_read(db):
     """Normal DELETE-mode crash recovery must remain possible."""
     journal = ledger.Path(str(db) + '-journal')
     journal.write_bytes(b'')
+    # SQLite normally creates 0644 journals; the private 0700 parent
+    # prevents access by other users even when the file is world-readable.
+    journal.chmod(0o644)
     try:
         assert inspect_ledger(db)['event_count'] == 0
     finally:
