@@ -69,3 +69,22 @@ exercise only response parsing; they do not independently authenticate a
 Telegram response, market-data source, opt-in, device receipt or journal
 timestamp. Keep the sender disconnected until the existing release and
 activation gates are independently satisfied.
+
+
+## Canonical numeric recipient preflight (27 October 2026)
+
+The disconnected sender now rejects a recipient *before opening HTTP* unless
+its chat ID is a canonical decimal representation of a nonzero Telegram Bot API
+dialog ID in the documented range `-4000000000000` through
+`1099511627775`. Leading zeros, negative zero, a plus sign and out-of-range
+values are invalid. Telegram returns `result.chat.id` as a JSON integer;
+noncanonical input strings previously could be submitted but could never match
+the integer echo under the strict acceptance contract, creating an avoidable
+`DeliveryUncertain` state even after a potentially successful send.
+
+Source: [Telegram Bot API dialog ID ranges](https://core.telegram.org/api/bots/ids)
+and [Bot API Chat.id integer contract](https://core.telegram.org/bots/api#chat).
+Eleven deterministic parameterized fake-HTTP regression cases cover rejected
+forms and both inclusive range boundaries. This validation does **not** prove
+that a chat exists, belongs to the opted-in user, or can receive messages;
+the sender remains disconnected and no real Telegram message was sent.
