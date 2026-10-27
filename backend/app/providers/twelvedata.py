@@ -106,7 +106,10 @@ def normalize(payload,instrument,now):
         normalized.sort(key=lambda r:r['time'])
         stream=io.StringIO();writer=csv.DictWriter(stream,fieldnames=['time','open','high','low','close']);writer.writeheader();writer.writerows(normalized)
         rows=parse_csv(stream.getvalue())
-    except (ValueError,TypeError,KeyError):
+    except (ValueError,TypeError,KeyError,csv.Error):
+        # csv.DictReader enforces its own field-size limit. A bounded JSON
+        # response can still contain a single overlong OHLC field, which must
+        # fail closed rather than escape as an unhandled server exception.
         raise ProviderError('Invalid, duplicate or incomplete provider candles; no data imported.') from None
     archive={'meta':{'symbol':expected,'interval':'1min','exchange_timezone':'UTC'},'values':normalized}
     return rows,json.dumps(archive,separators=(',',':')).encode()
