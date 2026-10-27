@@ -125,3 +125,37 @@ The samples remain retrospective, dependent and unauthenticated. **Log loss
 is a probabilistic scoring rule, not monetary trading loss, returns, proof
 of calibration, or broker-executable price evidence.** No live alerts, paper
 fills, real orders or production writes are enabled.
+
+
+## Optional declared as-of settlement cutoff (27 October 2026)
+
+Call `audit_temporal_forecast_calibration(snapshot, evaluation_as_of=...)` with
+a caller-declared **integer UTC epoch-second cutoff** to prohibit the late
+evaluation cohort from learning labels whose `resolvedAt` is **after** that
+cutoff. The cutoff must be at or after **every issued forecast** in the
+supplied snapshot; invalid, negative, boolean, fractional and excessively
+large cutoffs are rejected. A label resolved **exactly at** the cutoff
+remains eligible. When omitted, the audit retains its previous explicitly
+**retrospective** behaviour.
+
+The fixed nonoverlapping issued census is selected **before** settlement
+inspection. Settled labels resolved after the declared cutoff count as
+unavailable in both the whole late issued stream and the selected census,
+in addition to pending/void outcomes. Either unavailable fraction exceeding
+the configured threshold withholds **all** calibration and drift scores.
+New diagnostics are `lateSettledAfterDeclaredAsOf`,
+`lateCensusSettledAfterDeclaredAsOf`,
+`lateUnavailableAtDeclaredAsOfFraction` and
+`lateCensusUnavailableAtDeclaredAsOfFraction`. Existing
+`lateUnresolvedOrVoid` fields continue to count only pending/void outcomes.
+The top-level `evaluationAsOfDeclared` echoes the cutoff and
+`evaluationCutoffAuthenticated` is always **false**.
+
+**Important:** The caller can choose or backdate this cutoff, and a later
+journal snapshot does not prove the historical state of that journal at the
+cutoff. This is a label-leakage *review fence*, not an independently
+time-stamped prospective scorecard, a sealed holdout, authenticated
+performance, an alert trigger or evidence of financial return. Independent
+server receipt chronology, immutable snapshot anchors and provider-licensed
+completed-candle data are required before stronger claims. No feed,
+notification, paper fill, live order or deployment is activated.
