@@ -191,17 +191,13 @@ def test_noncallable_loader_does_not_consume_claim(tmp_path, clock, monkeypatch)
 def test_real_declared_gate_integration_with_local_one_attempt(tmp_path, clock):
     # The real gate remains declared-only; this only proves the wrapper's
     # ordering and matching manifest digest with a synthetic holdout.
-    from app.declared_holdout_release_gate import prepare_declared_holdout_manifest_sha256
+    from app.local_holdout_population_lock import register_population_locked_holdout
     from test_declared_holdout_release_gate import fixture as holdout_fixture
 
     manifest, census, anchor, outcomes, _ = holdout_fixture()
     path = tmp_path / "integration.sqlite"
     clock[0] = 1251
-    registry.register_local_holdout(
-        path, study_id=manifest["study_id"],
-        manifest_sha256=prepare_declared_holdout_manifest_sha256(manifest),
-        holdout_start_at_utc=manifest["holdout_start_at_utc"],
-        holdout_end_at_utc=manifest["holdout_end_at_utc"])
+    register_population_locked_holdout(path, manifest, census)
     clock[0] = manifest["holdout_end_at_utc"] + 1
     result = registry.audit_declared_holdout_release_once(
         path, manifest, census, anchor, lambda: outcomes)
