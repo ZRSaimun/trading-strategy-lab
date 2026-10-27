@@ -3,6 +3,7 @@ import csv
 import hashlib
 import io
 import json
+import math
 import re
 from datetime import datetime, timezone
 import httpx
@@ -93,12 +94,24 @@ def normalize(payload,instrument,now):
 
 async def retrieve(key,instrument,limit,end,now,transport=None, *, include_wire_evidence=False):
     if instrument not in MAPPINGS:raise ProviderError('Unknown provider mapping; no instrument substitution.',422)
-    if not 1<=limit<=5000:raise ProviderError('Request requires 1–5,000 candles.',422)
+    if type(limit) is not int or not 1<=limit<=5000:
+        raise ProviderError('Request requires an integer count of 1–5,000 candles.',422)
     if type(include_wire_evidence) is not bool:
         raise ProviderError('Invalid wire evidence mode.',422)
+    # Validate caller-controlled boundaries BEFORE constructing a paid request.
+    # bool is an int in Python, and nonfinite/out-of-range values can otherwise
+    # raise unsanitized exceptions or silently distort the requested UTC window.
+    if (type(end) not in (int,float) or type(now) not in (int,float) or
+            not math.isfinite(end) or not math.isfinite(now)):
+        raise ProviderError('Invalid UTC request timestamp; no provider call.',422)
+    try:
+        end_date = datetime.fromtimestamp(end,timezone.utc).strftime('%Y-%m-%d %H:%M:%S')
+        datetime.fromtimestamp(now,timezone.utc)
+    except (OverflowError,OSError,ValueError):
+        raise ProviderError('Invalid UTC request timestamp; no provider call.',422) from None
     # Key goes in the official Authorization header, never URL/query/log output.
     params={'symbol':MAPPINGS[instrument]['symbol'],'interval':'1min','timezone':'UTC','order':'ASC','outputsize':str(limit),
-            'end_date':datetime.fromtimestamp(end,timezone.utc).strftime('%Y-%m-%d %H:%M:%S')}
+            'end_date':end_date}
     try:
         async with httpx.AsyncClient(timeout=20,follow_redirects=False,transport=transport,trust_env=False) as client:
             async with client.stream('GET',ENDPOINT,params=params,headers={'Authorization':'apikey '+key, 'Accept-Encoding':'identity'}) as response:
