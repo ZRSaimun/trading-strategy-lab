@@ -110,7 +110,9 @@ def register_local_holdout(db_path, *, study_id, manifest_sha256,
             "registered_at_utc": now, "local_registry_only": True}
 
 
-def claim_local_holdout_release(db_path, *, study_id, manifest_sha256):
+def claim_local_holdout_release(db_path, *, study_id, manifest_sha256,
+                                expected_holdout_start_at_utc=None,
+                                expected_holdout_end_at_utc=None):
     """Atomically consume the single local release attempt BEFORE reading outcomes.
 
     A crash or failed subsequent evaluation intentionally burns the attempt.
@@ -118,17 +120,34 @@ def claim_local_holdout_release(db_path, *, study_id, manifest_sha256):
     the API. File tampering/restoration remains outside the threat model.
     """
     _inputs(study_id, manifest_sha256)
+    # The optional expected interval is supplied by the frozen manifest in
+    # the guarded wrapper. Check both fields in the same transaction as the
+    # one-attempt claim to avoid a preflight/claim race.
+    if ((expected_holdout_start_at_utc is None) !=
+            (expected_holdout_end_at_utc is None)):
+        raise ValueError("Expected holdout interval must include both endpoints")
+    if expected_holdout_start_at_utc is not None and (
+            type(expected_holdout_start_at_utc) is not int or
+            type(expected_holdout_end_at_utc) is not int or
+            not 0 <= expected_holdout_start_at_utc <
+            expected_holdout_end_at_utc <= _MAX_TIME):
+        raise ValueError("Invalid expected holdout interval")
     now = _clock()
     path = _path(db_path)
     with closing(_connect(path, create=False)) as conn:
         conn.execute("BEGIN IMMEDIATE")
         try:
             row = conn.execute(
-                "SELECT manifest_sha256, holdout_end_at_utc, registered_at_utc, "
+                "SELECT manifest_sha256, holdout_start_at_utc, "
+                "holdout_end_at_utc, registered_at_utc, "
                 "release_claimed_at_utc FROM holdout_claims WHERE study_id=?",
                 (study_id,)).fetchone()
             if row is None or row[0] != manifest_sha256:
                 raise ValueError("Study not registered with this manifest")
+            if (expected_holdout_start_at_utc is not None and
+                    (row[1] != expected_holdout_start_at_utc or
+                     row[2] != expected_holdout_end_at_utc)):
+                raise ValueError("Registered holdout interval differs from frozen manifest")
             # A population-locked registry must remain internally complete
             # at release time, not just when the study was registered. A
             # missing table, missing reservation, or orphaned reservation is
@@ -178,9 +197,9 @@ def claim_local_holdout_release(db_path, *, study_id, manifest_sha256):
                 "HAVING count(DISTINCT source_sha256) != 1 LIMIT 1"
             ).fetchone() is not None:
                 raise ValueError("Split-source population reservations at release")
-            if now < row[1] or now < row[2]:
+            if now < row[2] or now < row[3]:
                 raise ValueError("Holdout not complete or local clock moved backwards")
-            if row[3] is not None:
+            if row[4] is not None:
                 raise ValueError("Holdout release already claimed")
             changed = conn.execute(
                 "UPDATE holdout_claims SET release_claimed_at_utc=? "
@@ -208,8 +227,10 @@ def audit_declared_holdout_release_once(db_path, manifest, census, anchor, outco
     from app.declared_holdout_release_gate import (
         audit_declared_holdout_release, prepare_declared_holdout_manifest_sha256)
     digest = prepare_declared_holdout_manifest_sha256(manifest)
-    claim = claim_local_holdout_release(db_path, study_id=manifest["study_id"],
-                                        manifest_sha256=digest)
+    claim = claim_local_holdout_release(
+        db_path, study_id=manifest["study_id"], manifest_sha256=digest,
+        expected_holdout_start_at_utc=manifest["holdout_start_at_utc"],
+        expected_holdout_end_at_utc=manifest["holdout_end_at_utc"])
     outcomes = outcome_loader()  # Only cooperating callers defer access until after claim.
     result = audit_declared_holdout_release(
         manifest, census, anchor, outcomes, claim["release_claimed_at_utc"])
