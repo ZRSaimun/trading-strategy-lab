@@ -29,7 +29,7 @@ def _fetch(body, headers=None, *, evidence=True):
     seen = []
     def handler(request):
         seen.append(request)
-        return httpx.Response(200, content=body, headers=headers or {})
+        return httpx.Response(200, stream=httpx.ByteStream(body), headers=headers or {})
     result = asyncio.run(retrieve(
         "synthetic-only-key", "XAUUSD-TD", 1, T, T + 120,
         transport=httpx.MockTransport(handler), include_wire_evidence=evidence,
