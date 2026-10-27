@@ -56,3 +56,21 @@ completed-candle receipts and a session-aware expected-bar inventory. Confirm
 provenance, licensing and missingness independently before treating journal
 outcomes as prospective. Keep this disconnected until exact-head CI, staging,
 restorable backup, rollback and production health are independently verified.
+
+
+## ECE bin-population diagnostics (27 October 2026)
+
+When the existing chronology, sample-size and dual missingness gates pass,
+`lateEceBins10` exposes the **same fixed late scoring census** used by
+`lateExpectedCalibrationError10`: ten ordered bins with zero-based `bin`,
+`count`, `meanProbability` and `observedUpRate`. Bin `i` covers
+probabilities from `i/10` inclusive to `(i+1)/10` exclusive, except bin
+9 also includes 1.0. Empty bins have count zero and **null** rates rather
+than fabricated zeros. The counts sum to `lateNonoverlappingSettled`, and
+the count-weighted absolute difference between the two non-null rates
+reconstructs ECE. Both ECE and the bin diagnostics are **null** when any
+performance gate fails. Inspect occupied-bin counts before interpreting ECE:
+a cohort with 30 observations spread across ten bins cannot provide
+reliable within-bin calibration estimates. These diagnostics do not
+establish statistical significance, independent data provenance, or
+live-trading readiness.
