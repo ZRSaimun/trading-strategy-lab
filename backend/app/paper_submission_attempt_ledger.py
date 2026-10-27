@@ -91,7 +91,11 @@ def _private_parent(path):
     # SQLite sidecar of another database in the same directory. Reject it
     # before creation/opening so this ledger cannot consume or overwrite
     # another database's recovery evidence.
-    if path.name.lower().endswith(('-journal', '-wal', '-shm')):
+    lower_name = path.name.lower()
+    # SQLite multi-database commits can create randomized super-journal
+    # files with a -mj suffix. Never use such a recovery filename as a ledger.
+    if (lower_name.endswith(('-journal', '-wal', '-shm'))
+            or re.search(r'-mj[a-z0-9]*\\Z', lower_name)):
         raise ValueError('Ledger filename collides with a SQLite sidecar suffix')
     parent = path.absolute().parent
     # A symlink anywhere in the directory path can redirect SQLite's journal
