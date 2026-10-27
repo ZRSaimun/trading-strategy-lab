@@ -109,3 +109,16 @@ secret change, or production deployment was made. These checks establish
 only local transport behavior, not authenticated provider acceptance or
 device delivery. Exact-head CI and the existing activation/release gates
 still apply.
+
+## Shared canonical recipient identity across offline audits (27 October 2026)
+
+The transport, HMAC recipient-policy audit, and declared delivery-acceptance
+correlator now share a pure numeric Telegram chat-ID validator. Signed
+allowlists and claim records can no longer pass their offline checks with
+leading-zero IDs, negative zero, noncanonical syntax or out-of-range integers
+that the one-attempt sender would refuse before HTTP. The inclusive numeric
+range is -4000000000000 through 1099511627775; zero is not a recipient.
+This prevents an internal **policy/transport mismatch**, not a demonstrated
+Telegram security incident. Valid syntax does not prove chat existence,
+consent, entitlement, provider delivery or account authorization. All
+send/order permission flags remain false and the modules stay disconnected.

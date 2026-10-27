@@ -5,9 +5,10 @@ prove provider/device delivery, permit retries, or authorize trading.
 """
 import re
 
+from .forecast_telegram_chat_id import valid_telegram_chat_id
+
 _ID = re.compile(r"[A-Za-z0-9_-]{1,80}\Z")
 _CLAIM = re.compile(r"[0-9a-f]{32}\Z")
-_CHAT = re.compile(r"-?[0-9]{1,20}\Z")
 _MAX_ROWS = 1000
 _CLAIM_FIELDS = {"sessionId", "forecastId", "claimId", "recipientId",
                  "claimedAt", "expiresAt"}
@@ -47,7 +48,7 @@ def audit_forecast_delivery_acceptances(claims, receipts, *, as_of):
                                   ("sessionId", "forecastId", "claimId"))
         if (not _valid_id(session, _ID) or not _valid_id(forecast, _ID) or
                 not _valid_id(cid, _CLAIM) or
-                not _valid_id(claim["recipientId"], _CHAT) or
+                not valid_telegram_chat_id(claim["recipientId"]) or
                 not _epoch(claim["claimedAt"]) or
                 not _epoch(claim["expiresAt"]) or
                 not claim["claimedAt"] < claim["expiresAt"] or

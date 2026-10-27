@@ -147,3 +147,20 @@ def test_population_bounds_fail_closed():
         audit([None] * 1001, [], as_of=150)
     with pytest.raises(ValueError, match="bounded"):
         audit([], [None] * 1001, as_of=150)
+
+@pytest.mark.parametrize("recipient", [
+    "0", "-0", "000123", "-00123", "+123", "-4000000000001",
+    "1099511627776", "111111111111111111111",
+])
+def test_claim_rejects_recipient_transport_cannot_send(recipient):
+    with pytest.raises(ValueError, match="identity or chronology"):
+        audit([claim(recipient=recipient)], [], as_of=150)
+
+
+def test_canonical_telegram_chat_id_range_boundaries_match_sender():
+    a = claim(recipient="-4000000000000")
+    b = claim(session="s2", forecast="f2", cid="b" * 32,
+              recipient="1099511627775")
+    report = audit([a, b], [receipt(a), receipt(b)], as_of=150)
+    assert report["recordedAcceptanceCount"] == 2
+    assert report["maySendNotification"] is False

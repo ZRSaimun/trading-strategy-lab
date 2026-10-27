@@ -8,8 +8,9 @@ import hmac
 import json
 import re
 
+from .forecast_telegram_chat_id import valid_telegram_chat_id
+
 _ID = re.compile(r"[A-Za-z0-9_-]{1,80}\Z")
-_CHAT = re.compile(r"-?[0-9]{1,20}\Z")
 _KEY_ID = re.compile(r"[A-Za-z0-9_-]{1,32}\Z")
 _HEX = re.compile(r"[0-9a-f]{64}\Z")
 _DOMAIN = b"TradingStrategyLab/forecast-recipient-policy/v1\n"
@@ -73,7 +74,7 @@ def audit_forecast_recipient_policy(claims, signed_policy, verification_keys, *,
         raise ValueError("Invalid recipient policy scope or validity")
     recipients, revocations = policy["recipients"], policy["revocations"]
     if (type(recipients) is not list or not 1 <= len(recipients) <= _MAX_RECIPIENTS
-            or any(type(r) is not str or not _CHAT.fullmatch(r) for r in recipients)
+            or any(not valid_telegram_chat_id(r) for r in recipients)
             or len(set(recipients)) != len(recipients)
             or type(revocations) is not list or len(revocations) > _MAX_RECIPIENTS):
         raise ValueError("Invalid recipient policy allowlist")
@@ -97,7 +98,7 @@ def audit_forecast_recipient_policy(claims, signed_policy, verification_keys, *,
                                                  ("sessionId", "forecastId", "claimId", "recipientId"))
         if (any(type(v) is not str or not _ID.fullmatch(v) for v in (session, forecast))
                 or type(claim_id) is not str or not re.fullmatch(r"[0-9a-f]{32}", claim_id)
-                or type(recipient) is not str or not _CHAT.fullmatch(recipient)
+                or not valid_telegram_chat_id(recipient)
                 or not _epoch(claim["claimedAt"]) or not _epoch(claim["expiresAt"])
                 or not claim["claimedAt"] < claim["expiresAt"]
                 or claim["claimedAt"] > as_of

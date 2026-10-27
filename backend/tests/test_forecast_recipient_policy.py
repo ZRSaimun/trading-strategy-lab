@@ -173,3 +173,27 @@ def test_expiry_violations_are_counted_independently_of_allowlist():
     assert result["unauthorizedClaimCount"] == 1
     assert result["expiredClaimCount"] == 1
     assert result["status"] == "OPERATOR_REVIEW_REQUIRED"
+
+@pytest.mark.parametrize("recipient", [
+    "0", "-0", "000123", "-00123", "+123", "-4000000000001",
+    "1099511627776", "111111111111111111111",
+])
+def test_signed_policy_rejects_unsendable_recipient_ids(recipient):
+    with pytest.raises(ValueError, match="allowlist"):
+        audit(signed=policy(recipients=[recipient]))
+
+
+@pytest.mark.parametrize("recipient", [
+    "0", "-0", "000123", "-00123", "+123", "-4000000000001",
+    "1099511627776", "111111111111111111111",
+])
+def test_claim_rejects_unsendable_recipient_ids(recipient):
+    with pytest.raises(ValueError, match="chronology"):
+        audit([claim(recipientId=recipient)])
+
+
+def test_signed_policy_accepts_both_canonical_range_boundaries():
+    p = policy(recipients=["-4000000000000", "1099511627775"])
+    result = audit([claim(recipientId="-4000000000000")], signed=p)
+    assert result["status"] == "SIGNED_POLICY_MATCH_REVIEW_ONLY"
+    assert result["maySendNotification"] is False
