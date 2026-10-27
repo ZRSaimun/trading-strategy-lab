@@ -112,7 +112,9 @@ def register_local_holdout(db_path, *, study_id, manifest_sha256,
 
 def claim_local_holdout_release(db_path, *, study_id, manifest_sha256,
                                 expected_holdout_start_at_utc=None,
-                                expected_holdout_end_at_utc=None):
+                                expected_holdout_end_at_utc=None,
+                                expected_population_rows=None,
+                                expected_source_key_sha256=None):
     """Atomically consume the single local release attempt BEFORE reading outcomes.
 
     A crash or failed subsequent evaluation intentionally burns the attempt.
@@ -132,6 +134,25 @@ def claim_local_holdout_release(db_path, *, study_id, manifest_sha256,
             not 0 <= expected_holdout_start_at_utc <
             expected_holdout_end_at_utc <= _MAX_TIME):
         raise ValueError("Invalid expected holdout interval")
+    # Optional exact frozen-census comparison. Direct legacy callers may omit
+    # it; the guarded wrapper supplies it for a nonempty declared census.
+    if (expected_population_rows is None) != (expected_source_key_sha256 is None):
+        raise ValueError("Frozen population and source key must be supplied together")
+    if expected_population_rows is not None:
+        if (type(expected_source_key_sha256) is not str or
+                _SHA.fullmatch(expected_source_key_sha256) is None or
+                type(expected_population_rows) is not list or
+                not 1 <= len(expected_population_rows) <= 10000):
+            raise ValueError("Invalid frozen population commitment")
+        seen_rows, seen_times = set(), set()
+        for pair in expected_population_rows:
+            if (type(pair) is not tuple or len(pair) != 2 or
+                    type(pair[0]) is not str or _SHA.fullmatch(pair[0]) is None or
+                    type(pair[1]) is not int or not 0 <= pair[1] <= _MAX_TIME or
+                    pair[0] in seen_rows or pair[1] in seen_times):
+                raise ValueError("Invalid frozen population row")
+            seen_rows.add(pair[0])
+            seen_times.add(pair[1])
     now = _clock()
     path = _path(db_path)
     with closing(_connect(path, create=False)) as conn:
@@ -197,6 +218,24 @@ def claim_local_holdout_release(db_path, *, study_id, manifest_sha256,
                 "HAVING count(DISTINCT source_sha256) != 1 LIMIT 1"
             ).fetchone() is not None:
                 raise ValueError("Split-source population reservations at release")
+            # Compare the *actual* row and decision sets with the caller's
+            # frozen census under the same transaction as the release claim.
+            # Counts and one-source checks alone miss balanced substitutions.
+            population_matched = False
+            if tables and expected_population_rows is not None:
+                expected_rows = {(expected_source_key_sha256, r[0])
+                                 for r in expected_population_rows}
+                expected_decisions = {(expected_source_key_sha256, r[1])
+                                      for r in expected_population_rows}
+                actual_rows = set(conn.execute(
+                    "SELECT source_sha256, row_sha256 FROM holdout_locked_rows "
+                    "WHERE study_id=?", (study_id,)))
+                actual_decisions = set(conn.execute(
+                    "SELECT source_sha256, decision_at_utc FROM holdout_locked_decisions "
+                    "WHERE study_id=?", (study_id,)))
+                if actual_rows != expected_rows or actual_decisions != expected_decisions:
+                    raise ValueError("Frozen holdout population reservations differ")
+                population_matched = True
             if now < row[2] or now < row[3]:
                 raise ValueError("Holdout not complete or local clock moved backwards")
             if row[4] is not None:
@@ -213,7 +252,8 @@ def claim_local_holdout_release(db_path, *, study_id, manifest_sha256,
             raise
     return {"study_id": study_id, "manifest_sha256": manifest_sha256,
             "release_claimed_at_utc": now, "local_one_attempt_claim_recorded": True,
-            "independently_trusted_registry": False}
+            "independently_trusted_registry": False,
+            "local_frozen_population_matched": population_matched}
 
 
 def audit_declared_holdout_release_once(db_path, manifest, census, anchor, outcome_loader):
@@ -227,10 +267,17 @@ def audit_declared_holdout_release_once(db_path, manifest, census, anchor, outco
     from app.declared_holdout_release_gate import (
         audit_declared_holdout_release, prepare_declared_holdout_manifest_sha256)
     digest = prepare_declared_holdout_manifest_sha256(manifest)
+    expected_rows = expected_source_key = None
+    if type(census) is list and census:
+        from app.local_holdout_population_lock import _source_key
+        expected_rows = [(r["row_sha256"], r["decision_at_utc"]) for r in census]
+        expected_source_key = _source_key(manifest["source"])
     claim = claim_local_holdout_release(
         db_path, study_id=manifest["study_id"], manifest_sha256=digest,
         expected_holdout_start_at_utc=manifest["holdout_start_at_utc"],
-        expected_holdout_end_at_utc=manifest["holdout_end_at_utc"])
+        expected_holdout_end_at_utc=manifest["holdout_end_at_utc"],
+        expected_population_rows=expected_rows,
+        expected_source_key_sha256=expected_source_key)
     outcomes = outcome_loader()  # Only cooperating callers defer access until after claim.
     result = audit_declared_holdout_release(
         manifest, census, anchor, outcomes, claim["release_claimed_at_utc"])
