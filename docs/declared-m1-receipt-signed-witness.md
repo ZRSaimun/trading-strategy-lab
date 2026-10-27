@@ -114,6 +114,33 @@ is not present in the submitted signed anchors causes a deliberate rejection;
 operators must explicitly advance their independently retained floor rather
 than silently skipping it.
 
+## Optional declared witness age policy (not independent freshness)
+
+For an **offline, caller-declared** evaluation-time gate, pass
+`max_declared_witness_age_seconds=60` (integer 1–86,400). The verifier
+rejects a signed envelope if **either** its `issued_at_utc` **or** the
+latest anchor's `witnessed_at_utc` is more than 60 seconds before
+`evaluation_as_of_utc`. The latter condition prevents merely re-signing
+an old anchor with a newer issuance timestamp to satisfy the policy.
+The equality boundary is accepted. Invalid policy values fail closed.
+
+With the option enabled, the report includes
+`declared_witness_age_policy_checked=true`,
+`declared_witness_issued_age_seconds`, and
+`declared_last_anchor_age_seconds`. Without it, the first field is
+`false` and both ages are `null`; existing callers remain compatible.
+The check never overrides an unanchored-head HOLD.
+
+**Important:** All three times are claims evaluated against the supplied
+cutoff, not an independently attested clock. A compromised signing key,
+dishonest witness, replayed cutoff, or colluding source can still forge
+apparent recency. This is not proof of live data, trusted external custody,
+provider authenticity, exchange calendar coverage, licensing, or executable
+BID/ASK. The verifier continues to report
+`trusted_witness_clock_verified=false`,
+`external_witness_authenticated=false`, `live=false`, and
+`may_execute_order=false`. Do not use this gate to activate trading.
+
 ## Synthetic verification
 
 ```sh
