@@ -97,6 +97,43 @@ def test_matching_signature_and_local_chain_do_not_claim_external_trust(tmp_path
     assert result["signed_envelope_sha256"] != anchors[-1]["checkpoint_sha256"]
 
 
+def test_independent_witness_identity_pin_matches_signed_anchors(tmp_path):
+    path, manifest, _, anchors, key, pub, pin = _fixture(tmp_path)
+    envelope = _signed(key, anchors, _key(manifest))
+    matched = audit_signed_declared_m1_receipt_anchor_evidence(
+        path, manifest, envelope, T + 400, pub, pin,
+        trusted_witness_id="synthetic-witness",
+    )
+    assert matched["witness_id_matched_operator_pin"] is True
+    unpinned = _check(path, manifest, envelope, pub, pin)
+    assert unpinned["witness_id_matched_operator_pin"] is False
+
+
+@pytest.mark.parametrize("pin", [
+    "other-witness", "", "a" * 81, True, 123, "invalid witness",
+])
+def test_wrong_or_invalid_operator_witness_pin_fails_closed(tmp_path, pin):
+    path, manifest, _, anchors, key, pub, fingerprint = _fixture(tmp_path)
+    envelope = _signed(key, anchors, _key(manifest))
+    with pytest.raises(ValueError, match="witness"):
+        audit_signed_declared_m1_receipt_anchor_evidence(
+            path, manifest, envelope, T + 400, pub, fingerprint,
+            trusted_witness_id=pin,
+        )
+
+
+def test_valid_signature_with_mixed_claimed_witnesses_rejected_by_pin(tmp_path):
+    path, manifest, _, anchors, key, pub, pin = _fixture(tmp_path)
+    anchors[1]["witness_id"] = "different-witness"
+    # A valid signature alone must not authorize claiming another witness ID.
+    envelope = _signed(key, anchors, _key(manifest))
+    with pytest.raises(ValueError, match="witness identity"):
+        audit_signed_declared_m1_receipt_anchor_evidence(
+            path, manifest, envelope, T + 400, pub, pin,
+            trusted_witness_id="synthetic-witness",
+        )
+
+
 def test_signed_older_head_stays_on_hold(tmp_path):
     path, manifest, _, anchors, key, pub, pin = _fixture(tmp_path)
     result = _check(path, manifest, _signed(key, anchors[:1], _key(manifest)), pub, pin)

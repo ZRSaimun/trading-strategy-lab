@@ -15,7 +15,7 @@ from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 
 from .declared_m1_receipt_anchor_audit import (
-    _FIELDS, _key, audit_declared_m1_receipt_anchor_evidence,
+    _FIELDS, _WITNESS, _key, audit_declared_m1_receipt_anchor_evidence,
 )
 from .expected_bar_manifest import ExpectedM1Manifest
 
@@ -36,7 +36,8 @@ def _canonical_signed_message(payload):
 
 def audit_signed_declared_m1_receipt_anchor_evidence(
     db_path, manifest, envelope, evaluation_as_of_utc,
-    trusted_public_key_hex, trusted_public_key_sha256,
+    trusted_public_key_hex, trusted_public_key_sha256, *,
+    trusted_witness_id=None,
 ):
     """Check signature against an *externally pinned* key, then journal chain.
 
@@ -44,6 +45,11 @@ def audit_signed_declared_m1_receipt_anchor_evidence(
     an independently controlled channel, never learned from this envelope.
     The signature is not proof of witness independence or trustworthy time.
     """
+    if trusted_witness_id is not None and (
+        type(trusted_witness_id) is not str
+        or not _WITNESS.fullmatch(trusted_witness_id)
+    ):
+        raise ValueError("Invalid independently pinned witness identifier")
     if type(manifest) is not ExpectedM1Manifest:
         raise ValueError("Compiled M1 manifest required")
     if type(evaluation_as_of_utc) is not int or evaluation_as_of_utc <= 0:
@@ -72,6 +78,9 @@ def audit_signed_declared_m1_receipt_anchor_evidence(
                     raise ValueError("Unbounded signed anchor field")
             elif type(value) is not int:
                 raise ValueError("Invalid signed anchor field type")
+        if (trusted_witness_id is not None
+                and anchor["witness_id"] != trusted_witness_id):
+            raise ValueError("Signed anchor witness identity differs from operator pin")
         if (type(anchor["witnessed_at_utc"]) is not int
                 or anchor["witnessed_at_utc"] > issued):
             raise ValueError("Signed witness issued before claimed observation")
@@ -109,6 +118,7 @@ def audit_signed_declared_m1_receipt_anchor_evidence(
         "signed_witness_issued_at_utc": issued,
         "signature_verified_against_supplied_key": True,
         "operator_pinned_key_fingerprint_matched": True,
+        "witness_id_matched_operator_pin": trusted_witness_id is not None,
         "external_witness_authenticated": False,
         "independent_custody_verified": False,
         "trusted_witness_clock_verified": False,
