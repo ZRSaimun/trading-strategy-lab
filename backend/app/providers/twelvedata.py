@@ -127,6 +127,16 @@ async def retrieve(key,instrument,limit,end,now,transport=None, *, include_wire_
                 if response.status_code==429:raise ProviderError('Provider quota exceeded.',429)
                 if response.status_code!=200:raise ProviderError('Provider request failed; no data imported.')
                 credit_headers = _credit_header_observation(response.headers) if include_wire_evidence else None
+                # A successful historical JSON endpoint must not explicitly
+                # identify its response as HTML, plain text or another media
+                # type. Keep missing Content-Type compatible with legacy
+                # mock transports, but reject conflicting/ambiguous claims.
+                media_types = response.headers.get_list('content-type')
+                if (len(media_types) > 1 or
+                        (media_types and re.fullmatch(
+                            r'application/json(?:\\s*;\\s*charset\\s*=\\s*(?:utf-8|"utf-8"))?',
+                            media_types[0].strip(), re.IGNORECASE) is None)):
+                    raise ProviderError('Unsupported provider response media type; no data imported.')
                 # Ask for identity encoding and reject compressed replies even if
                 # the provider ignores the request. aiter_bytes() transparently
                 # decompresses, potentially allocating an oversized chunk before
