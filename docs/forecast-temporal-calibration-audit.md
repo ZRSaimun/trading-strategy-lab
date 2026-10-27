@@ -366,3 +366,31 @@ forecasts that were actually issued. Missing expected candles and
 omitted forecasts require a separately authenticated session-aware
 inventory (Loop 1 and Loop 5 PR #86). No real notifications, fills,
 broker calls or production changes are enabled.
+
+
+## All-issued forecast confidence population (27 October 2026)
+
+Three **descriptive** fields report the probability distribution of **every
+late issued forecast**, independently of whether its outcome settled:
+
+- `lateIssuedHighConfidenceCount`: number of late issued forecasts with
+  `p <= 0.10` or `p >= 0.90`, including both exact boundaries.
+- `lateIssuedHighConfidenceFraction`: that count divided by **all late
+  issued forecasts**, not the smaller nonoverlapping settled sample.
+- `lateIssuedMeanProbability`: average issued UP probability across the
+  same complete late issuance cohort.
+
+Pending, void, overlapping and as-of-unresolved records remain in this
+census. Thus high-confidence issuance cannot disappear merely because
+selected outcomes are unavailable; the three fields remain descriptive
+when the existing calibration/selection-risk gates withhold settled-outcome
+scores. Compare them with the separately gated settled-only high-confidence
+error audit to spot potential outcome-selection concerns. The threshold
+is predeclared and is not tuned to returns.
+
+**Limits:** the issuance journal and source are unauthenticated; missing
+forecasts and expected candles are outside this population. A confidence
+fraction is not forecast calibration, directional accuracy, statistical
+significance, an alert trigger, executable BID/ASK evidence, paper P&L or
+permission to place any order. Loop 1 still needs independently attested
+completed-candle inventories and immutable issuance timestamps.

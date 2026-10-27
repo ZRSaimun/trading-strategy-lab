@@ -878,3 +878,38 @@ def test_issuance_lag_remains_descriptive_when_horizon_scores_withheld():
     assert row["lateIssuanceLagCensusCount"] == 80
     assert row["lateIssuanceLagP95Seconds"] == 0
     assert row["lateIssuanceLagOverHalfCandleFraction"] == 0
+
+
+def test_all_issued_confidence_census_is_outcome_independent():
+    row = audit_temporal_forecast_calibration(fixture())["groups"][0]
+    assert row["lateIssuedHighConfidenceCount"] == 0
+    assert row["lateIssuedHighConfidenceFraction"] == 0
+    assert row["lateIssuedMeanProbability"] == pytest.approx(.7)
+
+
+def test_all_issued_confidence_census_includes_unselected_extreme_probabilities():
+    s = fixture()
+    # Odd-numbered late forecasts are omitted from the nonoverlapping scoring
+    # sample but must remain visible in the issuance probability population.
+    for i in range(80, 160):
+        p = .1 if i % 4 == 0 else .9 if i % 4 == 1 else .7
+        s["forecasts"][i]["probability"] = p
+        s["events"][i]["probability"] = p
+    row = audit_temporal_forecast_calibration(s)["groups"][0]
+    assert row["lateIssuedHighConfidenceCount"] == 40
+    assert row["lateIssuedHighConfidenceFraction"] == pytest.approx(.5)
+    assert row["lateIssuedMeanProbability"] == pytest.approx(.6)
+    assert row["lateIssuanceLagCensusCount"] == 80
+
+
+def test_all_issued_confidence_remains_visible_when_outcomes_are_withheld():
+    s = fixture(p_late=.95)
+    for i in (80, 82, 84):
+        s["forecasts"][i].update(status="PENDING", outcomeUp=None, resolvedAt=None)
+    row = audit_temporal_forecast_calibration(
+        s, max_unresolved_fraction=.05)["groups"][0]
+    assert row["status"] == "UNRESOLVED_SELECTION_RISK"
+    assert row["lateHighConfidenceCount"] is None
+    assert row["lateIssuedHighConfidenceCount"] == 80
+    assert row["lateIssuedHighConfidenceFraction"] == 1
+    assert row["lateIssuedMeanProbability"] == pytest.approx(.95)

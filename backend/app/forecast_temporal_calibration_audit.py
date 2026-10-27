@@ -228,6 +228,20 @@ def _issuance_lag_diagnostics(rows, seconds):
     }
 
 
+def _issued_confidence_diagnostics(rows):
+    """Outcome-independent probability census for all late issued forecasts.
+
+    Unlike settled-only confidence errors, this includes pending, void and
+    overlapping records, without granting alert or trading permission.
+    """
+    count = sum(r["probability"] <= .10 or r["probability"] >= .90 for r in rows)
+    return {
+        "lateIssuedHighConfidenceCount": count,
+        "lateIssuedHighConfidenceFraction": count / len(rows),
+        "lateIssuedMeanProbability": sum(r["probability"] for r in rows) / len(rows),
+    }
+
+
 def audit_temporal_forecast_calibration(snapshot, *, min_per_window=30,
                                         brier_deterioration=0.05,
                                         max_unresolved_fraction=0.10,
@@ -365,6 +379,8 @@ def audit_temporal_forecast_calibration(snapshot, *, min_per_window=30,
             # Issuance latency uses ALL late issued forecasts, including pending/void.
             # It is descriptive even when outcome-scoring gates withhold metrics.
             **_issuance_lag_diagnostics(late, seconds),
+            # All issued probabilities, independent of settlement selection.
+            **_issued_confidence_diagnostics(late),
             "earlyBrier": None, "lateBrier": None, "lateBrierDelta": None,
             "lateBrierBestCaseAllIssuedCensus": None,
             "lateBrierWorstCaseAllIssuedCensus": None,
@@ -464,6 +480,7 @@ def audit_temporal_forecast_calibration(snapshot, *, min_per_window=30,
                        "confident wrong probabilities and is not financial loss; "
                        "settlement lag is caller-declared, not authenticated provider latency; "
                        "issuance lag is caller-declared, not authenticated alert timeliness; "
+                       "all-issued confidence is descriptive and cannot establish calibration; "
                        "unissued or missing completed candles are outside this census; "
                        "log-loss tail concentration and paired regret are descriptive "
                        "observed-label statistics, not financial downside; "
