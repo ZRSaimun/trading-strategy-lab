@@ -1007,7 +1007,7 @@ def test_unknown_submission_quarantines_new_same_account_intents(db):
     prep(db)
     attempt(db)
     with pytest.raises(ValueError, match='Unresolved broker submission'):
-        prep(db, client_order_id='order-2', intent_sha256=E)
+        prepare_intent(db, recorded_at_ms=102, **(KEY | {'client_order_id': 'order-2', 'intent_sha256': E}))
     snapshot = inspect_ledger(db)
     assert snapshot['event_count'] == 2
     assert snapshot['order_count'] == 1
@@ -1025,17 +1025,17 @@ def test_prepared_second_order_cannot_attempt_during_first_unknown(db):
     # Declared terminal reconciliation clears this *local* pending status,
     # but is NOT authenticated broker proof or permission to execute.
     reconcile(db)
-    assert attempt(db, client_order_id='order-2', intent_sha256=E)['may_submit_real_order'] is False
+    assert mark_attempt_unknown(db, recorded_at_ms=103, **(KEY | {'client_order_id': 'order-2', 'intent_sha256': E}))['may_submit_real_order'] is False
 
 
 def test_unknown_quarantine_is_scoped_to_broker_and_account(db):
     prep(db)
     attempt(db)
     # A different account or broker label has a separate evidence namespace.
-    assert prep(db, account_alias='other-account')['may_submit_paper_order'] is False
-    assert prep(db, broker='T212-STOCKSISA-DEMO')['may_submit_real_order'] is False
-    assert attempt(db, account_alias='other-account')['may_submit_real_order'] is False
-    assert attempt(db, broker='T212-STOCKSISA-DEMO')['may_submit_real_order'] is False
+    assert prepare_intent(db, recorded_at_ms=102, **(KEY | {'account_alias': 'other-account'}))['may_submit_paper_order'] is False
+    assert prepare_intent(db, recorded_at_ms=103, **(KEY | {'broker': 'T212-STOCKSISA-DEMO'}))['may_submit_real_order'] is False
+    assert mark_attempt_unknown(db, recorded_at_ms=104, **(KEY | {'account_alias': 'other-account'}))['may_submit_real_order'] is False
+    assert mark_attempt_unknown(db, recorded_at_ms=105, **(KEY | {'broker': 'T212-STOCKSISA-DEMO'}))['may_submit_real_order'] is False
 
 
 def test_concurrent_distinct_attempts_only_one_becomes_unknown(db):
