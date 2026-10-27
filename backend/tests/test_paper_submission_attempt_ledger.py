@@ -764,3 +764,96 @@ def test_regular_private_parent_rollback_journal_does_not_disable_read(db):
     finally:
         if journal.exists():
             journal.unlink()
+
+
+@pytest.mark.parametrize('operation', ['inspect', 'prepare'])
+def test_ledger_path_replaced_during_audit_is_quarantined(db, tmp_path, monkeypatch, operation):
+    """An audit must not approve a different pathname target than it opened."""
+    original = db.read_bytes()
+    moved = tmp_path / 'original-moved.sqlite'
+    replacement = tmp_path / 'replacement.sqlite'
+    initialize_ledger(replacement)
+    replacement_bytes = replacement.read_bytes()
+    real_verify = ledger._verify
+    swapped = False
+
+    def swap_after_audit(conn):
+        nonlocal swapped
+        result = real_verify(conn)
+        if not swapped:
+            db.rename(moved)
+            replacement.rename(db)
+            swapped = True
+        return result
+
+    monkeypatch.setattr(ledger, '_verify', swap_after_audit)
+    try:
+        with pytest.raises(ValueError, match='storage identity changed during operation'):
+            if operation == 'inspect':
+                inspect_ledger(db)
+            else:
+                prep(db)
+        assert db.read_bytes() == replacement_bytes
+        assert moved.read_bytes() == original
+    finally:
+        monkeypatch.setattr(ledger, '_verify', real_verify)
+        if moved.exists():
+            db.unlink()
+            moved.rename(db)
+    assert inspect_ledger(db)['event_count'] == 0
+
+
+@pytest.mark.parametrize('operation', ['inspect', 'prepare'])
+def test_ledger_permissions_relaxed_during_audit_are_quarantined(db, monkeypatch, operation):
+    """Do not trust a ledger whose privacy changes during a long audit."""
+    original = db.read_bytes()
+    real_verify = ledger._verify
+
+    def relax_after_audit(conn):
+        result = real_verify(conn)
+        db.chmod(0o644)
+        return result
+
+    monkeypatch.setattr(ledger, '_verify', relax_after_audit)
+    try:
+        with pytest.raises(ValueError, match='private mode 0600'):
+            if operation == 'inspect':
+                inspect_ledger(db)
+            else:
+                prep(db)
+        assert db.read_bytes() == original
+    finally:
+        monkeypatch.setattr(ledger, '_verify', real_verify)
+        db.chmod(0o600)
+    assert inspect_ledger(db)['event_count'] == 0
+
+
+@pytest.mark.parametrize('operation', ['inspect', 'prepare'])
+def test_rollback_journal_injected_during_audit_is_quarantined(
+        db, tmp_path, monkeypatch, operation):
+    """Reject a suspicious sidecar before accepting an audit or first write."""
+    original = db.read_bytes()
+    target = tmp_path / 'protected'
+    target.write_bytes(b'protected')
+    journal = ledger.Path(str(db) + '-journal')
+    real_verify = ledger._verify
+
+    def inject_after_audit(conn):
+        result = real_verify(conn)
+        journal.symlink_to(target)
+        return result
+
+    monkeypatch.setattr(ledger, '_verify', inject_after_audit)
+    try:
+        with pytest.raises(ValueError, match='Unsafe SQLite rollback journal'):
+            if operation == 'inspect':
+                inspect_ledger(db)
+            else:
+                prep(db)
+        assert db.read_bytes() == original
+        assert target.read_bytes() == b'protected'
+    finally:
+        monkeypatch.setattr(ledger, '_verify', real_verify)
+        if journal.is_symlink():
+            journal.unlink()
+    assert inspect_ledger(db)['event_count'] == 0
