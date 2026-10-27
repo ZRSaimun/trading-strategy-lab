@@ -71,13 +71,17 @@ def _event_hash(seq, broker, account, order, event, evidence, stamp, previous):
                                      ensure_ascii=True).encode('ascii')).hexdigest()
 
 
-def _connect(path):
+def _connect(path, *, read_only=False):
     if not isinstance(path, (str, Path)):
         raise ValueError('Database path required')
     p = Path(path)
     if p.is_symlink() or not p.is_file():
         raise ValueError('Existing regular ledger file required; initialize separately')
-    conn = sqlite3.connect(str(p), timeout=5, isolation_level=None)
+    # mode=ro/rw prevents sqlite3's default rwc mode from recreating a ledger
+    # removed between the filesystem preflight and SQLite's actual open.
+    # Use a URI to preserve escaping of spaces, '?' and '#' in the path.
+    uri = p.absolute().as_uri() + ('?mode=ro' if read_only else '?mode=rw')
+    conn = sqlite3.connect(uri, timeout=5, isolation_level=None, uri=True)
     conn.execute('PRAGMA foreign_keys=ON')
     conn.execute('PRAGMA busy_timeout=5000')
     return conn
@@ -157,8 +161,14 @@ def _verify(conn):
             state[key] = (old[0], event)
         previous = digest
         last_time = stamp
-    actual = {(b, a, o): (h, s) for b, a, o, h, s in conn.execute(
-        'SELECT broker,account,order_id,intent_sha,status FROM intents')}
+    # A hostile projection may contain far more rows than the audit. Never
+    # materialize an unbounded intents table before discovering corruption.
+    projection_rows = conn.execute(
+        'SELECT broker,account,order_id,intent_sha,status FROM intents LIMIT ?',
+        (MAX_EVENTS + 1,)).fetchall()
+    if len(projection_rows) > MAX_EVENTS:
+        raise ValueError('Ledger intent capacity reached; no automatic truncation')
+    actual = {(b, a, o): (h, s) for b, a, o, h, s in projection_rows}
     if state != actual:
         raise ValueError('Ledger projection differs from audit history')
     return len(rows), previous, last_time, state
@@ -234,7 +244,7 @@ def record_declared_reconciliation(path, *, broker, account_alias, client_order_
 
 def inspect_ledger(path):
     """Read-only audit, never a clearance or submission capability."""
-    conn = _connect(path)
+    conn = _connect(path, read_only=True)
     try:
         conn.execute('BEGIN')
         count, digest, _, state = _verify(conn)
