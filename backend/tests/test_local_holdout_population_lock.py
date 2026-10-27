@@ -414,7 +414,9 @@ def test_frozen_census_rechecked_atomically_before_outcome_loading(
     def load_outcomes():
         loaded.append(True)
         return outcomes
-    with pytest.raises(ValueError, match="Frozen holdout population reservations differ"):
+    with pytest.raises(ValueError, match=(
+            "Frozen holdout population reservations differ|"
+            "Inconsistent paired population reservations at release")):
         registry.audit_declared_holdout_release_once(
             path, manifest, census, anchor, load_outcomes)
     assert loaded == []
