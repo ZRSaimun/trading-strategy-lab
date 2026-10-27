@@ -47,7 +47,7 @@ def audit_research(payload):
     """Compute conditional missing-exit gross-R thresholds without changing trades.
 
     The required mean of censored *gross* R for full entered-position net sum
-    to reach zero is (observed net sum - censored additional costs)/N_censored.
+    to reach zero is (censored additional costs - observed net sum)/N_censored.
     The threshold is not an observed outcome, loss bound or broker forecast.
     """
     if not isinstance(payload, dict):
@@ -104,7 +104,7 @@ def audit_research(payload):
                     observed_outcomes=observed,
                     censored_entered_outcomes=censored,
                     required_mean_censored_gross_r_for_zero_entered_net=(
-                        str((observed_net - censored_cost) / censored) if censored else None),
+                        str((censored_cost - observed_net) / censored) if censored else None),
                     observed_net_r_sum=str(observed_net),
                     implied_censored_additional_cost_r_sum=str(censored_cost)))
             if not _close(censored_costs[0], Decimal(0)):
