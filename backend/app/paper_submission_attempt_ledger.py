@@ -87,6 +87,12 @@ def _private_parent(path):
     # trusting a non-canonical pathname for SQLite's journal and DB opens.
     if '..' in path.parts:
         raise ValueError('Ledger path must not contain parent traversal components')
+    # A ledger named "orders.sqlite-journal" (or -wal/-shm) aliases the
+    # SQLite sidecar of another database in the same directory. Reject it
+    # before creation/opening so this ledger cannot consume or overwrite
+    # another database's recovery evidence.
+    if path.name.endswith(('-journal', '-wal', '-shm')):
+        raise ValueError('Ledger filename collides with a SQLite sidecar suffix')
     parent = path.absolute().parent
     # A symlink anywhere in the directory path can redirect SQLite's journal
     # and database opens even when the final ledger path is not a symlink.
