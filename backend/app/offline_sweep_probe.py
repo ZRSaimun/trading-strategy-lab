@@ -132,6 +132,15 @@ def research(bars, *, lookback=16, horizon=16, embargo=16):
         for name in cohorts
     }
     adverse_open_extra_loss_r = {name: [] for name in cohorts}
+    # A single OHLC candle may touch both barriers. Source opens distinguish
+    # immediate stop/target crossings from unknown intrabar ordering; none
+    # establishes a broker fill or changes the frozen stop-first outcomes.
+    same_bar_collision = {
+        name: {"opens_at_or_beyond_stop": 0,
+               "opens_at_or_beyond_target": 0,
+               "opens_between_barriers_order_unknown": 0}
+        for name in cohorts
+    }
     next_free = 0
     for i in range(lookback, len(bars) - 1):
         # The completed confirmation must also be inside the selected cohort;
@@ -197,6 +206,14 @@ def research(bars, *, lookback=16, horizon=16, embargo=16):
             stopped = b.l <= stop if is_long else b.h >= stop
             won = b.h >= target if is_long else b.l <= target
             if stopped:
+                if won:
+                    if (b.o <= stop if is_long else b.o >= stop):
+                        same_bar_collision[cohort]["opens_at_or_beyond_stop"] += 1
+                    elif (b.o >= target if is_long else b.o <= target):
+                        same_bar_collision[cohort]["opens_at_or_beyond_target"] += 1
+                    else:
+                        same_bar_collision[cohort][
+                            "opens_between_barriers_order_unknown"] += 1
                 # A source OHLC bar can open beyond the stop while remaining
                 # timestamp-contiguous. Crediting an exact -1R stop in that
                 # case would erase observed adverse gap risk. Use the worse
@@ -247,6 +264,11 @@ def research(bars, *, lookback=16, horizon=16, embargo=16):
                 raise RuntimeError("Adverse source-open loss census mismatch")
             if censored[name] != len(censored_entry_risks[name]):
                 raise RuntimeError("Censored-entry risk census mismatch")
+            collisions = same_bar_collision[name]
+            if sum(collisions.values()) > (
+                    exit_path_counts[name]["stop_touch_without_adverse_open"] +
+                    exit_path_counts[name]["stop_touch_with_adverse_open"]):
+                raise RuntimeError("Same-bar collision exceeds observed stops")
             if confirmed[name] != (entry_unobservable[name] +
                                    invalid_entry_geometry[name] + entered[name]):
                 raise RuntimeError("Confirmed-signal census mismatch")
@@ -305,6 +327,22 @@ def research(bars, *, lookback=16, horizon=16, embargo=16):
                 positive_mean_break_even_additional_bps=(
                     str(break_even_bps) if break_even_bps is not None else None),
                 cost_scenarios=cases,
+                same_bar_stop_target_collision_census=dict(
+                    collisions,
+                    both_barriers_touched=sum(collisions.values()),
+                    observed_outcomes_total=len(trades),
+                    # On a *fixed admitted* population, only the source
+                    # opens not already beyond stop could hypothetically
+                    # replace a -1R stop with a +2R target. This is NOT a
+                    # replay: alternate exits would change later admissions.
+                    fixed_cohort_target_first_uplift_r_sum=str(
+                        Q(3) * (collisions["opens_at_or_beyond_target"] +
+                                collisions["opens_between_barriers_order_unknown"])),
+                    fixed_cohort_target_first_uplift_r_per_observed=(
+                        str(Q(3) * (collisions["opens_at_or_beyond_target"] +
+                                    collisions["opens_between_barriers_order_unknown"])
+                            / len(trades)) if trades else None),
+                    interpretation="SOURCE_OHLC_FIXED_COHORT_SENSITIVITY_NOT_BACKTEST"),
                 observed_exit_path_census=dict(
                     exit_path_counts[name],
                     observed_outcomes_total=len(trades),
