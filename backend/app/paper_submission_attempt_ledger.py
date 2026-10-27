@@ -157,6 +157,17 @@ def _validate_rollback_journal(path):
         raise ValueError('Unsafe SQLite rollback journal; quarantine ledger')
 
 
+def _reject_orphan_rollback_journal(path):
+    """A new ledger has no transaction to recover; never adopt an orphan journal.
+
+    Existing ledgers still accept a validated rollback journal for crash
+    recovery. Initialization has no such history, so even an ordinary regular
+    journal may belong to a previous database and must be preserved untouched.
+    """
+    if os.path.lexists(str(path) + '-journal'):
+        raise ValueError('Orphan SQLite rollback journal; quarantine initialization')
+
+
 def _connect(path, *, read_only=False):
     if not isinstance(path, (str, Path)):
         raise ValueError('Database path required')
@@ -247,6 +258,7 @@ def initialize_ledger(path):
         raise ValueError('Ledger already exists; refusing overwrite')
     _reject_wal_sidecars(p)
     _validate_rollback_journal(p)
+    _reject_orphan_rollback_journal(p)
     # Create mode 0600 regardless of a permissive process umask. O_EXCL
     # refuses an existing file, including a symlink. Never auto-recreate it.
     fd = os.open(p, os.O_CREAT | os.O_EXCL | os.O_WRONLY
@@ -283,6 +295,8 @@ def initialize_ledger(path):
         conn = _connect(p)
         try:
             require_original_file()
+            # No transaction has begun: an intervening journal is untrusted.
+            _reject_orphan_rollback_journal(p)
             conn.execute('PRAGMA synchronous=FULL')
             conn.execute('BEGIN EXCLUSIVE')
             conn.execute('CREATE TABLE intents (broker TEXT NOT NULL, account TEXT NOT NULL, '
