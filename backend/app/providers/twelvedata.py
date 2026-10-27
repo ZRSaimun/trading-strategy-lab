@@ -101,15 +101,29 @@ async def retrieve(key,instrument,limit,end,now,transport=None, *, include_wire_
             'end_date':datetime.fromtimestamp(end,timezone.utc).strftime('%Y-%m-%d %H:%M:%S')}
     try:
         async with httpx.AsyncClient(timeout=20,follow_redirects=False,transport=transport,trust_env=False) as client:
-            async with client.stream('GET',ENDPOINT,params=params,headers={'Authorization':'apikey '+key}) as response:
+            async with client.stream('GET',ENDPOINT,params=params,headers={'Authorization':'apikey '+key, 'Accept-Encoding':'identity'}) as response:
                 if response.status_code in (401,403):raise ProviderError('Provider rejected the credential or entitlement.',403)
                 if response.status_code==429:raise ProviderError('Provider quota exceeded.',429)
                 if response.status_code!=200:raise ProviderError('Provider request failed; no data imported.')
                 credit_headers = _credit_header_observation(response.headers) if include_wire_evidence else None
+                # Ask for identity encoding and reject compressed replies even if
+                # the provider ignores the request. aiter_bytes() transparently
+                # decompresses, potentially allocating an oversized chunk before
+                # the cumulative limit can be enforced.
+                encodings = response.headers.get_list('content-encoding')
+                if (len(encodings) > 1 or
+                        (encodings and encodings[0].strip().lower() != 'identity')):
+                    raise ProviderError('Unsupported provider response encoding; no data imported.')
+                lengths = response.headers.get_list('content-length')
+                if (len(lengths) > 1 or
+                        (lengths and (re.fullmatch(r'[0-9]{1,8}', lengths[0]) is None
+                                      or int(lengths[0]) > MAX_BYTES))):
+                    raise ProviderError('Invalid or oversized provider response length; no data imported.')
                 raw=bytearray()
-                async for chunk in response.aiter_bytes():
+                async for chunk in response.aiter_raw(chunk_size=65536):
+                    if len(chunk) > MAX_BYTES - len(raw):
+                        raise ProviderError('Provider response exceeded the safe size limit.')
                     raw.extend(chunk)
-                    if len(raw)>MAX_BYTES:raise ProviderError('Provider response exceeded the safe size limit.')
                 payload=json.loads(raw,object_pairs_hook=_reject_duplicate_response_keys,
                                    parse_constant=_reject_nonstandard_response_constant)
     except (httpx.HTTPError,ValueError):
