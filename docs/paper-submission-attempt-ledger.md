@@ -67,3 +67,28 @@ This protects against accidentally world-readable intent evidence, hostile SQLit
 Additional synthetic tests reject nonprivate file modes, hardlinked files, public or symlinked parent directories, parent replacement during SQLite opening and unexpected permission relaxation. An actual subprocess is terminated immediately after the `ATTEMPT_UNKNOWN` commit to verify the irreversible quarantine survives process death. These tests remain offline and submit no orders.
 
 The `inspect_ledger` diagnostic now includes `last_recorded_at_ms` (an audited integer for populated ledgers, `null` for an empty ledger). The external checkpoint fence uses it to reject an event timestamp later than its independently trusted checkpoint time. Ledger event timestamps are still caller declarations; they do not independently authenticate a clock or broker event.
+
+
+## WAL/SHM evidence quarantine (27 October 2026)
+
+The offline submission-attempt ledger is deliberately restricted to SQLite's
+**DELETE rollback-journal mode**. Opening a database with an unexpected journal
+mode now fails closed rather than silently changing its mode. Existing
+`-wal` and `-shm` sidecars (including dangling symlinks) are rejected
+before and immediately after SQLite opens the ledger; one-time initialization
+also refuses orphaned sidecars. The connection sets
+`PRAGMA trusted_schema=OFF` before auditing the reviewed DDL. No sidecar is
+deleted, checkpointed, migrated, repaired or treated as authenticated broker
+evidence. Synthetic tests cover unreviewed sidecars, symlink sidecars, orphaned
+initialization and persisted WAL-mode headers on read and write paths.
+
+**Why:** SQLite WAL files may contain committed transactions not yet
+checkpointed into the main database file. Accepting an unexpected WAL/SHM
+state would complicate audit recovery and allow a different durability model
+than the reviewed rollback-journal path. This restriction is an intentional
+availability trade-off, not a claim that WAL itself is unsafe. An ordinary
+rollback `-journal` may still be needed for crash recovery and is not
+automatically removed. These pathname checks remain vulnerable to privileged
+or same-user replacement races, and do not authenticate broker inventory,
+owner approval, or externally trusted audit anchors. Do not enable broker
+execution based on this ledger.
