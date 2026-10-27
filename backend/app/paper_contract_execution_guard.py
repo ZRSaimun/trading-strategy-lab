@@ -25,8 +25,8 @@ IDENTITIES = (
 TIMES = ('contract_spec_observed_at_ms', 'quote_observed_at_ms', 'quote_received_at_ms')
 FIELDS = frozenset(NUMERIC + IDENTITIES + TIMES + ('min_stop_ticks',))
 MAX_TIME = 8_640_000_000_000_000
-PATTERN = re.compile(r'-?(?:0|[1-9][0-9]{0,14})(?:\\.[0-9]{1,8})?\\Z')
-ID_PATTERN = re.compile(r'[A-Za-z0-9][A-Za-z0-9._:/+-]{0,79}\\Z')
+PATTERN = re.compile(r'-?(?:0|[1-9][0-9]{0,14})(?:\.[0-9]{1,8})?\Z')
+ID_PATTERN = re.compile(r'[A-Za-z0-9][A-Za-z0-9._:/+-]{0,79}\Z')
 NONNEGATIVE = frozenset((
     'estimated_cost_cash', 'existing_notional_cash', 'existing_margin_cash',
     'existing_reserved_risk_cash',
