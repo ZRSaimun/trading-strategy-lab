@@ -197,6 +197,32 @@ def _connect(path, *, read_only=False):
     return conn
 
 
+
+def _storage_fingerprint(path):
+    """Recheck private storage and file identity around long-running audits.
+
+    This is a best-effort pathname fence, not atomic binding of SQLite's fd.
+    The journal may legitimately appear/disappear within a transaction.
+    """
+    p = Path(path)
+    parent = _private_parent(p)
+    try:
+        info = p.lstat()
+    except OSError as exc:
+        raise ValueError('Ledger storage disappeared during operation') from exc
+    _private_file(info)
+    _reject_wal_sidecars(p)
+    _validate_rollback_journal(p)
+    if info.st_size > MAX_LEDGER_BYTES:
+        raise ValueError('Ledger file exceeds reviewed byte capacity')
+    return (parent, info.st_dev, info.st_ino)
+
+
+def _require_storage_fingerprint(path, expected):
+    if _storage_fingerprint(path) != expected:
+        raise ValueError('Ledger storage identity changed during operation')
+
+
 def initialize_ledger(path):
     """Explicit one-time creation. Never silently recreate or repair an existing DB."""
     p = Path(path)
@@ -325,9 +351,13 @@ def _append(conn, key, event, evidence, stamp, count, previous):
 def _write(path, key, event, evidence, stamp):
     conn = _connect(path)
     try:
+        expected_storage = _storage_fingerprint(path)
         conn.execute('PRAGMA synchronous=FULL')
         conn.execute('BEGIN IMMEDIATE')
         count, previous, last_time, state = _verify(conn)
+        # A long audit can race a path or journal replacement. Recheck before
+        # the first mutation, while rollback is still read-only.
+        _require_storage_fingerprint(path, expected_storage)
         if stamp < last_time:
             raise ValueError('Clock regression; cannot append evidence')
         old = state.get(key)
@@ -346,7 +376,9 @@ def _write(path, key, event, evidence, stamp):
             conn.execute('UPDATE intents SET status=? WHERE broker=? AND account=? AND order_id=?',
                          (event, *key))
         digest = _append(conn, key, event, evidence, stamp, count, previous)
+        _require_storage_fingerprint(path, expected_storage)
         conn.execute('COMMIT')
+        _require_storage_fingerprint(path, expected_storage)
         return {'status': event, 'audit_sha256': digest,
                 'may_submit_paper_order': False, 'may_submit_real_order': False,
                 'requires_independent_reconciliation': True}
@@ -384,9 +416,12 @@ def inspect_ledger(path):
     """Read-only audit, never a clearance or submission capability."""
     conn = _connect(path, read_only=True)
     try:
+        expected_storage = _storage_fingerprint(path)
         conn.execute('BEGIN')
         count, digest, last_time, state = _verify(conn)
+        _require_storage_fingerprint(path, expected_storage)
         conn.execute('COMMIT')
+        _require_storage_fingerprint(path, expected_storage)
         return {'schema': 'paper-submission-attempt-ledger-v1', 'event_count': count,
                 'order_count': len(state), 'audit_tip_sha256': digest,
                 'last_recorded_at_ms': last_time if count else None,
