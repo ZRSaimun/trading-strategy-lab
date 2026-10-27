@@ -775,3 +775,55 @@ def test_log_loss_tail_unselected_outcome_cannot_shift_fixed_census():
                   "lateLogLossTopDecileShare",
                   "lateWorstSingleLogLossRegretVsFrozenEarlyClimatology"):
         assert a[field] == pytest.approx(b[field])
+
+
+def test_settlement_lag_zero_on_synthetic_on_time_target_receipts():
+    row = audit_temporal_forecast_calibration(fixture())["groups"][0]
+    assert row["lateSettlementLagP95Seconds"] == 0
+    assert row["lateSettlementLagMaxSeconds"] == 0
+    assert row["lateSettlementLagOverOneCandleFraction"] == 0
+
+
+def test_settlement_lag_uses_fixed_late_census_and_nearest_rank():
+    s = fixture()
+    for i in (80, 82, 84):
+        s["forecasts"][i]["resolvedAt"] += 120
+    row = audit_temporal_forecast_calibration(s)["groups"][0]
+    assert row["lateNonoverlappingSettled"] == 40
+    assert row["lateSettlementLagP95Seconds"] == 120
+    assert row["lateSettlementLagMaxSeconds"] == 120
+    assert row["lateSettlementLagOverOneCandleFraction"] == pytest.approx(3 / 40)
+
+
+def test_settlement_lag_respects_declared_as_of_excluded_receipt():
+    s = fixture()
+    cutoff = max(r["issuedAt"] for r in s["forecasts"])
+    s["forecasts"][80]["resolvedAt"] = cutoff + 120
+    group = audit_temporal_forecast_calibration(
+        s, evaluation_as_of=cutoff)["groups"][0]
+    assert group["lateCensusSettledAfterDeclaredAsOf"] == 1
+    assert group["lateNonoverlappingSettled"] == 39
+    assert group["lateSettlementLagP95Seconds"] == 0
+    assert group["lateSettlementLagMaxSeconds"] == 0
+
+
+def test_settlement_lag_withheld_when_selected_missingness_exceeds_gate():
+    s = fixture()
+    for i in (80, 82, 84):
+        s["forecasts"][i].update(status="PENDING", outcomeUp=None, resolvedAt=None)
+    group = audit_temporal_forecast_calibration(
+        s, max_unresolved_fraction=.05)["groups"][0]
+    assert group["status"] == "UNRESOLVED_SELECTION_RISK"
+    for field in ("lateSettlementLagP95Seconds", "lateSettlementLagMaxSeconds",
+                  "lateSettlementLagOverOneCandleFraction"):
+        assert group[field] is None
+
+
+def test_settlement_lag_ignores_unselected_forecast_receipt_delay():
+    s = fixture()
+    a = audit_temporal_forecast_calibration(s)["groups"][0]
+    s["forecasts"][81]["resolvedAt"] += 3600
+    b = audit_temporal_forecast_calibration(s)["groups"][0]
+    for field in ("lateSettlementLagP95Seconds", "lateSettlementLagMaxSeconds",
+                  "lateSettlementLagOverOneCandleFraction"):
+        assert a[field] == b[field]
