@@ -118,7 +118,7 @@ def test_deleted_snapshot_detected(tmp_path):
     append_declared_m1_checkpoint(path, NEW, C, first["checkpoint_sha256"])
     with sqlite3.connect(path) as conn:
         conn.execute("DELETE FROM declared_m1_snapshots WHERE revision=1")
-    with pytest.raises(ValueError, match="revision"):
+    with pytest.raises(ValueError, match="stored receipt chain"):
         read_declared_m1_checkpoint_head(path, P)
 
 
