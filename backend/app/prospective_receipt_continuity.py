@@ -14,6 +14,24 @@ from .expected_bar_manifest import (
     ExpectedM1Manifest, audit_m1_receipts_against_manifest,
 )
 
+def _interval_declarations_extend(previous: tuple, current: tuple) -> bool:
+    """Accept exact append or an extension of the final interval only.
+
+    A rearranged historical schedule can yield identical expected minutes;
+    that must not be mistaken for unchanged calendar provenance.
+    """
+    if len(current) < len(previous):
+        return False
+    if current[:len(previous)] == previous:
+        return True
+    return bool(
+        previous
+        and current[:len(previous) - 1] == previous[:-1]
+        and current[len(previous) - 1][0] == previous[-1][0]
+        and current[len(previous) - 1][1] >= previous[-1][1]
+    )
+
+
 _PRICE_FIELDS = ("open", "high", "low", "close")
 _ID_FIELDS = ("provider", "symbol", "venue", "price_side")
 
@@ -52,6 +70,20 @@ def audit_declared_m1_receipt_continuity(
     if later[:len(earlier)] != earlier:
         raise ValueError("Expected minute population was rewritten or contracted")
 
+    # An unchanged expected-minute list alone cannot prove the operator did
+    # not retrospectively split/relabel declared session or closure intervals.
+    sessions_rewritten = not _interval_declarations_extend(
+        previous_manifest.sessions_utc, current_manifest.sessions_utc)
+    exclusions_rewritten = not _interval_declarations_extend(
+        previous_manifest.exclusions_utc, current_manifest.exclusions_utc)
+    # A newly declared expected minute whose candle had already closed at the
+    # prior checkpoint is a retrospective calendar addition, not prospective
+    # coverage. A minute still in progress at the prior checkpoint is allowed.
+    retroactive_expected = [
+        t for t in later[len(earlier):]
+        if t + 60 <= previous_manifest.observed_at_utc
+    ]
+
     # Both calls independently reconstruct their manifests and validate all
     # row identity, UTC chronology, OHLC, bounds, and declared freshness.
     previous = audit_m1_receipts_against_manifest(
@@ -76,7 +108,8 @@ def audit_declared_m1_receipt_continuity(
     backdated = sorted(t for t in new
                        if after[t]["received_at_utc"] <= previous_manifest.observed_at_utc)
     anomalies = bool(removed or price_revisions or timestamp_revisions or backfills
-                     or backdated or previous["status"] == "REVIEW_REQUIRED"
+                     or backdated or sessions_rewritten or exclusions_rewritten
+                     or retroactive_expected or previous["status"] == "REVIEW_REQUIRED"
                      or current["status"] == "REVIEW_REQUIRED")
     digest = hashlib.sha256(json.dumps({
         "previous_manifest": previous_manifest.manifest_sha256,
@@ -102,6 +135,11 @@ def audit_declared_m1_receipt_continuity(
         "revised_previous_ohlc_minutes": len(price_revisions),
         "rewritten_previous_receipt_times": len(timestamp_revisions),
         "backdated_new_receipt_times": len(backdated),
+        "historical_session_declaration_rewritten": sessions_rewritten,
+        "historical_exclusion_declaration_rewritten": exclusions_rewritten,
+        "retroactive_new_expected_minutes": len(retroactive_expected),
+        "retroactive_new_expected_utc_samples": [
+            _iso(t) for t in retroactive_expected[:sample_limit]],
         "removed_utc_samples": [_iso(t) for t in removed[:sample_limit]],
         "revised_utc_samples": [_iso(t) for t in price_revisions[:sample_limit]],
         "retimestamped_utc_samples": [_iso(t) for t in timestamp_revisions[:sample_limit]],
