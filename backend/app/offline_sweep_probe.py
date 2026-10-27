@@ -16,6 +16,7 @@ Q = Decimal
 STEP = timedelta(minutes=1)
 BAR_STEP = timedelta(minutes=15)
 VOLATILITY_REGIMES = ("LOW_LT_10_BPS", "MID_10_TO_LT_30_BPS", "HIGH_GTE_30_BPS")
+SIGNAL_DIRECTIONS = ("LONG_SWEEP_LOW", "SHORT_SWEEP_HIGH")
 
 
 def prior_range_regime(prior_bars):
@@ -169,6 +170,14 @@ def research(bars, *, lookback=16, horizon=16, embargo=16):
                for regime in VOLATILITY_REGIMES}
         for name in cohorts
     }
+    # Direction is known at completed confirmation, not inferred from exit.
+    # Preserve missing-entry and censored populations for attrition accounting.
+    directions = {
+        name: {side: {"confirmed": 0, "entered": 0, "observed": [],
+                     "censored": 0, "missing_entry": 0, "invalid": 0}
+               for side in SIGNAL_DIRECTIONS}
+        for name in cohorts
+    }
     next_free = 0
     for i in range(lookback, len(bars) - 1):
         # The completed confirmation must also be inside the selected cohort;
@@ -201,6 +210,9 @@ def research(bars, *, lookback=16, horizon=16, embargo=16):
         if is_short and confirmation.c >= sweep.l:
             continue
         confirmed[cohort] += 1
+        direction = directions[cohort][
+            "LONG_SWEEP_LOW" if is_long else "SHORT_SWEEP_HIGH"]
+        direction["confirmed"] += 1
         regime = volatility[cohort][prior_range_regime(window[:lookback])]
         regime["confirmed"] += 1
         entry_index = i + 2
@@ -210,6 +222,7 @@ def research(bars, *, lookback=16, horizon=16, embargo=16):
                 (cohort == "development" and entry_index >= split - embargo) or
                 (cohort == "exploratory_later" and entry_index < split + embargo)):
             entry_unobservable[cohort] += 1
+            direction["missing_entry"] += 1
             regime["missing_entry"] += 1
             # No entry observation means no demonstrated position exposure.
             # Do not manufacture a fill, return or position reservation.
@@ -219,14 +232,17 @@ def research(bars, *, lookback=16, horizon=16, embargo=16):
         risk = entry - stop if is_long else stop - entry
         if risk <= 0:
             invalid_entry_geometry[cohort] += 1
+            direction["invalid"] += 1
             regime["invalid"] += 1
             continue
         target = entry + 2*risk if is_long else entry - 2*risk
         if target <= 0:
             invalid_entry_geometry[cohort] += 1
+            direction["invalid"] += 1
             regime["invalid"] += 1
             continue
         entered[cohort] += 1
+        direction["entered"] += 1
         regime["entered"] += 1
         outcome = None
         observed_prefix = 0
@@ -280,6 +296,7 @@ def research(bars, *, lookback=16, horizon=16, embargo=16):
                 next_free = last
         if outcome is None:
             censored[cohort] += 1
+            direction["censored"] += 1
             regime["censored"] += 1
             censored_entry_risks[cohort].append((entry, risk))
             censored_observed_prefix_bars[cohort].append(observed_prefix)
@@ -288,6 +305,7 @@ def research(bars, *, lookback=16, horizon=16, embargo=16):
             # This is an analysis-only exclusion, not proof of a flat account.
             next_free = max(next_free, entry_index + horizon)
         else:
+            direction["observed"].append((outcome, entry, risk))
             regime["observed"].append((outcome, entry, risk))
             cohorts[cohort].append((outcome, entry, risk))
             observed_holding_bars[cohort].append(observed_prefix)
@@ -408,7 +426,43 @@ def research(bars, *, lookback=16, horizon=16, embargo=16):
                     raise RuntimeError("Volatility population reconciliation failed")
             if sum(len(cell["observed"]) for cell in volatility[name].values()) != len(trades):
                 raise RuntimeError("Volatility observed population mismatch")
+            direction_report = {}
+            for side, cell in directions[name].items():
+                observed = cell["observed"]
+                if cell["confirmed"] != (cell["missing_entry"] + cell["invalid"] +
+                                         cell["entered"]):
+                    raise RuntimeError("Direction signal census mismatch")
+                if cell["entered"] != cell["censored"] + len(observed):
+                    raise RuntimeError("Direction entered census mismatch")
+                side_cases = []
+                for bps in (0, 5, 10, 20):
+                    total = sum((r - abs(entry) * Q(bps) / Q(10000) / risk
+                                 for r, entry, risk in observed), Q(0))
+                    side_cases.append(dict(
+                        additional_round_trip_bps=bps,
+                        observed_outcomes=len(observed),
+                        mean_net_r=str(total / len(observed)) if observed else None))
+                direction_report[side] = dict(
+                    confirmed_signals=cell["confirmed"],
+                    confirmed_signals_without_observable_entry=cell["missing_entry"],
+                    invalid_entry_stop_or_target_geometry=cell["invalid"],
+                    entered_positions=cell["entered"],
+                    observed_outcomes=len(observed),
+                    censored_entered_outcomes=cell["censored"],
+                    observed_only_cost_scenarios=side_cases)
+            for kind, expected in (
+                ("confirmed", confirmed[name]), ("entered", entered[name]),
+                ("missing_entry", entry_unobservable[name]),
+                ("invalid", invalid_entry_geometry[name]),
+                ("censored", censored[name])):
+                if sum(cell[kind] for cell in directions[name].values()) != expected:
+                    raise RuntimeError("Direction population reconciliation failed")
+            if sum(len(cell["observed"]) for cell in directions[name].values()) != len(trades):
+                raise RuntimeError("Direction observed population mismatch")
             reports[name] = dict(
+                confirmed_signal_direction_census=dict(
+                    directions=direction_report,
+                    interpretation="CAUSAL_DIRECTIONAL_ATTRITION_OBSERVED_ONLY_NOT_EDGE"),
                 pre_signal_volatility_regime_census=dict(
                     metric="MEDIAN_PRIOR_BAR_HIGH_LOW_RANGE_BPS_OF_CLOSE",
                     fixed_thresholds_bps=[10, 30],
