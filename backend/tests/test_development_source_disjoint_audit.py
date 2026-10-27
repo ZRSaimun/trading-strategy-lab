@@ -143,7 +143,7 @@ def test_undeclared_extra_observation_fails_census():
                  label_available_at=at(2019, 8, 8))
     o.append(extra)
     m["expected_observation_count"] += 1
-    with pytest.raises(ValueError, match="census"):
+    with pytest.raises(ValueError, match="census|Selective fold"):
         run(m, o, f)
 
 
@@ -184,3 +184,38 @@ def test_earlier_test_label_must_mature_before_reuse_as_training():
     o[1]["label_available_at"] = at(2021, 1, 1)
     with pytest.raises(ValueError, match="embargo"):
         run(m, o, f)
+
+
+def test_cannot_silently_drop_eligible_training_observation():
+    m, o, f = sample()
+    f[1]["train_ids"] = ["o2019"]
+    with pytest.raises(ValueError, match="Selective fold"):
+        run(m, o, f)
+
+
+def test_cannot_silently_drop_eligible_test_observation():
+    m, o, f = sample()
+    extra = dict(o[1], observation_id="o2020b", row_sha256="e"*64,
+                 row_at=at(2020, 8), decision_at=at(2020, 8),
+                 label_available_at=at(2020, 8, 8))
+    o.append(extra)
+    m["expected_observation_count"] = 5
+    f[1]["train_ids"].append("o2020b")
+    f[2]["train_ids"].append("o2020b")
+    # The extra observation is used in later training, but was omitted
+    # from the first 2020 test fold: that omission must not pass.
+    with pytest.raises(ValueError, match="Selective fold"):
+        run(m, o, f)
+
+
+def test_complete_expanding_census_with_extra_observation_is_allowed():
+    m, o, f = sample()
+    extra = dict(o[1], observation_id="o2020b", row_sha256="e"*64,
+                 row_at=at(2020, 8), decision_at=at(2020, 8),
+                 label_available_at=at(2020, 8, 8))
+    o.append(extra)
+    m["expected_observation_count"] = 5
+    f[0]["test_ids"].append("o2020b")
+    f[1]["train_ids"].append("o2020b")
+    f[2]["train_ids"].append("o2020b")
+    assert run(m, o, f)["unique_test_observations"] == 4
