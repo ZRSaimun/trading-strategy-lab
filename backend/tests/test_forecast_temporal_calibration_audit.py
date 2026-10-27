@@ -395,3 +395,82 @@ def test_temporal_log_loss_early_training_does_not_learn_late_outcomes():
     b = audit_temporal_forecast_calibration(fixture(y_late=False))["groups"][0]
     assert a["earlyLogLoss"] == b["earlyLogLoss"]
     assert a["lateLogLoss"] != b["lateLogLoss"]
+
+
+
+@pytest.mark.parametrize("cutoff", [True, False, -1, 1.5, "9660", 2**53])
+def test_declared_evaluation_cutoff_rejects_invalid_values(cutoff):
+    with pytest.raises(ValueError, match="Invalid declared evaluation cutoff"):
+        audit_temporal_forecast_calibration(fixture(), evaluation_as_of=cutoff)
+
+
+def test_declared_evaluation_cutoff_rejects_future_issued_forecasts():
+    s = fixture()
+    last_issued = max(r["issuedAt"] for r in s["forecasts"])
+    with pytest.raises(ValueError, match="predates issued forecasts"):
+        audit_temporal_forecast_calibration(s, evaluation_as_of=last_issued - 1)
+
+
+def test_declared_as_of_cutoff_excludes_future_settlements_from_selected_census():
+    s = fixture()
+    cutoff = max(r["issuedAt"] for r in s["forecasts"])
+    for i in (80, 82, 84):
+        s["forecasts"][i]["resolvedAt"] = cutoff + 100
+    before = deepcopy(s)
+    result = audit_temporal_forecast_calibration(
+        s, evaluation_as_of=cutoff, max_unresolved_fraction=.05)
+    row = result["groups"][0]
+    assert result["evaluationAsOfDeclared"] == cutoff
+    assert result["evaluationCutoffAuthenticated"] is False
+    assert row["lateSettledAfterDeclaredAsOf"] == 4  # plus final unselected row
+    assert row["lateCensusSettledAfterDeclaredAsOf"] == 3
+    assert row["lateUnavailableAtDeclaredAsOfFraction"] == pytest.approx(.05)
+    assert row["lateCensusUnavailableAtDeclaredAsOfFraction"] == pytest.approx(.075)
+    assert row["lateUnresolvedOrVoid"] == 0
+    assert row["lateNonoverlappingSettled"] == 37
+    assert row["status"] == "UNRESOLVED_SELECTION_RISK"
+    for field in ("lateBrier", "lateLogLoss", "lateEceBins10",
+                  "lateLogLossSkillVsFrozenEarlyClimatology"):
+        assert row[field] is None
+    assert s == before
+
+
+def test_unselected_post_cutoff_labels_do_not_shift_fixed_census():
+    s = fixture()
+    cutoff = max(r["issuedAt"] for r in s["forecasts"])
+    for i in (81, 83, 85):
+        s["forecasts"][i]["resolvedAt"] = cutoff + 100
+    baseline = audit_temporal_forecast_calibration(s)["groups"][0]
+    row = audit_temporal_forecast_calibration(
+        s, evaluation_as_of=cutoff, max_unresolved_fraction=.05)["groups"][0]
+    assert row["lateSettledAfterDeclaredAsOf"] == 4
+    assert row["lateCensusSettledAfterDeclaredAsOf"] == 0
+    assert row["lateNonoverlappingSettled"] == 40
+    assert row["status"] == "DESCRIPTIVE_ONLY"
+    assert row["lateLogLoss"] == baseline["lateLogLoss"]
+    assert row["lateBrier"] == baseline["lateBrier"]
+
+
+def test_declared_cutoff_includes_exact_boundary_resolution():
+    s = fixture()
+    cutoff = max(r["issuedAt"] for r in s["forecasts"])
+    s["forecasts"][80]["resolvedAt"] = cutoff
+    row = audit_temporal_forecast_calibration(
+        s, evaluation_as_of=cutoff)["groups"][0]
+    assert row["lateCensusSettledAfterDeclaredAsOf"] == 0
+    assert row["lateNonoverlappingSettled"] == 40
+    assert row["lateBrier"] is not None
+
+
+def test_declared_cutoff_after_all_settlements_preserves_retrospective_scores():
+    s = fixture()
+    cutoff = max(r["resolvedAt"] for r in s["forecasts"])
+    baseline = audit_temporal_forecast_calibration(s)["groups"][0]
+    report = audit_temporal_forecast_calibration(s, evaluation_as_of=cutoff)
+    row = report["groups"][0]
+    assert row["lateSettledAfterDeclaredAsOf"] == 0
+    assert row["lateCensusSettledAfterDeclaredAsOf"] == 0
+    assert row["lateBrier"] == baseline["lateBrier"]
+    assert row["lateLogLoss"] == baseline["lateLogLoss"]
+    assert report["maySendNotification"] is False
+    assert report["mayExecuteLiveOrder"] is False
