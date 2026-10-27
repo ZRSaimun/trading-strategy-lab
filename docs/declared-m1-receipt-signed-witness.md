@@ -36,7 +36,10 @@ characters). `signature_hex` is the lowercase 128-character hex signature.
 `trusted_public_key_hex` is a 32-byte raw Ed25519 public key encoded as
 64 lowercase hex characters. `trusted_public_key_sha256` is the lowercase
 SHA-256 hex digest of those 32 raw public-key bytes. The operator **must pin
-and distribute both values independently of the supplied envelope**.
+and distribute both values independently of the supplied envelope**. Do not
+read the trusted key from the same mutable data source as the witness claims.
+Do not store a private signing key in the repo, database, logs or application
+environment. Key rotation requires an explicit independent trust review.
 
 For deployments that also require a verified witness *name*, supply the
 optional keyword `trusted_witness_id="operator-pinned-witness"`. This must
@@ -47,10 +50,7 @@ letters, digits, periods, underscores, colons or hyphens. Wrong, malformed,
 or mixed witness identities fail closed even when the Ed25519 signature is
 valid. Without the optional pin, `witness_id_matched_operator_pin=false`;
 with a matching pin it is `true`. This is only a local identity-consistency
-check, **not** authentication of external witness custody or a trusted clock. Do not
-read the trusted key from the same mutable data source as the witness claims.
-Do not store a private signing key in the repo, database, logs or application
-environment. Key rotation requires an explicit independent trust review.
+check, **not** authentication of external witness custody or a trusted clock.
 
 The verifier rejects invalid signatures, wrong key fingerprints, wrong
 scope, malformed payloads, future/retroactive witness issuance, oversized
