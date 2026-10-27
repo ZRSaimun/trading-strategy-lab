@@ -160,6 +160,24 @@ def claim_local_holdout_release(db_path, *, study_id, manifest_sha256):
                     "WHERE c.study_id IS NULL LIMIT 1"
                 ).fetchone() is not None):
                     raise ValueError("Orphaned population reservations at release")
+            # Equal row/decision counts are not sufficient: corrupted yet
+            # balanced reservations may carry noncausal times or split the
+            # declared feed across the two reservation tables.
+            if tables and conn.execute(
+                "SELECT 1 FROM holdout_locked_decisions AS d JOIN "
+                "holdout_claims AS c ON c.study_id=d.study_id WHERE "
+                "typeof(d.decision_at_utc) != 'integer' OR "
+                "d.decision_at_utc < c.holdout_start_at_utc OR "
+                "d.decision_at_utc >= c.holdout_end_at_utc LIMIT 1"
+            ).fetchone() is not None:
+                raise ValueError("Noncausal population decision reservation at release")
+            if tables and conn.execute(
+                "SELECT 1 FROM (SELECT study_id, source_sha256 FROM "
+                "holdout_locked_rows UNION ALL SELECT study_id, source_sha256 "
+                "FROM holdout_locked_decisions) AS p GROUP BY study_id "
+                "HAVING count(DISTINCT source_sha256) != 1 LIMIT 1"
+            ).fetchone() is not None:
+                raise ValueError("Split-source population reservations at release")
             if now < row[1] or now < row[2]:
                 raise ValueError("Holdout not complete or local clock moved backwards")
             if row[3] is not None:
