@@ -402,3 +402,60 @@ def test_oversized_ohlc_csv_field_is_sanitized_by_http_adapter():
         _fetch(body, {"Content-Type": "application/json"})
     assert exc.value.status == 502
     assert "synthetic-only-key" not in str(exc.value)
+
+
+@pytest.mark.parametrize("bad_key", [
+    None, True, 7, "", " ", "abc\\ndef", "abc\\rdef",
+    "abc\\tdef", "\\x7f", "\\u2603", "x" * 513,
+])
+def test_direct_retrieve_rejects_malformed_credential_before_network(bad_key):
+    # A direct caller must not make a potentially chargeable request or leak
+    # malformed credential bytes in the sanitized rejection.
+    seen = []
+    def handler(request):
+        seen.append(request)
+        return httpx.Response(200, content=_body())
+    with pytest.raises(ProviderError, match="Invalid provider credential shape") as exc:
+        asyncio.run(retrieve(
+            bad_key, "XAUUSD-TD", 1, T, T + 120,
+            transport=httpx.MockTransport(handler),
+        ))
+    assert exc.value.status == 422
+    assert seen == []
+    assert str(bad_key) not in str(exc.value)
+
+
+def test_direct_retrieve_accepts_printable_ascii_key_boundary():
+    seen = []
+    def handler(request):
+        seen.append(request)
+        return httpx.Response(200, content=_body())
+    rows, _ = asyncio.run(retrieve(
+        "x" * 512, "XAUUSD-TD", 1, T, T + 120,
+        transport=httpx.MockTransport(handler),
+    ))
+    assert len(rows) == len(seen) == 1
+
+
+@pytest.mark.parametrize("invalid_instrument", [
+    None, True, 7, "", "XAUUSD-IMPORT", "XAUUSD-TD ", [], {},
+])
+def test_direct_normalize_rejects_unknown_or_unhashable_instrument(invalid_instrument):
+    with pytest.raises(ProviderError, match="Unknown provider mapping") as exc:
+        normalize(json.loads(_body()), invalid_instrument, T + 120)
+    assert exc.value.status == 422
+
+
+@pytest.mark.parametrize("invalid_instrument", [None, [], {}, "XAUUSD-IMPORT"])
+def test_direct_retrieve_rejects_unknown_or_unhashable_instrument_before_network(invalid_instrument):
+    seen = []
+    def handler(request):
+        seen.append(request)
+        return httpx.Response(200, content=_body())
+    with pytest.raises(ProviderError, match="Unknown provider mapping") as exc:
+        asyncio.run(retrieve(
+            "synthetic-only-key", invalid_instrument, 1, T, T + 120,
+            transport=httpx.MockTransport(handler),
+        ))
+    assert exc.value.status == 422
+    assert seen == []
