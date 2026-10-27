@@ -21,6 +21,9 @@ CONFIRMATION_FVG_STATES = ("SAME_DIRECTION_THREE_CANDLE_FVG",
                            "NO_SAME_DIRECTION_THREE_CANDLE_FVG")
 CONFIRMATION_STRUCTURE_STATES = ("CONFIRMATION_CLOSE_BREAKS_PRIOR_RANGE",
                                  "NO_CONFIRMATION_CLOSE_BREAK_OF_PRIOR_RANGE")
+CONFIRMATION_DISPLACEMENT_STATES = (
+    "DIRECTIONAL_BODY_GTE_PRIOR_MEDIAN_RANGE",
+    "NO_DIRECTIONAL_BODY_GTE_PRIOR_MEDIAN_RANGE")
 
 
 def prior_range_regime(prior_bars):
@@ -36,6 +39,25 @@ def prior_range_regime(prior_bars):
     if median_bps < Q(30):
         return VOLATILITY_REGIMES[1]
     return VOLATILITY_REGIMES[2]
+
+
+def confirmation_displacement_state(prior_bars, confirmation, is_long):
+    """Causal body-size proxy, measured only at completed confirmation.
+
+    Require a directional body, at least as large as the median completed
+    pre-sweep high-low range. This is NOT an ICT displacement validation,
+    broker signal, or candidate filter. Equality is included.
+    """
+    if not prior_bars:
+        raise ValueError("Missing pre-sweep range observations")
+    ranges = sorted(b.h - b.l for b in prior_bars)
+    mid = len(ranges) // 2
+    median_range = (ranges[mid] if len(ranges) % 2 else
+                    (ranges[mid - 1] + ranges[mid]) / Q(2))
+    body = (confirmation.c - confirmation.o if is_long else
+            confirmation.o - confirmation.c)
+    return CONFIRMATION_DISPLACEMENT_STATES[
+        0 if body > 0 and body >= median_range else 1]
 
 
 @dataclass(frozen=True)
@@ -199,6 +221,14 @@ def research(bars, *, lookback=16, horizon=16, embargo=16):
                for state in CONFIRMATION_STRUCTURE_STATES}
         for name in cohorts
     }
+    # Completed-confirmation directional body vs prior median full range.
+    # Fixed ex-ante descriptive threshold; never changes trade admission.
+    displacement = {
+        name: {state: {"confirmed": 0, "entered": 0, "observed": [],
+                      "censored": 0, "missing_entry": 0, "invalid": 0}
+               for state in CONFIRMATION_DISPLACEMENT_STATES}
+        for name in cohorts
+    }
     next_free = 0
     for i in range(lookback, len(bars) - 1):
         # The completed confirmation must also be inside the selected cohort;
@@ -250,6 +280,9 @@ def research(bars, *, lookback=16, horizon=16, embargo=16):
         structure_cell = structure[cohort][CONFIRMATION_STRUCTURE_STATES[
             0 if range_break else 1]]
         structure_cell["confirmed"] += 1
+        displacement_cell = displacement[cohort][confirmation_displacement_state(
+            window[:lookback], confirmation, is_long)]
+        displacement_cell["confirmed"] += 1
         entry_index = i + 2
         if (entry_index >= len(bars) or
                 bars[entry_index].segment != confirmation.segment or
@@ -261,6 +294,7 @@ def research(bars, *, lookback=16, horizon=16, embargo=16):
             regime["missing_entry"] += 1
             fvg_cell["missing_entry"] += 1
             structure_cell["missing_entry"] += 1
+            displacement_cell["missing_entry"] += 1
             # No entry observation means no demonstrated position exposure.
             # Do not manufacture a fill, return or position reservation.
             continue
@@ -273,6 +307,7 @@ def research(bars, *, lookback=16, horizon=16, embargo=16):
             regime["invalid"] += 1
             fvg_cell["invalid"] += 1
             structure_cell["invalid"] += 1
+            displacement_cell["invalid"] += 1
             continue
         target = entry + 2*risk if is_long else entry - 2*risk
         if target <= 0:
@@ -281,12 +316,14 @@ def research(bars, *, lookback=16, horizon=16, embargo=16):
             regime["invalid"] += 1
             fvg_cell["invalid"] += 1
             structure_cell["invalid"] += 1
+            displacement_cell["invalid"] += 1
             continue
         entered[cohort] += 1
         direction["entered"] += 1
         regime["entered"] += 1
         fvg_cell["entered"] += 1
         structure_cell["entered"] += 1
+        displacement_cell["entered"] += 1
         outcome = None
         observed_prefix = 0
         last = min(entry_index + horizon, len(bars))
@@ -343,6 +380,7 @@ def research(bars, *, lookback=16, horizon=16, embargo=16):
             regime["censored"] += 1
             fvg_cell["censored"] += 1
             structure_cell["censored"] += 1
+            displacement_cell["censored"] += 1
             censored_entry_risks[cohort].append((entry, risk))
             censored_observed_prefix_bars[cohort].append(observed_prefix)
             # A censored position has no observed exit. Do not admit another
@@ -354,6 +392,7 @@ def research(bars, *, lookback=16, horizon=16, embargo=16):
             regime["observed"].append((outcome, entry, risk))
             fvg_cell["observed"].append((outcome, entry, risk))
             structure_cell["observed"].append((outcome, entry, risk))
+            displacement_cell["observed"].append((outcome, entry, risk))
             cohorts[cohort].append((outcome, entry, risk))
             observed_holding_bars[cohort].append(observed_prefix)
     reports = {}
@@ -572,7 +611,46 @@ def research(bars, *, lookback=16, horizon=16, embargo=16):
                     raise RuntimeError("Structure population reconciliation failed")
             if sum(len(cell["observed"]) for cell in structure[name].values()) != len(trades):
                 raise RuntimeError("Structure observed population mismatch")
+            displacement_report = {}
+            for state, cell in displacement[name].items():
+                observed = cell["observed"]
+                if cell["confirmed"] != (cell["missing_entry"] + cell["invalid"] +
+                                          cell["entered"]):
+                    raise RuntimeError("Displacement signal census mismatch")
+                if cell["entered"] != cell["censored"] + len(observed):
+                    raise RuntimeError("Displacement entered census mismatch")
+                cost_cases = []
+                for bps in (0, 5, 10, 20):
+                    total = sum((r - abs(entry) * Q(bps) / Q(10000) / risk
+                                 for r, entry, risk in observed), Q(0))
+                    cost_cases.append(dict(
+                        additional_round_trip_bps=bps,
+                        observed_outcomes=len(observed),
+                        mean_net_r=str(total / len(observed)) if observed else None))
+                displacement_report[state] = dict(
+                    confirmed_signals=cell["confirmed"],
+                    confirmed_signals_without_observable_entry=cell["missing_entry"],
+                    invalid_entry_stop_or_target_geometry=cell["invalid"],
+                    entered_positions=cell["entered"],
+                    observed_outcomes=len(observed),
+                    censored_entered_outcomes=cell["censored"],
+                    observed_only_cost_scenarios=cost_cases)
+            for kind, expected in (
+                ("confirmed", confirmed[name]), ("entered", entered[name]),
+                ("missing_entry", entry_unobservable[name]),
+                ("invalid", invalid_entry_geometry[name]),
+                ("censored", censored[name])):
+                if sum(cell[kind] for cell in displacement[name].values()) != expected:
+                    raise RuntimeError("Displacement population reconciliation failed")
+            if sum(len(cell["observed"]) for cell in displacement[name].values()) != len(trades):
+                raise RuntimeError("Displacement observed population mismatch")
             reports[name] = dict(
+                confirmation_body_displacement_census=dict(
+                    definition="DIRECTIONAL_CONFIRMATION_BODY_GTE_PRIOR_MEDIAN_FULL_RANGE",
+                    range_lookback_completed_bars=lookback,
+                    threshold_equality_included=True,
+                    states=displacement_report,
+                    interpretation="CAUSAL_BODY_DISPLACEMENT_PROXY_NOT_ICT_VALIDATION_OR_ENTRY_FILTER_OR_EDGE"),
                 confirmation_prior_range_break_census=dict(
                     definition="LONG_CLOSE_GT_PRIOR_LOOKBACK_HIGH_OR_SHORT_CLOSE_LT_PRIOR_LOOKBACK_LOW",
                     range_lookback_completed_bars=lookback,
