@@ -9,6 +9,7 @@ import hashlib
 import json
 import re
 import sqlite3
+import stat
 from pathlib import Path
 
 SCHEMA_VERSION = 1
@@ -82,16 +83,32 @@ def _connect(path, *, read_only=False):
     if p.is_symlink() or not p.is_file():
         raise ValueError('Existing regular ledger file required; initialize separately')
     try:
-        if p.stat().st_size > MAX_LEDGER_BYTES:
-            raise ValueError('Ledger file exceeds reviewed byte capacity')
+        before = p.lstat()
     except FileNotFoundError as exc:
         raise ValueError('Ledger disappeared before SQLite open') from exc
+    if not stat.S_ISREG(before.st_mode):
+        raise ValueError('Existing regular ledger file required; initialize separately')
+    if before.st_size > MAX_LEDGER_BYTES:
+        raise ValueError('Ledger file exceeds reviewed byte capacity')
     # mode=ro/rw prevents sqlite3's default rwc mode from recreating a ledger
     # removed between the filesystem preflight and SQLite's actual open.
     # Use a URI to preserve escaping of spaces, '?' and '#' in the path.
     uri = p.absolute().as_uri() + ('?mode=ro' if read_only else '?mode=rw')
     conn = sqlite3.connect(uri, timeout=5, isolation_level=None, uri=True)
     try:
+        # A replacement or symlink introduced after preflight must not pass
+        # silently into a ledger transition. This is a best-effort identity
+        # check, NOT an atomic openat/O_NOFOLLOW guarantee against a privileged
+        # attacker who swaps the file away and back during SQLite's open.
+        try:
+            after = p.lstat()
+        except FileNotFoundError as exc:
+            raise ValueError('Ledger disappeared during SQLite open') from exc
+        if (not stat.S_ISREG(after.st_mode)
+                or (after.st_dev, after.st_ino) != (before.st_dev, before.st_ino)):
+            raise ValueError('Ledger file identity changed during SQLite open')
+        if after.st_size > MAX_LEDGER_BYTES:
+            raise ValueError('Ledger file exceeds reviewed byte capacity')
         # Python 3.12/SQLite limits apply to values decoded from malicious rows,
         # not merely the number of rows returned by LIMIT.
         conn.setlimit(sqlite3.SQLITE_LIMIT_LENGTH, MAX_SQLITE_VALUE_BYTES)
