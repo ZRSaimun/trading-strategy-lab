@@ -17,3 +17,16 @@ PYTHONPATH=. python -m pytest -q tests/test_local_holdout_release_registry.py
 ```
 
 All test timestamps and digests are invented; no trading returns, executable spreads or actual financing rates were measured.
+
+
+**Frozen interval binding (27 October 2026):** The guarded
+`audit_declared_holdout_release_once` wrapper now passes both holdout
+interval endpoints from the frozen manifest into the atomic SQLite claim.
+If either stored endpoint differs, the claim is rejected **before** loading
+outcomes and remains unconsumed. A direct legacy call to
+`claim_local_holdout_release` may omit these optional endpoints for
+backward compatibility, so direct callers do **not** gain this check
+automatically. Tests cover edited start/end values, malformed or partial
+expected intervals, and preservation of the unconsumed claim. This detects
+inconsistent local records, not deliberate rewriting of both manifest and
+database or independently authenticated preregistration.
