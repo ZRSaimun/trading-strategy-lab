@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from decimal import Decimal, localcontext
 from pathlib import Path
+from statistics import median
 from zipfile import ZipFile
 
 Q = Decimal
@@ -462,6 +463,39 @@ def research(bars, *, lookback=16, horizon=16, embargo=16):
             # entries and invalid stop geometry are never imputed.
             censored_cost_notional = sum(
                 (abs(entry) / risk for entry, risk in censored_entry_risks[name]), Q(0))
+            # Entry/stop geometry is known for every admitted position,
+            # including positions whose exits are censored. A hypothetical
+            # round-trip cost can consume multiple R on very tight stops.
+            # This diagnostic never filters trades or imputes missing exits.
+            entered_geometry = ([(entry, risk) for _, entry, risk in trades] +
+                                censored_entry_risks[name])
+            if len(entered_geometry) != entered[name]:
+                raise RuntimeError("Entered cost geometry census mismatch")
+            if any(entry <= 0 or risk <= 0 or
+                   not entry.is_finite() or not risk.is_finite()
+                   for entry, risk in entered_geometry):
+                raise RuntimeError("Invalid entered cost geometry")
+            stop_distances_bps = sorted(
+                Q(10000) * risk / entry for entry, risk in entered_geometry)
+            five_bps_cost_in_r = sorted(
+                Q(5) * entry / (Q(10000) * risk)
+                for entry, risk in entered_geometry)
+            cost_burden_census = dict(
+                entered_positions=entered[name],
+                observed_outcomes=len(trades),
+                censored_entered_outcomes=censored[name],
+                stop_distance_bps_min=(str(stop_distances_bps[0])
+                                       if entered_geometry else None),
+                stop_distance_bps_median=(str(median(stop_distances_bps))
+                                          if entered_geometry else None),
+                stop_distance_bps_max=(str(stop_distances_bps[-1])
+                                       if entered_geometry else None),
+                illustrative_5bps_round_trip_cost_r_median=(
+                    str(median(five_bps_cost_in_r)) if entered_geometry else None),
+                stop_distance_lte_5bps=sum(x <= Q(5) for x in stop_distances_bps),
+                stop_distance_lte_10bps=sum(x <= Q(10) for x in stop_distances_bps),
+                stop_distance_lte_20bps=sum(x <= Q(20) for x in stop_distances_bps),
+                interpretation="SOURCE_ENTRY_STOP_GEOMETRY_NOT_EXECUTABLE_BROKER_COST_OR_FILTER")
             censored_loss_stress = []
             for assumed_loss_r in (1, 3, 5):
                 for stress_bps in (0, 5, 10, 20):
@@ -772,6 +806,7 @@ def research(bars, *, lookback=16, horizon=16, embargo=16):
                         str(max(adverse_open_extra_loss_r[name]))
                         if adverse_open_extra_loss_r[name] else None),
                     interpretation="SOURCE_OHLC_PROXY_NOT_EXECUTABLE_FILLS"),
+                entered_stop_distance_cost_burden_census=cost_burden_census,
                 censored_entered_loss_stress_scenarios=censored_loss_stress,
                 observed_holding_duration_census=dict(
                     observed_outcomes_total=len(trades),

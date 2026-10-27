@@ -881,3 +881,57 @@ def test_confirmation_body_displacement_empty_cohort_no_imputed_returns():
                for s in states.values())
     assert all(c["mean_net_r"] is None for s in states.values()
                for c in s["observed_only_cost_scenarios"])
+
+
+def test_entered_cost_burden_exact_one_trade_geometry_and_no_filter():
+    result = research(synthetic_bars())
+    cohort = result["cohorts"]["development"]
+    census = cohort["entered_stop_distance_cost_burden_census"]
+    assert census["entered_positions"] == census["observed_outcomes"] == 1
+    assert census["censored_entered_outcomes"] == 0
+    assert D(census["stop_distance_bps_min"]) == D(50000) / D(103)
+    assert census["stop_distance_bps_min"] == census["stop_distance_bps_median"]
+    assert census["stop_distance_bps_max"] == census["stop_distance_bps_median"]
+    assert D(census["illustrative_5bps_round_trip_cost_r_median"]) == D("0.0103")
+    assert all(census[f"stop_distance_lte_{bps}bps"] == 0 for bps in (5, 10, 20))
+    assert cohort["cost_scenarios"][0]["mean_net_r"] == "-1"
+    assert result["may_execute_order"] is False
+
+
+def test_cost_burden_counts_censored_entered_geometry_but_no_invented_exit():
+    rows = synthetic_bars()
+    b = rows[32]
+    rows[32] = Bar(b.time, D(103), D(104), D(99), D(103), 0)
+    rows[33:] = [Bar(x.time, x.o, x.h, x.l, x.c, 1) for x in rows[33:]]
+    cohort = research(rows)["cohorts"]["development"]
+    census = cohort["entered_stop_distance_cost_burden_census"]
+    assert census["entered_positions"] == census["censored_entered_outcomes"] == 1
+    assert census["observed_outcomes"] == 0
+    assert D(census["illustrative_5bps_round_trip_cost_r_median"]) == D("0.0103")
+    assert cohort["cost_scenarios"][0]["mean_net_r"] is None
+
+
+def test_cost_burden_missing_entry_empty_and_tight_stop_not_selected():
+    rows = synthetic_bars()
+    b = rows[32]
+    rows[32] = Bar(b.time, b.o, b.h, b.l, b.c, 1)
+    cohort = research(rows)["cohorts"]["development"]
+    census = cohort["entered_stop_distance_cost_burden_census"]
+    assert cohort["confirmed_signals"] == 1
+    assert cohort["confirmed_signals_without_observable_entry"] == 1
+    assert census["entered_positions"] == 0
+    assert census["stop_distance_bps_median"] is None
+    assert census["illustrative_5bps_round_trip_cost_r_median"] is None
+    assert census["stop_distance_lte_5bps"] == 0
+
+    rows = synthetic_bars()
+    b = rows[32]
+    rows[32] = Bar(b.time, D("98.01"), D(114), D(97), D(100), 0)
+    cohort = research(rows)["cohorts"]["development"]
+    census = cohort["entered_stop_distance_cost_burden_census"]
+    assert census["entered_positions"] == cohort["entered_positions"] == 1
+    assert census["stop_distance_lte_5bps"] == 1
+    assert census["stop_distance_lte_10bps"] == 1
+    assert census["stop_distance_lte_20bps"] == 1
+    assert D(census["illustrative_5bps_round_trip_cost_r_median"]) == D("4.9005")
+    assert cohort["observed_outcomes"] == 1

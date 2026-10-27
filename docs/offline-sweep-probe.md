@@ -409,3 +409,24 @@ timestamps or independent holdouts. The later cohort has already been
 inspected. Any later combination-selection hypothesis must be frozen before
 new independently protected forward observations. Synthetic regressions:
 `PYTHONPATH=. pytest -q tests/test_offline_sweep_confluence.py`.
+
+## Entered stop-distance and illustrative transaction-cost burden (additive v3)
+
+`entered_stop_distance_cost_burden_census` uses the observed hypothetical
+next-open entry and frozen sweep stop, **including every entered position with
+a censored exit**. It reports the exact Decimal minimum/median/maximum
+entry-to-stop distance in basis points of positive entry price, the median
+additional 5-bps round-trip charge expressed in stop-risk units (R), and
+counts with stop distances <= 5, 10 and 20 bps. The three counts are nested,
+not mutually exclusive. Missing-entry and invalid-geometry signals have no
+invented stop distance; an empty entered population reports null medians.
+
+For example, a 5-bps hypothetical round-trip cost consumes 1R when the
+entry-to-stop distance is exactly 5 bps; for a 1-bps stop it consumes 5R.
+This measures **hypothetical cost sensitivity**, not an actual broker spread,
+commission, financing, executable BID/ASK fill, or worst-case slippage.
+The original stop-first outcomes, full confirmed/entered/censored census,
+trade selection, split, costs and permissions remain unchanged. Tight-stop
+counts are descriptive and cannot be retrospectively promoted into a
+profitable filter. Existing later periods have been inspected and cannot
+be used as untouched holdouts. No broker orders are permitted.
