@@ -357,6 +357,7 @@ test('formation census preserves unknown outcomes and distinguishes paired from 
   formations:1,
   firstTouchOutcome:{TOUCH:1,NO_TOUCH:0,OPEN_GAP_THROUGH:0,INCOMPLETE_WINDOW:0},
   incompleteWindowByReason:{MISSING_HOUR:0,RIGHT_CENSORED:0},
+  markoutCensoredByReason:{MISSING_HOUR:0,RIGHT_CENSORED:0,UNREPRESENTABLE_RETURN:0},
   midpointTouch:{PASS:1,FAIL:0,INSUFFICIENT_DATA:0},
   strictCandidate:{PASS:0,FAIL:0,INSUFFICIENT_DATA:1},
   markout:{PASS:1,FAIL:0,INSUFFICIENT_DATA:0},
@@ -525,7 +526,7 @@ test('research report source metadata excludes arbitrary caller properties',()=>
  assert.deepEqual(Object.keys(report.source).sort(),Object.keys(source).sort());
  assert.equal(JSON.stringify(report).includes('synthetic-private-marker'),false);
  assert.equal(JSON.stringify(report).includes('synthetic-account-marker'),false);
- assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v27');
+ assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v28');
 });
 test('ambiguous source labels and contradictory volume evidence fail closed',()=>{
  // These are declared metadata, not independent vendor authentication.
@@ -895,12 +896,13 @@ test('an overflowing next-open comparator suppresses both matched markouts',()=>
  const x=target(bars);
  assert.equal(x.gates.wickRejection,'PASS');
  assert.equal(x.gates.markout,'INSUFFICIENT_DATA');
+ assert.equal(x.markoutCensorReason,'UNREPRESENTABLE_RETURN');
  assert.equal(x.blindMidpointTouch,null);
  assert.equal(x.confirmedNextOpen,null);
 });
 test('completed hourly timestamps are safe and numeric rule changes have a new version',()=>{
  const report=studyHourlyFvgMidpoint(fixture(),source);
- assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v27');
+ assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v28');
  const lastSafeAlignedOpen=Math.floor(Number.MAX_SAFE_INTEGER/H)*H;
  assert.equal(Number.isSafeInteger(lastSafeAlignedOpen),true);
  assert.equal(Number.isSafeInteger(lastSafeAlignedOpen+H),false);
