@@ -88,3 +88,24 @@ Eleven deterministic parameterized fake-HTTP regression cases cover rejected
 forms and both inclusive range boundaries. This validation does **not** prove
 that a chat exists, belongs to the opted-in user, or can receive messages;
 the sender remains disconnected and no real Telegram message was sent.
+
+
+## Complete bounded HTTP acknowledgement consumption (27 October 2026)
+
+A successful HTTP status and a syntactically valid *prefix* of a Telegram
+`sendMessage` JSON response are not enough to record provider acceptance.
+The adapter now consumes the entire response **through EOF**, allowing
+short `read(size)` returns while enforcing a strict 16,384-byte aggregate
+bound before JSON decoding. It rejects a later invalid trailer, an oversized
+chunk (including a malformed reader returning more than requested), a
+non-bytes chunk, or an error on a subsequent read. After a POST attempt, all
+such cases remain `DeliveryUncertain` with **no automatic retry**.
+
+Nine new deterministic synthetic cases exercise split acknowledgements,
+valid-JSON prefixes followed by invalid trailers, chunked/oversized bodies,
+invalid read types, and a timeout after an otherwise valid prefix. No
+Telegram API call, real notification, market-data fetch, paper fill, order,
+secret change, or production deployment was made. These checks establish
+only local transport behavior, not authenticated provider acceptance or
+device delivery. Exact-head CI and the existing activation/release gates
+still apply.
