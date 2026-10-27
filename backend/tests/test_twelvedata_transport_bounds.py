@@ -422,7 +422,7 @@ def test_direct_retrieve_rejects_malformed_credential_before_network(bad_key):
         ))
     assert exc.value.status == 422
     assert seen == []
-    assert str(bad_key) not in str(exc.value)
+    assert str(exc.value) == 'Invalid provider credential shape; no provider call.'
 
 
 def test_direct_retrieve_accepts_printable_ascii_key_boundary():
