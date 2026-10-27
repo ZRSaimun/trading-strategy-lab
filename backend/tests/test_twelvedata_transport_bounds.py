@@ -110,6 +110,34 @@ def test_content_length_and_transfer_encoding_together_fail_closed():
         })
 
 
+@pytest.mark.parametrize("transfer_encoding", [
+    "gzip", "gzip, chunked", "chunked, gzip", "chunked, chunked",
+    "compress", "identity", "", "chunked;invalid",
+])
+def test_unsupported_transfer_codings_fail_closed(transfer_encoding):
+    # A transport can decode chunk framing, but must not silently accept
+    # an unverified compression or ambiguous transfer-coding chain.
+    with pytest.raises(ProviderError, match="Unsupported provider transfer encoding"):
+        _fetch(_body(), {"Transfer-Encoding": transfer_encoding})
+
+
+def test_duplicate_transfer_encoding_headers_fail_closed():
+    with pytest.raises(ProviderError, match="Unsupported provider transfer encoding"):
+        _fetch(_body(), [
+            ("Transfer-Encoding", "chunked"),
+            ("transfer-encoding", "chunked"),
+        ])
+
+
+@pytest.mark.parametrize("transfer_encoding", ["chunked", "CHUNKED"])
+def test_single_chunked_transfer_encoding_is_supported(transfer_encoding):
+    # httpx.MockTransport supplies the already transfer-decoded entity body.
+    (rows, _, wire), _ = _fetch(
+        _body(), {"Transfer-Encoding": transfer_encoding})
+    assert len(rows) == 1
+    assert wire["decoded_http_body_bytes"] == len(_body())
+
+
 def test_absent_length_header_keeps_bounded_identity_stream_supported():
     body = _body()
     (rows, _, wire), _ = _fetch(body)
