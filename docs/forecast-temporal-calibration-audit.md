@@ -74,3 +74,20 @@ a cohort with 30 observations spread across ten bins cannot provide
 reliable within-bin calibration estimates. These diagnostics do not
 establish statistical significance, independent data provenance, or
 live-trading readiness.
+
+
+## Sparse-bin uncertainty diagnostics (27 October 2026)
+
+Each occupied `lateEceBins10` bucket now includes
+`observedUpWilson95Descriptive` (two bounded endpoints for a nominal 95%
+Wilson binomial interval) and `lowSupportUnder30` (true when its settled
+count is below 30). Empty bins have **null** intervals and support flags,
+never invented certainty. `lateEceOccupiedBinsUnder30` and
+`lateEceMinOccupiedBinCount` summarize occupied-bin support; all new
+diagnostics are **null** when the existing sample-size or missingness gates
+withhold ECE. A bin with 40 observations is not automatically statistically
+adequate: market outcomes may be serially dependent and regimes may change.
+These intervals assume independent Bernoulli trials and therefore **do not
+have validated 95% coverage on market data**. They are review aids, not
+calibration certification, alert authorization or a trading signal. No
+independent market receipts, broker quotes or forward P&L were used.
