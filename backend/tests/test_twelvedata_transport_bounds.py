@@ -85,8 +85,9 @@ def test_actual_oversized_uncompressed_body_fails_even_if_length_is_small():
 
 
 def test_gzip_payload_without_encoding_header_is_not_silently_decoded():
+    compressed = gzip.compress(_body())
     with pytest.raises(ProviderError, match="invalid JSON"):
-        _fetch(gzip.compress(_body()), {"Content-Length": "100"})
+        _fetch(compressed, {"Content-Length": str(len(compressed))})
 
 
 
