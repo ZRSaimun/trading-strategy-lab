@@ -1280,3 +1280,45 @@ test('paired FVG holding windows disclose overlap without leaking immature exits
   });
  }
 });
+
+
+test('overlap dependence is partitioned by strict evidence without promoting unknown volume',()=>{
+ for(const bearish of [false,true]){
+  const base=Array.from({length:46},(_,i)=>candle(i,115,116,110,115));
+  const first=onePairedFvgFixture();
+  for(let i=0;i<first.length;i++)base[i]=first[i];
+  for(let i=26;i<=29;i++)base[i]=candle(i,106,110,103,106);
+  base[30]=candle(30,114,116,114,115);
+  base[31]=candle(31,114,116,109,115,200);
+  for(let i=32;i<46;i++)base[i]=candle(i,115,116,110,115);
+  const bars=bearish?base.map(b=>({...b,open:220-b.open,
+   high:220-b.low,low:220-b.high,close:220-b.close})):base;
+  const settings={markoutBars:14};
+  const empty={overlappingPairCombinations:0,maxConcurrentPairs:0};
+  const overlapping={overlappingPairCombinations:1,maxConcurrentPairs:2};
+  const verified=studyHourlyFvgMidpoint(bars,source,settings);
+  assert.equal(verified.cohort.pairedMarkouts,2);
+  assert.equal(verified.cohort.strictPairedMarkouts,2);
+  assert.deepEqual(verified.cohort.pairedHoldingWindowOverlapByStrictCandidate,{
+   PASS:overlapping,FAIL:empty,INSUFFICIENT_DATA:empty,
+  });
+  const unknown=studyHourlyFvgMidpoint(bars,{...source,volumeVerified:false},settings);
+  assert.equal(unknown.cohort.strictPairedMarkouts,0);
+  assert.deepEqual(unknown.cohort.pairedHoldingWindowOverlapByStrictCandidate,{
+   PASS:empty,FAIL:empty,INSUFFICIENT_DATA:overlapping,
+  });
+  const failed=studyHourlyFvgMidpoint(bars,source,{...settings,volumeMultiple:10});
+  assert.deepEqual(failed.cohort.pairedHoldingWindowOverlapByStrictCandidate,{
+   PASS:empty,FAIL:overlapping,INSUFFICIENT_DATA:empty,
+  });
+  const beforeExit=studyHourlyFvgMidpointAsOf(bars,source,BASE+37*H,settings);
+  assert.deepEqual(beforeExit.cohort.pairedHoldingWindowOverlapByStrictCandidate,{
+   PASS:empty,FAIL:empty,INSUFFICIENT_DATA:empty,
+  });
+  const firstExit=studyHourlyFvgMidpointAsOf(bars,source,BASE+38*H,settings);
+  assert.deepEqual(firstExit.cohort.pairedHoldingWindowOverlapByStrictCandidate,{
+   PASS:{overlappingPairCombinations:0,maxConcurrentPairs:1},
+   FAIL:empty,INSUFFICIENT_DATA:empty,
+  });
+ }
+});
