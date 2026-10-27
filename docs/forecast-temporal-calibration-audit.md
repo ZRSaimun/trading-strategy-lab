@@ -27,7 +27,13 @@ cannot be used to fit the frozen baseline and must count toward the same
 missingness threshold; otherwise delayed outcomes could silently bias the
 reported early score. The audit reports `earlyPurgedForChronology`,
 `earlyUnavailableAtBoundary`, and its fraction separately from the late
-pending/void fraction. This remains a descriptive selection-risk safeguard,
+pending/void fraction. **Both** the whole issued-stream missingness rate and
+the fixed nonoverlapping **scoring-census** missingness rate must be at or
+below the threshold. Otherwise 3 missing selected labels out of 40 could be
+diluted to 3/80 when 80 overlapping forecasts were issued. The report exposes
+`earlyCensusUnavailableAtBoundary`, `lateCensusUnresolvedOrVoid` and their
+corresponding `Fraction` fields. Census selection is frozen before outcome
+inspection. This remains a descriptive selection-risk safeguard,
 not independent authentication of outcome timing.
 A Brier increase of at least 0.05 is a configurable *review flag*, not a
 significance test or proof of concept drift. Incomplete, sparse or selectively
