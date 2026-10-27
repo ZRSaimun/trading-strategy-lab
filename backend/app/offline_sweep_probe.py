@@ -30,6 +30,49 @@ CONFIRMATION_DISPLACEMENT_STATES = (
     "NO_DIRECTIONAL_BODY_GTE_PRIOR_MEDIAN_RANGE")
 
 
+def observed_cost_tail_census(trades):
+    """Fixed-population observed-only outcome concentration under extra costs.
+
+    Descriptive stress, not a confidence interval, independent holdout,
+    executable quote or proof of expectancy. Censored exits are NOT imputed.
+    Nearest-rank percentiles and ceil(10% * n) tails avoid interpolation.
+    """
+    if any(not all(x.is_finite() for x in (r, entry, risk)) or
+           entry <= 0 or risk <= 0 for r, entry, risk in trades):
+        raise ValueError("Invalid observed trade geometry")
+    scenarios = []
+    for bps in (0, 5, 10, 20):
+        net = sorted(r - abs(entry) * Q(bps) / (Q(10000) * risk)
+                     for r, entry, risk in trades)
+        n = len(net)
+        tail = (n + 9) // 10  # ceil(n/10), zero when empty
+        without_best = net[:-tail] if tail else []
+        scenarios.append(dict(
+            additional_round_trip_bps=bps,
+            observed_outcomes=n,
+            strictly_positive=sum(x > 0 for x in net),
+            exactly_zero=sum(x == 0 for x in net),
+            strictly_negative=sum(x < 0 for x in net),
+            nearest_rank_p10_r=str(net[(n + 9) // 10 - 1]) if n else None,
+            median_r=str(median(net)) if n else None,
+            nearest_rank_p90_r=str(net[(9 * n + 9) // 10 - 1]) if n else None,
+            worst_r=str(net[0]) if n else None,
+            best_r=str(net[-1]) if n else None,
+            tail_count=tail,
+            worst_tail_mean_r=str(sum(net[:tail], Q(0)) / tail) if tail else None,
+            best_tail_sum_r=str(sum(net[-tail:], Q(0))) if tail else None,
+            mean_without_best_tail_r=(
+                str(sum(without_best, Q(0)) / len(without_best))
+                if without_best else None)))
+    return dict(
+        population="OBSERVED_ENTERED_OUTCOMES_ONLY",
+        censored_outcomes_excluded_not_imputed=True,
+        nearest_rank_percentiles=True,
+        tail_definition="CEIL_10_PERCENT_OF_OBSERVED_AT_LEAST_ONE_WHEN_NONEMPTY",
+        interpretation="DESCRIPTIVE_CONCENTRATION_NOT_INDEPENDENT_EDGE_OR_BROKER_FILLED_PNL",
+        scenarios=scenarios)
+
+
 def prior_range_regime(prior_bars):
     """Frozen ex-ante range bin; only bars before the sweep are inspected."""
     if not prior_bars:
@@ -781,6 +824,7 @@ def research(bars, *, lookback=16, horizon=16, embargo=16):
                 positive_mean_break_even_additional_bps=(
                     str(break_even_bps) if break_even_bps is not None else None),
                 cost_scenarios=cases,
+                observed_cost_tail_concentration_census=observed_cost_tail_census(trades),
                 same_bar_stop_target_collision_census=dict(
                     collisions,
                     both_barriers_touched=sum(collisions.values()),
