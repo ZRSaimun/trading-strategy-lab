@@ -114,7 +114,7 @@ def test_rejects_correlated_observed_cost_and_stress_tampering(delta):
         if row["additional_round_trip_bps"] == 5:
             row["sum_net_r_if_assumption"] = str(
                 D(row["sum_net_r_if_assumption"]) + delta)
-    with pytest.raises(ValueError, match="Observed cost"):
+    with pytest.raises(ValueError, match="(?i)observed cost"):
         audit_research(payload)
 
 
