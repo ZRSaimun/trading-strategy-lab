@@ -29,6 +29,16 @@ _DECISION_SCHEMA = """CREATE TABLE IF NOT EXISTS holdout_locked_decisions (
 )"""
 
 
+_PAIR_SCHEMA = """CREATE TABLE IF NOT EXISTS holdout_locked_pairs (
+    source_sha256 TEXT NOT NULL,
+    row_sha256 TEXT NOT NULL,
+    decision_at_utc INTEGER NOT NULL,
+    study_id TEXT NOT NULL,
+    PRIMARY KEY (source_sha256, row_sha256),
+    UNIQUE (source_sha256, decision_at_utc)
+)"""
+
+
 def _source_key(source):
     """Bind rows to a declared market feed across accounts and archive splits."""
     feed = {key: source[key] for key in (
@@ -89,8 +99,19 @@ def register_population_locked_holdout(db_path, manifest, census):
                 ).fetchone() is not None:
                     raise ValueError("Existing row-locked registry lacks decision-time reservations")
                 raise ValueError("Legacy unreserved holdout claims block population locking")
+            # A row/time registry without original pair commitments cannot
+            # be upgraded by guessing pairings from two independent sets.
+            has_pairs = conn.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' "
+                "AND name='holdout_locked_pairs'"
+            ).fetchone() is not None
+            if has_decisions and not has_pairs and conn.execute(
+                "SELECT 1 FROM holdout_claims LIMIT 1"
+            ).fetchone() is not None:
+                raise ValueError("Existing population-locked registry lacks paired reservations")
             conn.execute(_ROW_SCHEMA)
             conn.execute(_DECISION_SCHEMA)
+            conn.execute(_PAIR_SCHEMA)
             # Fail closed if any earlier study has missing row or timestamp
             # reservations, or mismatched counts across both populations.
             if conn.execute(
@@ -128,6 +149,27 @@ def register_population_locked_holdout(db_path, manifest, census):
                 "HAVING count(DISTINCT source_sha256) != 1 LIMIT 1"
             ).fetchone() is not None:
                 raise ValueError("Split-source population reservations block registration")
+            # Verify all three reservation views agree before adding a study.
+            # A balanced replacement or missing pair must never be accepted.
+            if conn.execute(
+                "SELECT 1 FROM holdout_claims AS c WHERE "
+                "(SELECT count(*) FROM holdout_locked_pairs AS p WHERE p.study_id=c.study_id) "
+                "!= (SELECT count(*) FROM holdout_locked_rows AS r WHERE r.study_id=c.study_id) "
+                "LIMIT 1"
+            ).fetchone() is not None:
+                raise ValueError("Incomplete paired population reservations")
+            if conn.execute(
+                "SELECT 1 FROM holdout_locked_pairs AS p "
+                "LEFT JOIN holdout_claims AS c ON c.study_id=p.study_id "
+                "LEFT JOIN holdout_locked_rows AS r ON r.study_id=p.study_id "
+                "AND r.source_sha256=p.source_sha256 AND r.row_sha256=p.row_sha256 "
+                "LEFT JOIN holdout_locked_decisions AS d ON d.study_id=p.study_id "
+                "AND d.source_sha256=p.source_sha256 "
+                "AND d.decision_at_utc=p.decision_at_utc "
+                "WHERE c.study_id IS NULL OR r.row_sha256 IS NULL "
+                "OR d.decision_at_utc IS NULL LIMIT 1"
+            ).fetchone() is not None:
+                raise ValueError("Inconsistent paired population reservations")
             conn.execute(
                 "INSERT INTO holdout_claims VALUES (?, ?, ?, ?, ?, NULL)",
                 (study_id, digest, manifest["holdout_start_at_utc"],
@@ -146,6 +188,13 @@ def register_population_locked_holdout(db_path, manifest, census):
                 "INSERT INTO holdout_locked_decisions "
                 "(source_sha256, decision_at_utc, study_id) VALUES (?, ?, ?)",
                 ((source_key, row["decision_at_utc"], study_id) for row in census),
+            )
+            conn.executemany(
+                "INSERT INTO holdout_locked_pairs "
+                "(source_sha256, row_sha256, decision_at_utc, study_id) "
+                "VALUES (?, ?, ?, ?)",
+                ((source_key, row["row_sha256"], row["decision_at_utc"], study_id)
+                 for row in census),
             )
             # Waiting for a SQLite writer or inserting a large census can
             # cross the holdout start. Recheck after reservations and fail
@@ -169,6 +218,7 @@ def register_population_locked_holdout(db_path, manifest, census):
         "declared_source_key_sha256": source_key,
         "locked_observation_count": len(census),
         "locked_decision_count": len(census),
+        "locked_pair_count": len(census),
         "local_registry_only": True,
         "independently_trusted_registry": False,
     }
