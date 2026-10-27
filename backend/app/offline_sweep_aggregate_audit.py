@@ -11,6 +11,38 @@ from pathlib import Path
 STATES = tuple(f"FVG{f}_MSS{m}_DISP{d}" for f in (0, 1) for m in (0, 1) for d in (0, 1))
 COUNT_KEYS = ("confirmed", "entered", "observed", "censored", "missing_entry", "invalid_geometry")
 ROUNDING_TOLERANCE = Decimal("0.00001")  # two independently rounded 5dp means
+MAX_AGGREGATE_JSON_BYTES = 4_000_000
+
+
+def _reject_duplicate_json_keys(pairs):
+    """Do not let a later JSON key silently replace a provenance or count claim."""
+    result = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError(f"Duplicate aggregate JSON key: {key}")
+        result[key] = value
+    return result
+
+
+def _reject_nonfinite_json_constant(value):
+    raise ValueError(f"Nonstandard aggregate JSON numeric constant: {value}")
+
+
+def load_declared_aggregate(path):
+    """Bound input bytes and parse nested keys without last-write-wins ambiguity.
+
+    This is syntactic input hygiene, not evidence that a report is authentic.
+    Call audit_aggregate on the returned payload before deriving conclusions.
+    """
+    with Path(path).open("rb") as source:
+        raw = source.read(MAX_AGGREGATE_JSON_BYTES + 1)
+    if len(raw) > MAX_AGGREGATE_JSON_BYTES:
+        raise ValueError("Aggregate JSON exceeds bounded input size")
+    return json.loads(
+        raw.decode("utf-8"),
+        object_pairs_hook=_reject_duplicate_json_keys,
+        parse_constant=_reject_nonfinite_json_constant,
+    )
 
 
 def _nonnegative_integer(value, name):
@@ -121,7 +153,7 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("aggregate_json", type=Path)
     args = parser.parse_args(argv)
-    result = audit_aggregate(json.loads(args.aggregate_json.read_text(encoding="utf-8")))
+    result = audit_aggregate(load_declared_aggregate(args.aggregate_json))
     print(json.dumps(result, sort_keys=True))
 
 
