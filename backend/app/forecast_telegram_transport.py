@@ -50,6 +50,20 @@ def _safe_review_text(text):
                 {"Cc", "Cf", "Cs", "Zl", "Zp"} for c in text))
 
 
+def _valid_numeric_chat_id(value):
+    """Accept only canonical, documented Bot API dialog IDs before HTTP.
+
+    Noncanonical strings can never match the integer recipient echoed by
+    Telegram and would otherwise turn a successful send into an uncertain
+    delivery record that cannot be safely retried.
+    """
+    if type(value) is not str or not _CHAT.fullmatch(value):
+        return False
+    numeric = int(value)
+    return (numeric != 0 and str(numeric) == value and
+            -4000000000000 <= numeric <= 1099511627775)
+
+
 def send_telegram_once(*, bot_token, chat_id, text, timeout=5, opener=None):
     """One HTTP attempt; return provider acceptance metadata, never delivery proof.
 
@@ -60,7 +74,7 @@ def send_telegram_once(*, bot_token, chat_id, text, timeout=5, opener=None):
     """
     if not isinstance(bot_token, str) or not _TOKEN.fullmatch(bot_token):
         raise ValueError("Invalid Telegram bot token shape")
-    if not isinstance(chat_id, str) or not _CHAT.fullmatch(chat_id):
+    if not _valid_numeric_chat_id(chat_id):
         raise ValueError("Invalid Telegram chat ID")
     if not _safe_review_text(text):
         raise ValueError("Invalid review alert text")
