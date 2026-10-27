@@ -110,6 +110,15 @@ def normalize(payload,instrument,now):
         normalized.sort(key=lambda r:r['time'])
         stream=io.StringIO();writer=csv.DictWriter(stream,fieldnames=['time','open','high','low','close']);writer.writeheader();writer.writerows(normalized)
         rows=parse_csv(stream.getvalue())
+        # Generic OHLC validation permits negative prices (some futures can
+        # trade below zero). This mapping is spot XAU/USD, where zero or
+        # negative quotes are not meaningful observations. Do not invent a
+        # price floor or silently clamp a provider-supplied value.
+        if expected == 'XAU/USD' and any(
+            row[field] <= 0 for row in rows
+            for field in ('open', 'high', 'low', 'close')
+        ):
+            raise ValueError('Nonpositive spot Gold OHLC')
     except (ValueError,TypeError,KeyError,csv.Error):
         # csv.DictReader enforces its own field-size limit. A bounded JSON
         # response can still contain a single overlong OHLC field, which must
