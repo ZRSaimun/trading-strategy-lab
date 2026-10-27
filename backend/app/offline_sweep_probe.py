@@ -17,6 +17,8 @@ STEP = timedelta(minutes=1)
 BAR_STEP = timedelta(minutes=15)
 VOLATILITY_REGIMES = ("LOW_LT_10_BPS", "MID_10_TO_LT_30_BPS", "HIGH_GTE_30_BPS")
 SIGNAL_DIRECTIONS = ("LONG_SWEEP_LOW", "SHORT_SWEEP_HIGH")
+CONFIRMATION_FVG_STATES = ("SAME_DIRECTION_THREE_CANDLE_FVG",
+                           "NO_SAME_DIRECTION_THREE_CANDLE_FVG")
 
 
 def prior_range_regime(prior_bars):
@@ -178,6 +180,15 @@ def research(bars, *, lookback=16, horizon=16, embargo=16):
                for side in SIGNAL_DIRECTIONS}
         for name in cohorts
     }
+    # Three fully completed candles: last prior bar, sweep, confirmation.
+    # A wick gap between the first and third candle is a descriptive
+    # same-direction FVG approximation, not a future-touch or entry filter.
+    fvg = {
+        name: {state: {"confirmed": 0, "entered": 0, "observed": [],
+                      "censored": 0, "missing_entry": 0, "invalid": 0}
+               for state in CONFIRMATION_FVG_STATES}
+        for name in cohorts
+    }
     next_free = 0
     for i in range(lookback, len(bars) - 1):
         # The completed confirmation must also be inside the selected cohort;
@@ -215,6 +226,13 @@ def research(bars, *, lookback=16, horizon=16, embargo=16):
         direction["confirmed"] += 1
         regime = volatility[cohort][prior_range_regime(window[:lookback])]
         regime["confirmed"] += 1
+        # No future entry/exit candle may affect this classification.
+        prior = window[lookback - 1]
+        same_direction_fvg = (
+            confirmation.l > prior.h if is_long else confirmation.h < prior.l)
+        fvg_cell = fvg[cohort][CONFIRMATION_FVG_STATES[
+            0 if same_direction_fvg else 1]]
+        fvg_cell["confirmed"] += 1
         entry_index = i + 2
         if (entry_index >= len(bars) or
                 bars[entry_index].segment != confirmation.segment or
@@ -224,6 +242,7 @@ def research(bars, *, lookback=16, horizon=16, embargo=16):
             entry_unobservable[cohort] += 1
             direction["missing_entry"] += 1
             regime["missing_entry"] += 1
+            fvg_cell["missing_entry"] += 1
             # No entry observation means no demonstrated position exposure.
             # Do not manufacture a fill, return or position reservation.
             continue
@@ -234,16 +253,19 @@ def research(bars, *, lookback=16, horizon=16, embargo=16):
             invalid_entry_geometry[cohort] += 1
             direction["invalid"] += 1
             regime["invalid"] += 1
+            fvg_cell["invalid"] += 1
             continue
         target = entry + 2*risk if is_long else entry - 2*risk
         if target <= 0:
             invalid_entry_geometry[cohort] += 1
             direction["invalid"] += 1
             regime["invalid"] += 1
+            fvg_cell["invalid"] += 1
             continue
         entered[cohort] += 1
         direction["entered"] += 1
         regime["entered"] += 1
+        fvg_cell["entered"] += 1
         outcome = None
         observed_prefix = 0
         last = min(entry_index + horizon, len(bars))
@@ -298,6 +320,7 @@ def research(bars, *, lookback=16, horizon=16, embargo=16):
             censored[cohort] += 1
             direction["censored"] += 1
             regime["censored"] += 1
+            fvg_cell["censored"] += 1
             censored_entry_risks[cohort].append((entry, risk))
             censored_observed_prefix_bars[cohort].append(observed_prefix)
             # A censored position has no observed exit. Do not admit another
@@ -307,6 +330,7 @@ def research(bars, *, lookback=16, horizon=16, embargo=16):
         else:
             direction["observed"].append((outcome, entry, risk))
             regime["observed"].append((outcome, entry, risk))
+            fvg_cell["observed"].append((outcome, entry, risk))
             cohorts[cohort].append((outcome, entry, risk))
             observed_holding_bars[cohort].append(observed_prefix)
     reports = {}
@@ -459,7 +483,47 @@ def research(bars, *, lookback=16, horizon=16, embargo=16):
                     raise RuntimeError("Direction population reconciliation failed")
             if sum(len(cell["observed"]) for cell in directions[name].values()) != len(trades):
                 raise RuntimeError("Direction observed population mismatch")
+            fvg_report = {}
+            for state, cell in fvg[name].items():
+                observed = cell["observed"]
+                if cell["confirmed"] != (cell["missing_entry"] + cell["invalid"] +
+                                         cell["entered"]):
+                    raise RuntimeError("FVG signal census mismatch")
+                if cell["entered"] != cell["censored"] + len(observed):
+                    raise RuntimeError("FVG entered census mismatch")
+                fvg_cases = []
+                for bps in (0, 5, 10, 20):
+                    total = sum((r - abs(entry) * Q(bps) / Q(10000) / risk
+                                 for r, entry, risk in observed), Q(0))
+                    fvg_cases.append(dict(
+                        additional_round_trip_bps=bps,
+                        observed_outcomes=len(observed),
+                        mean_net_r=str(total / len(observed)) if observed else None))
+                fvg_report[state] = dict(
+                    confirmed_signals=cell["confirmed"],
+                    confirmed_signals_without_observable_entry=cell["missing_entry"],
+                    invalid_entry_stop_or_target_geometry=cell["invalid"],
+                    entered_positions=cell["entered"],
+                    observed_outcomes=len(observed),
+                    censored_entered_outcomes=cell["censored"],
+                    observed_only_cost_scenarios=fvg_cases)
+            for kind, expected in (
+                ("confirmed", confirmed[name]), ("entered", entered[name]),
+                ("missing_entry", entry_unobservable[name]),
+                ("invalid", invalid_entry_geometry[name]),
+                ("censored", censored[name])):
+                if sum(cell[kind] for cell in fvg[name].values()) != expected:
+                    raise RuntimeError("FVG population reconciliation failed")
+            if sum(len(cell["observed"]) for cell in fvg[name].values()) != len(trades):
+                raise RuntimeError("FVG observed population mismatch")
             reports[name] = dict(
+                confirmation_three_candle_fvg_census=dict(
+                    definition="PRIOR_HIGH_LT_CONFIRMATION_LOW_LONG_OR_PRIOR_LOW_GT_CONFIRMATION_HIGH_SHORT",
+                    first_candle="LAST_COMPLETED_PRE_SWEEP",
+                    middle_candle="COMPLETED_SWEEP",
+                    third_candle="COMPLETED_CONFIRMATION",
+                    states=fvg_report,
+                    interpretation="CAUSAL_DESCRIPTIVE_FVG_ATTRITION_NOT_ENTRY_FILTER_OR_EDGE"),
                 confirmed_signal_direction_census=dict(
                     directions=direction_report,
                     interpretation="CAUSAL_DIRECTIONAL_ATTRITION_OBSERVED_ONLY_NOT_EDGE"),
