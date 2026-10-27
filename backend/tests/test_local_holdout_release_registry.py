@@ -145,7 +145,8 @@ def test_wrapper_burns_claim_before_invalid_evaluation(tmp_path, clock, monkeypa
     monkeypatch.setitem(sys.modules, "app.declared_holdout_release_gate", fake)
     with pytest.raises(ValueError, match="bad outcomes"):
         registry.audit_declared_holdout_release_once(
-            path, {"study_id": "study-1"}, [], {}, lambda: [])
+            path, {"study_id": "study-1", "holdout_start_at_utc": 200,
+                   "holdout_end_at_utc": 300}, [], {}, lambda: [])
     with pytest.raises(ValueError, match="already claimed"):
         _claim(path)
 
@@ -165,7 +166,8 @@ def test_loader_runs_only_after_durable_claim(tmp_path, clock, monkeypatch):
             _claim(path)
         return []
     result = registry.audit_declared_holdout_release_once(
-        path, {"study_id": "study-1"}, [], {}, loader)
+        path, {"study_id": "study-1", "holdout_start_at_utc": 200,
+                   "holdout_end_at_utc": 300}, [], {}, loader)
     assert result["declared_audit"] == {"status": "synthetic"}
     assert result["local_release_claim"]["independently_trusted_registry"] is False
 
@@ -181,7 +183,8 @@ def test_noncallable_loader_does_not_consume_claim(tmp_path, clock, monkeypatch)
     monkeypatch.setitem(sys.modules, "app.declared_holdout_release_gate", fake)
     with pytest.raises(ValueError, match="callable"):
         registry.audit_declared_holdout_release_once(
-            path, {"study_id": "study-1"}, [], {}, [])
+            path, {"study_id": "study-1", "holdout_start_at_utc": 200,
+                   "holdout_end_at_utc": 300}, [], {}, [])
     assert _claim(path)["release_claimed_at_utc"] == 301
 
 
