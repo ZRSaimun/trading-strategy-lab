@@ -172,6 +172,30 @@ def _confidence_tail_diagnostics(rows):
     }
 
 
+
+def _log_loss_tail_diagnostics(rows, prior_up):
+    """Descriptive late loss concentration and paired frozen-baseline regret.
+
+    Nearest-rank P95 is not a confidence or prediction interval. Signed
+    worst regret can be negative when every forecast beats the baseline.
+    """
+    losses, regrets = [], []
+    for row in rows:
+        p, up = row["probability"], row["outcomeUp"]
+        loss = -math.log(p) if up else -math.log1p(-p)
+        baseline_loss = -math.log(prior_up) if up else -math.log1p(-prior_up)
+        losses.append(loss)
+        regrets.append(loss - baseline_loss)
+    ordered = sorted(losses)
+    n = len(ordered)
+    return {
+        "lateLogLossWorstSingle": ordered[-1],
+        "lateLogLossP95NearestRank": ordered[math.ceil(.95 * n) - 1],
+        "lateLogLossTopDecileShare": sum(ordered[-math.ceil(n / 10):]) / sum(ordered),
+        "lateWorstSingleLogLossRegretVsFrozenEarlyClimatology": max(regrets),
+    }
+
+
 def audit_temporal_forecast_calibration(snapshot, *, min_per_window=30,
                                         brier_deterioration=0.05,
                                         max_unresolved_fraction=0.10,
@@ -313,6 +337,10 @@ def audit_temporal_forecast_calibration(snapshot, *, min_per_window=30,
             "lateLogLossBestCaseAllIssuedCensus": None,
             "lateLogLossWorstCaseAllIssuedCensus": None,
             "lateLogLossSkillVsFrozenEarlyClimatology": None,
+            "lateLogLossWorstSingle": None,
+            "lateLogLossP95NearestRank": None,
+            "lateLogLossTopDecileShare": None,
+            "lateWorstSingleLogLossRegretVsFrozenEarlyClimatology": None,
             "lateBrierSkillVsFrozenEarlyClimatology": None,
             "lateMeanProbability": None, "lateObservedUpRate": None,
             "lateAbsoluteCalibrationGap": None,
@@ -359,6 +387,7 @@ def audit_temporal_forecast_calibration(snapshot, *, min_per_window=30,
                 lateLogLossBestCaseAllIssuedCensus=late_log_best,
                 lateLogLossWorstCaseAllIssuedCensus=late_log_worst,
                 lateLogLossSkillVsFrozenEarlyClimatology=1 - late_log / frozen_log,
+                **_log_loss_tail_diagnostics(test, prior_up),
                 lateBrierSkillVsFrozenEarlyClimatology=1 - late_brier / baseline,
                 lateMeanProbability=sum(r["probability"] for r in test) / len(test),
                 lateObservedUpRate=sum(r["outcomeUp"] for r in test) / len(test),
@@ -394,6 +423,8 @@ def audit_temporal_forecast_calibration(snapshot, *, min_per_window=30,
                        "records, including potentially unobservable gaps; "
                        "they are NOT realized performance; log loss heavily penalizes "
                        "confident wrong probabilities and is not financial loss; "
+                       "log-loss tail concentration and paired regret are descriptive "
+                       "observed-label statistics, not financial downside; "
                        "high-confidence tail errors are descriptive and depend on "
                        "the fixed 90% threshold; empty tails have no error estimate; "
                        "10-bin Brier components are bin-dependent and their "

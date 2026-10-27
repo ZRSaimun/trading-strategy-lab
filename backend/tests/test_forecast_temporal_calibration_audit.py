@@ -719,3 +719,59 @@ def test_unselected_missing_outcome_does_not_change_fixed_log_loss_bounds():
     row = audit_temporal_forecast_calibration(s)["groups"][0]
     assert row["lateLogLossBestCaseAllIssuedCensus"] == pytest.approx(-math.log(.7))
     assert row["lateLogLossWorstCaseAllIssuedCensus"] == pytest.approx(-math.log(.7))
+
+
+def test_log_loss_tail_constant_selected_census_has_exact_concentration():
+    row = audit_temporal_forecast_calibration(fixture())["groups"][0]
+    n = row["lateNonoverlappingSettled"]
+    loss = -math.log(.7)
+    assert row["lateLogLossWorstSingle"] == pytest.approx(loss)
+    assert row["lateLogLossP95NearestRank"] == pytest.approx(loss)
+    assert row["lateLogLossTopDecileShare"] == pytest.approx(math.ceil(n / 10) / n)
+    assert row["lateWorstSingleLogLossRegretVsFrozenEarlyClimatology"] > 0
+
+
+def test_log_loss_tail_exposes_one_confidently_wrong_selected_outcome():
+    s = fixture(p_late=.99)
+    s["forecasts"][80]["outcomeUp"] = False
+    row = audit_temporal_forecast_calibration(s)["groups"][0]
+    n = row["lateNonoverlappingSettled"]
+    good, bad = -math.log(.99), -math.log1p(-.99)
+    top = math.ceil(n / 10)
+    assert row["lateLogLossWorstSingle"] == pytest.approx(bad)
+    assert row["lateLogLossP95NearestRank"] == pytest.approx(good)
+    assert row["lateLogLossTopDecileShare"] == pytest.approx(
+        (bad + (top - 1) * good) / (bad + (n - 1) * good))
+
+
+def test_log_loss_tail_signed_worst_regret_can_be_negative():
+    s = fixture(p_early=.5, p_late=.99)
+    for i in range(0, 80, 2):
+        s["forecasts"][i]["outcomeUp"] = False
+    row = audit_temporal_forecast_calibration(s)["groups"][0]
+    assert row["status"] == "DESCRIPTIVE_ONLY"
+    assert row["lateWorstSingleLogLossRegretVsFrozenEarlyClimatology"] < 0
+
+
+def test_log_loss_tail_withheld_on_concentrated_selected_missingness():
+    s = fixture()
+    for i in (80, 82, 84):
+        s["forecasts"][i].update(status="PENDING", outcomeUp=None, resolvedAt=None)
+    row = audit_temporal_forecast_calibration(
+        s, max_unresolved_fraction=.05)["groups"][0]
+    assert row["status"] == "UNRESOLVED_SELECTION_RISK"
+    for field in ("lateLogLossWorstSingle", "lateLogLossP95NearestRank",
+                  "lateLogLossTopDecileShare",
+                  "lateWorstSingleLogLossRegretVsFrozenEarlyClimatology"):
+        assert row[field] is None
+
+
+def test_log_loss_tail_unselected_outcome_cannot_shift_fixed_census():
+    s = fixture()
+    a = audit_temporal_forecast_calibration(s)["groups"][0]
+    s["forecasts"][81]["outcomeUp"] = False
+    b = audit_temporal_forecast_calibration(s)["groups"][0]
+    for field in ("lateLogLossWorstSingle", "lateLogLossP95NearestRank",
+                  "lateLogLossTopDecileShare",
+                  "lateWorstSingleLogLossRegretVsFrozenEarlyClimatology"):
+        assert a[field] == pytest.approx(b[field])

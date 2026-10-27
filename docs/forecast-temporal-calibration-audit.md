@@ -280,3 +280,27 @@ forward verification requires Loop 1's entitled completed-candle
 receipts, independently retained timestamp anchors and expected-bar
 inventories. No notification, paper fill, broker call or deployment
 is enabled by this change.
+
+
+## Late log-loss tail concentration and paired regret (27 October 2026)
+
+Four **descriptive, retrospective** diagnostics use exactly the same fixed
+nonoverlapping, chronologically eligible settled late census as `lateLogLoss`.
+They remain null under the existing minimum-sample, chronology and dual
+missingness gates:
+
+- `lateLogLossWorstSingle`: largest individual Bernoulli log loss.
+- `lateLogLossP95NearestRank`: loss at sorted 1-based rank
+  `ceil(0.95 * n)`; an empirical order statistic, **not** an interval.
+- `lateLogLossTopDecileShare`: share of total late log loss contributed by
+  the worst `ceil(n/10)` forecasts. This is **not** financial downside.
+- `lateWorstSingleLogLossRegretVsFrozenEarlyClimatology`: maximum signed
+  paired `model_loss - frozen_baseline_loss` on the same observed label.
+  Negative means every eligible model loss was smaller than the baseline.
+
+No missing labels are imputed, no sample or probabilities are reselected,
+and no alert or execution authority is granted. Tail statistics are not
+statistical significance, forward accuracy, realized trading returns or
+drawdown. The caller journal, provider, timestamps and declared cutoff
+remain unauthenticated; Loop 1 must provide independently anchored entitled
+completed-candle evidence before prospective operational use.
