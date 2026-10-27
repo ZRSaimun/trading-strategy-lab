@@ -7,7 +7,7 @@
  */
 import type {Bar} from './research.ts';
 
-export const HOURLY_FVG_VERSION='hourly-fvg-first-midpoint-touch-v24';
+export const HOURLY_FVG_VERSION='hourly-fvg-first-midpoint-touch-v25';
 export type Evidence='PASS'|'FAIL'|'INSUFFICIENT_DATA';
 export type Side='BULLISH'|'BEARISH';
 export type FvgSource={
@@ -208,10 +208,17 @@ export function studyHourlyFvgMidpoint(
  // Bound the array before copying; holes/invalid fields fail validation.
  if(!Array.isArray(suppliedBars)||suppliedBars.length>20000)
   throw Error('Invalid or oversized hourly research window');
- const bars:Bar[]=Array.from(suppliedBars,b=>({
-  time:b.time,open:b.open,high:b.high,low:b.low,close:b.close,
-  volume:b.volume,observed_minutes:b.observed_minutes,
- }));
+ // Do not invoke a caller-controlled Symbol.iterator: a short Array can
+ // otherwise yield unbounded or substituted candles despite the length cap.
+ // Indexed reads keep the snapshot bounded and preserve sparse-hole rejection.
+ const bars:Bar[]=[];
+ for(let index=0;index<suppliedBars.length;index++){
+  const b=suppliedBars[index];
+  bars.push({
+   time:b.time,open:b.open,high:b.high,low:b.low,close:b.close,
+   volume:b.volume,observed_minutes:b.observed_minutes,
+  });
+ }
  const maxTouchWaitBars=config.maxTouchWaitBars??12;
  const markoutBars=config.markoutBars??3;
  const minimumRejectionWickFraction=config.minimumRejectionWickFraction??0.5;
@@ -226,7 +233,11 @@ export function studyHourlyFvgMidpoint(
  // validation runs. No scenario elements are read on this rejection path.
  if(!Array.isArray(suppliedCosts)||suppliedCosts.length<1||suppliedCosts.length>10)
   throw Error('Invalid source identity, volume provenance or frozen FVG study settings');
- const costs=Array.from(suppliedCosts);
+ // Likewise, an overridden iterator must not replace the validated cost
+ // population or bypass the ten-scenario allocation bound.
+ const costs:number[]=[];
+ for(let index=0;index<suppliedCosts.length;index++)
+  costs.push(suppliedCosts[index]);
  // Snapshot the seven allowlisted source fields exactly once. A mutable or
  // accessor-backed declaration must not pass validation as one identity,
  // qualify volume under another, then export a third identity.
@@ -402,7 +413,8 @@ export function studyHourlyFvgMidpointAsOf(
   throw Error('Invalid or oversized hourly research window');
  const prefix:Bar[]=[];
  let previousTime:number|null=null;
- for(const bar of suppliedBars){
+ for(let index=0;index<suppliedBars.length;index++){
+  const bar=suppliedBars[index];
   // Check every supplied timestamp, including future timestamps, to reject
   // out-of-order/duplicate archives that could otherwise silently truncate
   // an eligible historical prefix at the first misplaced future candle.
