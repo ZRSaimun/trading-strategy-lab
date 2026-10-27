@@ -80,7 +80,14 @@ def normalize(payload,instrument,now):
     try:
         for value in values:
             # Explicitly use only declared fields; provider extra fields cannot leak secrets into storage.
-            dt=datetime.strptime(value['datetime'],'%Y-%m-%d %H:%M:%S').replace(tzinfo=timezone.utc)
+            # strptime accepts non-padded and even some Unicode-digit fields.
+            # A provider minute must have one canonical ASCII UTC spelling;
+            # otherwise normalization would silently erase source ambiguity.
+            timestamp_text=value['datetime']
+            if (type(timestamp_text) is not str or
+                    re.fullmatch(r'[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}', timestamp_text) is None):
+                raise ValueError('Noncanonical provider UTC minute timestamp')
+            dt=datetime.strptime(timestamp_text,'%Y-%m-%d %H:%M:%S').replace(tzinfo=timezone.utc)
             if dt.second:raise ValueError('Minute alignment')
             if dt.timestamp()+60>now:continue  # incomplete or future candles are ineligible
             normalized.append({'time':dt.isoformat(),**{k:value[k] for k in ('open','high','low','close')}})
