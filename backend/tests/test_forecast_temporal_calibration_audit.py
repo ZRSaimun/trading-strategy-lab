@@ -474,3 +474,60 @@ def test_declared_cutoff_after_all_settlements_preserves_retrospective_scores():
     assert row["lateLogLoss"] == baseline["lateLogLoss"]
     assert report["maySendNotification"] is False
     assert report["mayExecuteLiveOrder"] is False
+
+
+def test_temporal_high_confidence_tail_counts_confident_wrong_up_calls():
+    row = audit_temporal_forecast_calibration(
+        fixture(p_late=.95, y_late=False))["groups"][0]
+    assert row["lateHighConfidenceCount"] == 40
+    assert row["lateHighConfidenceFractionOfSettled"] == pytest.approx(1)
+    assert row["lateHighConfidenceWrong"] == 40
+    assert row["lateHighConfidenceWrongFraction"] == pytest.approx(1)
+    assert row["lateHighConfidenceWrongWilson95Descriptive"][1] == pytest.approx(1)
+    assert row["lateHighConfidenceLowSupportUnder30"] is False
+
+
+def test_temporal_high_confidence_tail_counts_correct_down_calls():
+    row = audit_temporal_forecast_calibration(
+        fixture(p_late=.05, y_late=False))["groups"][0]
+    assert row["lateHighConfidenceCount"] == 40
+    assert row["lateHighConfidenceWrong"] == 0
+    assert row["lateHighConfidenceWrongFraction"] == pytest.approx(0)
+    assert row["lateHighConfidenceWrongWilson95Descriptive"][0] == pytest.approx(0)
+
+
+def test_temporal_high_confidence_empty_tail_does_not_invent_error_rate():
+    row = audit_temporal_forecast_calibration(fixture())["groups"][0]
+    assert row["lateHighConfidenceCount"] == 0
+    assert row["lateHighConfidenceFractionOfSettled"] == pytest.approx(0)
+    assert row["lateHighConfidenceWrong"] == 0
+    assert row["lateHighConfidenceWrongFraction"] is None
+    assert row["lateHighConfidenceWrongWilson95Descriptive"] is None
+    assert row["lateHighConfidenceLowSupportUnder30"] is None
+
+
+def test_temporal_high_confidence_tail_uses_fixed_selected_census():
+    s = fixture()
+    for i in range(80, 160):
+        p = .9 if i % 4 < 2 else .1
+        s["forecasts"][i]["probability"] = p
+        s["events"][i]["probability"] = p
+        s["forecasts"][i]["outcomeUp"] = False
+    row = audit_temporal_forecast_calibration(s)["groups"][0]
+    assert row["lateHighConfidenceCount"] == 40
+    assert row["lateHighConfidenceWrong"] == 20
+    assert row["lateHighConfidenceWrongFraction"] == pytest.approx(.5)
+
+
+def test_temporal_high_confidence_diagnostics_withheld_with_selection_risk():
+    s = fixture()
+    for i in (80, 82, 84):
+        s["forecasts"][i].update(status="PENDING", outcomeUp=None, resolvedAt=None)
+    row = audit_temporal_forecast_calibration(
+        s, max_unresolved_fraction=.05)["groups"][0]
+    assert row["status"] == "UNRESOLVED_SELECTION_RISK"
+    for key in ("lateHighConfidenceCount", "lateHighConfidenceFractionOfSettled",
+                "lateHighConfidenceWrong", "lateHighConfidenceWrongFraction",
+                "lateHighConfidenceWrongWilson95Descriptive",
+                "lateHighConfidenceLowSupportUnder30"):
+        assert row[key] is None
