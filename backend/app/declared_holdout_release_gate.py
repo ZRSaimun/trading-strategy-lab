@@ -136,6 +136,18 @@ def prepare_declared_holdout_manifest_sha256(manifest):
     return _hash(manifest)
 
 
+def _validate_anchor(manifest, anchor, manifest_sha256):
+    """Validate a declared anchor before accessing outcomes; not attestation."""
+    _exact(anchor, _ANCHOR, "external anchor declaration")
+    if (anchor["manifest_sha256"] != manifest_sha256 or
+            not _id(anchor["anchor_reference"]) or
+            not _sha(anchor["external_record_sha256"]) or
+            not _time(anchor["anchored_at_utc"]) or
+            not (manifest["registered_at_utc"] <= anchor["anchored_at_utc"] <
+                 manifest["holdout_start_at_utc"])):
+        raise ValueError("Missing, late or mismatched declared registration anchor")
+
+
 def audit_declared_holdout_release(manifest, census, anchor, outcomes, release_at_utc):
     """Audit one declared candidate's complete, point-in-time holdout release.
 
@@ -144,14 +156,7 @@ def audit_declared_holdout_release(manifest, census, anchor, outcomes, release_a
     """
     _validate_manifest(manifest)
     _validate_census(manifest, census)
-    _exact(anchor, _ANCHOR, "external anchor declaration")
-    if (anchor["manifest_sha256"] != _hash(manifest) or
-            not _id(anchor["anchor_reference"]) or
-            not _sha(anchor["external_record_sha256"]) or
-            not _time(anchor["anchored_at_utc"]) or
-            not (manifest["registered_at_utc"] <= anchor["anchored_at_utc"] <
-                 manifest["holdout_start_at_utc"])):
-        raise ValueError("Missing, late or mismatched declared registration anchor")
+    _validate_anchor(manifest, anchor, _hash(manifest))
     if (not _time(release_at_utc) or
             release_at_utc < manifest["holdout_end_at_utc"] or
             release_at_utc < anchor["anchored_at_utc"]):
