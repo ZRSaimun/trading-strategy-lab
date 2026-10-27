@@ -913,3 +913,51 @@ def test_all_issued_confidence_remains_visible_when_outcomes_are_withheld():
     assert row["lateIssuedHighConfidenceCount"] == 80
     assert row["lateIssuedHighConfidenceFraction"] == 1
     assert row["lateIssuedMeanProbability"] == pytest.approx(.95)
+
+
+def test_issued_high_confidence_delay_empty_tail_has_null_rate():
+    row = audit_temporal_forecast_calibration(fixture())["groups"][0]
+    assert row["lateIssuedHighConfidenceDelayedOverHalfCandleCount"] == 0
+    assert row["lateIssuedHighConfidenceDelayedOverHalfCandleFraction"] is None
+    assert row["lateIssuedOtherDelayedOverHalfCandleFraction"] == 0
+
+
+def test_issued_high_confidence_delay_cross_tab_uses_all_issued_rows():
+    s = fixture()
+    for i, p, lag in ((80, .9, 31), (81, .1, 30),
+                      (82, .9, 32), (83, .7, 31)):
+        s["forecasts"][i]["probability"] = p
+        s["events"][i]["probability"] = p
+        s["forecasts"][i]["issuedAt"] += lag
+        s["events"][i]["receivedAt"] += lag
+    # Include one selected pending and one overlap-excluded high-confidence
+    # forecast; neither can disappear from this outcome-independent census.
+    s["forecasts"][82].update(status="PENDING", resolvedAt=None, outcomeUp=None)
+    row = audit_temporal_forecast_calibration(s)["groups"][0]
+    assert row["lateIssuedHighConfidenceCount"] == 3
+    assert row["lateIssuedHighConfidenceDelayedOverHalfCandleCount"] == 2
+    assert row["lateIssuedHighConfidenceDelayedOverHalfCandleFraction"] == pytest.approx(2 / 3)
+    assert row["lateIssuedOtherDelayedOverHalfCandleFraction"] == pytest.approx(1 / 77)
+
+
+def test_issued_high_confidence_delay_half_candle_is_strict():
+    s = fixture(p_late=.95)
+    s["forecasts"][159]["issuedAt"] += 30
+    s["events"][159]["receivedAt"] += 30
+    row = audit_temporal_forecast_calibration(s)["groups"][0]
+    assert row["lateIssuedHighConfidenceDelayedOverHalfCandleCount"] == 0
+    assert row["lateIssuedHighConfidenceDelayedOverHalfCandleFraction"] == 0
+    assert row["lateIssuedOtherDelayedOverHalfCandleFraction"] is None
+
+
+def test_issued_high_confidence_delay_visible_when_scores_withheld():
+    s = fixture(p_late=.95, horizon=12)
+    s["forecasts"][159]["issuedAt"] += 31
+    s["events"][159]["receivedAt"] += 31
+    row = audit_temporal_forecast_calibration(s)["groups"][0]
+    assert row["status"] == "INSUFFICIENT_NONOVERLAPPING_OUTCOMES"
+    assert row["lateBrier"] is None
+    assert row["lateIssuedHighConfidenceCount"] == 80
+    assert row["lateIssuedHighConfidenceDelayedOverHalfCandleCount"] == 1
+    assert row["lateIssuedHighConfidenceDelayedOverHalfCandleFraction"] == pytest.approx(1 / 80)
+    assert row["lateIssuedOtherDelayedOverHalfCandleFraction"] is None
