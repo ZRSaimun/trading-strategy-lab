@@ -291,3 +291,58 @@ def test_valid_old_floor_does_not_override_unanchored_newer_head(tmp_path):
     )
     assert result["operator_pinned_checkpoint_floor_matched"] is True
     assert result["status"] == "HOLD_LOCAL_HEAD_NOT_EXTERNALLY_ANCHORED"
+
+
+
+def test_optional_declared_age_gate_accepts_exact_latest_anchor_boundary(tmp_path):
+    path, manifest, _, anchors, key, pub, pin = _fixture(tmp_path)
+    report = audit_signed_declared_m1_receipt_anchor_evidence(
+        path, manifest, _signed(key, anchors, _key(manifest)),
+        T + 400, pub, pin, max_declared_witness_age_seconds=80,
+    )
+    assert report["declared_witness_age_policy_checked"] is True
+    assert report["declared_witness_issued_age_seconds"] == 70
+    assert report["declared_last_anchor_age_seconds"] == 80
+    assert report["trusted_witness_clock_verified"] is False
+    assert report["live"] is False and report["may_execute_order"] is False
+
+
+def test_declared_age_gate_rejects_old_anchor_even_if_recently_signed(tmp_path):
+    path, manifest, _, anchors, key, pub, pin = _fixture(tmp_path)
+    # Issued one second before evaluation; last witnessed anchor is 80s old.
+    envelope = _signed(key, anchors, _key(manifest), issued=T + 399)
+    with pytest.raises(ValueError, match="stale"):
+        audit_signed_declared_m1_receipt_anchor_evidence(
+            path, manifest, envelope, T + 400, pub, pin,
+            max_declared_witness_age_seconds=60,
+        )
+
+
+def test_declared_age_gate_rejects_old_signed_envelope(tmp_path):
+    path, manifest, _, anchors, key, pub, pin = _fixture(tmp_path)
+    envelope = _signed(key, anchors, _key(manifest))
+    with pytest.raises(ValueError, match="stale"):
+        audit_signed_declared_m1_receipt_anchor_evidence(
+            path, manifest, envelope, T + 400, pub, pin,
+            max_declared_witness_age_seconds=60,
+        )
+
+
+@pytest.mark.parametrize("policy", [
+    True, False, 0, -1, 86401, 60.0, "60", [], {},
+])
+def test_invalid_declared_age_policy_fails_closed(tmp_path, policy):
+    path, manifest, _, anchors, key, pub, pin = _fixture(tmp_path)
+    with pytest.raises(ValueError, match="age policy"):
+        audit_signed_declared_m1_receipt_anchor_evidence(
+            path, manifest, _signed(key, anchors, _key(manifest)),
+            T + 400, pub, pin, max_declared_witness_age_seconds=policy,
+        )
+
+
+def test_age_policy_opt_in_preserves_existing_callers(tmp_path):
+    path, manifest, _, anchors, key, pub, pin = _fixture(tmp_path)
+    report = _check(path, manifest, _signed(key, anchors, _key(manifest)), pub, pin)
+    assert report["declared_witness_age_policy_checked"] is False
+    assert report["declared_witness_issued_age_seconds"] is None
+    assert report["declared_last_anchor_age_seconds"] is None
