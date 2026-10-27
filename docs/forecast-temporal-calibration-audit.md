@@ -520,3 +520,38 @@ The same **all-issued** early/late cohorts now also report:
 - `issuedHighConfidenceFractionShift`: late minus early share above those confidence thresholds.
 
 All six are null when either cohort is empty; they use no outcomes and are unchanged by pending, void, overlapping or as-of-unresolved settlement states. Signed shifts complement nonnegative W1/KS/JS distances: a zero mean shift can coexist with a much wider probability distribution. The existing `issuedProbabilityShiftLowSupportUnder30` flag applies. Nearest-rank quantiles are sample-sensitive, and confidence thresholds are fixed rather than optimized. These are not seasonality-adjusted, independent or statistically significant drift tests; journal source and issuance timestamps are not authenticated. No alert, paper order, live order or performance claim is authorized.
+
+
+## UTC-hour issuance-mix and within-common-hour drift (27 October 2026)
+
+The **all-issued** early/late cohorts now also report
+`earlyIssuedUtcHourCounts24`, `lateIssuedUtcHourCounts24`,
+`issuedUtcHourTotalVariation` (0 to 1), and
+`issuedUtcHourCommonSupportFraction` (0 to 1). Hour is computed from
+`(baseStart // 3600) % 24`, always **UTC**, not a guessed exchange-local
+session or daylight-saving conversion. Counts include pending, void,
+overlapping and unresolved forecasts; they do not select outcomes.
+
+For hours present in both cohorts, `issuedUtcHourWithinCommonMeanShift`
+computes the signed late-minus-early average UP-probability change within
+each hour and averages those differences using the **predeclared overlap
+weight** `min(early_hour_share, late_hour_share)`, normalized by their sum.
+This avoids mistaking a pure change in the mix of UTC hours for a within-hour
+change: a shift from mostly low-probability hour A to mostly high-probability
+hour B can move the aggregate mean while leaving this diagnostic at zero.
+`issuedUtcHourCommonHourCount` counts shared bins.
+`issuedUtcHourCommonLowSupportUnder30` is true if any shared UTC hour has
+fewer than 30 forecasts in either cohort. With **no common hours**, the
+within-hour shift and support flag are null; with either cohort empty,
+comparison metrics are null and the count arrays remain visible.
+
+**Interpretation:** These are descriptive, label-free diagnostics, not
+statistical significance tests, regime normalization, causal attribution,
+or verified trading-session adjustments. A small shared-hour fraction
+means the within-common-hour result covers little of the issued population.
+UTC-hour matching does not control for weekdays, holidays, market closures,
+seasonal regime changes, feed gaps, DST at venues, or dependence among
+forecasts. Neither output authenticates source candles or establishes
+calibration, executable BID/ASK, alert delivery, forward P&L, or trading
+permission. Loop 1 still needs independent entitled source receipts,
+server-owned timestamps and session-aware expected-bar inventories.
