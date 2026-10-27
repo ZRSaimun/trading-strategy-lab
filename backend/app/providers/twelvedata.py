@@ -180,7 +180,9 @@ async def retrieve(key,instrument,limit,end,now,transport=None, *, include_wire_
                         raw.extend(chunk)
                 if declared_length is not None and len(raw) != declared_length:
                     raise ProviderError('Provider response length mismatch; no data imported.')
-                payload=json.loads(raw,object_pairs_hook=_reject_duplicate_response_keys,
+                # json.loads(bytes) auto-detects UTF-16/32 and accepts a UTF-8 BOM.
+                # Require strict UTF-8 JSON text so media-type and body-byte evidence agree.
+                payload=json.loads(raw.decode('utf-8'),object_pairs_hook=_reject_duplicate_response_keys,
                                    parse_constant=_reject_nonstandard_response_constant)
     except (httpx.HTTPError,ValueError,RecursionError):
         # Excessively nested but size-bounded JSON may raise RecursionError.

@@ -281,3 +281,34 @@ def test_explicit_json_media_type_is_supported(media_type):
     assert len(rows) == len(seen) == 1
     assert wire["decoded_http_body_bytes"] == len(_body())
 
+
+@pytest.mark.parametrize("encoding", ["utf-16", "utf-32"])
+def test_multibyte_encoded_json_cannot_masquerade_as_utf8_provider_response(encoding):
+    # json.loads(bytes) silently accepts UTF-16/UTF-32; the provider's
+    # historical JSON entity must be UTF-8 before any candle is accepted.
+    body = _body().decode("utf-8").encode(encoding)
+    with pytest.raises(ProviderError, match="invalid JSON") as exc:
+        _fetch(body, {"Content-Type": "application/json"})
+    assert exc.value.status == 502
+    assert "synthetic-only-key" not in str(exc.value)
+
+
+@pytest.mark.parametrize("body", [
+    b"\xef\xbb\xbf",
+    b"\xff",
+    b"\xc3\x28",
+])
+def test_bom_or_invalid_utf8_prefix_rejected_without_provider_details(body):
+    with pytest.raises(ProviderError, match="invalid JSON") as exc:
+        _fetch(body + _body(), {"Content-Type": "application/json; charset=UTF-8"})
+    assert exc.value.status == 502
+    assert "synthetic-only-key" not in str(exc.value)
+
+
+def test_valid_utf8_non_ascii_json_remains_supported():
+    payload = json.loads(_body().decode("utf-8"))
+    payload["meta"]["synthetic_note"] = "caf\u00e9"
+    body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+    (rows, _, wire), seen = _fetch(body, {"Content-Type": "application/json"})
+    assert len(rows) == len(seen) == 1
+    assert wire["decoded_http_body_sha256"] == hashlib.sha256(body).hexdigest()
