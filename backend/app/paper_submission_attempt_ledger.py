@@ -126,7 +126,7 @@ def _validate_rollback_journal(path):
     A hot DELETE-mode rollback journal may be essential for recovery; never
     remove or rewrite it. The private parent prevents other users creating
     sidecars, but a pre-existing symlink, hardlink or special file must not be
-    handed to SQLite as an implicit read/write target.
+    handed to SQLite as an implicit read/write target. Reject group/other\n    writable journal modes, while allowing SQLite's ordinary 0644 journals\n    inside the mandatory private 0700 parent directory.
     """
     journal = Path(str(path) + '-journal')
     try:
@@ -136,7 +136,8 @@ def _validate_rollback_journal(path):
     except OSError as exc:
         raise ValueError('SQLite rollback journal cannot be inspected') from exc
     if (not stat.S_ISREG(info.st_mode) or info.st_uid != os.geteuid()
-            or info.st_nlink != 1 or info.st_size > MAX_LEDGER_BYTES * 2):
+            or info.st_nlink != 1 or stat.S_IMODE(info.st_mode) & 0o022
+            or info.st_size > MAX_LEDGER_BYTES * 2):
         raise ValueError('Unsafe SQLite rollback journal; quarantine ledger')
 
 
