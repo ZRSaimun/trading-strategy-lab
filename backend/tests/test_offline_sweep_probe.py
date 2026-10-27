@@ -810,3 +810,74 @@ def test_prior_range_break_empty_later_cohort_no_fabricated_returns():
                for s in states.values())
     assert all(c["mean_net_r"] is None for s in states.values()
                for c in s["observed_only_cost_scenarios"])
+
+
+@pytest.mark.parametrize("side", ["long", "short"])
+@pytest.mark.parametrize("body", ["equal", "small", "opposite"])
+def test_confirmation_body_displacement_strict_causal_census(side, body):
+    # Prior 16 full candle ranges have median 2, independently of the sweep.
+    rows = synthetic_bars()
+    if side == "long":
+        opening = {"equal": 100, "small": 101, "opposite": 103}[body]
+        b = rows[31]
+        rows[31] = Bar(b.time, D(opening), D(104), D(99), D(102), b.segment)
+    else:
+        for index, values in (
+            (30, (100, 102, 99, 100)),
+            (31, ({"equal": 98, "small": 97, "opposite": 95}[body],
+                  98, 94, 96)),
+            (32, (97, 103, 90, 95)),
+        ):
+            b = rows[index]
+            rows[index] = Bar(b.time, *(D(v) for v in values), b.segment)
+    cohort = research(rows)["cohorts"]["development"]
+    census = cohort["confirmation_body_displacement_census"]
+    states = census["states"]
+    yes = states["DIRECTIONAL_BODY_GTE_PRIOR_MEDIAN_RANGE"]
+    no = states["NO_DIRECTIONAL_BODY_GTE_PRIOR_MEDIAN_RANGE"]
+    assert census["range_lookback_completed_bars"] == 16
+    assert census["threshold_equality_included"] is True
+    assert cohort["confirmed_signals"] == cohort["entered_positions"] == 1
+    assert cohort["observed_outcomes"] == 1
+    assert yes["confirmed_signals"] == int(body == "equal")
+    assert no["confirmed_signals"] == int(body != "equal")
+    selected = yes if body == "equal" else no
+    assert selected["entered_positions"] == selected["observed_outcomes"] == 1
+    for i, case in enumerate(selected["observed_only_cost_scenarios"]):
+        assert case["mean_net_r"] == cohort["cost_scenarios"][i]["mean_net_r"]
+    assert cohort["confirmation_prior_range_break_census"]["states"]
+    assert research(rows)["may_execute_order"] is False
+
+
+@pytest.mark.parametrize("mode", ["missing_entry", "censored", "invalid"])
+def test_confirmation_body_displacement_retains_unobserved_signals(mode):
+    rows = synthetic_bars()
+    b = rows[32]
+    if mode == "missing_entry":
+        rows[32] = Bar(b.time, b.o, b.h, b.l, b.c, 1)
+    elif mode == "censored":
+        rows[32] = Bar(b.time, D(103), D(104), D(99), D(103), 0)
+        rows[33:] = [Bar(x.time, x.o, x.h, x.l, x.c, 1) for x in rows[33:]]
+    else:
+        rows[32] = Bar(b.time, D(97), D(114), D(97), D(100), 0)
+    cohort = research(rows)["cohorts"]["development"]
+    yes = cohort["confirmation_body_displacement_census"]["states"][
+        "DIRECTIONAL_BODY_GTE_PRIOR_MEDIAN_RANGE"]
+    assert yes["confirmed_signals"] == 1
+    assert yes["observed_outcomes"] == 0
+    assert yes["confirmed_signals_without_observable_entry"] == int(
+        mode == "missing_entry")
+    assert yes["invalid_entry_stop_or_target_geometry"] == int(mode == "invalid")
+    assert yes["censored_entered_outcomes"] == int(mode == "censored")
+    assert yes["entered_positions"] == int(mode == "censored")
+    assert all(x["mean_net_r"] is None for x in yes["observed_only_cost_scenarios"])
+
+
+def test_confirmation_body_displacement_empty_cohort_no_imputed_returns():
+    later = research(synthetic_bars())["cohorts"]["exploratory_later"]
+    states = later["confirmation_body_displacement_census"]["states"]
+    assert sum(s["confirmed_signals"] for s in states.values()) == 0
+    assert all(s["entered_positions"] == s["observed_outcomes"] == 0
+               for s in states.values())
+    assert all(c["mean_net_r"] is None for s in states.values()
+               for c in s["observed_only_cost_scenarios"])
