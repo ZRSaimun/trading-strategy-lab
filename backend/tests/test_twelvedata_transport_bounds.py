@@ -211,3 +211,41 @@ def test_valid_fractional_epoch_seconds_preserve_existing_boundary_behavior():
     assert len(requests) == 1
     assert requests[0].url.params["end_date"] == datetime.fromtimestamp(
         T, timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+
+
+@pytest.mark.parametrize("end,now", [
+    (-1, T + 120),
+    (-0.5, T + 120),
+    (T + 61, T + 120),
+    (T + 120, T + 120),
+    (T + 180, T + 120),
+    (0, 59),
+    (0, 0),
+])
+def test_incomplete_or_negative_historical_window_rejected_before_paid_call(end, now):
+    # Direct adapter calls bypass the API route's end-time gate; they must
+    # still refuse invalid windows without touching the provider or key.
+    transport = httpx.MockTransport(lambda request: pytest.fail("No HTTP request expected"))
+    with pytest.raises(ProviderError, match="completed UTC candle boundary") as exc:
+        asyncio.run(retrieve(
+            "synthetic-only-key", "XAUUSD-TD", 1, end, now,
+            transport=transport, include_wire_evidence=True,
+        ))
+    assert exc.value.status == 422
+    assert "synthetic-only-key" not in str(exc.value)
+
+
+def test_exactly_completed_window_and_fractional_epoch_remain_valid():
+    # No new minute-alignment restriction: callers may specify a fractional
+    # epoch, as long as the final requested minute is already complete.
+    body = _body()
+    requests = []
+    def handler(request):
+        requests.append(request)
+        return httpx.Response(200, stream=httpx.ByteStream(body))
+    rows, _ = asyncio.run(retrieve(
+        "synthetic-only-key", "XAUUSD-TD", 1, T + 0.5, T + 60.5,
+        transport=httpx.MockTransport(handler),
+    ))
+    assert len(rows) == 1
+    assert len(requests) == 1
