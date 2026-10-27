@@ -132,6 +132,10 @@ def research(bars, *, lookback=16, horizon=16, embargo=16):
         for name in cohorts
     }
     adverse_open_extra_loss_r = {name: [] for name in cohorts}
+    # Count only source-contiguous 15m candles actually inspected after entry.
+    # Missing exits have an observed prefix, not an invented total holding time.
+    observed_holding_bars = {name: [] for name in cohorts}
+    censored_observed_prefix_bars = {name: [] for name in cohorts}
     # A single OHLC candle may touch both barriers. Source opens distinguish
     # immediate stop/target crossings from unknown intrabar ordering; none
     # establishes a broker fill or changes the frozen stop-first outcomes.
@@ -195,6 +199,7 @@ def research(bars, *, lookback=16, horizon=16, embargo=16):
             continue
         entered[cohort] += 1
         outcome = None
+        observed_prefix = 0
         last = min(entry_index + horizon, len(bars))
         for j in range(entry_index, last):
             b = bars[j]
@@ -203,6 +208,7 @@ def research(bars, *, lookback=16, horizon=16, embargo=16):
                     (j >= split - embargo and cohort == "development") or
                     (j < split + embargo and cohort == "exploratory_later")):
                 break
+            observed_prefix += 1
             stopped = b.l <= stop if is_long else b.h >= stop
             won = b.h >= target if is_long else b.l <= target
             if stopped:
@@ -245,12 +251,14 @@ def research(bars, *, lookback=16, horizon=16, embargo=16):
         if outcome is None:
             censored[cohort] += 1
             censored_entry_risks[cohort].append((entry, risk))
+            censored_observed_prefix_bars[cohort].append(observed_prefix)
             # A censored position has no observed exit. Do not admit another
             # hypothetical position inside its entire reserved holding window.
             # This is an analysis-only exclusion, not proof of a flat account.
             next_free = max(next_free, entry_index + horizon)
         else:
             cohorts[cohort].append((outcome, entry, risk))
+            observed_holding_bars[cohort].append(observed_prefix)
     reports = {}
     with localcontext() as ctx:
         ctx.prec = 60
@@ -264,6 +272,14 @@ def research(bars, *, lookback=16, horizon=16, embargo=16):
                 raise RuntimeError("Adverse source-open loss census mismatch")
             if censored[name] != len(censored_entry_risks[name]):
                 raise RuntimeError("Censored-entry risk census mismatch")
+            if len(observed_holding_bars[name]) != len(trades):
+                raise RuntimeError("Observed holding-duration census mismatch")
+            if len(censored_observed_prefix_bars[name]) != censored[name]:
+                raise RuntimeError("Censored observed-prefix census mismatch")
+            if any(not 1 <= n <= horizon for n in observed_holding_bars[name]):
+                raise RuntimeError("Invalid observed holding duration")
+            if any(not 0 <= n < horizon for n in censored_observed_prefix_bars[name]):
+                raise RuntimeError("Invalid censored observed prefix")
             collisions = same_bar_collision[name]
             if sum(collisions.values()) > (
                     exit_path_counts[name]["stop_touch_without_adverse_open"] +
@@ -311,6 +327,22 @@ def research(bars, *, lookback=16, horizon=16, embargo=16):
                                   mean_net_r=str(sum(net, Q(0))/len(net)) if net else None,
                                   sum_net_r=str(sum(net, Q(0))),
                                   strictly_positive=sum(v > 0 for v in net)))
+            # The additional charge is per *observed* contiguous 15m source
+            # candle, not a broker overnight financing rate. Unknown censored
+            # holding times are intentionally excluded from these means.
+            time_cost_scenarios = []
+            for per_bar_bps in (Q("0"), Q("0.05"), Q("0.2")):
+                total = sum((r - abs(entry) / risk *
+                             (Q(5) + per_bar_bps * Q(holding)) / Q(10000)
+                             for (r, entry, risk), holding in zip(
+                                 trades, observed_holding_bars[name])), Q(0))
+                time_cost_scenarios.append(dict(
+                    additional_round_trip_bps=5,
+                    illustrative_additional_bps_per_observed_15m_bar=str(per_bar_bps),
+                    observed_outcomes=len(trades),
+                    sum_net_r=str(total),
+                    mean_net_r=str(total / len(trades)) if trades else None,
+                    interpretation="SOURCE_BAR_TIME_COST_SENSITIVITY_NOT_BROKER_FINANCING"))
             reports[name] = dict(
                 confirmed_signals=confirmed[name],
                 entered_positions=entered[name],
@@ -352,7 +384,25 @@ def research(bars, *, lookback=16, horizon=16, embargo=16):
                         str(max(adverse_open_extra_loss_r[name]))
                         if adverse_open_extra_loss_r[name] else None),
                     interpretation="SOURCE_OHLC_PROXY_NOT_EXECUTABLE_FILLS"),
-                censored_entered_loss_stress_scenarios=censored_loss_stress)
+                censored_entered_loss_stress_scenarios=censored_loss_stress,
+                observed_holding_duration_census=dict(
+                    observed_outcomes_total=len(trades),
+                    observed_holding_15m_bars_sum=sum(observed_holding_bars[name]),
+                    observed_holding_15m_bars_min=(min(observed_holding_bars[name])
+                                                    if trades else None),
+                    observed_holding_15m_bars_max=(max(observed_holding_bars[name])
+                                                    if trades else None),
+                    observed_holding_15m_bars_mean=(
+                        str(Q(sum(observed_holding_bars[name])) / len(trades))
+                        if trades else None),
+                    censored_entered_positions=censored[name],
+                    censored_observed_prefix_15m_bars_sum=sum(
+                        censored_observed_prefix_bars[name]),
+                    censored_observed_prefix_15m_bars_max=(
+                        max(censored_observed_prefix_bars[name])
+                        if censored[name] else None),
+                    interpretation="SOURCE_CONTIGUOUS_BARS_NOT_BROKER_HOLDING_RECEIPTS"),
+                illustrative_observed_time_cost_scenarios=time_cost_scenarios)
     return dict(protocol="source-local-sweep-confirmation-v3",
                 source_authenticated=False, timezone_verified=False,
                 untouched_holdout_verified=False, executable_broker_costs=False,
