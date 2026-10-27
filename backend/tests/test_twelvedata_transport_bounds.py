@@ -87,3 +87,30 @@ def test_actual_oversized_uncompressed_body_fails_even_if_length_is_small():
 def test_gzip_payload_without_encoding_header_is_not_silently_decoded():
     with pytest.raises(ProviderError, match="invalid JSON"):
         _fetch(gzip.compress(_body()), {"Content-Length": "100"})
+
+
+
+@pytest.mark.parametrize("declared_delta", [-1, 1, 10])
+def test_declared_length_must_match_exact_received_entity_bytes(declared_delta):
+    # A syntactically valid JSON response with a false length header must not
+    # be accepted as complete evidence, even if a mock transport returns it.
+    body = _body()
+    with pytest.raises(ProviderError, match="Provider response length mismatch"):
+        _fetch(body, {"Content-Length": str(len(body) + declared_delta)})
+
+
+def test_content_length_and_transfer_encoding_together_fail_closed():
+    # Ambiguous HTTP framing can be interpreted differently by intermediaries.
+    body = _body()
+    with pytest.raises(ProviderError, match="Conflicting provider response framing"):
+        _fetch(body, {
+            "Content-Length": str(len(body)),
+            "Transfer-Encoding": "chunked",
+        })
+
+
+def test_absent_length_header_keeps_bounded_identity_stream_supported():
+    body = _body()
+    (rows, _, wire), _ = _fetch(body)
+    assert len(rows) == 1
+    assert wire["decoded_http_body_bytes"] == len(body)
