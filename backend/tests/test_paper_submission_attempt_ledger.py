@@ -899,7 +899,8 @@ def test_initialization_rejects_parent_traversal_without_creating(
     assert not target.exists()
 
 
-@pytest.mark.parametrize('suffix', ['-journal', '-wal', '-shm'])
+@pytest.mark.parametrize('suffix', ['-journal', '-wal', '-shm',
+                                    '-JOURNAL', '-WaL', '-ShM'])
 def test_reserved_sqlite_sidecar_filename_rejected_before_creation_or_open(
         tmp_path, suffix):
     """A ledger must not alias the recovery sidecar of another SQLite DB."""
