@@ -44,6 +44,13 @@ claim **before outcome loading** and leaves the attempt unconsumed. The
 claim response's `local_frozen_population_matched` is `true` only when
 the exact locked sets were compared; direct legacy calls without frozen
 population arguments and unreserved legacy registries report `false`.
+A frozen-census release now **requires both reservation tables**: an old
+legacy registry with no population lock is rejected before outcome loading,
+leaving the attempt unconsumed. Direct legacy claims *without* a frozen
+census remain available for compatibility, but report
+`local_frozen_population_matched: false` and provide no population proof.
+Existing legacy studies must not be silently upgraded or backfilled from
+post-holdout observations; use a newly preregistered population-locked study.
 This does not establish external archive authenticity or prevent rewriting
 the caller's manifest and database together. The schema stores row hashes
 and decision times in separate sets, so it does **not** attest their original
