@@ -7,7 +7,7 @@
  */
 import type {Bar} from './research.ts';
 
-export const HOURLY_FVG_VERSION='hourly-fvg-first-midpoint-touch-v40';
+export const HOURLY_FVG_VERSION='hourly-fvg-first-midpoint-touch-v41';
 export type Evidence='PASS'|'FAIL'|'INSUFFICIENT_DATA';
 // First-touch volume evidence is not independent broker/source authentication.
 export type VolumeEvidenceReason='NOT_EVALUATED'|'SOURCE_UNVERIFIED'|
@@ -51,6 +51,9 @@ export type FvgObservation={
   // Do not confuse an interior source gap with an as-of/right-censored tail.
   markoutCensorReason:MarkoutCensorReason|null;
   rejectionWickFraction:number|null;
+ // The first completed touch fixes the volume reason, even when evidence is
+ // insufficient. Null means no first-touch volume assessment has occurred.
+ volumeEvidenceObservedAt:number|null;
  volumeEvidenceReason:VolumeEvidenceReason;
  gates:{midpointTouch:Evidence;wickRejection:Evidence;verifiedVolume:Evidence;
   strictCandidate:Evidence;markout:Evidence};
@@ -602,6 +605,7 @@ export function studyHourlyFvgMidpoint(
   let touch:number|null=null;
   let wickFraction:number|null=null;
   let volumeEvidenceReason:VolumeEvidenceReason='NOT_EVALUATED';
+  let volumeEvidenceObservedAt:number|null=null;
   let blind:Markout|null=null,confirmed:Markout|null=null;
   let markoutExitObservedAt:number|null=null;
   let windowComplete=true;
@@ -654,6 +658,8 @@ export function studyHourlyFvgMidpoint(
    const volumeEvidence=verifiedVolume(bars,j,declaredSource,volumeMultiple);
    gates.verifiedVolume=volumeEvidence.evidence;
    volumeEvidenceReason=volumeEvidence.reason;
+   // Do not backdate an unavailable source/volume reason to formation.
+   volumeEvidenceObservedAt=outcomeObservedAt;
    gates.strictCandidate=gates.wickRejection==='FAIL'?'FAIL':
     gates.verifiedVolume;
    // Markout horizon is fixed in advance, never the best future close.
@@ -721,7 +727,8 @@ export function studyHourlyFvgMidpoint(
    firstTouchOutcome:openingGapThrough?'OPEN_GAP_THROUGH':
     touch!==null?'TOUCH':windowComplete?'NO_TOUCH':'INCOMPLETE_WINDOW',
    firstTouchCensorReason:censorReason,markoutCensorReason,
-   rejectionWickFraction:wickFraction,volumeEvidenceReason,gates,
+   rejectionWickFraction:wickFraction,volumeEvidenceObservedAt,
+   volumeEvidenceReason,gates,
    blindMidpointTouch:blind,confirmedNextOpen:confirmed,
    eligibleForLiveTrading:false});
  }

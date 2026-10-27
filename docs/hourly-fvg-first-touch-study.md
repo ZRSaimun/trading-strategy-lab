@@ -1,6 +1,8 @@
-# Hourly FVG first-touch midpoint rejection versus blind limit (research v40)
+# Hourly FVG first-touch midpoint rejection versus blind limit (research v41)
 
 **Status: proposed, deterministic, read-only hypothesis.** This standalone TypeScript library is not yet wired to the terminal UI, production broker, archive query or cloud service. No actual BID/ASK executions, licensed news data, verified performance, live trades or profitability claims are included. It deliberately does **not** duplicate PR #24's sweep/MSS/FVG confluence risk-path experiment or PR #33's 4H CRT/15m confirmation screen.
+
+**Version 41: causal first-touch volume evidence clock.** `volumeEvidenceObservedAt` now identifies the completed hourly touch-bar close at which the prior-20 volume reason first becomes observable, including missing or unverified volume. It remains null before the first touch and for no-touch, opening-gap-through and censored windows; it does not imply independent source verification. A missing-volume reason can be known at the touch close while `strictCandidateObservedAt` remains null because strict eligibility is still insufficient. Bullish/bearish synthetic regressions cover before/at/after touch, wick failure, unknown volume, gap-through and no-touch. This is timing and attrition transparency, not authenticated BID/ASK execution, measured CFD costs or profitability. Frozen rule: `hourly-fvg-first-midpoint-touch-v41`.
 
 **Version 40: causal prior-20 volume evidence diagnostics.** Each formation now distinguishes volume not yet evaluated, unverified caller-declared source classification, fewer than 20 prior hourly candles, a gap within the prior-20 history, missing/nonpositive numeric volume, and exact threshold pass/fail. Cohort counts cover every formation, including no-touch and right-censored observations; unknown evidence never becomes strict PASS. The reason is fixed at the first completed touch and respects as-of replay. These diagnostics do **not** independently authenticate a provider, establish real volume, prove an executable BID/ASK fill or imply profitability. Bullish/bearish synthetic tests cover all seven reasons and causal timing. Frozen rule: `hourly-fvg-first-midpoint-touch-v40`.
 
@@ -102,6 +104,6 @@ The research still lacks an authenticated broker's timestamped BID/ASK observati
 
 ## Verification
 
-56 synthetic Node tests cover bullish and bearish gap geometry, first-touch freeze, strict volume gating, incomplete and missing candles, gap-through uncertainty, causal next-open timing, common-horizon cost arithmetic and source validation. Run `cd frontend && npm test && npm run typecheck && npm run build`; repository CI also exercises backend and container smoke. Synthetic passing tests do not establish a statistical edge.
+57 synthetic Node tests cover bullish and bearish gap geometry, first-touch freeze, strict volume gating, incomplete and missing candles, gap-through uncertainty, causal next-open timing, common-horizon cost arithmetic and source validation. Run `cd frontend && npm test && npm run typecheck && npm run build`; repository CI also exercises backend and container smoke. Synthetic passing tests do not establish a statistical edge.
 
 **Deployment safety:** isolated draft PR; no secrets, private datasets, paid APIs, orders, production database changes, merge or Render deployment.

@@ -553,7 +553,7 @@ test('research report source metadata excludes arbitrary caller properties',()=>
  assert.deepEqual(Object.keys(report.source).sort(),Object.keys(source).sort());
  assert.equal(JSON.stringify(report).includes('synthetic-private-marker'),false);
  assert.equal(JSON.stringify(report).includes('synthetic-account-marker'),false);
- assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v40');
+ assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v41');
 });
 test('ambiguous source labels and contradictory volume evidence fail closed',()=>{
  // These are declared metadata, not independent vendor authentication.
@@ -929,7 +929,7 @@ test('an overflowing next-open comparator suppresses both matched markouts',()=>
 });
 test('completed hourly timestamps are safe and numeric rule changes have a new version',()=>{
  const report=studyHourlyFvgMidpoint(fixture(),source);
- assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v40');
+ assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v41');
  const lastSafeAlignedOpen=Math.floor(Number.MAX_SAFE_INTEGER/H)*H;
  assert.equal(Number.isSafeInteger(lastSafeAlignedOpen),true);
  assert.equal(Number.isSafeInteger(lastSafeAlignedOpen+H),false);
@@ -1464,5 +1464,54 @@ test('first-touch volume reasons distinguish missing, gapped and declared eviden
   const atTouch=studyHourlyFvgMidpointAsOf(flip(fixture()),source,BASE+34*H);
   assert.equal(atTouch.observations.find(o=>o.formationClosedAt===BASE+33*H)
    ?.volumeEvidenceReason,'THRESHOLD_EXCEEDED');
+ }
+});
+
+
+test('first-touch volume evidence has its own completed-bar clock, including unknown evidence',()=>{
+ const flip=(series:Bar[],bearish:boolean)=>bearish?series.map(b=>({...b,
+  open:220-b.open,high:220-b.low,low:220-b.high,close:220-b.close})):series;
+ for(const bearish of [false,true]){
+  const unverified={...source,volumeType:'unverified' as const,volumeVerified:false};
+  const bars=flip(fixture(),bearish);
+  const before=studyHourlyFvgMidpointAsOf(bars,unverified,BASE+33*H)
+   .observations.find(o=>o.formationClosedAt===BASE+33*H);
+  assert.ok(before);
+  assert.equal(before.volumeEvidenceReason,'NOT_EVALUATED');
+  assert.equal(before.volumeEvidenceObservedAt,null);
+  const atTouch=studyHourlyFvgMidpointAsOf(bars,unverified,BASE+34*H)
+   .observations.find(o=>o.formationClosedAt===BASE+33*H);
+  assert.ok(atTouch);
+  assert.equal(atTouch.volumeEvidenceReason,'SOURCE_UNVERIFIED');
+  assert.equal(atTouch.volumeEvidenceObservedAt,BASE+34*H);
+  assert.equal(atTouch.gates.verifiedVolume,'INSUFFICIENT_DATA');
+  assert.equal(atTouch.strictCandidateObservedAt,null,
+   'known missing volume evidence is not a strict PASS/FAIL decision');
+  const after=target(bars,unverified);
+  assert.equal(after.volumeEvidenceObservedAt,BASE+34*H,
+   'future markout completion cannot backdate or move the volume clock');
+  const missing=flip(fixture(),bearish);
+  missing[31].volume=null;
+  const missingTouch=target(missing);
+  assert.equal(missingTouch.volumeEvidenceReason,'MISSING_OR_NONPOSITIVE_VOLUME');
+  assert.equal(missingTouch.volumeEvidenceObservedAt,BASE+34*H);
+  const failed=fixture();
+  failed[33]=candle(33,105,106,101,102.5,200);
+  const failedTouch=target(flip(failed,bearish));
+  assert.equal(failedTouch.gates.wickRejection,'FAIL');
+  assert.equal(failedTouch.volumeEvidenceObservedAt,BASE+34*H,
+   'a known wick failure does not suppress the separate volume clock');
+  const gap=fixture();
+  gap[33]=candle(33,101,106,100,105.5,200);
+  const gapThrough=target(flip(gap,bearish));
+  assert.equal(gapThrough.firstTouchOutcome,'OPEN_GAP_THROUGH');
+  assert.equal(gapThrough.volumeEvidenceReason,'NOT_EVALUATED');
+  assert.equal(gapThrough.volumeEvidenceObservedAt,null);
+  const untouched=fixture();
+  for(let i=33;i<45;i++)untouched[i]=candle(i,105,106,104,105);
+  const noTouch=target(flip(untouched,bearish));
+  assert.equal(noTouch.firstTouchOutcome,'NO_TOUCH');
+  assert.equal(noTouch.volumeEvidenceReason,'NOT_EVALUATED');
+  assert.equal(noTouch.volumeEvidenceObservedAt,null);
  }
 });
