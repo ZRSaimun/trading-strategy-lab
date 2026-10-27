@@ -67,6 +67,53 @@ external witness, executable BID/ASK or market freshness. All reports keep
 `may_execute_order=false`. Signature success must not override a HOLD or
 be used to activate production trading.
 
+## Optional independently pinned checkpoint floor
+
+A valid older journal **and** a valid older signed envelope can be replayed
+together. Signature verification alone cannot discover this rollback if both
+objects have been replaced with mutually consistent old copies.
+
+For an operator that has independently retained a trusted minimum checkpoint,
+the verifier accepts an optional keyword-only `trusted_floor` dictionary
+with **exactly** `scope_key`, `revision`, `checkpoint_sha256` and
+`witness_id`. Also supply the independently pinned `trusted_witness_id`,
+which must equal the floor's witness ID. For example:
+
+```python
+trusted_floor = {
+    "scope_key": operator_recorded_scope_key,  # 64 lowercase hex chars
+    "revision": operator_recorded_revision,    # positive integer
+    "checkpoint_sha256": operator_recorded_checkpoint_sha256,
+    "witness_id": "operator-pinned-witness",
+}
+report = audit_signed_declared_m1_receipt_anchor_evidence(
+    db_path, manifest, envelope, evaluation_as_of_utc,
+    trusted_public_key_hex, trusted_public_key_sha256,
+    trusted_witness_id="operator-pinned-witness",
+    trusted_floor=trusted_floor,
+)
+```
+
+The signed anchor population **must explicitly include** the pinned revision
+and its exact checkpoint digest. Otherwise the call fails closed, even when
+the older signature and older local journal are internally valid. The
+underlying audit still verifies the entire local chain, and a valid older
+floor **cannot** turn an unanchored newer local head from HOLD into approval.
+The report's `operator_pinned_checkpoint_floor_matched` is `true` only
+when a separately supplied floor was checked. Omitting the optional floor
+preserves legacy behavior and reports `false`.
+
+The floor is useful **only if its values were captured and retained outside
+the mutable local journal and signed-envelope delivery channel**, with
+operator-controlled integrity and a documented update process. A floor
+copied from the same possibly rolled-back envelope offers no protection.
+It is a *minimum*, not a trusted clock, external witness authentication,
+provider license, market price validation, or permission to trade.
+Because signed anchor populations are limited to 16, a retained floor that
+is not present in the submitted signed anchors causes a deliberate rejection;
+operators must explicitly advance their independently retained floor rather
+than silently skipping it.
+
 ## Synthetic verification
 
 ```sh
