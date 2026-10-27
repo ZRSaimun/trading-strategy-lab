@@ -7,8 +7,12 @@
  */
 import type {Bar} from './research.ts';
 
-export const HOURLY_FVG_VERSION='hourly-fvg-first-midpoint-touch-v39';
+export const HOURLY_FVG_VERSION='hourly-fvg-first-midpoint-touch-v40';
 export type Evidence='PASS'|'FAIL'|'INSUFFICIENT_DATA';
+// First-touch volume evidence is not independent broker/source authentication.
+export type VolumeEvidenceReason='NOT_EVALUATED'|'SOURCE_UNVERIFIED'|
+ 'PRIOR20_UNAVAILABLE'|'PRIOR20_GAP'|'MISSING_OR_NONPOSITIVE_VOLUME'|
+ 'THRESHOLD_NOT_MET'|'THRESHOLD_EXCEEDED';
 export type Side='BULLISH'|'BEARISH';
 export type FvgSource={
  datasetId:string;archiveSha256:string;instrument:string;provider:string;
@@ -47,6 +51,7 @@ export type FvgObservation={
   // Do not confuse an interior source gap with an as-of/right-censored tail.
   markoutCensorReason:MarkoutCensorReason|null;
   rejectionWickFraction:number|null;
+ volumeEvidenceReason:VolumeEvidenceReason;
  gates:{midpointTouch:Evidence;wickRejection:Evidence;verifiedVolume:Evidence;
   strictCandidate:Evidence;markout:Evidence};
  blindMidpointTouch:Markout|null;confirmedNextOpen:Markout|null;
@@ -95,6 +100,7 @@ export type FvgCohort={
   incompleteWindowByReason:Record<FirstTouchCensorReason,number>;
   markoutCensoredByReason:Record<MarkoutCensorReason,number>;
  midpointTouch:EvidenceCounts;strictCandidate:EvidenceCounts;markout:EvidenceCounts;
+ volumeEvidenceByReason:Record<VolumeEvidenceReason,number>;
  pairedMarkouts:number;strictPairedMarkouts:number;nonStrictPairedMarkouts:number;
  pairedNetSignByCost:readonly PairedNetSignCostCensus[];
  // Descriptive paired gross-BID markout ordering; not realized execution P&L.
@@ -163,15 +169,18 @@ function positiveFloatParts(value:number):{mantissa:bigint;exponent:number}{
   exponent:biasedExponent===0?-1074:biasedExponent-1075,
  };
 }
-function verifiedVolume(bars:readonly Bar[],j:number,source:FvgSource,multiple:number):Evidence{
+function verifiedVolume(bars:readonly Bar[],j:number,source:FvgSource,multiple:number):
+ {evidence:Evidence;reason:VolumeEvidenceReason}{
  if(!source.volumeVerified||!['exchange','tick'].includes(source.volumeType))
-  return 'INSUFFICIENT_DATA';
- if(j<20)return 'INSUFFICIENT_DATA';
+  return {evidence:'INSUFFICIENT_DATA',reason:'SOURCE_UNVERIFIED'};
+ if(j<20)return {evidence:'INSUFFICIENT_DATA',reason:'PRIOR20_UNAVAILABLE'};
  const history=bars.slice(j-20,j),now=bars[j];
- if(history.length!==20||now.time-history[0].time!==20*HOUR||
-  now.volume===null||now.volume<=0||
+ if(history.length!==20)return {evidence:'INSUFFICIENT_DATA',reason:'PRIOR20_UNAVAILABLE'};
+ if(now.time-history[0].time!==20*HOUR)
+  return {evidence:'INSUFFICIENT_DATA',reason:'PRIOR20_GAP'};
+ if(now.volume===null||now.volume<=0||
   history.some(b=>b.volume===null||b.volume<=0))
-  return 'INSUFFICIENT_DATA';
+  return {evidence:'INSUFFICIENT_DATA',reason:'MISSING_OR_NONPOSITIVE_VOLUME'};
  // Compare the exact finite IEEE-754 values, not rounded quotients.
  // For 20 prior bars, now > multiple * (sum/20) is equivalent to
  // 20*now > multiple*sum. Binary integer mantissas avoid both overflow
@@ -186,7 +195,9 @@ function verifiedVolume(bars:readonly Bar[],j:number,source:FvgSource,multiple:n
  let rhs=factor.mantissa*total;
  if(factor.exponent>=0)rhs<<=BigInt(factor.exponent);
  else lhs<<=BigInt(-factor.exponent);
- return lhs>rhs?'PASS':'FAIL';
+ return lhs>rhs?
+  {evidence:'PASS',reason:'THRESHOLD_EXCEEDED'}:
+  {evidence:'FAIL',reason:'THRESHOLD_NOT_MET'};
 }
 // Evaluate the wick threshold against the exact supplied IEEE-754 prices.
 // Subtracting a tiny positive low from a much larger wick/range can round
@@ -353,6 +364,13 @@ function summarizeCohort(observations:readonly FvgObservation[],costs:readonly n
  if(withinStatusOverlaps+crossStatusOverlaps!==
     pairedHoldingWindowOverlap.overlappingPairCombinations)
   throw Error('Paired FVG overlap populations do not reconcile');
+ const volumeEvidenceByReason:Record<VolumeEvidenceReason,number>={
+  NOT_EVALUATED:0,SOURCE_UNVERIFIED:0,PRIOR20_UNAVAILABLE:0,
+  PRIOR20_GAP:0,MISSING_OR_NONPOSITIVE_VOLUME:0,
+  THRESHOLD_NOT_MET:0,THRESHOLD_EXCEEDED:0,
+ };
+ for(const observation of observations)
+  volumeEvidenceByReason[observation.volumeEvidenceReason]++;
  const pairedByStrictCandidate:EvidenceCounts={PASS:0,FAIL:0,INSUFFICIENT_DATA:0};
  const unpairedByStrictCandidate:EvidenceCounts={PASS:0,FAIL:0,INSUFFICIENT_DATA:0};
  for(const observation of observations){
@@ -440,7 +458,7 @@ function summarizeCohort(observations:readonly FvgObservation[],costs:readonly n
   pairedHoldingWindowOverlapByStrictCandidate,
   pairedHoldingWindowCrossStrictCandidate,pairedMaximumDisjointWindows,
   markoutCensoredByReason,
-  midpointTouch:count('midpointTouch'),
+  midpointTouch:count('midpointTouch'),volumeEvidenceByReason,
   strictCandidate:count('strictCandidate'),
   markout:count('markout'),
   pairedMarkouts:observations.filter(paired).length,
@@ -583,6 +601,7 @@ export function studyHourlyFvgMidpoint(
   };
   let touch:number|null=null;
   let wickFraction:number|null=null;
+  let volumeEvidenceReason:VolumeEvidenceReason='NOT_EVALUATED';
   let blind:Markout|null=null,confirmed:Markout|null=null;
   let markoutExitObservedAt:number|null=null;
   let windowComplete=true;
@@ -632,7 +651,9 @@ export function studyHourlyFvgMidpoint(
     b.close<midpoint&&b.close<b.open;
    gates.wickRejection=reclaim&&wickMeetsFraction(b,bull,minimumRejectionWickFraction)?
     'PASS':'FAIL';
-   gates.verifiedVolume=verifiedVolume(bars,j,declaredSource,volumeMultiple);
+   const volumeEvidence=verifiedVolume(bars,j,declaredSource,volumeMultiple);
+   gates.verifiedVolume=volumeEvidence.evidence;
+   volumeEvidenceReason=volumeEvidence.reason;
    gates.strictCandidate=gates.wickRejection==='FAIL'?'FAIL':
     gates.verifiedVolume;
    // Markout horizon is fixed in advance, never the best future close.
@@ -700,7 +721,7 @@ export function studyHourlyFvgMidpoint(
    firstTouchOutcome:openingGapThrough?'OPEN_GAP_THROUGH':
     touch!==null?'TOUCH':windowComplete?'NO_TOUCH':'INCOMPLETE_WINDOW',
    firstTouchCensorReason:censorReason,markoutCensorReason,
-   rejectionWickFraction:wickFraction,gates,
+   rejectionWickFraction:wickFraction,volumeEvidenceReason,gates,
    blindMidpointTouch:blind,confirmedNextOpen:confirmed,
    eligibleForLiveTrading:false});
  }

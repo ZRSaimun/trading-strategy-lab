@@ -383,6 +383,11 @@ test('formation census preserves unknown outcomes and distinguishes paired from 
   },
   pairedHoldingWindowCrossStrictCandidate:{passFail:0,passUnknown:0,failUnknown:0},
   pairedMaximumDisjointWindows:{all:1,strictPass:0,strictFail:0,strictUnknown:1},
+  volumeEvidenceByReason:{
+   NOT_EVALUATED:0,SOURCE_UNVERIFIED:0,PRIOR20_UNAVAILABLE:1,
+   PRIOR20_GAP:0,MISSING_OR_NONPOSITIVE_VOLUME:0,
+   THRESHOLD_NOT_MET:0,THRESHOLD_EXCEEDED:0,
+  },
   pairedMarkouts:1,strictPairedMarkouts:0,nonStrictPairedMarkouts:1,
   pairedByStrictCandidate:{PASS:0,FAIL:0,INSUFFICIENT_DATA:1},
   unpairedByStrictCandidate:{PASS:0,FAIL:0,INSUFFICIENT_DATA:0},
@@ -548,7 +553,7 @@ test('research report source metadata excludes arbitrary caller properties',()=>
  assert.deepEqual(Object.keys(report.source).sort(),Object.keys(source).sort());
  assert.equal(JSON.stringify(report).includes('synthetic-private-marker'),false);
  assert.equal(JSON.stringify(report).includes('synthetic-account-marker'),false);
- assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v39');
+ assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v40');
 });
 test('ambiguous source labels and contradictory volume evidence fail closed',()=>{
  // These are declared metadata, not independent vendor authentication.
@@ -924,7 +929,7 @@ test('an overflowing next-open comparator suppresses both matched markouts',()=>
 });
 test('completed hourly timestamps are safe and numeric rule changes have a new version',()=>{
  const report=studyHourlyFvgMidpoint(fixture(),source);
- assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v39');
+ assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v40');
  const lastSafeAlignedOpen=Math.floor(Number.MAX_SAFE_INTEGER/H)*H;
  assert.equal(Number.isSafeInteger(lastSafeAlignedOpen),true);
  assert.equal(Number.isSafeInteger(lastSafeAlignedOpen+H),false);
@@ -1420,5 +1425,44 @@ test('maximum disjoint matured FVG windows is causal and never promotes unverifi
   assert.deepEqual(disjoint.cohort.pairedMaximumDisjointWindows,{
    all:2,strictPass:2,strictFail:0,strictUnknown:0,
   },'half-open windows meeting at exit/entry can both be retained');
+ }
+});
+
+test('first-touch volume reasons distinguish missing, gapped and declared evidence causally',()=>{
+ for(const bearish of [false,true]){
+  const flip=(bars:Bar[])=>bearish?bars.map(b=>({...b,
+   open:220-b.open,high:220-b.low,low:220-b.high,close:220-b.close})):bars;
+  const checks=[
+   {bars:fixture(),src:source,reason:'THRESHOLD_EXCEEDED',gate:'PASS'},
+   {bars:fixture().map((b,i)=>i===33?{...b,volume:120}:b),
+    src:source,reason:'THRESHOLD_NOT_MET',gate:'FAIL'},
+   {bars:fixture(),src:{...source,volumeType:'unverified' as const,volumeVerified:false},
+    reason:'SOURCE_UNVERIFIED',gate:'INSUFFICIENT_DATA'},
+   {bars:fixture().map((b,i)=>i===31?{...b,volume:0}:b),
+    src:source,reason:'MISSING_OR_NONPOSITIVE_VOLUME',gate:'INSUFFICIENT_DATA'},
+   {bars:fixture().slice(30,37),src:source,
+    reason:'PRIOR20_UNAVAILABLE',gate:'INSUFFICIENT_DATA'},
+   {bars:fixture().filter(b=>b.time!==BASE+20*H),src:source,
+    reason:'PRIOR20_GAP',gate:'INSUFFICIENT_DATA'},
+  ] as const;
+  for(const {bars,src,reason,gate} of checks){
+   const report=studyHourlyFvgMidpoint(flip(bars),src);
+   const x=report.observations.find(o=>o.formationClosedAt===BASE+33*H);
+   assert.ok(x);
+   assert.equal(x.firstTouchOutcome,'TOUCH');
+   assert.equal(x.volumeEvidenceReason,reason);
+   assert.equal(x.gates.verifiedVolume,gate);
+   assert.ok(report.cohort.volumeEvidenceByReason[reason]>=1);
+   assert.equal(Object.values(report.cohort.volumeEvidenceByReason)
+    .reduce((sum,n)=>sum+n,0),report.cohort.formations);
+  }
+  const before=studyHourlyFvgMidpointAsOf(flip(fixture()),source,BASE+33*H);
+  const formation=before.observations.find(o=>o.formationClosedAt===BASE+33*H);
+  assert.ok(formation);
+  assert.equal(formation.volumeEvidenceReason,'NOT_EVALUATED');
+  assert.equal(formation.gates.verifiedVolume,'INSUFFICIENT_DATA');
+  const atTouch=studyHourlyFvgMidpointAsOf(flip(fixture()),source,BASE+34*H);
+  assert.equal(atTouch.observations.find(o=>o.formationClosedAt===BASE+33*H)
+   ?.volumeEvidenceReason,'THRESHOLD_EXCEEDED');
  }
 });
