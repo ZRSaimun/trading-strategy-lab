@@ -1,6 +1,8 @@
-# Hourly FVG first-touch midpoint rejection versus blind limit (research v36)
+# Hourly FVG first-touch midpoint rejection versus blind limit (research v37)
 
 **Status: proposed, deterministic, read-only hypothesis.** This standalone TypeScript library is not yet wired to the terminal UI, production broker, archive query or cloud service. No actual BID/ASK executions, licensed news data, verified performance, live trades or profitability claims are included. It deliberately does **not** duplicate PR #24's sweep/MSS/FVG confluence risk-path experiment or PR #33's 4H CRT/15m confirmation screen.
+
+**Version 37: strict-evidence-specific holding-window dependence.** The matured matched-pair overlap diagnostic now includes `pairedHoldingWindowOverlapByStrictCandidate`, with separate declared PASS, known FAIL and INSUFFICIENT_DATA (including unverified volume) populations. A visually attractive pair cannot enter the PASS overlap estimate without its required evidence, and as-of reports cannot include an unfinished exit. Each subgroup counts overlaps **within that subgroup**; cross-status overlaps are deliberately excluded, so subgroup pairwise overlap counts need not add to the full-population count. This is a dependence warning, not an independent-sample-size estimate, authenticated volume, real broker fills or a profitability claim. Bullish/bearish synthetic tests cover PASS/FAIL/UNKNOWN and completed-exit boundaries. Frozen rule: `hourly-fvg-first-midpoint-touch-v37`.
 
 **Version 36: disclose overlapping matched holding windows.** The read-only cohort now counts pairwise overlaps and maximum concurrency among fully matured matched **hypothetical confirmed next-open-to-fixed-exit windows**. Windows are half-open: an exit at the exact next entry time is not overlapping. This flags repeated exposure and dependent outcomes that can make a naive matched-pair count misleading. It does not estimate effective independent sample size, imply actual limit fills, validate source volume or authenticate executable broker costs. Historical as-of reports include a window only after its fixed exit closes. Bullish and bearish synthetic regressions cover overlapping and disjoint windows, empty/one/two-pair prefixes and exact exit maturity. Frozen rule: `hourly-fvg-first-midpoint-touch-v36`.
 
@@ -94,6 +96,6 @@ The research still lacks an authenticated broker's timestamped BID/ASK observati
 
 ## Verification
 
-50 synthetic Node tests cover bullish and bearish gap geometry, first-touch freeze, strict volume gating, incomplete and missing candles, gap-through uncertainty, causal next-open timing, common-horizon cost arithmetic and source validation. Run `cd frontend && npm test && npm run typecheck && npm run build`; repository CI also exercises backend and container smoke. Synthetic passing tests do not establish a statistical edge.
+51 synthetic Node tests cover bullish and bearish gap geometry, first-touch freeze, strict volume gating, incomplete and missing candles, gap-through uncertainty, causal next-open timing, common-horizon cost arithmetic and source validation. Run `cd frontend && npm test && npm run typecheck && npm run build`; repository CI also exercises backend and container smoke. Synthetic passing tests do not establish a statistical edge.
 
 **Deployment safety:** isolated draft PR; no secrets, private datasets, paid APIs, orders, production database changes, merge or Render deployment.
