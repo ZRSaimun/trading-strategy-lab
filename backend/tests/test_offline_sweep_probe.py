@@ -599,3 +599,69 @@ def test_volatility_bins_sum_to_original_cost_scenario_without_reweighting():
              cell["observed_outcomes"]
              for cell in cells if cell["observed_outcomes"]), D(0))
         assert weighted_sum == D(overall["sum_net_r"])
+
+
+@pytest.mark.parametrize("side", ["LONG_SWEEP_LOW", "SHORT_SWEEP_HIGH"])
+def test_direction_census_causal_signal_and_cost_reconciliation(side):
+    rows = synthetic_bars()
+    if side == "SHORT_SWEEP_HIGH":
+        for index, values in ((30, (100, 102, 99, 100)),
+                              (31, (100, 100, 97, 98)),
+                              (32, (97, 103, 90, 95))):
+            b = rows[index]
+            rows[index] = Bar(b.time, *(D(v) for v in values), b.segment)
+    cohort = research(rows)["cohorts"]["development"]
+    directions = cohort["confirmed_signal_direction_census"]
+    assert directions["interpretation"] == (
+        "CAUSAL_DIRECTIONAL_ATTRITION_OBSERVED_ONLY_NOT_EDGE")
+    assert cohort["confirmed_signals"] == cohort["entered_positions"] == 1
+    assert cohort["observed_outcomes"] == 1
+    for key, cell in directions["directions"].items():
+        n = int(key == side)
+        assert cell["confirmed_signals"] == n
+        assert cell["entered_positions"] == n
+        assert cell["observed_outcomes"] == n
+        assert cell["confirmed_signals_without_observable_entry"] == 0
+        assert cell["invalid_entry_stop_or_target_geometry"] == 0
+        assert cell["censored_entered_outcomes"] == 0
+        for i, case in enumerate(cell["observed_only_cost_scenarios"]):
+            assert case["additional_round_trip_bps"] == (0, 5, 10, 20)[i]
+            assert case["observed_outcomes"] == n
+            assert case["mean_net_r"] == (
+                cohort["cost_scenarios"][i]["mean_net_r"] if n else None)
+    assert research(rows)["may_execute_order"] is False
+
+
+@pytest.mark.parametrize("mode", ["missing_entry", "censored", "invalid"])
+def test_direction_census_keeps_nonreturn_long_signals(mode):
+    rows = synthetic_bars()
+    b = rows[32]
+    if mode == "missing_entry":
+        rows[32] = Bar(b.time, b.o, b.h, b.l, b.c, 1)
+    elif mode == "censored":
+        rows[32] = Bar(b.time, D(103), D(104), D(99), D(103), 0)
+        rows[33:] = [Bar(x.time, x.o, x.h, x.l, x.c, 1) for x in rows[33:]]
+    else:
+        rows[32] = Bar(b.time, D(97), D(114), D(97), D(100), 0)
+    cohort = research(rows)["cohorts"]["development"]
+    sides = cohort["confirmed_signal_direction_census"]["directions"]
+    long = sides["LONG_SWEEP_LOW"]
+    short = sides["SHORT_SWEEP_HIGH"]
+    assert long["confirmed_signals"] == 1
+    assert long["observed_outcomes"] == 0
+    assert long["confirmed_signals_without_observable_entry"] == int(
+        mode == "missing_entry")
+    assert long["invalid_entry_stop_or_target_geometry"] == int(mode == "invalid")
+    assert long["censored_entered_outcomes"] == int(mode == "censored")
+    assert long["entered_positions"] == int(mode == "censored")
+    assert short["confirmed_signals"] == short["entered_positions"] == 0
+    assert all(c["mean_net_r"] is None for c in
+               long["observed_only_cost_scenarios"])
+
+
+def test_direction_census_empty_cohort_has_no_invented_return():
+    later = research(synthetic_bars())["cohorts"]["exploratory_later"]
+    for side in later["confirmed_signal_direction_census"]["directions"].values():
+        assert side["confirmed_signals"] == side["entered_positions"] == 0
+        assert all(x["mean_net_r"] is None for x in
+                   side["observed_only_cost_scenarios"])
