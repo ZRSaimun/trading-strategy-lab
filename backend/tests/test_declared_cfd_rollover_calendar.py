@@ -80,6 +80,50 @@ def test_late_evidence_is_not_causal_proof():
     assert r["late_evidence_count"] == 1
 
 
+def test_late_calendar_day_outside_position_still_forces_retrospective_status():
+    s, days = fixture(late=True)
+    # The first calendar cutoff is 00:30Z, before this position opens.
+    s["opened_at_utc"] = epoch("2026-10-23T02:00:00Z")
+    r = run(s, days)
+    assert r["status"] == "RETROSPECTIVE_DECLARATIONS_ONLY"
+    assert r["late_evidence_dates"] == ["2026-10-23"]
+    assert r["late_evidence_count"] == 1
+    assert len(r["declared_due_rollovers"]) == 2
+
+
+def test_pre_cutoff_evidence_is_not_automatically_available_at_entry():
+    s, days = fixture()
+    r = run(s, days)
+    assert r["status"] == "PRE_CUTOFF_DECLARATIONS_ONLY"
+    assert r["all_due_charge_declarations_ingested_by_position_open"] is False
+    assert r["due_charge_declarations_unavailable_at_open_count"] == 3
+    assert r["due_charge_declarations_unavailable_at_open_dates"] == [
+        "2026-10-23", "2026-10-26", "2026-10-27"
+    ]
+
+
+def test_all_due_charge_declarations_can_be_declared_available_before_entry():
+    s, days = fixture()
+    for row in days:
+        row["published_at_utc"] = epoch("2026-10-22T00:00:00Z")
+        row["ingested_at_utc"] = epoch("2026-10-22T00:01:00Z")
+    r = run(s, days)
+    assert r["all_due_charge_declarations_ingested_by_position_open"] is True
+    assert r["due_charge_declarations_unavailable_at_open_count"] == 0
+    assert r["source_authenticated"] is False
+    assert r["decision_time_registration_verified"] is False
+
+
+def test_zero_due_charges_never_proves_entry_time_cost_schedule():
+    s, days = fixture()
+    for row in days:
+        row.update(kind="NO_CHARGE", multiplier=0, reason="BROKER_WAIVER")
+    r = run(s, days, expected=[])
+    assert r["all_due_charge_declarations_ingested_by_position_open"] is False
+    assert r["due_charge_declarations_unavailable_at_open_count"] == 0
+    assert r["rates_or_cash_charges_verified"] is False
+
+
 def test_empty_charge_population_does_not_prove_free_financing():
     s, days = fixture()
     for row in days:
