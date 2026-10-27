@@ -159,3 +159,31 @@ performance, an alert trigger or evidence of financial return. Independent
 server receipt chronology, immutable snapshot anchors and provider-licensed
 completed-candle data are required before stronger claims. No feed,
 notification, paper fill, live order or deployment is activated.
+
+
+## High-confidence forecast error census (27 October 2026)
+
+When the existing chronology, minimum effective sample and both missingness
+gates pass, the **fixed late nonoverlapping settled cohort** now reports the
+realized binary classification error for predictions at or beyond 90% confidence:
+probability >= 0.90 predicts UP and probability <= 0.10 predicts DOWN.
+This is a fixed descriptive threshold, not a tuned strategy, trading signal,
+alert trigger or a guarantee of 90% accuracy.
+
+`lateHighConfidenceCount` counts the selected settled forecasts in those
+tails, `lateHighConfidenceFractionOfSettled` shows their fraction of the
+selected late cohort, and `lateHighConfidenceWrong` counts their incorrect
+binary outcomes. `lateHighConfidenceWrongFraction` is the error rate
+**conditional on a forecast being in a confidence tail**. It is **null**
+when there are no qualifying forecasts. The nominal Wilson interval
+`lateHighConfidenceWrongWilson95Descriptive` and the
+`lateHighConfidenceLowSupportUnder30` flag are likewise null for empty
+tails. When any existing performance gate fails, **all six fields are null**,
+not false zeros.
+
+A low tail error fraction does **not** establish probabilistic calibration:
+even 90%-confidence forecasts can be wrong around 10% of the time in an
+idealized independent population. Serial dependence, outcome selection,
+unverified timestamps and retrospective evaluation mean Wilson coverage is
+not validated. No prospective market data, executable BID/ASK quote,
+real alert, broker call, paper fill, return or production change is involved.
