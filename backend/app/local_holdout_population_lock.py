@@ -147,6 +147,17 @@ def register_population_locked_holdout(db_path, manifest, census):
                 "(source_sha256, decision_at_utc, study_id) VALUES (?, ?, ?)",
                 ((source_key, row["decision_at_utc"], study_id) for row in census),
             )
+            # Waiting for a SQLite writer or inserting a large census can
+            # cross the holdout start. Recheck after reservations and fail
+            # atomically rather than committing a late registration.
+            committed_at = _clock()
+            if (committed_at < now or
+                    committed_at < manifest["registered_at_utc"] or
+                    committed_at >= manifest["holdout_start_at_utc"]):
+                raise ValueError("Registration clock moved backwards or reached holdout start")
+            conn.execute(
+                "UPDATE holdout_claims SET registered_at_utc=? WHERE study_id=?",
+                (committed_at, study_id))
             conn.execute("COMMIT")
         except BaseException:
             conn.execute("ROLLBACK")
@@ -154,7 +165,7 @@ def register_population_locked_holdout(db_path, manifest, census):
     return {
         "study_id": study_id,
         "manifest_sha256": digest,
-        "registered_at_utc": now,
+        "registered_at_utc": committed_at,
         "declared_source_key_sha256": source_key,
         "locked_observation_count": len(census),
         "locked_decision_count": len(census),
