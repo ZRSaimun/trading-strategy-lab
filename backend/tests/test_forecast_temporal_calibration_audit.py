@@ -987,7 +987,7 @@ def test_outcome_availability_bins_do_not_replace_missing_selected_with_neighbor
     assert b["unavailable"] == 1
     assert b["unavailableFraction"] == pytest.approx(1 / 40)
     # The unselected index 81 cannot shift the precommitted sampling census.
-    s["forecasts"][81].update(status="SETTLED", resolvedAt=4920, outcomeUp=True)
+    s["forecasts"][81].update(status="SETTLED", resolvedAt=5040, outcomeUp=True)
     again = audit_temporal_forecast_calibration(s)["groups"][0]
     assert again["lateCensusOutcomeAvailabilityBins10"] == row["lateCensusOutcomeAvailabilityBins10"]
 
