@@ -7,7 +7,7 @@
  */
 import type {Bar} from './research.ts';
 
-export const HOURLY_FVG_VERSION='hourly-fvg-first-midpoint-touch-v29';
+export const HOURLY_FVG_VERSION='hourly-fvg-first-midpoint-touch-v30';
 export type Evidence='PASS'|'FAIL'|'INSUFFICIENT_DATA';
 export type Side='BULLISH'|'BEARISH';
 export type FvgSource={
@@ -66,8 +66,12 @@ export type FvgCohort={
  pairedByStrictCandidate:EvidenceCounts;unpairedByStrictCandidate:EvidenceCounts;
  blindOnlyMarkouts:number;
 };
+export type FvgCoverage={
+ firstBarOpenAt:number|null;lastBarClosedAt:number|null;
+ observedBars:number;unobservedHourSlots:number;gapIntervals:number;
+};
 export type FvgStudy={
- version:typeof HOURLY_FVG_VERSION;source:FvgSource;
+ version:typeof HOURLY_FVG_VERSION;source:FvgSource;coverage:FvgCoverage;
  config:Required<FvgConfig>;observations:FvgObservation[];cohort:FvgCohort;
  warning:string;
 };
@@ -222,6 +226,18 @@ function summarizeCohort(observations:readonly FvgObservation[]):FvgCohort{
   blindOnlyMarkouts:observations.filter(o=>
    o.blindMidpointTouch!==null&&o.confirmedNextOpen===null).length,
  };
+}
+// Count unobserved UTC hourly slots without treating session closures as
+// feed errors or filling those slots with invented candles.
+function summarizeCoverage(bars:readonly Bar[]):FvgCoverage{
+ let unobservedHourSlots=0,gapIntervals=0;
+ for(let i=1;i<bars.length;i++){
+  const unobserved=(bars[i].time-bars[i-1].time)/HOUR-1;
+  if(unobserved>0){unobservedHourSlots+=unobserved;gapIntervals++;}
+ }
+ return {firstBarOpenAt:bars.length?bars[0].time:null,
+  lastBarClosedAt:bars.length?bars[bars.length-1].time+HOUR:null,
+  observedBars:bars.length,unobservedHourSlots,gapIntervals};
 }
 export function studyHourlyFvgMidpoint(
  suppliedBars:readonly Bar[],source:FvgSource,config:FvgConfig={},
@@ -459,6 +475,7 @@ export function studyHourlyFvgMidpoint(
  }
  // The report and volume gates share the same validated allowlisted snapshot.
  return {version:HOURLY_FVG_VERSION,source:declaredSource,
+   coverage:summarizeCoverage(bars),
   config:{maxTouchWaitBars,markoutBars,minimumRejectionWickFraction,
    volumeMultiple,hypotheticalRoundTripCostsBps:[...costs]},
   observations,cohort:summarizeCohort(observations),

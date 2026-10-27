@@ -527,7 +527,7 @@ test('research report source metadata excludes arbitrary caller properties',()=>
  assert.deepEqual(Object.keys(report.source).sort(),Object.keys(source).sort());
  assert.equal(JSON.stringify(report).includes('synthetic-private-marker'),false);
  assert.equal(JSON.stringify(report).includes('synthetic-account-marker'),false);
- assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v29');
+ assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v30');
 });
 test('ambiguous source labels and contradictory volume evidence fail closed',()=>{
  // These are declared metadata, not independent vendor authentication.
@@ -903,7 +903,7 @@ test('an overflowing next-open comparator suppresses both matched markouts',()=>
 });
 test('completed hourly timestamps are safe and numeric rule changes have a new version',()=>{
  const report=studyHourlyFvgMidpoint(fixture(),source);
- assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v29');
+ assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v30');
  const lastSafeAlignedOpen=Math.floor(Number.MAX_SAFE_INTEGER/H)*H;
  assert.equal(Number.isSafeInteger(lastSafeAlignedOpen),true);
  assert.equal(Number.isSafeInteger(lastSafeAlignedOpen+H),false);
@@ -954,4 +954,30 @@ test('inherited array slots never substitute for observed archive rows or declar
   hypotheticalRoundTripCostsBps:costs,
  }),/Invalid source/);
  assert.deepEqual(studyHourlyFvgMidpoint(fixture(),source),stable);
+});
+
+// UTC calendar gaps may be genuine closures, not automatically missing feeds.
+test('coverage counts unobserved hours without leaking future gaps into as-of reports',()=>{
+ const bars=fixture().filter(b=>b.time!==BASE+20*H&&b.time!==BASE+21*H);
+ const full=studyHourlyFvgMidpoint(bars,source);
+ assert.deepEqual(full.coverage,{
+  firstBarOpenAt:BASE,lastBarClosedAt:BASE+40*H,
+  observedBars:38,unobservedHourSlots:2,gapIntervals:1,
+ });
+ const before=studyHourlyFvgMidpointAsOf(bars,source,BASE+20*H);
+ assert.deepEqual(before.coverage,{
+  firstBarOpenAt:BASE,lastBarClosedAt:BASE+20*H,
+  observedBars:20,unobservedHourSlots:0,gapIntervals:0,
+ });
+ const after=studyHourlyFvgMidpointAsOf(bars,source,BASE+24*H);
+ assert.deepEqual(after.coverage,{
+  firstBarOpenAt:BASE,lastBarClosedAt:BASE+24*H,
+  observedBars:22,unobservedHourSlots:2,gapIntervals:1,
+ });
+ const empty=studyHourlyFvgMidpointAsOf(bars,source,H);
+ assert.deepEqual(empty.coverage,{
+  firstBarOpenAt:null,lastBarClosedAt:null,
+  observedBars:0,unobservedHourSlots:0,gapIntervals:0,
+ });
+ assert.equal(full.coverage.observedBars+full.coverage.unobservedHourSlots,40);
 });

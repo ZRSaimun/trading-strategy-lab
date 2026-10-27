@@ -1,6 +1,8 @@
-# Hourly FVG first-touch midpoint rejection versus blind limit (research v29)
+# Hourly FVG first-touch midpoint rejection versus blind limit (research v30)
 
 **Status: proposed, deterministic, read-only hypothesis.** This standalone TypeScript library is not yet wired to the terminal UI, production broker, archive query or cloud service. No actual BID/ASK executions, licensed news data, verified performance, live trades or profitability claims are included. It deliberately does **not** duplicate PR #24's sweep/MSS/FVG confluence risk-path experiment or PR #33's 4H CRT/15m confirmation screen.
+
+**Version 30: observed-window coverage and gap census.** Reports now record first observed UTC hourly open, last observed hourly close, actual candle count, unobserved hourly slots between observations and gap-interval count. Completed-hour as-of replay calculates coverage **only on its eligible prefix**, so future archive gaps cannot leak into earlier evidence. Empty prefixes retain null endpoints and zero counts. Unobserved hours may be weekends, holidays or session closures; without a verified instrument-specific calendar, they are **not automatically missing-feed errors**. No candles are synthesized, no source identity is independently authenticated and no performance is inferred. One synthetic regression covers full, pre-gap, post-gap and empty as-of windows. Frozen rule: `hourly-fvg-first-midpoint-touch-v30`.
 
 **Version 29: reject prototype-inherited missing evidence.** The full-window and as-of research paths now require every hourly candle array index to be an **own** element, including future timestamp-only slots. Hypothetical CFD cost scenarios also require their own indexed values. A sparse array can otherwise inherit plausible candle rows or cost numbers through its prototype and silently turn missing evidence into observed data, even with bounded indexed snapshots. A synthetic regression covers inherited historical/future candles and an inherited cost scenario, plus a stable control. Future OHLC/volume remain unread by the as-of wrapper. This is local evidence integrity only; it does **not** independently authenticate a source, verify broker BID/ASK quotes, measure financing, or establish profitability. Frozen rule: `hourly-fvg-first-midpoint-touch-v29`.
 
@@ -80,6 +82,6 @@ The research still lacks an authenticated broker's timestamped BID/ASK observati
 
 ## Verification
 
-46 synthetic Node tests cover bullish and bearish gap geometry, first-touch freeze, strict volume gating, incomplete and missing candles, gap-through uncertainty, causal next-open timing, common-horizon cost arithmetic and source validation. Run `cd frontend && npm test && npm run typecheck && npm run build`; repository CI also exercises backend and container smoke. Synthetic passing tests do not establish a statistical edge.
+47 synthetic Node tests cover bullish and bearish gap geometry, first-touch freeze, strict volume gating, incomplete and missing candles, gap-through uncertainty, causal next-open timing, common-horizon cost arithmetic and source validation. Run `cd frontend && npm test && npm run typecheck && npm run build`; repository CI also exercises backend and container smoke. Synthetic passing tests do not establish a statistical edge.
 
 **Deployment safety:** isolated draft PR; no secrets, private datasets, paid APIs, orders, production database changes, merge or Render deployment.
