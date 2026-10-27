@@ -919,3 +919,22 @@ def test_reserved_sqlite_sidecar_filename_rejected_before_creation_or_open(
         prep(alias)
     assert alias.read_bytes() == unchanged
     assert not (tmp_path / 'other.sqlite').exists()
+
+@pytest.mark.parametrize('suffix', ['-mj', '-mj1234abcd', '-MJABCDEF01', '-mJ0f0f'])
+def test_sqlite_super_journal_alias_rejected_before_creation_or_open(tmp_path, suffix):
+    """A ledger cannot masquerade as another database's super-journal."""
+    alias = tmp_path / ('other.sqlite' + suffix)
+    with pytest.raises(ValueError, match='SQLite sidecar suffix'):
+        initialize_ledger(alias)
+    assert not alias.exists()
+
+    original = tmp_path / 'safe.sqlite'
+    initialize_ledger(original)
+    original.rename(alias)
+    unchanged = alias.read_bytes()
+    with pytest.raises(ValueError, match='SQLite sidecar suffix'):
+        inspect_ledger(alias)
+    with pytest.raises(ValueError, match='SQLite sidecar suffix'):
+        prep(alias)
+    assert alias.read_bytes() == unchanged
+    assert not (tmp_path / 'other.sqlite').exists()
