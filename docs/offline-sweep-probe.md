@@ -249,3 +249,29 @@ costs are unverified. All previously inspected later-period archives
 remain exploratory development evidence, not untouched holdouts.
 The report is not an independent significance test, a causal estimate
 of regime profitability, a broker quote, or authorization for an order.
+
+
+## Confirmed sweep direction and missingness census (additive descriptive audit)
+
+The `confirmed_signal_direction_census` splits **capacity-admitted,
+completed-confirmation** signals into `LONG_SWEEP_LOW` and
+`SHORT_SWEEP_HIGH` using only the sweep and completed confirmation.
+The side is fixed **before** checking future entry observability, stop
+geometry, or any hypothetical exit. Both sides preserve counts for
+unobservable entry, invalid entry/target geometry, entered positions,
+observed exits, and entered-but-censored exits. Counts reconcile exactly
+to the original full-population signal and entry censuses.
+
+Each direction reports the same frozen **0/5/10/20 additional
+round-trip bps** observed-only mean net R calculation. Empty observed
+populations return null rather than an invented zero return. Direction
+does **not** filter signals, alter entries or exits, optimize candidates,
+or change the existing capacity reservation and chronological embargo.
+
+This diagnostic may expose different censoring and cost sensitivities
+between long and short hypotheses; it cannot establish a statistically
+significant directional advantage, bid/ask executable costs, independent
+holdout, or live trading permission. Both previously inspected
+later-period slices and the 32-archive exploratory census are **not**
+untouched holdouts. This code addition has not itself rerun the original
+private archives; synthetic regression cases are not market evidence.
