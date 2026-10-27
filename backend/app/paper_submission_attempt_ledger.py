@@ -390,6 +390,16 @@ def _write(path, key, event, evidence, stamp):
         if stamp < last_time:
             raise ValueError('Clock regression; cannot append evidence')
         old = state.get(key)
+        # One ambiguous broker submission is enough to quarantine further
+        # submissions for that broker/account. Already-prepared orders cannot
+        # bypass the fence by attempting after another order becomes UNKNOWN.
+        # Declared terminal reconciliation is NOT authenticated broker proof;
+        # this local fence never grants order submission permission.
+        if event in ('PREPARED', 'ATTEMPT_UNKNOWN') and any(
+                b == key[0] and a == key[1] and order != key[2]
+                and status == 'ATTEMPT_UNKNOWN'
+                for (b, a, order), (_, status) in state.items()):
+            raise ValueError('Unresolved broker submission for account; hold new order evidence')
         if event == 'PREPARED':
             if old is not None:
                 raise ValueError('Duplicate client order ID, even if intent is identical')
