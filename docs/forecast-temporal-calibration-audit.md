@@ -448,3 +448,30 @@ signal. Low-support bins are descriptive only; the journal cannot detect
 forecasts never issued or absent completed candles. Independent Loop 1
 provider/venue/side, receipt chronology, entitlement and session inventories
 are still required. No alert, paper order, real order or production activation.
+
+
+## Label-free issued probability distribution shift (27 October 2026)
+
+The chronological review now compares the **full early and late issuance
+populations** for each model/horizon, independently of whether a forecast's
+outcome settled, was voided, or remains pending. It uses ten **fixed**
+probability bins, with exact boundaries at 0.10, 0.20, etc. assigned to the
+higher bin and bin 9 containing probabilities at or above 0.90.
+
+- `earlyIssuedProbabilityBins10` and `lateIssuedProbabilityBins10`: integer
+  counts across all issued forecasts, including overlapping observations.
+- `issuedProbabilityJensenShannonBits10`: Jensen-Shannon divergence between
+  the two normalized histograms, using base-2 logarithms; 0 means identical
+  binned distributions and 1 means completely disjoint bin support.
+  Null if either issuance cohort is empty.
+- `issuedProbabilityShiftLowSupportUnder30`: true if either cohort has fewer
+  than 30 issued forecasts, null when a cohort is empty.
+
+This can expose **forecast-output distribution drift** even when unavailable
+outcomes suppress retrospective Brier and log-loss metrics. It is not an
+outcome-dependent sample, and the metric does not establish prediction
+accuracy, causal drift, statistical significance, independent observations,
+a trustworthy market source, or a profitable trading edge. Fixed bins can
+hide within-bin shifts. No drift-based alert, paper fill or live order is
+authorized. Independently authenticated completed-candle receipts and
+market-session inventories remain Loop 1 prerequisites.
