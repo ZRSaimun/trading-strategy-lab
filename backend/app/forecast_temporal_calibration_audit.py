@@ -6,7 +6,7 @@ cannot authorize alerts, paper fills or real orders. No external I/O.
 import math
 from collections import defaultdict
 
-from .forecast_prospective_scorecard import summarize_forecast_snapshot
+from .forecast_prospective_scorecard import _wilson, summarize_forecast_snapshot
 
 
 def _nonoverlapping(rows):
@@ -55,7 +55,9 @@ def _calibration_bin_diagnostics10(rows):
     return [
         {"bin": index, "count": count,
          "meanProbability": predicted / count if count else None,
-         "observedUpRate": observed / count if count else None}
+         "observedUpRate": observed / count if count else None,
+         "observedUpWilson95Descriptive": _wilson(observed, count) if count else None,
+         "lowSupportUnder30": count < 30 if count else None}
         for index, (predicted, observed, count) in enumerate(bins)
     ]
 
@@ -171,6 +173,8 @@ def audit_temporal_forecast_calibration(snapshot, *, min_per_window=30,
             "lateMeanProbability": None, "lateObservedUpRate": None,
             "lateAbsoluteCalibrationGap": None,
             "lateExpectedCalibrationError10": None, "lateEceBins10": None,
+            "lateEceOccupiedBinsUnder30": None,
+            "lateEceMinOccupiedBinCount": None,
             "descriptiveDriftFlag": None,
             "status": "INSUFFICIENT_NONOVERLAPPING_OUTCOMES" if not sufficient
                       else "UNRESOLVED_SELECTION_RISK" if not complete_enough
@@ -183,6 +187,8 @@ def audit_temporal_forecast_calibration(snapshot, *, min_per_window=30,
             prior_up = (sum(r["outcomeUp"] for r in train) + 0.5) / (len(train) + 1)
             baseline = sum((prior_up - int(r["outcomeUp"])) ** 2 for r in test) / len(test)
             delta = late_brier - early_brier
+            late_bins = _calibration_bin_diagnostics10(test)
+            occupied = [b["count"] for b in late_bins if b["count"]]
             entry.update(
                 earlyBrier=early_brier, lateBrier=late_brier,
                 lateBrierDelta=delta,
@@ -192,7 +198,9 @@ def audit_temporal_forecast_calibration(snapshot, *, min_per_window=30,
                 lateAbsoluteCalibrationGap=abs(
                     sum(r["probability"] - int(r["outcomeUp"]) for r in test) / len(test)),
                 lateExpectedCalibrationError10=_calibration_ece10(test),
-                lateEceBins10=_calibration_bin_diagnostics10(test),
+                lateEceBins10=late_bins,
+                lateEceOccupiedBinsUnder30=sum(n < 30 for n in occupied),
+                lateEceMinOccupiedBinCount=min(occupied),
                 descriptiveDriftFlag=delta >= brier_deterioration,
             )
             if entry["descriptiveDriftFlag"]:
@@ -210,6 +218,7 @@ def audit_temporal_forecast_calibration(snapshot, *, min_per_window=30,
         "limitations": "Caller journal unauthenticated; split is retrospective and not an "
                        "untouched holdout; dependent market regimes and sample selection remain; "
                        "missing/void outcomes can bias scores; 10-bin ECE is bin-dependent "
-                       "and noisy with sparse bins; heuristic drift is not a p-value. "
+                       "and noisy with sparse bins; binomial Wilson ranges assume "
+                       "independence that is not established; heuristic drift is not a p-value. "
                        "No executable BID/ASK, transaction costs, fills or trading returns.",
     }
