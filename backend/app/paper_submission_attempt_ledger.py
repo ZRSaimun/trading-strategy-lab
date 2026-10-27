@@ -309,9 +309,15 @@ def _verify(conn):
         raise ValueError('Unexpected ledger schema version')
     if conn.execute('PRAGMA integrity_check').fetchone()[0] != 'ok':
         raise ValueError('SQLite integrity check failed')
-    objects = {(kind, name): sql for kind, name, sql in conn.execute(
-        "SELECT type,name,sql FROM sqlite_master WHERE name NOT LIKE 'sqlite_%'")}
-    if objects != EXPECTED_SCHEMA_OBJECTS:
+    # Include SQLite-owned auxiliary tables (notably sqlite_stat1 from
+    # ANALYZE). The prior sqlite_% filter silently ignored unreviewed
+    # persistent schema objects. Bound enumeration before materialization.
+    schema_rows = conn.execute(
+        'SELECT type,name,sql FROM sqlite_master LIMIT ?',
+        (len(EXPECTED_SCHEMA_OBJECTS) + 1,)).fetchall()
+    objects = {(kind, name): sql for kind, name, sql in schema_rows}
+    if (len(schema_rows) != len(EXPECTED_SCHEMA_OBJECTS)
+            or objects != EXPECTED_SCHEMA_OBJECTS):
         raise ValueError('Ledger schema objects differ from reviewed DDL')
     # Bound the SQL result before fetching: a hostile oversized ledger must not
     # allocate arbitrary process memory prior to the MAX_EVENTS check.

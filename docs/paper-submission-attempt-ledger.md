@@ -170,3 +170,21 @@ quarantined file/evidence for manual inspection. This is not an atomic
 file-descriptor-based defense against a privileged attacker swapping paths
 between checks; a post-commit rejection cannot undo an already committed
 SQLite transaction. It grants no broker order permission.
+
+
+## Strict SQLite internal-schema inventory (27 October 2026)
+
+Ledger verification now examines **all** SQLite schema objects, including
+`sqlite_%` auxiliary objects, rather than filtering them out. In particular,
+`ANALYZE` can create the persistent `sqlite_stat1` statistics table even
+when the three reviewed ledger objects are unchanged. That unreviewed object
+must quarantine inspection and evidence transitions instead of being silently
+accepted. Schema enumeration is capped at one more than the three expected
+objects before materialization, and the row count must match the reviewed
+inventory to prevent duplicate/collapsed object rows from escaping comparison.
+
+Two synthetic regression cases cover read-only inspection and an attempted
+evidence transition after `ANALYZE`, preserving the original event count.
+No schema repair, journal deletion, broker connectivity, execution permission
+or production migration is introduced. Existing ledgers containing SQLite
+statistics tables now require independent review rather than auto-repair.

@@ -209,6 +209,25 @@ def test_ledger_rejects_unreviewed_schema_changes(db, ddl):
         attempt(db)
 
 
+@pytest.mark.parametrize('operation', ['inspect', 'prepare'])
+def test_sqlite_statistics_table_is_unreviewed_schema(db, operation):
+    """ANALYZE creates sqlite_stat1, previously hidden by sqlite_% filtering."""
+    prep(db)
+    with sqlite3.connect(db) as c:
+        c.execute('ANALYZE')
+        assert c.execute(
+            "SELECT count(*) FROM sqlite_master WHERE name='sqlite_stat1'"
+        ).fetchone()[0] == 1
+    with pytest.raises(ValueError, match='schema objects'):
+        if operation == 'inspect':
+            inspect_ledger(db)
+        else:
+            attempt(db)
+    # Refusing the unreviewed schema must not append any order evidence.
+    with sqlite3.connect(db) as c:
+        assert c.execute('SELECT count(*) FROM events').fetchone()[0] == 1
+
+
 def test_schema_mismatch_rejected(db):
     with sqlite3.connect(db) as c:
         c.execute('PRAGMA user_version=9')
