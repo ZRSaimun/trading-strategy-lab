@@ -120,6 +120,26 @@ def _reject_wal_sidecars(path):
         raise ValueError('Unreviewed SQLite WAL/SHM sidecar; quarantine ledger')
 
 
+def _validate_rollback_journal(path):
+    """Allow ordinary SQLite crash recovery, reject unsafe journal path types.
+
+    A hot DELETE-mode rollback journal may be essential for recovery; never
+    remove or rewrite it. The private parent prevents other users creating
+    sidecars, but a pre-existing symlink, hardlink or special file must not be
+    handed to SQLite as an implicit read/write target.
+    """
+    journal = Path(str(path) + '-journal')
+    try:
+        info = journal.lstat()
+    except FileNotFoundError:
+        return
+    except OSError as exc:
+        raise ValueError('SQLite rollback journal cannot be inspected') from exc
+    if (not stat.S_ISREG(info.st_mode) or info.st_uid != os.geteuid()
+            or info.st_nlink != 1 or info.st_size > MAX_LEDGER_BYTES * 2):
+        raise ValueError('Unsafe SQLite rollback journal; quarantine ledger')
+
+
 def _connect(path, *, read_only=False):
     if not isinstance(path, (str, Path)):
         raise ValueError('Database path required')
@@ -133,6 +153,7 @@ def _connect(path, *, read_only=False):
         raise ValueError('Ledger disappeared before SQLite open') from exc
     _private_file(before)
     _reject_wal_sidecars(p)
+    _validate_rollback_journal(p)
     if before.st_size > MAX_LEDGER_BYTES:
         raise ValueError('Ledger file exceeds reviewed byte capacity')
     # mode=ro/rw prevents sqlite3's default rwc mode from recreating a ledger
@@ -156,6 +177,7 @@ def _connect(path, *, read_only=False):
             raise ValueError('Ledger file identity changed during SQLite open')
         _private_file(after)
         _reject_wal_sidecars(p)
+        _validate_rollback_journal(p)
         if after.st_size > MAX_LEDGER_BYTES:
             raise ValueError('Ledger file exceeds reviewed byte capacity')
         # Python 3.12/SQLite limits apply to values decoded from malicious rows,
@@ -181,6 +203,7 @@ def initialize_ledger(path):
     if p.exists() or p.is_symlink():
         raise ValueError('Ledger already exists; refusing overwrite')
     _reject_wal_sidecars(p)
+    _validate_rollback_journal(p)
     # Create mode 0600 regardless of a permissive process umask. O_EXCL
     # refuses an existing file, including a symlink. Never auto-recreate it.
     fd = os.open(p, os.O_CREAT | os.O_EXCL | os.O_WRONLY
