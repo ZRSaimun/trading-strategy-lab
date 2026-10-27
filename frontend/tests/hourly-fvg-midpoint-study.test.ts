@@ -553,7 +553,7 @@ test('research report source metadata excludes arbitrary caller properties',()=>
  assert.deepEqual(Object.keys(report.source).sort(),Object.keys(source).sort());
  assert.equal(JSON.stringify(report).includes('synthetic-private-marker'),false);
  assert.equal(JSON.stringify(report).includes('synthetic-account-marker'),false);
- assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v43');
+ assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v44');
 });
 test('ambiguous source labels and contradictory volume evidence fail closed',()=>{
  // These are declared metadata, not independent vendor authentication.
@@ -929,7 +929,7 @@ test('an overflowing next-open comparator suppresses both matched markouts',()=>
 });
 test('completed hourly timestamps are safe and numeric rule changes have a new version',()=>{
  const report=studyHourlyFvgMidpoint(fixture(),source);
- assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v43');
+ assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v44');
  const lastSafeAlignedOpen=Math.floor(Number.MAX_SAFE_INTEGER/H)*H;
  assert.equal(Number.isSafeInteger(lastSafeAlignedOpen),true);
  assert.equal(Number.isSafeInteger(lastSafeAlignedOpen+H),false);
@@ -1592,4 +1592,50 @@ test('markout censor evidence clock is causal for missing exit hours and unrepre
   assert.equal(valid.markoutCensorReason,null);
   assert.equal(valid.markoutCensorObservedAt,null);
  }
+});
+
+test('v44 inherited candle fields cannot masquerade as archive evidence',()=>{
+ const baseline=studyHourlyFvgMidpoint(fixture(),source);
+ const historical=fixture();
+ const prototype=Object.create(Object.getPrototypeOf(historical[33]));
+ Object.defineProperty(prototype,'volume',{value:200});
+ Object.setPrototypeOf(historical[33],prototype);
+ assert.equal(Reflect.deleteProperty(historical[33],'volume'),true);
+ assert.throws(()=>studyHourlyFvgMidpoint(historical,source),/lacks own field evidence/,
+  'inherited plausible volume must not qualify a first-touch volume gate');
+ assert.throws(()=>studyHourlyFvgMidpointAsOf(historical,source,BASE+34*H),
+  /lacks own field evidence/,'as-of copying must not launder inherited volume');
+ const future=fixture();
+ const futurePrototype=Object.create(Object.getPrototypeOf(future[39]));
+ Object.defineProperty(futurePrototype,'time',{value:future[39].time});
+ Object.setPrototypeOf(future[39],futurePrototype);
+ assert.equal(Reflect.deleteProperty(future[39],'time'),true);
+ assert.throws(()=>studyHourlyFvgMidpointAsOf(future,source,BASE+33*H),
+  /timestamp lacks own field evidence/,
+  'even a future timestamp must be an own archive field');
+ assert.deepEqual(studyHourlyFvgMidpoint(fixture(),source),baseline);
+ assert.deepEqual(studyHourlyFvgMidpointAsOf(fixture(),source,BASE+33*H),
+  studyHourlyFvgMidpoint(fixture().slice(0,33),source));
+});
+
+test('v44 inherited source identity and volume certification cannot qualify evidence',()=>{
+ const baseline=studyHourlyFvgMidpoint(fixture(),source);
+ for(const field of ['datasetId','archiveSha256','instrument','provider',
+  'priceSide','volumeType','volumeVerified'] as const){
+  const inherited={...source};
+  const prototype=Object.create(Object.getPrototypeOf(inherited));
+  Object.defineProperty(prototype,field,{value:inherited[field]});
+  Object.setPrototypeOf(inherited,prototype);
+  assert.equal(Reflect.deleteProperty(inherited,field),true);
+  assert.throws(()=>studyHourlyFvgMidpoint(fixture(),inherited),/Invalid source/,
+   field+' must be explicitly declared on the supplied source');
+  assert.throws(()=>studyHourlyFvgMidpointAsOf(fixture(),inherited,BASE+34*H),
+   /Invalid source/);
+ }
+ const missingOwnVolume=fixture();
+ missingOwnVolume[33]={...missingOwnVolume[33],volume:null};
+ const observation=target(missingOwnVolume);
+ assert.equal(observation.gates.verifiedVolume,'INSUFFICIENT_DATA',
+  'explicit null is valid missing evidence, not an inherited value');
+ assert.deepEqual(studyHourlyFvgMidpoint(fixture(),source),baseline);
 });

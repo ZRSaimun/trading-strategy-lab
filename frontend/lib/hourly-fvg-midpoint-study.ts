@@ -7,7 +7,7 @@
  */
 import type {Bar} from './research.ts';
 
-export const HOURLY_FVG_VERSION='hourly-fvg-first-midpoint-touch-v43';
+export const HOURLY_FVG_VERSION='hourly-fvg-first-midpoint-touch-v44';
 export type Evidence='PASS'|'FAIL'|'INSUFFICIENT_DATA';
 // First-touch volume evidence is not independent broker/source authentication.
 export type VolumeEvidenceReason='NOT_EVALUATED'|'SOURCE_UNVERIFIED'|
@@ -140,6 +140,12 @@ export type FvgStudy={
  warning:string;
 };
 const HOUR=3600;
+// Inherited prototype values cannot stand in for actual archive/source fields.
+const CANDLE_FIELDS=['time','open','high','low','close','volume','observed_minutes'] as const;
+const SOURCE_FIELDS=['datasetId','archiveSha256','instrument','provider',
+ 'priceSide','volumeType','volumeVerified'] as const;
+const hasOwnField=(value:object,field:PropertyKey)=>
+ Object.prototype.hasOwnProperty.call(value,field);
 // Preserve exact provider/instrument identities in exported research reports.
 // Whitespace aliases, control and Unicode formatting characters, and
 // unbounded labels can poison provenance comparisons or visually spoof a
@@ -522,6 +528,8 @@ export function studyHourlyFvgMidpoint(
   if(!Object.prototype.hasOwnProperty.call(suppliedBars,index))
    throw Error('Hourly research array contains missing own-index candle evidence');
   const b=suppliedBars[index];
+  if(!b||typeof b!=='object'||!CANDLE_FIELDS.every(field=>hasOwnField(b,field)))
+   throw Error('Hourly research candle lacks own field evidence');
   bars.push({
    time:b.time,open:b.open,high:b.high,low:b.low,close:b.close,
    volume:b.volume,observed_minutes:b.observed_minutes,
@@ -560,7 +568,8 @@ export function studyHourlyFvgMidpoint(
  // accessor-backed declaration must not pass validation as one identity,
  // qualify volume under another, then export a third identity.
  // This is consistency only; declarations are not independently authenticated.
- if(!source||typeof source!=='object')
+ if(!source||typeof source!=='object'||
+  !SOURCE_FIELDS.every(field=>hasOwnField(source,field)))
   throw Error('Invalid source identity, volume provenance or frozen FVG study settings');
  const declaredSource:FvgSource={
   datasetId:source.datasetId,archiveSha256:source.archiveSha256,
@@ -774,6 +783,8 @@ export function studyHourlyFvgMidpointAsOf(
   if(!Object.prototype.hasOwnProperty.call(suppliedBars,index))
    throw Error('Hourly as-of input contains missing own-index candle evidence');
   const bar=suppliedBars[index];
+  if(!bar||typeof bar!=='object'||!hasOwnField(bar,'time'))
+   throw Error('Hourly as-of timestamp lacks own field evidence');
   // Check every supplied timestamp, including future timestamps, to reject
   // out-of-order/duplicate archives that could otherwise silently truncate
   // an eligible historical prefix at the first misplaced future candle.
@@ -785,6 +796,9 @@ export function studyHourlyFvgMidpointAsOf(
    throw Error('Invalid or unordered hourly as-of input timestamp');
   previousTime=time;
   if(time+HOUR>asOfClosedAt)continue;
+  // Future OHLC remains unread; completed historical rows need own fields.
+  if(!CANDLE_FIELDS.every(field=>hasOwnField(bar,field)))
+   throw Error('Hourly as-of candle lacks own field evidence');
   prefix.push({time,open:bar.open,high:bar.high,low:bar.low,
    close:bar.close,volume:bar.volume,observed_minutes:bar.observed_minutes});
  }
