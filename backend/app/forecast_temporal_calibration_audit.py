@@ -284,6 +284,42 @@ def _issued_probability_ecdf_shift(early, late):
     return distance, maximum_cdf_gap
 
 
+def _issued_probability_shape_shift(early, late):
+    """Signed, label-free issued-probability location and spread changes.
+
+    Quantiles use nearest-rank p10/p90 and the ordinary midpoint median.
+    These are descriptive on potentially dependent, unauthenticated forecasts.
+    """
+    if not early or not late:
+        return {key: None for key in (
+            "earlyIssuedMeanProbability", "issuedProbabilityMeanShift",
+            "issuedProbabilityMedianShift", "issuedProbabilityInterdecileRangeShift",
+            "earlyIssuedHighConfidenceFraction", "issuedHighConfidenceFractionShift")}
+    before = sorted(row["probability"] for row in early)
+    after = sorted(row["probability"] for row in late)
+
+    def median(values):
+        middle = len(values) // 2
+        return (values[middle] if len(values) % 2 else
+                (values[middle - 1] + values[middle]) / 2)
+
+    def interdecile(values):
+        return (values[math.ceil(.90 * len(values)) - 1] -
+                values[math.ceil(.10 * len(values)) - 1])
+
+    def high_fraction(values):
+        return sum(p <= .10 or p >= .90 for p in values) / len(values)
+
+    return {
+        "earlyIssuedMeanProbability": sum(before) / len(before),
+        "issuedProbabilityMeanShift": sum(after) / len(after) - sum(before) / len(before),
+        "issuedProbabilityMedianShift": median(after) - median(before),
+        "issuedProbabilityInterdecileRangeShift": interdecile(after) - interdecile(before),
+        "earlyIssuedHighConfidenceFraction": high_fraction(before),
+        "issuedHighConfidenceFractionShift": high_fraction(after) - high_fraction(before),
+    }
+
+
 def _issued_probability_shift10(early, late):
     """Label-free, fixed-bin probability distribution shift on ALL issued rows.
 
@@ -315,6 +351,7 @@ def _issued_probability_shift10(early, late):
         "issuedProbabilityJensenShannonBits10": divergence,
         "issuedProbabilityWasserstein1": wasserstein,
         "issuedProbabilityKsGap": ks_gap,
+        **_issued_probability_shape_shift(early, late),
         "issuedProbabilityShiftLowSupportUnder30":
             min(len(early), len(late)) < 30 if early and late else None,
     }
@@ -591,6 +628,8 @@ def audit_temporal_forecast_calibration(snapshot, *, min_per_window=30,
                        "probability-bin outcome availability is descriptive, sparse and "
                        "issued probability divergence is descriptive and bin-dependent; unbinned empirical CDF distances are descriptive, sample-dependent, "
                        "not a statistical drift test or a calibrated probability; "
+                       "signed mean, median, tail and spread changes are descriptive and "
+                       "not seasonal-adjusted, independent or significance-tested; "
                        "cannot prove missingness is random or establish calibration; "
                        "unissued or missing completed candles are outside this census; "
                        "log-loss tail concentration and paired regret are descriptive "
