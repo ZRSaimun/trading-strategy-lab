@@ -459,3 +459,35 @@ def test_direct_retrieve_rejects_unknown_or_unhashable_instrument_before_network
         ))
     assert exc.value.status == 422
     assert seen == []
+
+@pytest.mark.parametrize("nonpositive", ["0", "-1", "-0.00000001"])
+def test_nonpositive_spot_gold_quotes_are_quarantined(nonpositive):
+    # Generic OHLC validation permits signed futures prices. A spot XAU/USD
+    # candle with internally consistent nonpositive OHLC is still invalid.
+    payload = json.loads(_body())
+    for field in ("open", "high", "low", "close"):
+        payload["values"][0][field] = nonpositive
+    with pytest.raises(ProviderError, match="Invalid, duplicate or incomplete"):
+        normalize(payload, "XAUUSD-TD", T + 120)
+    with pytest.raises(ProviderError, match="Invalid, duplicate or incomplete") as exc:
+        _fetch(json.dumps(payload).encode("utf-8"))
+    assert exc.value.status == 502
+    assert "synthetic-only-key" not in str(exc.value)
+
+
+def test_negative_spot_gold_low_rejected_even_when_generic_ohlc_is_consistent():
+    payload = json.loads(_body())
+    payload["values"][0]["low"] = "-0.01"
+    with pytest.raises(ProviderError, match="Invalid, duplicate or incomplete"):
+        _fetch(json.dumps(payload).encode("utf-8"))
+
+
+def test_tiny_strictly_positive_spot_gold_prices_are_not_arbitrarily_clamped():
+    # No invented market-price range: only the zero/nonpositive boundary.
+    payload = json.loads(_body())
+    for field in ("open", "high", "low", "close"):
+        payload["values"][0][field] = "0.00000001"
+    rows, archive = normalize(payload, "XAUUSD-TD", T + 120)
+    assert len(rows) == 1
+    assert rows[0]["close"] > 0
+    assert b"0.00000001" in archive
