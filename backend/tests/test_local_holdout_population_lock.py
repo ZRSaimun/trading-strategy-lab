@@ -379,3 +379,75 @@ def test_balanced_corruption_blocks_new_registration_and_release(
         assert conn.execute(
             "SELECT release_claimed_at_utc FROM holdout_claims WHERE study_id='one'"
         ).fetchone() == (None,)
+
+
+@pytest.mark.parametrize("corruption", [
+    "balanced_row_replacement", "balanced_decision_replacement",
+    "balanced_both_source_replacement",
+])
+def test_frozen_census_rechecked_atomically_before_outcome_loading(
+        tmp_path, clock, corruption):
+    """Balanced reservations can pass count/source-uniformity checks."""
+    from test_declared_holdout_release_gate import fixture as holdout_fixture
+
+    manifest, census, anchor, outcomes, release_at = holdout_fixture()
+    path = tmp_path / "frozen-population.sqlite"
+    register_population_locked_holdout(path, manifest, census)
+    with sqlite3.connect(path) as conn:
+        if corruption == "balanced_row_replacement":
+            conn.execute(
+                "UPDATE holdout_locked_rows SET row_sha256=? WHERE row_sha256=?",
+                ("f" * 64, census[0]["row_sha256"]))
+        elif corruption == "balanced_decision_replacement":
+            conn.execute(
+                "UPDATE holdout_locked_decisions SET decision_at_utc=? "
+                "WHERE decision_at_utc=?", (2101, 2100))
+        else:
+            # Change BOTH reservation tables to one different feed key.
+            # Counts, decision windows and one-source checks still pass.
+            conn.execute("UPDATE holdout_locked_rows SET source_sha256=?",
+                         ("f" * 64,))
+            conn.execute("UPDATE holdout_locked_decisions SET source_sha256=?",
+                         ("f" * 64,))
+    clock[0] = release_at
+    loaded = []
+    def load_outcomes():
+        loaded.append(True)
+        return outcomes
+    with pytest.raises(ValueError, match="Frozen holdout population reservations differ"):
+        registry.audit_declared_holdout_release_once(
+            path, manifest, census, anchor, load_outcomes)
+    assert loaded == []
+    with sqlite3.connect(path) as conn:
+        assert conn.execute(
+            "SELECT release_claimed_at_utc FROM holdout_claims "
+            "WHERE study_id=?", (manifest["study_id"],)).fetchone() == (None,)
+
+
+def test_exact_frozen_population_release_matches_and_remains_one_attempt(
+        tmp_path, clock):
+    from test_declared_holdout_release_gate import fixture as holdout_fixture
+
+    manifest, census, anchor, outcomes, release_at = holdout_fixture()
+    path = tmp_path / "frozen-population-ok.sqlite"
+    register_population_locked_holdout(path, manifest, census)
+    clock[0] = release_at
+    result = registry.audit_declared_holdout_release_once(
+        path, manifest, census, anchor, lambda: outcomes)
+    assert result["local_release_claim"]["local_frozen_population_matched"] is True
+    assert result["declared_audit"]["profitable_edge_verified"] is False
+    with pytest.raises(ValueError, match="already claimed"):
+        registry.audit_declared_holdout_release_once(
+            path, manifest, census, anchor, lambda: outcomes)
+
+
+def test_legacy_direct_claim_does_not_pretend_population_was_checked(
+        tmp_path, clock):
+    path = tmp_path / "legacy-no-population.sqlite"
+    registry.register_local_holdout(
+        path, study_id="legacy", manifest_sha256="a" * 64,
+        holdout_start_at_utc=2000, holdout_end_at_utc=20000)
+    clock[0] = 20001
+    result = registry.claim_local_holdout_release(
+        path, study_id="legacy", manifest_sha256="a" * 64)
+    assert result["local_frozen_population_matched"] is False
