@@ -553,7 +553,7 @@ test('research report source metadata excludes arbitrary caller properties',()=>
  assert.deepEqual(Object.keys(report.source).sort(),Object.keys(source).sort());
  assert.equal(JSON.stringify(report).includes('synthetic-private-marker'),false);
  assert.equal(JSON.stringify(report).includes('synthetic-account-marker'),false);
- assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v41');
+ assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v42');
 });
 test('ambiguous source labels and contradictory volume evidence fail closed',()=>{
  // These are declared metadata, not independent vendor authentication.
@@ -929,7 +929,7 @@ test('an overflowing next-open comparator suppresses both matched markouts',()=>
 });
 test('completed hourly timestamps are safe and numeric rule changes have a new version',()=>{
  const report=studyHourlyFvgMidpoint(fixture(),source);
- assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v41');
+ assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v42');
  const lastSafeAlignedOpen=Math.floor(Number.MAX_SAFE_INTEGER/H)*H;
  assert.equal(Number.isSafeInteger(lastSafeAlignedOpen),true);
  assert.equal(Number.isSafeInteger(lastSafeAlignedOpen+H),false);
@@ -1514,4 +1514,39 @@ test('first-touch volume evidence has its own completed-bar clock, including unk
   assert.equal(noTouch.volumeEvidenceReason,'NOT_EVALUATED');
   assert.equal(noTouch.volumeEvidenceObservedAt,null);
  }
+});
+
+
+test('missing first-touch hour has a causal gap-evidence clock, unlike a right-censored tail',()=>{
+  for(const bearish of [false,true]){
+   const flip=(series:Bar[])=>bearish?series.map(b=>({...b,
+    open:220-b.open,high:220-b.low,low:220-b.high,close:220-b.close})):series;
+   const missing=flip(fixture().filter(b=>b.time!==BASE+33*H));
+   const cutoffBeforeGapReceipt=BASE+34*H;
+   const cutoffAtGapReceipt=BASE+35*H;
+   const before=studyHourlyFvgMidpointAsOf(missing,source,cutoffBeforeGapReceipt)
+    .observations.find(o=>o.formationClosedAt===BASE+33*H);
+   assert.ok(before);
+   assert.equal(before.firstTouchOutcome,'INCOMPLETE_WINDOW');
+   assert.equal(before.firstTouchCensorReason,'RIGHT_CENSORED');
+   assert.equal(before.firstTouchCensorObservedAt,null);
+   const after=studyHourlyFvgMidpointAsOf(missing,source,cutoffAtGapReceipt)
+    .observations.find(o=>o.formationClosedAt===BASE+33*H);
+   assert.ok(after);
+   assert.equal(after.firstTouchOutcome,'INCOMPLETE_WINDOW');
+   assert.equal(after.firstTouchCensorReason,'MISSING_HOUR');
+   assert.equal(after.firstTouchCensorObservedAt,cutoffAtGapReceipt);
+   assert.equal(after.firstTouchOutcomeObservedAt,null,
+    'observing an archive gap cannot establish whether the midpoint was touched');
+   assert.equal(after.strictCandidateObservedAt,null);
+   assert.equal(after.gates.strictCandidate,'INSUFFICIENT_DATA');
+   assert.equal(target(missing).firstTouchCensorObservedAt,cutoffAtGapReceipt,
+    'later market bars cannot move the first gap-evidence clock');
+   const tail=target(flip(fixture().slice(0,33)));
+   assert.equal(tail.firstTouchCensorReason,'RIGHT_CENSORED');
+   assert.equal(tail.firstTouchCensorObservedAt,null);
+   const valid=target(flip(fixture()));
+   assert.equal(valid.firstTouchCensorReason,null);
+   assert.equal(valid.firstTouchCensorObservedAt,null);
+  }
 });
