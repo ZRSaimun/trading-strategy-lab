@@ -7,7 +7,7 @@
  */
 import type {Bar} from './research.ts';
 
-export const HOURLY_FVG_VERSION='hourly-fvg-first-midpoint-touch-v38';
+export const HOURLY_FVG_VERSION='hourly-fvg-first-midpoint-touch-v39';
 export type Evidence='PASS'|'FAIL'|'INSUFFICIENT_DATA';
 export type Side='BULLISH'|'BEARISH';
 export type FvgSource={
@@ -87,6 +87,9 @@ export type PairedWindowOverlapCensus={
 export type PairedCrossStrictOverlapCensus={
  passFail:number;passUnknown:number;failUnknown:number;
 };
+export type PairedMaximumDisjointCensus={
+ all:number;strictPass:number;strictFail:number;strictUnknown:number;
+};
 export type FvgCohort={
  formations:number;firstTouchOutcome:Record<FirstTouchOutcome,number>;
   incompleteWindowByReason:Record<FirstTouchCensorReason,number>;
@@ -103,6 +106,9 @@ export type FvgCohort={
  // Cross-status pair counts reconcile the full overlap count to its three
  // within-status counts, without treating unverified evidence as PASS.
  pairedHoldingWindowCrossStrictCandidate:PairedCrossStrictOverlapCensus;
+ // Maximum non-overlapping completed hypothetical holding windows.
+ // Status subset maxima are independently optimized, NOT additive.
+ pairedMaximumDisjointWindows:PairedMaximumDisjointCensus;
  // Count matched and right-censored candidates by strict evidence status.
  pairedByStrictCandidate:EvidenceCounts;unpairedByStrictCandidate:EvidenceCounts;
  blindOnlyMarkouts:number;
@@ -269,6 +275,33 @@ function summarizeCohort(observations:readonly FvgObservation[],costs:readonly n
  return {overlappingPairCombinations,maxConcurrentPairs};
  };
  const matured=observations.filter(paired);
+ // Earliest-finish interval scheduling maximizes the number of disjoint
+ // completed hypothetical holding windows. This is a dependence sensitivity
+ // count, not a statistically independent sample size or broker exposure.
+ const maximumDisjoint=(eligible:readonly FvgObservation[]):number=>{
+  const windows=eligible.map(o=>{
+   const confirmed=o.confirmedNextOpen!;
+   const start=confirmed.hypotheticalEntryAt;
+   if(start===null||start>=confirmed.exitObservedAt)
+    throw Error('Paired FVG holding window evidence is inconsistent');
+   return {start,end:confirmed.exitObservedAt};
+  }).sort((a,b)=>a.end-b.end||a.start-b.start);
+  let count=0,lastExit=-Infinity;
+  for(const window of windows){
+   if(window.start>=lastExit){
+    count++;
+    lastExit=window.end;
+   }
+  }
+  return count;
+ };
+ const pairedMaximumDisjointWindows:PairedMaximumDisjointCensus={
+  all:maximumDisjoint(matured),
+  strictPass:maximumDisjoint(matured.filter(o=>o.gates.strictCandidate==='PASS')),
+  strictFail:maximumDisjoint(matured.filter(o=>o.gates.strictCandidate==='FAIL')),
+  strictUnknown:maximumDisjoint(matured.filter(o=>
+   o.gates.strictCandidate==='INSUFFICIENT_DATA')),
+ };
  const pairedHoldingWindowOverlap=countOverlaps(matured);
  const pairedHoldingWindowOverlapByStrictCandidate:Record<Evidence,PairedWindowOverlapCensus>={
   PASS:countOverlaps(matured.filter(o=>o.gates.strictCandidate==='PASS')),
@@ -405,7 +438,7 @@ function summarizeCohort(observations:readonly FvgObservation[],costs:readonly n
   formations:observations.length,firstTouchOutcome,incompleteWindowByReason,
   pairedNetSignByCost,pairedGrossOrdering,pairedHoldingWindowOverlap,
   pairedHoldingWindowOverlapByStrictCandidate,
-  pairedHoldingWindowCrossStrictCandidate,
+  pairedHoldingWindowCrossStrictCandidate,pairedMaximumDisjointWindows,
   markoutCensoredByReason,
   midpointTouch:count('midpointTouch'),
   strictCandidate:count('strictCandidate'),
