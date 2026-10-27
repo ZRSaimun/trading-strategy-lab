@@ -260,10 +260,10 @@ def test_disappeared_ledger_cannot_be_recreated_by_read_or_write(tmp_path, monke
         return True if path == p else original(path)
 
     monkeypatch.setattr(ledger.Path, 'is_file', stale_preflight)
-    with pytest.raises(sqlite3.OperationalError):
+    with pytest.raises(ValueError, match='disappeared'):
         inspect_ledger(p)
     assert not p.exists()
-    with pytest.raises(sqlite3.OperationalError):
+    with pytest.raises(ValueError, match='disappeared'):
         prepare_intent(p, recorded_at_ms=100, **KEY)
     assert not p.exists()
 
@@ -303,3 +303,35 @@ def test_ledger_path_uri_escapes_reserved_characters(tmp_path):
     initialize_ledger(p)
     assert inspect_ledger(p)['event_count'] == 0
     assert prepare_intent(p, recorded_at_ms=100, **KEY)['may_submit_real_order'] is False
+
+
+def test_ledger_file_capacity_fails_closed_without_modification(db, monkeypatch):
+    prep(db)
+    before = db.read_bytes()
+    monkeypatch.setattr(ledger, 'MAX_LEDGER_BYTES', 1)
+    with pytest.raises(ValueError, match='byte capacity'):
+        inspect_ledger(db)
+    with pytest.raises(ValueError, match='byte capacity'):
+        attempt(db)
+    assert db.read_bytes() == before
+
+
+def test_sqlite_decoded_value_limit_applied_to_read_and_write(db):
+    for read_only in (True, False):
+        conn = ledger._connect(db, read_only=read_only)
+        try:
+            assert conn.getlimit(sqlite3.SQLITE_LIMIT_LENGTH) == ledger.MAX_SQLITE_VALUE_BYTES
+            with pytest.raises(sqlite3.DataError, match='too big'):
+                conn.execute('SELECT ?', ('x' * (ledger.MAX_SQLITE_VALUE_BYTES + 1),)).fetchone()
+        finally:
+            conn.close()
+
+
+def test_oversized_corrupt_audit_field_fails_closed(db):
+    prep(db)
+    with sqlite3.connect(db) as conn:
+        conn.execute('UPDATE events SET evidence_sha=?', ('x' * 5000,))
+    with pytest.raises(sqlite3.DataError, match='too big'):
+        inspect_ledger(db)
+    with pytest.raises(sqlite3.DataError, match='too big'):
+        attempt(db)
