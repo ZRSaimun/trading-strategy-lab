@@ -507,3 +507,16 @@ market-source authentication, forecast skill, actual alerts, executable
 BID/ASK, net paper P&L, or trading permissions follow from these distances.
 Loop 1 must provide separately authenticated completed-candle/session
 inventories and receipt timestamps before operational use.
+
+## Signed issued-probability location, spread and confidence drift (27 October 2026)
+
+The same **all-issued** early/late cohorts now also report:
+
+- `earlyIssuedMeanProbability`: mean UP probability in the early cohort.
+- `issuedProbabilityMeanShift`: late minus early mean UP probability (signed).
+- `issuedProbabilityMedianShift`: late minus early midpoint median.
+- `issuedProbabilityInterdecileRangeShift`: late minus early (nearest-rank p90 - p10), indicating wider/narrower output distributions.
+- `earlyIssuedHighConfidenceFraction`: early share with p<=0.10 or p>=0.90.
+- `issuedHighConfidenceFractionShift`: late minus early share above those confidence thresholds.
+
+All six are null when either cohort is empty; they use no outcomes and are unchanged by pending, void, overlapping or as-of-unresolved settlement states. Signed shifts complement nonnegative W1/KS/JS distances: a zero mean shift can coexist with a much wider probability distribution. The existing `issuedProbabilityShiftLowSupportUnder30` flag applies. Nearest-rank quantiles are sample-sensitive, and confidence thresholds are fixed rather than optimized. These are not seasonality-adjusted, independent or statistically significant drift tests; journal source and issuance timestamps are not authenticated. No alert, paper order, live order or performance claim is authorized.
