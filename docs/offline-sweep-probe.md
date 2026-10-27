@@ -135,3 +135,45 @@ liquidity or the maximum adverse fill. The diagnostic is not a finite
 worst-case bound, a probability estimate, a strategy selection criterion,
 or a live-order permission. Do not compare or tune candidate strategies
 against the already-inspected exploratory later periods as if untouched.
+
+
+## Same-bar stop/target collision audit (additive v3 diagnostic)
+
+A completed 15-minute source OHLC candle can touch both a hypothetical stop
+and a 2R target without revealing the intrabar path. The fixed research
+protocol **continues to book the stop first**, including when the source
+open is already at or beyond the target. This deliberately conservative
+rule can be pessimistic and is not evidence of an executable broker fill.
+
+For every **observed stop exit** where both barriers were touched, the
+new `same_bar_stop_target_collision_census` classifies the source opening
+price relative to the two barriers:
+
+- `opens_at_or_beyond_stop`: source opening already crosses the stop;
+  the existing source-open adverse gap-loss proxy remains in force.
+- `opens_at_or_beyond_target`: source opening already crosses the target;
+  the original stop-first rule still books a stop, intentionally.
+- `opens_between_barriers_order_unknown`: source opening is between
+  barriers; OHLC cannot establish which barrier was reached first.
+
+The three counts sum exactly to `both_barriers_touched`, which cannot
+exceed the number of observed stop exits. Entered but censored trades,
+unobservable entries, invalid geometry and non-collision exits are never
+assigned a collision. The report retains the original observed-outcome
+denominator and records zero-count/null-mean behavior for empty cohorts.
+
+A **fixed-cohort, conditional** sensitivity value counts +3R per collision
+that did *not* open at/beyond the stop, because a hypothetical +2R target
+would replace the existing -1R stop. It is reported as
+`fixed_cohort_target_first_uplift_r_sum` and
+`fixed_cohort_target_first_uplift_r_per_observed`. This is **not** an
+alternative strategy backtest, a real execution result, or a statistical
+upper bound: changing an exit could alter which later positions are
+admitted, source OHLC may not be executable, and financing/spreads and
+unobserved gaps remain unknown. The signal selection, stop-first outcomes,
+cost scenarios, chronological split and position reservations are unchanged.
+
+The diagnostic is for inspecting **intrabar path uncertainty**, not for
+selecting a favorable fill rule or tuning against the repeatedly inspected
+later-period observations. Historical results cannot be called authenticated
+or independently held out without separate provenance and broker evidence.
