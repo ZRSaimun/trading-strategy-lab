@@ -101,3 +101,29 @@ def test_fail_closed_on_inconsistent_report(mutation):
     mutation(payload)
     with pytest.raises((ValueError, KeyError)):
         audit_research(payload)
+
+
+@pytest.mark.parametrize("delta", [D("0.1"), D("2")])
+def test_rejects_correlated_observed_cost_and_stress_tampering(delta):
+    """Changing both tables together used to evade the censored stress identity."""
+    payload = fixture()
+    cohort = payload["research"]["cohorts"]["development"]
+    five_bps = cohort["cost_scenarios"][1]
+    five_bps["sum_net_r"] = str(D(five_bps["sum_net_r"]) + delta)
+    for row in cohort["censored_entered_loss_stress_scenarios"]:
+        if row["additional_round_trip_bps"] == 5:
+            row["sum_net_r_if_assumption"] = str(
+                D(row["sum_net_r_if_assumption"]) + delta)
+    with pytest.raises(ValueError, match="Observed cost"):
+        audit_research(payload)
+
+
+def test_rejects_nonzero_observed_sum_with_zero_observed_trades():
+    payload = fixture(observed=0, censored=2)
+    cohort = payload["research"]["cohorts"]["development"]
+    for row in cohort["cost_scenarios"]:
+        row["sum_net_r"] = "1"
+    for row in cohort["censored_entered_loss_stress_scenarios"]:
+        row["sum_net_r_if_assumption"] = str(D(row["sum_net_r_if_assumption"]) + 1)
+    with pytest.raises(ValueError, match="no observed trades"):
+        audit_research(payload)
