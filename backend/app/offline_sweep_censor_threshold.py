@@ -107,6 +107,21 @@ def audit_research(payload):
                         str((censored_cost - observed_net) / censored) if censored else None),
                     observed_net_r_sum=str(observed_net),
                     implied_censored_additional_cost_r_sum=str(censored_cost)))
+            # Frozen observed trades incur a nonnegative charge linear in bps.
+            # A corrupted cost table can otherwise pass the censored stress
+            # identities when the stress rows are altered by the same amount.
+            observed_sums = {bps: _decimal(cost[bps]["sum_net_r"]) for bps in COSTS}
+            if observed == 0 and any(not _close(value, Decimal(0))
+                                     for value in observed_sums.values()):
+                raise ValueError("Nonzero observed return with no observed trades")
+            observed_five_bps_charge = observed_sums[0] - observed_sums[5]
+            if observed_five_bps_charge < 0 and not _close(
+                    observed_five_bps_charge, Decimal(0)):
+                raise ValueError("Observed cost increases net return")
+            for bps in (10, 20):
+                if not _close(observed_sums[0] - observed_sums[bps],
+                              observed_five_bps_charge * Decimal(bps) / 5):
+                    raise ValueError("Nonlinear observed cost scenarios")
             if not _close(censored_costs[0], Decimal(0)):
                 raise ValueError("Nonzero censored cost at zero bps")
             for bps in (10, 20):
