@@ -92,6 +92,13 @@ def register_local_holdout(db_path, *, study_id, manifest_sha256,
         conn.execute("BEGIN IMMEDIATE")
         try:
             conn.execute(_SCHEMA)
+            # Do not allow the legacy, row-unreserved path to bypass a
+            # population-locked registry in this same SQLite database.
+            if conn.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' "
+                "AND name='holdout_locked_rows'"
+            ).fetchone() is not None:
+                raise ValueError("Population-locked registry rejects legacy registration")
             conn.execute("INSERT INTO holdout_claims VALUES (?, ?, ?, ?, ?, NULL)",
                          (study_id, manifest_sha256, holdout_start_at_utc,
                           holdout_end_at_utc, now))

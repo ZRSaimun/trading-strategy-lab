@@ -59,6 +59,15 @@ def register_population_locked_holdout(db_path, manifest, census):
         try:
             conn.execute(_SCHEMA)
             conn.execute(_ROW_SCHEMA)
+            # A legacy study registered before the first population lock has
+            # no row reservations. Refuse to mix registration modes rather
+            # than claim complete cross-study overlap protection.
+            if conn.execute(
+                "SELECT 1 FROM holdout_claims AS c WHERE NOT EXISTS "
+                "(SELECT 1 FROM holdout_locked_rows AS r WHERE r.study_id=c.study_id) "
+                "LIMIT 1"
+            ).fetchone() is not None:
+                raise ValueError("Legacy unreserved holdout claims block population locking")
             conn.execute(
                 "INSERT INTO holdout_claims VALUES (?, ?, ?, ?, ?, NULL)",
                 (study_id, digest, manifest["holdout_start_at_utc"],

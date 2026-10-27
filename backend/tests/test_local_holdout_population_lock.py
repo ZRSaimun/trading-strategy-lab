@@ -163,3 +163,32 @@ def test_same_rows_different_archive_or_account_still_rejected(tmp_path, clock):
     other_account["source"]["account_alias"] = "another-account"
     with pytest.raises(sqlite3.IntegrityError):
         register_population_locked_holdout(path, other_account, same_rows)
+
+
+def test_legacy_registration_rejected_after_population_lock(tmp_path, clock):
+    path = tmp_path / "locked.sqlite"
+    manifest, census = _study()
+    register_population_locked_holdout(path, manifest, census)
+    with pytest.raises(ValueError, match="rejects legacy registration"):
+        registry.register_local_holdout(
+            path, study_id="legacy", manifest_sha256="f" * 64,
+            holdout_start_at_utc=2000, holdout_end_at_utc=20000)
+    with sqlite3.connect(path) as conn:
+        assert conn.execute("SELECT count(*) FROM holdout_claims").fetchone() == (1,)
+        assert conn.execute("SELECT count(*) FROM holdout_locked_rows").fetchone() == (35,)
+
+
+def test_preexisting_legacy_registration_blocks_first_population_lock(tmp_path, clock):
+    path = tmp_path / "legacy.sqlite"
+    registry.register_local_holdout(
+        path, study_id="legacy", manifest_sha256="f" * 64,
+        holdout_start_at_utc=2000, holdout_end_at_utc=20000)
+    manifest, census = _study(study="new", offset=100)
+    with pytest.raises(ValueError, match="Legacy unreserved holdout claims"):
+        register_population_locked_holdout(path, manifest, census)
+    with sqlite3.connect(path) as conn:
+        assert conn.execute("SELECT count(*) FROM holdout_claims").fetchone() == (1,)
+        assert conn.execute(
+            "SELECT count(*) FROM sqlite_master WHERE type='table' "
+            "AND name='holdout_locked_rows'"
+        ).fetchone() == (0,)
