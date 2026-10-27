@@ -101,10 +101,11 @@ async def retrieve(key,instrument,limit,end,now,transport=None, *, include_wire_
     # Validate caller-controlled boundaries BEFORE constructing a paid request.
     # bool is an int in Python, and nonfinite/out-of-range values can otherwise
     # raise unsanitized exceptions or silently distort the requested UTC window.
-    if (type(end) not in (int,float) or type(now) not in (int,float) or
-            not math.isfinite(end) or not math.isfinite(now)):
+    if type(end) not in (int,float) or type(now) not in (int,float):
         raise ProviderError('Invalid UTC request timestamp; no provider call.',422)
     try:
+        if not math.isfinite(end) or not math.isfinite(now):
+            raise ValueError('Nonfinite UTC boundary')
         end_date = datetime.fromtimestamp(end,timezone.utc).strftime('%Y-%m-%d %H:%M:%S')
         datetime.fromtimestamp(now,timezone.utc)
     except (OverflowError,OSError,ValueError):
