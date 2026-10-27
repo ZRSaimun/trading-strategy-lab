@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from app.offline_sweep_aggregate_censor_tipping import audit_censored_tipping
+from app.offline_sweep_aggregate_censor_tipping import _tipping, audit_censored_tipping
 
 FIXTURE = (Path(__file__).resolve().parents[2] / "docs" /
            "offline-sweep-32-archive-confluence-aggregate-20261027.json")
@@ -81,3 +81,40 @@ def test_corrupt_population_rejected_before_tipping_calculation():
     data["states"][0]["censored"] += 1
     with pytest.raises(ValueError):
         audit_censored_tipping(data)
+
+
+@pytest.mark.parametrize("observed,censored,weighted", [
+    (1, 3, "-0.00001"),
+    (1, 3, "0.00001"),
+    (2, 7, "0.00001"),
+    (2, 7, "-0.00001"),
+    (2043, 244, "-628.43952"),
+])
+def test_synthetic_tipping_bounds_are_outward_rounded(observed, censored, weighted):
+    total = Decimal(weighted)
+    result = _tipping(observed, censored, total)
+    centre = -total / censored
+    uncertainty = Decimal("0.000005") * observed / censored
+    lower = Decimal(result["required_unknown_mean_net_r_min"])
+    upper = Decimal(result["required_unknown_mean_net_r_max"])
+    assert lower <= centre - uncertainty
+    assert upper >= centre + uncertainty
+    assert upper - lower < 2 * uncertainty + Decimal("0.00000002")
+    assert abs(Decimal(result["required_unknown_mean_net_r"]) - centre) <= Decimal("0.000000005")
+
+
+def test_synthetic_rounding_direction_regressions():
+    # Half-even previously rounded this lower endpoint upward, falsely
+    # excluding possible values inside the declared five-decimal uncertainty.
+    positive = _tipping(1, 3, Decimal("-0.00001"))
+    assert positive["required_unknown_mean_net_r_min"] == "0.00000166"
+    # Half-even previously rounded this upper endpoint downward.
+    negative = _tipping(1, 3, Decimal("0.00001"))
+    assert negative["required_unknown_mean_net_r_max"] == "-0.00000166"
+
+
+def test_no_unknown_exits_still_reports_null_tipping_bounds():
+    result = _tipping(5, 0, Decimal("-2"))
+    assert result["status"] == "NO_UNKNOWN_EXITS"
+    assert result["required_unknown_mean_net_r_min"] is None
+    assert result["required_unknown_mean_net_r_max"] is None
