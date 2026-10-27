@@ -154,3 +154,19 @@ The rule does not resolve general SQLite pathname TOCTOU races, defend against a
 ## SQLite super-journal filename alias quarantine (27 October 2026)
 
 SQLite can create a **super-journal** when a transaction modifies multiple attached databases. Its filename uses a randomized suffix in the main database directory (see [SQLite temporary files](https://www.sqlite.org/tempfiles.html#superjournals)). The ledger now conservatively rejects filenames ending in `-mj` followed by alphanumeric characters (case-insensitively), in addition to `-journal`, `-wal` and `-shm`. This avoids accidentally treating another database's multi-database recovery evidence as a separate ledger. Four synthetic cases exercise creation, read-only inspection and preparation for these aliases, while preserving existing file bytes. This is defense in depth; it does not prove that every SQLite VFS uses these filenames, eliminate pathname races or authenticate broker records. No order sender or trading permission is introduced.
+
+
+## Initialization-sidecar revalidation (27 October 2026)
+
+One-time ledger creation now rechecks WAL/SHM and rollback-journal path safety,
+as well as the 32 MiB database byte ceiling, at every existing file-identity
+checkpoint: after SQLite opens, before schema DDL commit, and after commit.
+This closes a gap where a sidecar appearing after the initial SQLite-open
+preflight could otherwise go unnoticed by initialization's identity-only
+checks. Four synthetic regression cases inject symlinked `-wal`, `-shm`,
+and `-journal` sidecars or an oversized database immediately after SQLite
+opens, before schema DDL. The operation fails closed and preserves the
+quarantined file/evidence for manual inspection. This is not an atomic
+file-descriptor-based defense against a privileged attacker swapping paths
+between checks; a post-commit rejection cannot undo an already committed
+SQLite transaction. It grants no broker order permission.
