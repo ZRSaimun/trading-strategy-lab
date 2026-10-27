@@ -39,6 +39,27 @@ def _calibration_ece10(rows):
     return sum(abs(predicted - observed) for predicted, observed in totals) / len(rows)
 
 
+
+def _calibration_bin_diagnostics10(rows):
+    """Fixed ten-bin audit trail for ECE, on the same settled scoring census.
+
+    Empty bins have null rates; no missing observations are synthesized.
+    Bin 9 includes the upper endpoint probability 1.0.
+    """
+    bins = [[0.0, 0, 0] for _ in range(10)]
+    for row in rows:
+        bucket = bins[min(9, int(row["probability"] * 10))]
+        bucket[0] += row["probability"]
+        bucket[1] += int(row["outcomeUp"])
+        bucket[2] += 1
+    return [
+        {"bin": index, "count": count,
+         "meanProbability": predicted / count if count else None,
+         "observedUpRate": observed / count if count else None}
+        for index, (predicted, observed, count) in enumerate(bins)
+    ]
+
+
 def audit_temporal_forecast_calibration(snapshot, *, min_per_window=30,
                                         brier_deterioration=0.05,
                                         max_unresolved_fraction=0.10):
@@ -149,7 +170,8 @@ def audit_temporal_forecast_calibration(snapshot, *, min_per_window=30,
             "lateBrierSkillVsFrozenEarlyClimatology": None,
             "lateMeanProbability": None, "lateObservedUpRate": None,
             "lateAbsoluteCalibrationGap": None,
-            "lateExpectedCalibrationError10": None, "descriptiveDriftFlag": None,
+            "lateExpectedCalibrationError10": None, "lateEceBins10": None,
+            "descriptiveDriftFlag": None,
             "status": "INSUFFICIENT_NONOVERLAPPING_OUTCOMES" if not sufficient
                       else "UNRESOLVED_SELECTION_RISK" if not complete_enough
                       else "DESCRIPTIVE_ONLY",
@@ -170,6 +192,7 @@ def audit_temporal_forecast_calibration(snapshot, *, min_per_window=30,
                 lateAbsoluteCalibrationGap=abs(
                     sum(r["probability"] - int(r["outcomeUp"]) for r in test) / len(test)),
                 lateExpectedCalibrationError10=_calibration_ece10(test),
+                lateEceBins10=_calibration_bin_diagnostics10(test),
                 descriptiveDriftFlag=delta >= brier_deterioration,
             )
             if entry["descriptiveDriftFlag"]:
