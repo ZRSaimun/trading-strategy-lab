@@ -897,3 +897,24 @@ def test_initialization_rejects_parent_traversal_without_creating(
     with pytest.raises(ValueError, match='parent traversal components'):
         initialize_ledger(alias / '..' / target.name)
     assert not target.exists()
+
+
+@pytest.mark.parametrize('suffix', ['-journal', '-wal', '-shm'])
+def test_reserved_sqlite_sidecar_filename_rejected_before_creation_or_open(
+        tmp_path, suffix):
+    """A ledger must not alias the recovery sidecar of another SQLite DB."""
+    alias = tmp_path / ('other.sqlite' + suffix)
+    with pytest.raises(ValueError, match='SQLite sidecar suffix'):
+        initialize_ledger(alias)
+    assert not alias.exists()
+
+    original = tmp_path / 'safe.sqlite'
+    initialize_ledger(original)
+    original.rename(alias)
+    unchanged = alias.read_bytes()
+    with pytest.raises(ValueError, match='SQLite sidecar suffix'):
+        inspect_ledger(alias)
+    with pytest.raises(ValueError, match='SQLite sidecar suffix'):
+        prep(alias)
+    assert alias.read_bytes() == unchanged
+    assert not (tmp_path / 'other.sqlite').exists()
