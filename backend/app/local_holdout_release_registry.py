@@ -279,6 +279,13 @@ def claim_local_holdout_release(db_path, *, study_id, manifest_sha256,
                         actual_pairs != expected_pairs):
                     raise ValueError("Frozen holdout population reservations differ")
                 population_matched = True
+            # A direct legacy claim without the frozen census must not burn
+            # a population-locked study while bypassing its exact pairing
+            # verification. Unreserved legacy registries remain compatible.
+            if tables and not population_matched:
+                raise ValueError(
+                    "Population-locked release requires exact frozen census verification"
+                )
             # The first clock sample precedes the SQLite writer lock. A
             # delayed claim must not use that stale sample if the local clock
             # has moved backwards while waiting for the transaction.
