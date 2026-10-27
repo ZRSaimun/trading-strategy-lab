@@ -938,3 +938,46 @@ def test_sqlite_super_journal_alias_rejected_before_creation_or_open(tmp_path, s
         prep(alias)
     assert alias.read_bytes() == unchanged
     assert not (tmp_path / 'other.sqlite').exists()
+
+
+@pytest.mark.parametrize('suffix', ['-wal', '-shm', '-journal'])
+def test_initialize_quarantines_sidecar_injected_after_sqlite_open(
+        tmp_path, monkeypatch, suffix):
+    """Schema creation must not trust only the earlier SQLite-open preflight."""
+    db = tmp_path / 'init-race.sqlite'
+    sidecar = ledger.Path(str(db) + suffix)
+    protected = tmp_path / 'protected-evidence'
+    protected.write_bytes(b'keep-original')
+    real_connect = ledger._connect
+
+    def inject_after_connect(*args, **kwargs):
+        conn = real_connect(*args, **kwargs)
+        sidecar.symlink_to(protected)
+        return conn
+
+    monkeypatch.setattr(ledger, '_connect', inject_after_connect)
+    with pytest.raises(ValueError, match=(
+            'Unreviewed SQLite WAL/SHM sidecar' if suffix != '-journal'
+            else 'Unsafe SQLite rollback journal')):
+        initialize_ledger(db)
+    assert db.exists()  # Failed initialization is quarantined, never deleted.
+    assert sidecar.is_symlink()
+    assert protected.read_bytes() == b'keep-original'
+
+
+def test_initialize_quarantines_growth_after_sqlite_open(tmp_path, monkeypatch):
+    """Reject an oversized new database before schema DDL is attempted."""
+    db = tmp_path / 'init-growth.sqlite'
+    real_connect = ledger._connect
+
+    def grow_after_connect(*args, **kwargs):
+        conn = real_connect(*args, **kwargs)
+        with db.open('r+b') as f:
+            f.truncate(ledger.MAX_LEDGER_BYTES + 1)
+        return conn
+
+    monkeypatch.setattr(ledger, '_connect', grow_after_connect)
+    with pytest.raises(ValueError, match='reviewed byte capacity'):
+        initialize_ledger(db)
+    assert db.exists()
+    assert db.stat().st_size == ledger.MAX_LEDGER_BYTES + 1
