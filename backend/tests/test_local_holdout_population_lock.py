@@ -264,3 +264,29 @@ def test_incomplete_timestamp_reservation_population_rejected(tmp_path, clock):
         assert conn.execute("SELECT count(*) FROM holdout_claims").fetchone() == (1,)
         assert conn.execute("SELECT count(*) FROM holdout_locked_rows").fetchone() == (35,)
         assert conn.execute("SELECT count(*) FROM holdout_locked_decisions").fetchone() == (34,)
+
+
+def test_future_dated_declared_registration_is_rejected_without_creating_db(tmp_path, clock):
+    path = tmp_path / "future.sqlite"
+    manifest, census = _study()
+    # Local clock 1249 precedes the declared registration at 1250, although
+    # both timestamps are before the holdout start. This is not valid evidence.
+    clock[0] = 1249
+    with pytest.raises(ValueError, match="precedes declared registration"):
+        register_population_locked_holdout(path, manifest, census)
+    assert not path.exists()
+
+
+def test_registration_at_declared_time_allowed_and_future_claim_preserves_db(tmp_path, clock):
+    path = tmp_path / "locked.sqlite"
+    first, rows = _study()
+    clock[0] = first["registered_at_utc"]
+    assert register_population_locked_holdout(path, first, rows)["locked_observation_count"] == 35
+    second, other_rows = _study(study="second", offset=100, decision_offset=5000)
+    second["registered_at_utc"] = clock[0] + 1
+    with pytest.raises(ValueError, match="precedes declared registration"):
+        register_population_locked_holdout(path, second, other_rows)
+    with sqlite3.connect(path) as conn:
+        assert conn.execute("SELECT count(*) FROM holdout_claims").fetchone() == (1,)
+        assert conn.execute("SELECT count(*) FROM holdout_locked_rows").fetchone() == (35,)
+        assert conn.execute("SELECT count(*) FROM holdout_locked_decisions").fetchone() == (35,)
