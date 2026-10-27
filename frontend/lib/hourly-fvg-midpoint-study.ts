@@ -7,7 +7,7 @@
  */
 import type {Bar} from './research.ts';
 
-export const HOURLY_FVG_VERSION='hourly-fvg-first-midpoint-touch-v23';
+export const HOURLY_FVG_VERSION='hourly-fvg-first-midpoint-touch-v24';
 export type Evidence='PASS'|'FAIL'|'INSUFFICIENT_DATA';
 export type Side='BULLISH'|'BEARISH';
 export type FvgSource={
@@ -401,14 +401,19 @@ export function studyHourlyFvgMidpointAsOf(
  if(!Array.isArray(suppliedBars)||suppliedBars.length>20000)
   throw Error('Invalid or oversized hourly research window');
  const prefix:Bar[]=[];
+ let previousTime:number|null=null;
  for(const bar of suppliedBars){
-  // Only a future bar's timestamp is needed to establish the boundary.
-  // Never inspect its OHLC, volume or observed-minute count.
+  // Check every supplied timestamp, including future timestamps, to reject
+  // out-of-order/duplicate archives that could otherwise silently truncate
+  // an eligible historical prefix at the first misplaced future candle.
+  // Never inspect OHLC, volume or coverage of a future candle.
   const time=bar?.time;
   if(!Number.isSafeInteger(time)||time<0||time%HOUR!==0||
-   !Number.isSafeInteger(time+HOUR))
-   throw Error('Invalid hourly as-of input timestamp');
-  if(time+HOUR>asOfClosedAt)break;
+   !Number.isSafeInteger(time+HOUR)||
+   (previousTime!==null&&time<=previousTime))
+   throw Error('Invalid or unordered hourly as-of input timestamp');
+  previousTime=time;
+  if(time+HOUR>asOfClosedAt)continue;
   prefix.push({time,open:bar.open,high:bar.high,low:bar.low,
    close:bar.close,volume:bar.volume,observed_minutes:bar.observed_minutes});
  }

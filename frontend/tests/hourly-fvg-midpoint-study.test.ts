@@ -57,6 +57,38 @@ test('as-of hourly study never reads future OHLC or promotes right-censored retu
   assert.throws(()=>studyHourlyFvgMidpointAsOf(bars,source,cutoff),/Invalid UTC hourly as-of close/);
 });
 
+test('as-of prefix rejects out-of-order future timestamps without reading future prices',()=>{
+ const bars=fixture(),cutoff=BASE+33*H;
+ const baseline=studyHourlyFvgMidpoint(bars.slice(0,33),source);
+ const protectedFuture=fixture();
+ let futureTimeReads=0;
+ for(let i=33;i<protectedFuture.length;i++){
+  const time=protectedFuture[i].time;
+  Object.defineProperty(protectedFuture[i],'time',{get(){
+   futureTimeReads++;
+   return time;
+  }});
+  for(const field of ['open','high','low','close','volume','observed_minutes'])
+   Object.defineProperty(protectedFuture[i],field,{get(){
+    throw Error('future '+field+' must not be inspected');
+   }});
+ }
+ assert.deepEqual(studyHourlyFvgMidpointAsOf(protectedFuture,source,cutoff),baseline);
+ assert.equal(futureTimeReads,protectedFuture.length-33,
+  'all future timestamps are checked for ordering without reading future prices');
+ // Previously the first future candle terminated the scan, silently hiding
+ // an older eligible candle and producing a plausible but incomplete report.
+ const interleaved=[...bars.slice(0,33),bars[35],bars[33],bars[34]];
+ assert.throws(()=>studyHourlyFvgMidpointAsOf(interleaved,source,cutoff),
+  /Invalid or unordered hourly as-of input timestamp/);
+ const duplicatedFuture=[...bars.slice(0,33),bars[34],bars[34]];
+ assert.throws(()=>studyHourlyFvgMidpointAsOf(duplicatedFuture,source,cutoff),
+  /Invalid or unordered hourly as-of input timestamp/);
+ const invalidFuture=[...bars.slice(0,33),{...bars[34],time:bars[34].time+1}];
+ assert.throws(()=>studyHourlyFvgMidpointAsOf(invalidFuture,source,cutoff),
+  /Invalid or unordered hourly as-of input timestamp/);
+});
+
 test('strict and markout clocks are causal for bullish/bearish paired, rejected and censored cases',()=>{
  for(const bearish of [false,true]){
   const flip=(series:Bar[])=>bearish?series.map(b=>({...b,
@@ -371,7 +403,7 @@ test('research report source metadata excludes arbitrary caller properties',()=>
  assert.deepEqual(Object.keys(report.source).sort(),Object.keys(source).sort());
  assert.equal(JSON.stringify(report).includes('synthetic-private-marker'),false);
  assert.equal(JSON.stringify(report).includes('synthetic-account-marker'),false);
- assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v23');
+ assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v24');
 });
 test('ambiguous source labels and contradictory volume evidence fail closed',()=>{
  // These are declared metadata, not independent vendor authentication.
@@ -746,7 +778,7 @@ test('an overflowing next-open comparator suppresses both matched markouts',()=>
 });
 test('completed hourly timestamps are safe and numeric rule changes have a new version',()=>{
  const report=studyHourlyFvgMidpoint(fixture(),source);
- assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v23');
+ assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v24');
  const lastSafeAlignedOpen=Math.floor(Number.MAX_SAFE_INTEGER/H)*H;
  assert.equal(Number.isSafeInteger(lastSafeAlignedOpen),true);
  assert.equal(Number.isSafeInteger(lastSafeAlignedOpen+H),false);
