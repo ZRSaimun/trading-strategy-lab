@@ -269,6 +269,13 @@ def initialize_ledger(path):
                 != (created.st_dev, created.st_ino)):
             raise ValueError('New ledger file identity changed during initialization')
         _private_file(current)
+        # SQLite may have opened successfully before an unsafe recovery
+        # sidecar appeared. Recheck throughout one-time initialization,
+        # including immediately before and after committing schema DDL.
+        _reject_wal_sidecars(p)
+        _validate_rollback_journal(p)
+        if current.st_size > MAX_LEDGER_BYTES:
+            raise ValueError('Ledger file exceeds reviewed byte capacity')
 
     try:
         # Existing-only SQLite URI: a removed freshly created file must not
