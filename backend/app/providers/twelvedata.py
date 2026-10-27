@@ -119,6 +119,15 @@ async def retrieve(key,instrument,limit,end,now,transport=None, *, include_wire_
                         (lengths and (re.fullmatch(r'[0-9]{1,8}', lengths[0]) is None
                                       or int(lengths[0]) > MAX_BYTES))):
                     raise ProviderError('Invalid or oversized provider response length; no data imported.')
+                # A Content-Length header is a claim about the exact entity
+                # body size, not just an upper bound. Reject conflicting
+                # framing and incomplete/overlong responses before JSON parse.
+                # Transfer-Encoding without Content-Length remains supported
+                # (HTTP/1.1 chunked transfer has no declared entity length).
+                transfer_encodings = response.headers.get_list('transfer-encoding')
+                if lengths and transfer_encodings:
+                    raise ProviderError('Conflicting provider response framing; no data imported.')
+                declared_length = int(lengths[0]) if lengths else None
                 raw=bytearray()
                 if response.is_stream_consumed and transport is not None:
                     # Injected mock transports may return an already-buffered
@@ -132,6 +141,8 @@ async def retrieve(key,instrument,limit,end,now,transport=None, *, include_wire_
                         if len(chunk) > MAX_BYTES - len(raw):
                             raise ProviderError('Provider response exceeded the safe size limit.')
                         raw.extend(chunk)
+                if declared_length is not None and len(raw) != declared_length:
+                    raise ProviderError('Provider response length mismatch; no data imported.')
                 payload=json.loads(raw,object_pairs_hook=_reject_duplicate_response_keys,
                                    parse_constant=_reject_nonstandard_response_constant)
     except (httpx.HTTPError,ValueError):
