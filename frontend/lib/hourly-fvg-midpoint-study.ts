@@ -7,7 +7,7 @@
  */
 import type {Bar} from './research.ts';
 
-export const HOURLY_FVG_VERSION='hourly-fvg-first-midpoint-touch-v46';
+export const HOURLY_FVG_VERSION='hourly-fvg-first-midpoint-touch-v47';
 export type Evidence='PASS'|'FAIL'|'INSUFFICIENT_DATA';
 // First-touch volume evidence is not independent broker/source authentication.
 export type VolumeEvidenceReason='NOT_EVALUATED'|'SOURCE_UNVERIFIED'|
@@ -598,6 +598,15 @@ export function studyHourlyFvgMidpoint(
  if(!source||typeof source!=='object'||
   !SOURCE_FIELDS.every(field=>hasOwnField(source,field)))
   throw Error('Invalid source identity, volume provenance or frozen FVG study settings');
+ // Reject undeclared own source keys before reading their values. An extra
+ // certification or side alias must not silently disappear from the exported
+ // provenance while a researcher believes it was part of the study.
+ // Reflect.ownKeys also catches hidden properties and symbols without
+ // invoking unrecognized getters. This validates declarations, not vendors.
+ for(const key of Reflect.ownKeys(source)){
+  if(!SOURCE_FIELDS.some(field=>field===key))
+   throw Error('Unexpected FVG source declaration outside frozen provenance schema');
+ }
  const declaredSource:FvgSource={
   datasetId:source.datasetId,archiveSha256:source.archiveSha256,
   instrument:source.instrument,provider:source.provider,
