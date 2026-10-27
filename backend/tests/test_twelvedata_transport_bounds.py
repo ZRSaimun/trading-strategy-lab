@@ -143,3 +143,56 @@ def test_absent_length_header_keeps_bounded_identity_stream_supported():
     (rows, _, wire), _ = _fetch(body)
     assert len(rows) == 1
     assert wire["decoded_http_body_bytes"] == len(body)
+
+
+@pytest.mark.parametrize("limit", [True, False, 0, 5001, 1.5, "1", None])
+def test_invalid_request_limit_is_rejected_before_provider_call(limit):
+    # Avoid charging a provider or sending a distorted outputsize when callers
+    # accidentally supply booleans, fractional numbers or strings.
+    transport = httpx.MockTransport(lambda request: pytest.fail("No HTTP request expected"))
+    with pytest.raises(ProviderError, match="integer count") as exc:
+        asyncio.run(retrieve(
+            "synthetic-only-key", "XAUUSD-TD", limit, T, T + 120,
+            transport=transport,
+        ))
+    assert exc.value.status == 422
+
+
+@pytest.mark.parametrize("end,now", [
+    (float("nan"), T + 120),
+    (float("inf"), T + 120),
+    (float("-inf"), T + 120),
+    ("1790000040", T + 120),
+    (True, T + 120),
+    (10 ** 30, T + 120),
+    (T, float("nan")),
+    (T, float("inf")),
+    (T, None),
+    (T, False),
+    (T, 10 ** 30),
+])
+def test_invalid_utc_boundary_is_rejected_before_provider_call(end, now):
+    transport = httpx.MockTransport(lambda request: pytest.fail("No HTTP request expected"))
+    with pytest.raises(ProviderError, match="Invalid UTC request timestamp") as exc:
+        asyncio.run(retrieve(
+            "synthetic-only-key", "XAUUSD-TD", 1, end, now,
+            transport=transport, include_wire_evidence=True,
+        ))
+    assert exc.value.status == 422
+
+
+def test_valid_fractional_epoch_seconds_preserve_existing_boundary_behavior():
+    # Epoch inputs may be fractional; the HTTP end_date remains second-precision.
+    body = _body()
+    requests = []
+    def handler(request):
+        requests.append(request)
+        return httpx.Response(200, stream=httpx.ByteStream(body))
+    rows, _ = asyncio.run(retrieve(
+        "synthetic-only-key", "XAUUSD-TD", 1, T + 0.5, T + 120.5,
+        transport=httpx.MockTransport(handler),
+    ))
+    assert len(rows) == 1
+    assert len(requests) == 1
+    assert requests[0].url.params["end_date"] == datetime.fromtimestamp(
+        T, timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
