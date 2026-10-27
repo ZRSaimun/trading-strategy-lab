@@ -41,6 +41,7 @@ def reconcile(db, outcome='FILLED', **kw):
 def test_new_ledger_empty(db):
     x = inspect_ledger(db)
     assert x['event_count'] == 0 and x['order_count'] == 0
+    assert x['last_recorded_at_ms'] is None
     assert x['may_submit_real_order'] is False
 
 
@@ -50,6 +51,7 @@ def test_lifecycle_and_no_execution(db):
         assert x['may_submit_real_order'] is False
     x = inspect_ledger(db)
     assert x['event_count'] == 3
+    assert x['last_recorded_at_ms'] == 102
     assert x['orders'][0]['status'] == 'RECONCILED_FILLED'
     assert x['status'] == 'HOLD_RECONCILIATION'
 
