@@ -332,3 +332,28 @@ def test_valid_utf8_non_ascii_json_remains_supported():
     (rows, _, wire), seen = _fetch(body, {"Content-Type": "application/json"})
     assert len(rows) == len(seen) == 1
     assert wire["decoded_http_body_sha256"] == hashlib.sha256(body).hexdigest()
+
+@pytest.mark.parametrize("source_timestamp", [
+    "2026-9-21 14:14:00",      # strptime accepts non-padded month
+    "2026-09-21 4:14:00",      # strptime accepts non-padded hour
+    "2026-09-21 14:4:00",      # strptime accepts non-padded minute
+    "2026-09-21 14:14:0",      # strptime accepts non-padded seconds
+    "２０２６-09-21 14:14:00", # Unicode digits must not masquerade as ASCII
+    "2026-09-21 14:14:00Z",   # explicit timezone suffix is not the API contract
+])
+def test_noncanonical_provider_minute_timestamp_rejected(source_timestamp):
+    # Historical source text must not be silently rewritten into a different
+    # canonical UTC representation before snapshot hashing or gap assessment.
+    payload = json.loads(_body())
+    payload["values"][0]["datetime"] = source_timestamp
+    with pytest.raises(ProviderError, match="Invalid, duplicate or incomplete") as exc:
+        _fetch(json.dumps(payload).encode(), {"Content-Type": "application/json"})
+    assert exc.value.status == 502
+    assert "synthetic-only-key" not in str(exc.value)
+
+
+def test_canonical_ascii_provider_minute_timestamp_still_accepted():
+    (rows, _, wire), requests = _fetch(
+        _body(), {"Content-Type": "application/json"})
+    assert len(rows) == len(requests) == 1
+    assert wire["decoded_http_body_sha256"] == hashlib.sha256(_body()).hexdigest()
