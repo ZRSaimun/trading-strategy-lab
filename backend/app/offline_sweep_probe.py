@@ -15,6 +15,22 @@ from zipfile import ZipFile
 Q = Decimal
 STEP = timedelta(minutes=1)
 BAR_STEP = timedelta(minutes=15)
+VOLATILITY_REGIMES = ("LOW_LT_10_BPS", "MID_10_TO_LT_30_BPS", "HIGH_GTE_30_BPS")
+
+
+def prior_range_regime(prior_bars):
+    """Frozen ex-ante range bin; only bars before the sweep are inspected."""
+    if not prior_bars:
+        raise ValueError("Missing pre-signal range observations")
+    ranges = sorted(Q(10000) * (b.h - b.l) / b.c for b in prior_bars)
+    mid = len(ranges) // 2
+    median_bps = (ranges[mid] if len(ranges) % 2 else
+                  (ranges[mid - 1] + ranges[mid]) / Q(2))
+    if median_bps < Q(10):
+        return VOLATILITY_REGIMES[0]
+    if median_bps < Q(30):
+        return VOLATILITY_REGIMES[1]
+    return VOLATILITY_REGIMES[2]
 
 
 @dataclass(frozen=True)
@@ -145,6 +161,14 @@ def research(bars, *, lookback=16, horizon=16, embargo=16):
                "opens_between_barriers_order_unknown": 0}
         for name in cohorts
     }
+    # Classify every confirmed signal from strictly pre-sweep bars, even if
+    # its future entry/exit is unobservable. No regime can filter admissions.
+    volatility = {
+        name: {regime: {"confirmed": 0, "entered": 0, "observed": [],
+                        "censored": 0, "missing_entry": 0, "invalid": 0}
+               for regime in VOLATILITY_REGIMES}
+        for name in cohorts
+    }
     next_free = 0
     for i in range(lookback, len(bars) - 1):
         # The completed confirmation must also be inside the selected cohort;
@@ -177,6 +201,8 @@ def research(bars, *, lookback=16, horizon=16, embargo=16):
         if is_short and confirmation.c >= sweep.l:
             continue
         confirmed[cohort] += 1
+        regime = volatility[cohort][prior_range_regime(window[:lookback])]
+        regime["confirmed"] += 1
         entry_index = i + 2
         if (entry_index >= len(bars) or
                 bars[entry_index].segment != confirmation.segment or
@@ -184,6 +210,7 @@ def research(bars, *, lookback=16, horizon=16, embargo=16):
                 (cohort == "development" and entry_index >= split - embargo) or
                 (cohort == "exploratory_later" and entry_index < split + embargo)):
             entry_unobservable[cohort] += 1
+            regime["missing_entry"] += 1
             # No entry observation means no demonstrated position exposure.
             # Do not manufacture a fill, return or position reservation.
             continue
@@ -192,12 +219,15 @@ def research(bars, *, lookback=16, horizon=16, embargo=16):
         risk = entry - stop if is_long else stop - entry
         if risk <= 0:
             invalid_entry_geometry[cohort] += 1
+            regime["invalid"] += 1
             continue
         target = entry + 2*risk if is_long else entry - 2*risk
         if target <= 0:
             invalid_entry_geometry[cohort] += 1
+            regime["invalid"] += 1
             continue
         entered[cohort] += 1
+        regime["entered"] += 1
         outcome = None
         observed_prefix = 0
         last = min(entry_index + horizon, len(bars))
@@ -250,6 +280,7 @@ def research(bars, *, lookback=16, horizon=16, embargo=16):
                 next_free = last
         if outcome is None:
             censored[cohort] += 1
+            regime["censored"] += 1
             censored_entry_risks[cohort].append((entry, risk))
             censored_observed_prefix_bars[cohort].append(observed_prefix)
             # A censored position has no observed exit. Do not admit another
@@ -257,6 +288,7 @@ def research(bars, *, lookback=16, horizon=16, embargo=16):
             # This is an analysis-only exclusion, not proof of a flat account.
             next_free = max(next_free, entry_index + horizon)
         else:
+            regime["observed"].append((outcome, entry, risk))
             cohorts[cohort].append((outcome, entry, risk))
             observed_holding_bars[cohort].append(observed_prefix)
     reports = {}
@@ -343,7 +375,46 @@ def research(bars, *, lookback=16, horizon=16, embargo=16):
                     sum_net_r=str(total),
                     mean_net_r=str(total / len(trades)) if trades else None,
                     interpretation="SOURCE_BAR_TIME_COST_SENSITIVITY_NOT_BROKER_FINANCING"))
+            regime_report = {}
+            for key, cell in volatility[name].items():
+                observed = cell["observed"]
+                if cell["confirmed"] != (cell["missing_entry"] + cell["invalid"] +
+                                         cell["entered"]):
+                    raise RuntimeError("Volatility signal census mismatch")
+                if cell["entered"] != cell["censored"] + len(observed):
+                    raise RuntimeError("Volatility entered census mismatch")
+                regime_cases = []
+                for bps in (0, 5, 10, 20):
+                    total = sum((r - abs(entry) * Q(bps) / Q(10000) / risk
+                                 for r, entry, risk in observed), Q(0))
+                    regime_cases.append(dict(
+                        additional_round_trip_bps=bps,
+                        observed_outcomes=len(observed),
+                        mean_net_r=str(total / len(observed)) if observed else None))
+                regime_report[key] = dict(
+                    confirmed_signals=cell["confirmed"],
+                    confirmed_signals_without_observable_entry=cell["missing_entry"],
+                    invalid_entry_stop_or_target_geometry=cell["invalid"],
+                    entered_positions=cell["entered"],
+                    observed_outcomes=len(observed),
+                    censored_entered_outcomes=cell["censored"],
+                    observed_only_cost_scenarios=regime_cases)
+            for kind, expected in (
+                ("confirmed", confirmed[name]), ("entered", entered[name]),
+                ("missing_entry", entry_unobservable[name]),
+                ("invalid", invalid_entry_geometry[name]),
+                ("censored", censored[name])):
+                if sum(cell[kind] for cell in volatility[name].values()) != expected:
+                    raise RuntimeError("Volatility population reconciliation failed")
+            if sum(len(cell["observed"]) for cell in volatility[name].values()) != len(trades):
+                raise RuntimeError("Volatility observed population mismatch")
             reports[name] = dict(
+                pre_signal_volatility_regime_census=dict(
+                    metric="MEDIAN_PRIOR_BAR_HIGH_LOW_RANGE_BPS_OF_CLOSE",
+                    fixed_thresholds_bps=[10, 30],
+                    lookback_completed_bars=lookback,
+                    regimes=regime_report,
+                    interpretation="CAUSAL_DESCRIPTIVE_OBSERVED_ONLY_NOT_SELECTION_OR_EDGE"),
                 confirmed_signals=confirmed[name],
                 entered_positions=entered[name],
                 invalid_entry_stop_or_target_geometry=invalid_entry_geometry[name],
