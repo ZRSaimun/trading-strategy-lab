@@ -77,18 +77,50 @@ def _event_hash(seq, broker, account, order, event, evidence, stamp, previous):
                                      ensure_ascii=True).encode('ascii')).hexdigest()
 
 
+def _private_parent(path):
+    """Reject unsafe SQLite sidecar directories before opening any ledger."""
+    if os.name != 'posix' or not hasattr(os, 'geteuid'):
+        raise ValueError('Ledger storage requires POSIX owner and mode checks')
+    parent = path.absolute().parent
+    # A symlink anywhere in the directory path can redirect SQLite's journal
+    # and database opens even when the final ledger path is not a symlink.
+    if any(part.is_symlink() for part in (parent, *parent.parents)):
+        raise ValueError('Ledger parent path must not contain symlinks')
+    try:
+        info = parent.lstat()
+    except OSError as exc:
+        raise ValueError('Ledger private parent directory unavailable') from exc
+    if (not stat.S_ISDIR(info.st_mode)
+            or stat.S_IMODE(info.st_mode) & 0o077
+            or info.st_uid != os.geteuid()):
+        raise ValueError('Ledger parent must be a service-owned private directory (0700)')
+    return (info.st_dev, info.st_ino)
+
+
+def _private_file(info):
+    """Prevent other users and hardlinks from bypassing the evidence boundary."""
+    if not stat.S_ISREG(info.st_mode):
+        raise ValueError('Existing regular ledger file required; initialize separately')
+    if stat.S_IMODE(info.st_mode) != 0o600:
+        raise ValueError('Ledger file must have private mode 0600')
+    if info.st_uid != os.geteuid():
+        raise ValueError('Ledger file must be owned by the service user')
+    if info.st_nlink != 1:
+        raise ValueError('Ledger file hardlinks are forbidden')
+
+
 def _connect(path, *, read_only=False):
     if not isinstance(path, (str, Path)):
         raise ValueError('Database path required')
     p = Path(path)
+    parent_identity = _private_parent(p)
     if p.is_symlink() or not p.is_file():
         raise ValueError('Existing regular ledger file required; initialize separately')
     try:
         before = p.lstat()
     except FileNotFoundError as exc:
         raise ValueError('Ledger disappeared before SQLite open') from exc
-    if not stat.S_ISREG(before.st_mode):
-        raise ValueError('Existing regular ledger file required; initialize separately')
+    _private_file(before)
     if before.st_size > MAX_LEDGER_BYTES:
         raise ValueError('Ledger file exceeds reviewed byte capacity')
     # mode=ro/rw prevents sqlite3's default rwc mode from recreating a ledger
@@ -105,9 +137,12 @@ def _connect(path, *, read_only=False):
             after = p.lstat()
         except FileNotFoundError as exc:
             raise ValueError('Ledger disappeared during SQLite open') from exc
+        if _private_parent(p) != parent_identity:
+            raise ValueError('Ledger parent identity changed during SQLite open')
         if (not stat.S_ISREG(after.st_mode)
                 or (after.st_dev, after.st_ino) != (before.st_dev, before.st_ino)):
             raise ValueError('Ledger file identity changed during SQLite open')
+        _private_file(after)
         if after.st_size > MAX_LEDGER_BYTES:
             raise ValueError('Ledger file exceeds reviewed byte capacity')
         # Python 3.12/SQLite limits apply to values decoded from malicious rows,
@@ -124,6 +159,7 @@ def _connect(path, *, read_only=False):
 def initialize_ledger(path):
     """Explicit one-time creation. Never silently recreate or repair an existing DB."""
     p = Path(path)
+    parent_identity = _private_parent(p)
     if p.exists() or p.is_symlink():
         raise ValueError('Ledger already exists; refusing overwrite')
     # Create mode 0600 regardless of a permissive process umask. O_EXCL
@@ -132,10 +168,13 @@ def initialize_ledger(path):
                  | getattr(os, 'O_NOFOLLOW', 0), 0o600)
     try:
         created = os.fstat(fd)
+        _private_file(created)
     finally:
         os.close(fd)
 
     def require_original_file():
+        if _private_parent(p) != parent_identity:
+            raise ValueError('Ledger parent identity changed during initialization')
         try:
             current = p.lstat()
         except FileNotFoundError as exc:
@@ -144,6 +183,7 @@ def initialize_ledger(path):
                 or (current.st_dev, current.st_ino)
                 != (created.st_dev, created.st_ino)):
             raise ValueError('New ledger file identity changed during initialization')
+        _private_file(current)
 
     try:
         # Existing-only SQLite URI: a removed freshly created file must not
