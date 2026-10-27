@@ -1,5 +1,6 @@
 """Invented observations only; never a live forecast or paper-trading return."""
 from copy import deepcopy
+import math
 import pytest
 
 from app.forecast_temporal_calibration_audit import audit_temporal_forecast_calibration
@@ -347,3 +348,50 @@ def test_temporal_ece_bin_uncertainty_withheld_on_selection_risk():
     assert row["lateEceBins10"] is None
     assert row["lateEceOccupiedBinsUnder30"] is None
     assert row["lateEceMinOccupiedBinCount"] is None
+
+
+def test_temporal_log_loss_reports_proper_score_without_profit_claims():
+    row = audit_temporal_forecast_calibration(fixture())["groups"][0]
+    assert row["earlyLogLoss"] == pytest.approx(-math.log(.7))
+    assert row["lateLogLoss"] == pytest.approx(-math.log(.7))
+    assert row["lateLogLossDelta"] == pytest.approx(0)
+    assert math.isfinite(row["lateLogLossSkillVsFrozenEarlyClimatology"])
+
+
+def test_temporal_log_loss_detects_confidently_wrong_late_probabilities():
+    row = audit_temporal_forecast_calibration(
+        fixture(p_early=.9, p_late=.9, y_early=True, y_late=False))["groups"][0]
+    assert row["earlyLogLoss"] == pytest.approx(-math.log(.9))
+    assert row["lateLogLoss"] == pytest.approx(-math.log(.1))
+    assert row["lateLogLossDelta"] > 2
+    assert row["status"] == "DESCRIPTIVE_BRIER_DETERIORATION_REVIEW"
+
+
+@pytest.mark.parametrize("p_late,y_late", [
+    (1e-300, False), (1 - 2**-52, False),
+])
+def test_temporal_log_loss_is_finite_at_extreme_interior_probabilities(p_late, y_late):
+    row = audit_temporal_forecast_calibration(
+        fixture(p_late=p_late, y_late=y_late))["groups"][0]
+    assert math.isfinite(row["lateLogLoss"])
+    assert math.isfinite(row["lateLogLossSkillVsFrozenEarlyClimatology"])
+    assert row["lateLogLoss"] >= 0
+
+
+def test_temporal_log_loss_withheld_for_selected_missing_outcomes():
+    s = fixture()
+    for i in (80, 82, 84):
+        s["forecasts"][i].update(status="PENDING", outcomeUp=None, resolvedAt=None)
+    row = audit_temporal_forecast_calibration(
+        s, max_unresolved_fraction=.05)["groups"][0]
+    assert row["status"] == "UNRESOLVED_SELECTION_RISK"
+    for key in ("earlyLogLoss", "lateLogLoss", "lateLogLossDelta",
+                "lateLogLossSkillVsFrozenEarlyClimatology"):
+        assert row[key] is None
+
+
+def test_temporal_log_loss_early_training_does_not_learn_late_outcomes():
+    a = audit_temporal_forecast_calibration(fixture(y_late=True))["groups"][0]
+    b = audit_temporal_forecast_calibration(fixture(y_late=False))["groups"][0]
+    assert a["earlyLogLoss"] == b["earlyLogLoss"]
+    assert a["lateLogLoss"] != b["lateLogLoss"]
