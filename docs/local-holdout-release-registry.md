@@ -90,3 +90,21 @@ malformed anchor declarations, but **does not authenticate** the anchor,
 prove that an external record exists, or stop raw outcome access outside
 the cooperating wrapper. Never interpret the declared anchor as independent
 preregistration evidence.
+
+
+**Direct-claim verification fence (27 October 2026):** A direct
+`claim_local_holdout_release` call against a population-locked registry
+now **requires** the exact frozen `expected_population_rows` (row hash and
+decision timestamp pairs) and `expected_source_key_sha256`. Omitting
+either cannot consume the release claim. This closes the accidental
+unverified-claim path that previously burned a population-locked study
+while returning `local_frozen_population_matched: false`. The synthetic
+regression checks rejection, durable non-consumption, a successful
+exact-pair claim and the subsequent one-attempt rejection. An unreserved
+legacy registry still permits a direct claim without census verification,
+but reports `local_frozen_population_matched: false`. This is a
+compatibility-breaking safety requirement **only** for direct callers
+against population-locked registries; update those callers to supply the
+frozen census or use the guarded wrapper. It does not establish
+independent source authentication, immutable external preregistration or
+profitable backtest results.
