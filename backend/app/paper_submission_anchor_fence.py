@@ -47,6 +47,16 @@ def verify_external_anchor(path, *, anchor, now_ms, max_age_ms=300_000):
     if age < 0 or age > max_age_ms:
         raise ValueError('Future-dated or expired external anchor')
     ledger = inspect_ledger(path)
+    # An authenticated checkpoint timestamp must not predate any locally
+    # recorded event. Otherwise a forged future event clock could be anchored
+    # as apparently fresh and obstruct later durable risk transitions.
+    last_event_ms = ledger.get('last_recorded_at_ms')
+    if ledger['event_count'] == 0:
+        if last_event_ms is not None:
+            raise ValueError('Empty ledger has an inconsistent event clock')
+    elif (type(last_event_ms) is not int or not 0 <= last_event_ms <= _MAX_EPOCH_MS
+          or last_event_ms > anchor['recorded_at_ms']):
+        raise ValueError('Ledger event clock exceeds trusted checkpoint time')
     actual = {
         'schema': ledger['schema'],
         'event_count': ledger['event_count'],
