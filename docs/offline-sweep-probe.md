@@ -430,3 +430,30 @@ trade selection, split, costs and permissions remain unchanged. Tight-stop
 counts are descriptive and cannot be retrospectively promoted into a
 profitable filter. Existing later periods have been inspected and cannot
 be used as untouched holdouts. No broker orders are permitted.
+
+
+## Observed outcome tail concentration (descriptive only)
+
+Each cohort now includes `observed_cost_tail_concentration_census` on **only the
+same frozen, observed, entered outcomes** as `cost_scenarios`. For each
+additional illustrative 0, 5, 10 and 20 basis-point round-trip cost, it
+reports counts of strictly positive, zero and negative net-R outcomes,
+nearest-rank 10th/90th percentiles, median, worst and best outcomes, the
+mean of the worst ceil(10%) outcomes, sum of the best ceil(10%), and mean
+after removing the best ceil(10%). At least one observation is in each
+tail when a cohort is nonempty; for a singleton the leave-best-tail-out
+mean is null. Empty cohorts have null distribution metrics, not zero
+returns. No interpolation, confidence interval, or candidate optimization.
+
+This diagnostic exposes when a favorable observed-only average is
+concentrated in a small number of wins, but **cannot** establish a
+tradable advantage. The fixed population excludes entered positions
+whose exits are censored, confirmed signals with missing entries, and
+invalid trade geometry; those populations remain visible in the existing
+attrition and missing-exit stress fields. Removing the best tail is a
+counterfactual fixed-cohort sensitivity, **not** a replay: changed
+outcomes could change subsequent nonoverlapping admissions. It is not
+a lower bound on returns, a forward holdout, an executable broker
+BID/ASK fill, a spread estimate, or a justification to select a
+post-hoc subgroup. This change does not affect trade admission,
+stops, targets, reservations, order permissions, or production services.
