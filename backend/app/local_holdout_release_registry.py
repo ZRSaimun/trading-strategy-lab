@@ -283,13 +283,17 @@ def audit_declared_holdout_release_once(db_path, manifest, census, anchor, outco
     if not callable(outcome_loader):
         raise ValueError("Outcome loader must be callable")
     from app.declared_holdout_release_gate import (
-        _validate_census, audit_declared_holdout_release,
+        _validate_anchor, _validate_census, audit_declared_holdout_release,
         prepare_declared_holdout_manifest_sha256)
     digest = prepare_declared_holdout_manifest_sha256(manifest)
     # Validate the frozen population BEFORE consuming a claim or calling an
     # outcome loader. A legacy registry without reservations must not allow
     # malformed or reselected census membership to reach raw outcomes first.
     _validate_census(manifest, census)
+    # Reject invalid or late declared anchors before burning the only
+    # release attempt or exposing raw outcomes to the caller's loader.
+    # This is consistency validation, NOT external anchor authentication.
+    _validate_anchor(manifest, anchor, digest)
     expected_rows = expected_source_key = None
     if type(census) is list and census:
         from app.local_holdout_population_lock import _source_key
