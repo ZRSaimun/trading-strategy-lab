@@ -144,3 +144,24 @@ activation are introduced.
 Official source (checked 26 October 2026):
 https://support.twelvedata.com/en/articles/5615854-credits
 and https://support.twelvedata.com/en/articles/5713553-control-over-api-usage.
+
+
+## Identity-only bounded HTTP entity-body handling (27 October 2026)
+
+The optional and historical Twelve Data HTTP adapter now sends
+`Accept-Encoding: identity`, rejects any non-identity or duplicate
+`Content-Encoding`, and reads fixed-size chunks using `aiter_raw`
+instead of implicitly decompressing `aiter_bytes`. It also rejects duplicate,
+malformed or oversized `Content-Length` headers and enforces the 3 MB body
+limit **before** appending each raw chunk. This prevents a compressed HTTP
+response from bypassing the intended memory bound through automatic
+decompression. A provider that insists on compression now fails closed rather
+than being accepted. The decoded-body hash field retains its historical name;
+with identity encoding, the uncompressed HTTP entity bytes are also the
+decoded bytes. This is **not** a TLS-wire hash or a vendor signature.
+
+Synthetic MockTransport regressions exercise identity success, compressed and
+ambiguous encodings, duplicate/invalid lengths, and oversized actual bodies:
+`cd backend && PYTHONPATH=. pytest -q tests/test_twelvedata_transport_bounds.py`.
+No provider credit, broker order, or live feed is activated. The same release,
+rights, backup, rollback and staging blockers continue to apply.
