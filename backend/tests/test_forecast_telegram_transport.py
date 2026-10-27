@@ -220,3 +220,39 @@ def test_review_disclaimer_cannot_be_omitted_or_overwritten(unlabeled):
     with pytest.raises(ValueError, match="Invalid review alert text"):
         send_telegram_once(bot_token=TOKEN, chat_id=CHAT, text=unlabeled, opener=fake)
     assert fake.calls == []
+
+
+@pytest.mark.parametrize("message_id", [2**53, 10**80])
+def test_provider_message_id_outside_reconciliation_safe_integer_is_uncertain(message_id):
+    # The separate delivery-acceptance audit caps messageId at 2**53-1.
+    # Do not record a success that the downstream audit must reject.
+    fake = FakeOpener(Reply(accepted(mid=message_id)))
+    with pytest.raises(DeliveryUncertain, match="acceptance not independently established"):
+        send_telegram_once(bot_token=TOKEN, chat_id=CHAT,
+                           text=review_text(), opener=fake)
+    assert len(fake.calls) == 1
+
+
+def test_provider_message_id_at_reconciliation_boundary_is_accepted():
+    fake = FakeOpener(Reply(accepted(mid=2**53 - 1)))
+    result = send_telegram_once(bot_token=TOKEN, chat_id=CHAT,
+                                text=review_text(), opener=fake)
+    assert result["messageId"] == 2**53 - 1
+    assert result["deliveryVerified"] is False
+    assert len(fake.calls) == 1
+
+
+@pytest.mark.parametrize("provider_chat_id", [
+    CHAT, float(int(CHAT)), True, None,
+])
+def test_provider_chat_identity_must_be_numeric_integer(provider_chat_id):
+    # A JSON string matching chat_id was previously accepted via str(...).
+    # The Bot API documents chat.id as an integer, not a string/float/bool.
+    response = {"ok": True, "result": {
+        "message_id": 55, "chat": {"id": provider_chat_id},
+        "text": review_text()}}
+    fake = FakeOpener(Reply(json.dumps(response).encode("utf-8")))
+    with pytest.raises(DeliveryUncertain, match="acceptance not independently established"):
+        send_telegram_once(bot_token=TOKEN, chat_id=CHAT,
+                           text=review_text(), opener=fake)
+    assert len(fake.calls) == 1
