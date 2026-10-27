@@ -398,3 +398,64 @@ def test_exit_path_census_does_not_reclassify_censored_entry():
         "stop_touch_without_adverse_open", "stop_touch_with_adverse_open",
         "target_touch", "horizon_close")) == 0
     assert paths["adverse_source_open_extra_loss_r_max"] is None
+
+
+@pytest.mark.parametrize("side,entry_bar,later_bar,expected", [
+    ("long", (103, 114, 97, 100), None, "opens_between_barriers_order_unknown"),
+    ("long", (103, 104, 99, 103), (80, 114, 79, 100),
+     "opens_at_or_beyond_stop"),
+    ("long", (103, 104, 99, 103), (115, 116, 97, 103),
+     "opens_at_or_beyond_target"),
+    ("long", (103, 104, 97, 100), None, None),
+    ("long", (103, 114, 99, 113), None, None),
+    ("short", (97, 104, 86, 95), None, "opens_between_barriers_order_unknown"),
+    ("short", (97, 100, 90, 95), (120, 121, 86, 100),
+     "opens_at_or_beyond_stop"),
+    ("short", (97, 100, 90, 95), (86, 104, 85, 95),
+     "opens_at_or_beyond_target"),
+])
+def test_same_bar_collision_source_open_census(side, entry_bar, later_bar, expected):
+    rows = synthetic_bars()
+    if side == "short":
+        for index, values in ((30, (100, 102, 99, 100)),
+                              (31, (100, 100, 97, 98))):
+            b = rows[index]
+            rows[index] = Bar(b.time, *(D(v) for v in values), b.segment)
+    b = rows[32]
+    rows[32] = Bar(b.time, *(D(v) for v in entry_bar), b.segment)
+    if later_bar is not None:
+        b = rows[33]
+        rows[33] = Bar(b.time, *(D(v) for v in later_bar), b.segment)
+    cohort = research(rows)["cohorts"]["development"]
+    collisions = cohort["same_bar_stop_target_collision_census"]
+    assert cohort["observed_outcomes"] == 1
+    assert collisions["observed_outcomes_total"] == 1
+    assert collisions["both_barriers_touched"] == int(expected is not None)
+    for key in ("opens_at_or_beyond_stop", "opens_at_or_beyond_target",
+                "opens_between_barriers_order_unknown"):
+        assert collisions[key] == int(key == expected)
+    uplift = 3 if expected in ("opens_at_or_beyond_target",
+                               "opens_between_barriers_order_unknown") else 0
+    assert D(collisions["fixed_cohort_target_first_uplift_r_sum"]) == D(uplift)
+    assert D(collisions["fixed_cohort_target_first_uplift_r_per_observed"]) == D(uplift)
+    assert collisions["interpretation"] == (
+        "SOURCE_OHLC_FIXED_COHORT_SENSITIVITY_NOT_BACKTEST")
+    # A collision audit is descriptive: the original stop-first outcomes
+    # and illustrative cost deductions must remain untouched.
+    if expected is not None:
+        assert D(cohort["cost_scenarios"][0]["mean_net_r"]) == -1
+
+
+def test_same_bar_collision_censored_and_empty_populations_are_not_imputed():
+    rows = synthetic_bars()
+    b = rows[32]
+    rows[32] = Bar(b.time, D(103), D(104), D(99), D(103), b.segment)
+    rows[33:] = [Bar(b.time, b.o, b.h, b.l, b.c, 1) for b in rows[33:]]
+    reports = research(rows)["cohorts"]
+    assert reports["development"]["censored_due_to_gaps_or_boundaries"] == 1
+    for cohort in reports.values():
+        collision = cohort["same_bar_stop_target_collision_census"]
+        assert collision["both_barriers_touched"] == 0
+        assert collision["observed_outcomes_total"] == 0
+        assert D(collision["fixed_cohort_target_first_uplift_r_sum"]) == 0
+        assert collision["fixed_cohort_target_first_uplift_r_per_observed"] is None
