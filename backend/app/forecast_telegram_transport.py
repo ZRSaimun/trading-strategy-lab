@@ -91,9 +91,18 @@ def send_telegram_once(*, bot_token, chat_id, text, timeout=5, opener=None):
         with transport.open(request, timeout=timeout) as response:
             if response.status != 200:
                 raise DeliveryUncertain("Telegram request outcome uncertain")
-            raw = response.read(_MAX_RESPONSE + 1)
-        if len(raw) > _MAX_RESPONSE:
-            raise DeliveryUncertain("Telegram response exceeds bound")
+            # A single read(size) is not guaranteed to consume the whole
+            # response. Never accept a valid JSON prefix before reaching EOF.
+            raw = bytearray()
+            while True:
+                part = response.read(_MAX_RESPONSE + 1 - len(raw))
+                if type(part) is not bytes:
+                    raise DeliveryUncertain("Telegram response read invalid")
+                if not part:
+                    break
+                if len(part) > _MAX_RESPONSE - len(raw):
+                    raise DeliveryUncertain("Telegram response exceeds bound")
+                raw.extend(part)
         data = json.loads(raw.decode("utf-8"), object_pairs_hook=_unique_pairs)
         if (type(data) is not dict or data.get("ok") is not True or
                 type(data.get("result")) is not dict or
