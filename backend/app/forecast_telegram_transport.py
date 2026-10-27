@@ -84,9 +84,10 @@ def send_telegram_once(*, bot_token, chat_id, text, timeout=5, opener=None):
         if (type(data) is not dict or data.get("ok") is not True or
                 type(data.get("result")) is not dict or
                 type(data["result"].get("message_id")) is not int or
-                data["result"]["message_id"] <= 0 or
+                not 0 < data["result"]["message_id"] <= 2**53 - 1 or
                 type(data["result"].get("chat")) is not dict or
-                str(data["result"]["chat"].get("id")) != chat_id or
+                type(data["result"]["chat"].get("id")) is not int or
+                str(data["result"]["chat"]["id"]) != chat_id or
                 type(data["result"].get("text")) is not str or
                 data["result"]["text"] != text):
             raise DeliveryUncertain("Telegram acceptance not independently established")
