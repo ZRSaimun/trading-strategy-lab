@@ -24,6 +24,30 @@ def _brier(rows):
     return sum((r["probability"] - int(r["outcomeUp"])) ** 2 for r in rows) / len(rows)
 
 
+def _brier_unavailable_binary_bounds(issued_census, eligible_settled):
+    """Best/worst binary-label sensitivity on the FIXED issued census.
+
+    These are mathematical counterfactuals, not filled-in outcomes. A VOID_GAP
+    need not have an observable outcome at all. Never interpret the bounds as
+    realized accuracy or as permission to notify, paper trade, or place orders.
+    """
+    eligible_ids = {row["id"] for row in eligible_settled}
+    total = 0.0
+    lower = upper = 0.0
+    for row in issued_census:
+        p = row["probability"]
+        if row["id"] in eligible_ids:
+            score = (p - int(row["outcomeUp"])) ** 2
+            lower += score
+            upper += score
+        else:
+            down_score, up_score = p * p, (1 - p) ** 2
+            lower += min(down_score, up_score)
+            upper += max(down_score, up_score)
+        total += 1
+    return lower / total, upper / total
+
+
 def _log_loss(rows):
     """Bernoulli log score in natural-log units; descriptive, not trading P&L.
 
@@ -232,6 +256,8 @@ def audit_temporal_forecast_calibration(snapshot, *, min_per_window=30,
             "earlyNonoverlappingSettled": len(train),
             "lateNonoverlappingSettled": len(test),
             "earlyBrier": None, "lateBrier": None, "lateBrierDelta": None,
+            "lateBrierBestCaseAllIssuedCensus": None,
+            "lateBrierWorstCaseAllIssuedCensus": None,
             "earlyLogLoss": None, "lateLogLoss": None, "lateLogLossDelta": None,
             "lateLogLossSkillVsFrozenEarlyClimatology": None,
             "lateBrierSkillVsFrozenEarlyClimatology": None,
@@ -253,6 +279,7 @@ def audit_temporal_forecast_calibration(snapshot, *, min_per_window=30,
         }
         if sufficient and complete_enough:
             early_brier, late_brier = _brier(train), _brier(test)
+            late_best, late_worst = _brier_unavailable_binary_bounds(late_census, test)
             # Jeffreys-smoothed historical climatology, fitted ONLY on
             # pre-boundary resolved outcomes. This is not a market benchmark.
             prior_up = (sum(r["outcomeUp"] for r in train) + 0.5) / (len(train) + 1)
@@ -266,6 +293,8 @@ def audit_temporal_forecast_calibration(snapshot, *, min_per_window=30,
             entry.update(
                 earlyBrier=early_brier, lateBrier=late_brier,
                 lateBrierDelta=delta,
+                lateBrierBestCaseAllIssuedCensus=late_best,
+                lateBrierWorstCaseAllIssuedCensus=late_worst,
                 earlyLogLoss=early_log, lateLogLoss=late_log,
                 lateLogLossDelta=late_log - early_log,
                 lateLogLossSkillVsFrozenEarlyClimatology=1 - late_log / frozen_log,
@@ -298,7 +327,10 @@ def audit_temporal_forecast_calibration(snapshot, *, min_per_window=30,
         "limitations": "Caller journal unauthenticated; split is retrospective and not an "
                        "untouched holdout; dependent market regimes and sample selection remain; "
                        "declared as-of cutoff and settlement times are not independently verified; "
-                       "missing/void outcomes can bias scores; log loss heavily penalizes "
+                       "missing/void outcomes can bias scores; best/worst Brier bounds assign "
+                       "hypothetical binary labels to unavailable fixed-census "
+                       "records, including potentially unobservable gaps; "
+                       "they are NOT realized performance; log loss heavily penalizes "
                        "confident wrong probabilities and is not financial loss; "
                        "high-confidence tail errors are descriptive and depend on "
                        "the fixed 90% threshold; empty tails have no error estimate; "

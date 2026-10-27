@@ -531,3 +531,65 @@ def test_temporal_high_confidence_diagnostics_withheld_with_selection_risk():
                 "lateHighConfidenceWrongWilson95Descriptive",
                 "lateHighConfidenceLowSupportUnder30"):
         assert row[key] is None
+
+
+def test_late_brier_binary_bounds_collapse_when_selected_census_fully_settled():
+    row = audit_temporal_forecast_calibration(fixture())["groups"][0]
+    assert row["lateBrierBestCaseAllIssuedCensus"] == pytest.approx(row["lateBrier"])
+    assert row["lateBrierWorstCaseAllIssuedCensus"] == pytest.approx(row["lateBrier"])
+
+
+def test_late_brier_binary_bounds_cover_one_pending_selected_outcome():
+    s = fixture()
+    s["forecasts"][80].update(status="PENDING", outcomeUp=None, resolvedAt=None)
+    original = deepcopy(s)
+    row = audit_temporal_forecast_calibration(s)["groups"][0]
+    assert row["status"] == "DESCRIPTIVE_ONLY"
+    assert row["lateNonoverlappingIssued"] == 40
+    assert row["lateNonoverlappingSettled"] == 39
+    assert row["lateBrier"] == pytest.approx(.09)
+    assert row["lateBrierBestCaseAllIssuedCensus"] == pytest.approx(.09)
+    assert row["lateBrierWorstCaseAllIssuedCensus"] == pytest.approx(.10)
+    assert s == original
+
+
+def test_late_brier_binary_bounds_include_cutoff_unavailable_labels():
+    s = fixture()
+    cutoff = max(r["issuedAt"] for r in s["forecasts"])
+    s["forecasts"][80]["resolvedAt"] = cutoff + 100
+    row = audit_temporal_forecast_calibration(s, evaluation_as_of=cutoff)["groups"][0]
+    assert row["status"] == "DESCRIPTIVE_ONLY"
+    assert row["lateCensusSettledAfterDeclaredAsOf"] == 1
+    assert row["lateBrierBestCaseAllIssuedCensus"] == pytest.approx(.09)
+    assert row["lateBrierWorstCaseAllIssuedCensus"] == pytest.approx(.10)
+    assert row["lateBrier"] == pytest.approx(.09)
+
+
+def test_late_brier_binary_bounds_respond_to_confident_wrong_predictions():
+    s = fixture(p_late=.95, y_late=False)
+    s["forecasts"][80].update(status="VOID_GAP", outcomeUp=None)
+    row = audit_temporal_forecast_calibration(s)["groups"][0]
+    assert row["status"] == "DESCRIPTIVE_BRIER_DETERIORATION_REVIEW"
+    assert row["lateBrier"] == pytest.approx(.9025)
+    assert row["lateBrierBestCaseAllIssuedCensus"] == pytest.approx(
+        (39 * .9025 + .0025) / 40)
+    assert row["lateBrierWorstCaseAllIssuedCensus"] == pytest.approx(.9025)
+
+
+def test_late_brier_binary_bounds_withheld_when_selected_missingness_exceeds_gate():
+    s = fixture()
+    for i in (80, 82, 84):
+        s["forecasts"][i].update(status="PENDING", outcomeUp=None, resolvedAt=None)
+    row = audit_temporal_forecast_calibration(
+        s, max_unresolved_fraction=.05)["groups"][0]
+    assert row["status"] == "UNRESOLVED_SELECTION_RISK"
+    assert row["lateBrierBestCaseAllIssuedCensus"] is None
+    assert row["lateBrierWorstCaseAllIssuedCensus"] is None
+
+
+def test_unselected_missing_outcome_does_not_change_fixed_census_bounds():
+    s = fixture()
+    s["forecasts"][81].update(status="PENDING", outcomeUp=None, resolvedAt=None)
+    row = audit_temporal_forecast_calibration(s)["groups"][0]
+    assert row["lateBrierBestCaseAllIssuedCensus"] == pytest.approx(.09)
+    assert row["lateBrierWorstCaseAllIssuedCensus"] == pytest.approx(.09)

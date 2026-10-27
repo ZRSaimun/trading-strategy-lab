@@ -187,3 +187,29 @@ idealized independent population. Serial dependence, outcome selection,
 unverified timestamps and retrospective evaluation mean Wilson coverage is
 not validated. No prospective market data, executable BID/ASK quote,
 real alert, broker call, paper fill, return or production change is involved.
+
+
+## Binary-label missing-outcome Brier sensitivity (27 October 2026)
+
+When **all existing** sample-size, chronology, whole-stream and selected-census
+missingness gates pass, the report additionally exposes
+`lateBrierBestCaseAllIssuedCensus` and
+`lateBrierWorstCaseAllIssuedCensus`. The denominator is the **fixed
+nonoverlapping late issued census**, not just settled forecasts. For each
+eligible settled forecast, use its observed squared Brier error. For each
+unavailable selected forecast (pending, void/gap or settled after a declared
+as-of cutoff), compute the minimum and maximum of `p²` and `(1-p)²`.
+The two sums divided by the fixed issued-census count bound the *hypothetical*
+Brier score if every unavailable record could be assigned either binary label.
+
+No missing outcome is imputed or written. A gap/void forecast may have **no
+legitimate observable target**, so these are mathematical sensitivity
+scenarios, **not** attainable realized returns, unbiased confidence intervals,
+independent authentication or a claim that missing observations actually
+resolved. If no selected labels are unavailable, both bounds equal
+`lateBrier`; if an unavailable selected forecast has `p=.7`, its
+counterfactual Brier contribution ranges from `0.09` to `0.49`.
+Unselected missing records do not change the fixed-census bounds, but still
+count against the whole-stream missingness gate. The bounds are **null**
+whenever any performance gate withholds scores. No notification, demo fill,
+live executable quote, order or production dataset is affected.
