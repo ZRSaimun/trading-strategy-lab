@@ -256,3 +256,30 @@ def test_provider_chat_identity_must_be_numeric_integer(provider_chat_id):
         send_telegram_once(bot_token=TOKEN, chat_id=CHAT,
                            text=review_text(), opener=fake)
     assert len(fake.calls) == 1
+
+
+@pytest.mark.parametrize("recipient", [
+    "0", "-0", "00", "000123", "-00123", "+123",
+    "1099511627776", "-4000000000001", "99999999999999999999",
+])
+def test_noncanonical_or_out_of_range_chat_id_rejected_before_http(recipient):
+    # Telegram echoes a JSON integer. Leading zeros and negative zero could
+    # never equal its canonical representation after an actual send.
+    fake = FakeOpener(Reply(accepted()))
+    with pytest.raises(ValueError, match="Invalid Telegram chat ID"):
+        send_telegram_once(bot_token=TOKEN, chat_id=recipient,
+                           text=review_text(), opener=fake)
+    assert fake.calls == []
+
+
+@pytest.mark.parametrize("recipient", [
+    "-4000000000000", "1099511627775",
+])
+def test_official_dialog_id_boundaries_are_accepted_without_real_network(recipient):
+    # Boundary values are documented in Telegram's Bot API dialog ID spec.
+    fake = FakeOpener(Reply(accepted(chat=recipient)))
+    result = send_telegram_once(bot_token=TOKEN, chat_id=recipient,
+                                text=review_text(), opener=fake)
+    assert result["recipientId"] == recipient
+    assert result["deliveryVerified"] is False
+    assert len(fake.calls) == 1
