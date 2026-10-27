@@ -27,6 +27,37 @@ const target=(bars:Bar[],s:FvgSource=source)=>{
  assert.ok(found,'expected exact 3-candle FVG');
  return found;
 };
+test('touched FVG markout censoring distinguishes missing exit hours, tails and overflow',()=>{
+ for(const bearish of [false,true]){
+  const flip=(series:Bar[])=>bearish?series.map(b=>({...b,
+   open:220-b.open,high:220-b.low,low:220-b.high,close:220-b.close})):series;
+  const missing=flip(fixture().filter(b=>b.time!==BASE+35*H));
+  const tail=flip(fixture().slice(0,35));
+  const overflow=flip(fixture());
+  overflow[36]={...overflow[36],high:Number.MAX_VALUE,close:Number.MAX_VALUE};
+  for(const [series,reason] of [
+   [missing,'MISSING_HOUR'],[tail,'RIGHT_CENSORED'],
+   [overflow,'UNREPRESENTABLE_RETURN'],
+  ] as const){
+   const observation=target(series);
+   assert.equal(observation.firstTouchOutcome,'TOUCH');
+   assert.equal(observation.firstTouchCensorReason,null);
+   assert.equal(observation.gates.markout,'INSUFFICIENT_DATA');
+   assert.equal(observation.markoutCensorReason,reason);
+   assert.equal(observation.markoutOutcomeObservedAt,null);
+   assert.equal(observation.blindMidpointTouch,null);
+   assert.equal(observation.confirmedNextOpen,null);
+   const report=studyHourlyFvgMidpoint(series,source);
+   assert.ok(report.cohort.markoutCensoredByReason[reason]>0);
+   const total=Object.values(report.cohort.markoutCensoredByReason)
+    .reduce((sum,n)=>sum+n,0);
+   assert.equal(total,report.observations.filter(o=>
+    o.firstTouchOutcome==='TOUCH'&&o.gates.markout==='INSUFFICIENT_DATA').length);
+  }
+  assert.equal(target(flip(fixture())).markoutCensorReason,null);
+ }
+});
+
 test('incomplete first-touch windows separate missing archive hours from right-censored tails',()=>{
  for(const bearish of [false,true]){
   const flip=(series:Bar[])=>bearish?series.map(b=>({...b,

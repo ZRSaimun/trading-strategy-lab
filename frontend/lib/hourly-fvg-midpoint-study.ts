@@ -7,7 +7,7 @@
  */
 import type {Bar} from './research.ts';
 
-export const HOURLY_FVG_VERSION='hourly-fvg-first-midpoint-touch-v27';
+export const HOURLY_FVG_VERSION='hourly-fvg-first-midpoint-touch-v28';
 export type Evidence='PASS'|'FAIL'|'INSUFFICIENT_DATA';
 export type Side='BULLISH'|'BEARISH';
 export type FvgSource={
@@ -43,6 +43,9 @@ export type FvgObservation={
   // Missing interior source hours and incomplete archive tails are different
   // evidence gaps; neither can be treated as an observed no-touch failure.
   firstTouchCensorReason:FirstTouchCensorReason|null;
+  // A real midpoint intersection can have an unobserved fixed exit.
+  // Do not confuse an interior source gap with an as-of/right-censored tail.
+  markoutCensorReason:MarkoutCensorReason|null;
   rejectionWickFraction:number|null;
  gates:{midpointTouch:Evidence;wickRejection:Evidence;verifiedVolume:Evidence;
   strictCandidate:Evidence;markout:Evidence};
@@ -52,9 +55,11 @@ export type FvgObservation={
 export type EvidenceCounts=Record<Evidence,number>;
 export type FirstTouchOutcome='TOUCH'|'NO_TOUCH'|'OPEN_GAP_THROUGH'|'INCOMPLETE_WINDOW';
 export type FirstTouchCensorReason='MISSING_HOUR'|'RIGHT_CENSORED';
+export type MarkoutCensorReason=FirstTouchCensorReason|'UNREPRESENTABLE_RETURN';
 export type FvgCohort={
  formations:number;firstTouchOutcome:Record<FirstTouchOutcome,number>;
   incompleteWindowByReason:Record<FirstTouchCensorReason,number>;
+  markoutCensoredByReason:Record<MarkoutCensorReason,number>;
  midpointTouch:EvidenceCounts;strictCandidate:EvidenceCounts;markout:EvidenceCounts;
  pairedMarkouts:number;strictPairedMarkouts:number;nonStrictPairedMarkouts:number;
  // Count matched and right-censored candidates by strict evidence status.
@@ -187,13 +192,19 @@ function summarizeCohort(observations:readonly FvgObservation[]):FvgCohort{
  const incompleteWindowByReason:Record<FirstTouchCensorReason,number>={
   MISSING_HOUR:0,RIGHT_CENSORED:0,
  };
+ const markoutCensoredByReason:Record<MarkoutCensorReason,number>={
+  MISSING_HOUR:0,RIGHT_CENSORED:0,UNREPRESENTABLE_RETURN:0,
+ };
  for(const observation of observations){
   firstTouchOutcome[observation.firstTouchOutcome]++;
   if(observation.firstTouchCensorReason!==null)
    incompleteWindowByReason[observation.firstTouchCensorReason]++;
+  if(observation.markoutCensorReason!==null)
+   markoutCensoredByReason[observation.markoutCensorReason]++;
  }
  return {
   formations:observations.length,firstTouchOutcome,incompleteWindowByReason,
+  markoutCensoredByReason,
   midpointTouch:count('midpointTouch'),
   strictCandidate:count('strictCandidate'),
   markout:count('markout'),
@@ -321,6 +332,7 @@ export function studyHourlyFvgMidpoint(
   let markoutExitObservedAt:number|null=null;
   let windowComplete=true;
   let censorReason:FirstTouchCensorReason|null=null;
+  let markoutCensorReason:MarkoutCensorReason|null=null;
   let openingGapThrough=false;
   let outcomeObservedAt:number|null=null;
   for(let wait=1;wait<=maxTouchWaitBars;wait++){
@@ -372,9 +384,18 @@ export function studyHourlyFvgMidpoint(
    // Both scenarios share the same exit close. The baseline assumes an
    // intrabar midpoint touch, not an observed executable broker fill.
    const exit=bars[j+markoutBars];
-   let contiguous=!!exit;
+   let contiguous=true;
    for(let k=j+1;k<=j+markoutBars;k++){
-    if(!bars[k]||bars[k].time-bars[k-1].time!==HOUR){contiguous=false;break;}
+    if(!bars[k]){
+     contiguous=false;
+     markoutCensorReason='RIGHT_CENSORED';
+     break;
+    }
+    if(bars[k].time-bars[k-1].time!==HOUR){
+     contiguous=false;
+     markoutCensorReason='MISSING_HOUR';
+     break;
+    }
    }
    if(contiguous&&exit){
     const exitAt=exit.time+HOUR;
@@ -395,6 +416,10 @@ export function studyHourlyFvgMidpoint(
      confirmed=confirmedCandidate;
      gates.markout='PASS';
      markoutExitObservedAt=exitAt;
+    }else{
+     // Both matched returns are withheld if one cannot be represented.
+     // This is not missing market history and must not be pooled with it.
+     markoutCensorReason='UNREPRESENTABLE_RETURN';
     }
    }
    break; // FIRST midpoint touch only
@@ -419,7 +444,7 @@ export function studyHourlyFvgMidpoint(
     gates.markout==='FAIL'?outcomeObservedAt:null,
    firstTouchOutcome:openingGapThrough?'OPEN_GAP_THROUGH':
     touch!==null?'TOUCH':windowComplete?'NO_TOUCH':'INCOMPLETE_WINDOW',
-   firstTouchCensorReason:censorReason,
+   firstTouchCensorReason:censorReason,markoutCensorReason,
    rejectionWickFraction:wickFraction,gates,
    blindMidpointTouch:blind,confirmedNextOpen:confirmed,
    eligibleForLiveTrading:false});
