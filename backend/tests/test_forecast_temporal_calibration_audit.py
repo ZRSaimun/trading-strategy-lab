@@ -827,3 +827,54 @@ def test_settlement_lag_ignores_unselected_forecast_receipt_delay():
     for field in ("lateSettlementLagP95Seconds", "lateSettlementLagMaxSeconds",
                   "lateSettlementLagOverOneCandleFraction"):
         assert a[field] == b[field]
+
+
+def test_issuance_lag_full_late_issued_census_and_nearest_rank_p95():
+    s = fixture()
+    for i in range(155, 160):
+        s["forecasts"][i]["issuedAt"] += 31
+        s["events"][i]["receivedAt"] += 31
+    row = audit_temporal_forecast_calibration(s)["groups"][0]
+    assert row["lateIssuanceLagCensusCount"] == 80
+    assert row["lateIssuanceLagP95Seconds"] == 31
+    assert row["lateIssuanceLagMaxSeconds"] == 31
+    assert row["lateIssuanceLagOverHalfCandleFraction"] == pytest.approx(5 / 80)
+    assert row["lateBrier"] is not None
+
+
+def test_issuance_lag_strict_half_candle_boundary():
+    s = fixture()
+    s["forecasts"][159]["issuedAt"] += 30
+    s["events"][159]["receivedAt"] += 30
+    row = audit_temporal_forecast_calibration(s)["groups"][0]
+    assert row["lateIssuanceLagMaxSeconds"] == 30
+    assert row["lateIssuanceLagOverHalfCandleFraction"] == 0
+
+
+def test_issuance_lag_not_selected_by_outcome_or_as_of_cutoff():
+    s = fixture()
+    s["forecasts"][159]["issuedAt"] += 31
+    s["events"][159]["receivedAt"] += 31
+    original = audit_temporal_forecast_calibration(s)["groups"][0]
+    for i in range(100, 160):
+        s["forecasts"][i].update(status="PENDING", outcomeUp=None, resolvedAt=None)
+    withheld = audit_temporal_forecast_calibration(s)["groups"][0]
+    for field in ("lateIssuanceLagCensusCount", "lateIssuanceLagP95Seconds",
+                  "lateIssuanceLagMaxSeconds",
+                  "lateIssuanceLagOverHalfCandleFraction"):
+        assert original[field] == withheld[field]
+    assert withheld["lateBrier"] is None
+    cutoff = max(r["issuedAt"] for r in s["forecasts"])
+    as_of = audit_temporal_forecast_calibration(
+        s, evaluation_as_of=cutoff)["groups"][0]
+    assert as_of["lateIssuanceLagMaxSeconds"] == 31
+
+
+def test_issuance_lag_remains_descriptive_when_horizon_scores_withheld():
+    s = fixture(horizon=12)
+    row = audit_temporal_forecast_calibration(s)["groups"][0]
+    assert row["status"] == "INSUFFICIENT_NONOVERLAPPING_OUTCOMES"
+    assert row["lateBrier"] is None
+    assert row["lateIssuanceLagCensusCount"] == 80
+    assert row["lateIssuanceLagP95Seconds"] == 0
+    assert row["lateIssuanceLagOverHalfCandleFraction"] == 0
