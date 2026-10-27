@@ -475,3 +475,35 @@ a trustworthy market source, or a profitable trading edge. Fixed bins can
 hide within-bin shifts. No drift-based alert, paper fill or live order is
 authorized. Independently authenticated completed-candle receipts and
 market-session inventories remain Loop 1 prerequisites.
+
+
+## Unbinned issued-probability ECDF shift (27 October 2026)
+
+The all-issued early/late cohorts now also produce two **unbinned**
+empirical cumulative-distribution-function (ECDF) distances:
+
+- `issuedProbabilityWasserstein1`: exact one-dimensional Wasserstein-1
+  distance, computed as the integral of the absolute ECDF difference across
+  probability values. It is in **probability units**, between 0 and 1, and
+  captures within-bin movement missed by the ten-bin Jensen-Shannon measure.
+- `issuedProbabilityKsGap`: maximum absolute difference between the two
+  empirical CDFs, between 0 and 1. This is a **descriptive KS distance**,
+  **not** a Kolmogorov-Smirnov significance test or p-value.
+
+Both are null if either cohort has zero issued forecasts. The existing
+`issuedProbabilityShiftLowSupportUnder30` applies to both metrics, too.
+Implementation sorts the exact issued probabilities and walks their merged
+support, including ties and unequal cohort sizes; it never generates or
+imputes observations. For example, cohorts fixed at 0.71 and 0.79 occupy
+the same ten-bin histogram (zero binned Jensen-Shannon divergence), yet
+have Wasserstein-1 distance 0.08 and descriptive KS gap 1.0. A large KS
+gap with little W1 movement can reflect a small probability displacement,
+not an economically significant change.
+
+These metrics include **all** early/late issued forecasts before selecting
+on settlement, as-of cutoff, or overlap. They cannot see **unissued**
+forecasts or missing source candles. No p-values, independence assumptions,
+market-source authentication, forecast skill, actual alerts, executable
+BID/ASK, net paper P&L, or trading permissions follow from these distances.
+Loop 1 must provide separately authenticated completed-candle/session
+inventories and receipt timestamps before operational use.
