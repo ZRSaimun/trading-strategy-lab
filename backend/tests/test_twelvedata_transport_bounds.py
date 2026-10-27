@@ -405,8 +405,8 @@ def test_oversized_ohlc_csv_field_is_sanitized_by_http_adapter():
 
 
 @pytest.mark.parametrize("bad_key", [
-    None, True, 7, "", " ", "abc\\ndef", "abc\\rdef",
-    "abc\\tdef", "\\x7f", "\\u2603", "x" * 513,
+    None, True, 7, "", " ", "abc\ndef", "abc\rdef",
+    "abc\tdef", "\x7f", "\u2603", "x" * 513,
 ])
 def test_direct_retrieve_rejects_malformed_credential_before_network(bad_key):
     # A direct caller must not make a potentially chargeable request or leak
