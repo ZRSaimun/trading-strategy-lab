@@ -127,6 +127,12 @@ async def retrieve(key,instrument,limit,end,now,transport=None, *, include_wire_
                 transfer_encodings = response.headers.get_list('transfer-encoding')
                 if lengths and transfer_encodings:
                     raise ProviderError('Conflicting provider response framing; no data imported.')
+                # The HTTP client handles transfer chunk framing, but other
+                # transfer codings may change entity bytes before our bound
+                # and digest checks. Accept only one explicit 'chunked' value.
+                if (len(transfer_encodings) > 1 or
+                        (transfer_encodings and transfer_encodings[0].strip().lower() != 'chunked')):
+                    raise ProviderError('Unsupported provider transfer encoding; no data imported.')
                 declared_length = int(lengths[0]) if lengths else None
                 raw=bytearray()
                 if response.is_stream_consumed and transport is not None:
