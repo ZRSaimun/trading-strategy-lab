@@ -74,7 +74,8 @@ def _calibration_bin_diagnostics10(rows):
 
 def audit_temporal_forecast_calibration(snapshot, *, min_per_window=30,
                                         brier_deterioration=0.05,
-                                        max_unresolved_fraction=0.10):
+                                        max_unresolved_fraction=0.10,
+                                        evaluation_as_of=None):
     """Review pre/post issuance cohorts without future-informed baseline fitting.
 
     Split ALL issued records chronologically, before looking at outcomes. The
@@ -86,7 +87,10 @@ def audit_temporal_forecast_calibration(snapshot, *, min_per_window=30,
     or void labels. Apply missingness limits to BOTH all issued forecasts and
     the fixed nonoverlapping census used for scores, so overlapping issued
     records cannot dilute missingness concentrated in the evaluated sample.
-    Thresholds are heuristics, not hypothesis tests.
+    An optional caller-declared evaluation_as_of prevents using late labels
+    resolved after that cutoff. The cutoff and journal are NOT authenticated
+    and do not establish a prospective holdout. Thresholds are heuristics,
+    not hypothesis tests.
     """
     if type(min_per_window) is not int or not 30 <= min_per_window <= 1000:
         raise ValueError("Invalid independent sample minimum")
@@ -99,10 +103,18 @@ def audit_temporal_forecast_calibration(snapshot, *, min_per_window=30,
             or not 0 <= max_unresolved_fraction < 1):
         raise ValueError("Invalid unresolved fraction threshold")
 
+    if (evaluation_as_of is not None and
+            (type(evaluation_as_of) is not int or
+             not 0 <= evaluation_as_of <= 2**53 - 1)):
+        raise ValueError("Invalid declared evaluation cutoff")
+
     # The scorecard checks the exact evidence marker, identity, sequence,
     # event/forecast correspondence, outcome types and resolution status.
     # It does NOT independently authenticate the journal or its provider.
     summarize_forecast_snapshot(snapshot)
+    if (evaluation_as_of is not None and
+            any(r["issuedAt"] > evaluation_as_of for r in snapshot["forecasts"])):
+        raise ValueError("Declared evaluation cutoff predates issued forecasts")
     seconds = snapshot["identity"]["seconds"]
     groups = defaultdict(list)
     for row in snapshot["forecasts"]:
@@ -134,7 +146,8 @@ def audit_temporal_forecast_calibration(snapshot, *, min_per_window=30,
         late_census = _nonoverlapping(late)
         train = [r for r in early_census if r["status"] == "SETTLED"
                  and boundary is not None and r["resolvedAt"] < boundary]
-        test = [r for r in late_census if r["status"] == "SETTLED"]
+        test = [r for r in late_census if r["status"] == "SETTLED"
+                and (evaluation_as_of is None or r["resolvedAt"] <= evaluation_as_of)]
         # A SETTLED outcome learned only after the late cohort begins is
         # unavailable to the frozen baseline. Count it as boundary missingness
         # even though the retrospective journal eventually contains a label.
@@ -143,7 +156,12 @@ def audit_temporal_forecast_calibration(snapshot, *, min_per_window=30,
                            for r in early)
         early_unavailable = early_unresolved + early_purged
         early_rate = early_unavailable / len(early) if early else 1.0
+        late_settled_after_cutoff = sum(
+            r["status"] == "SETTLED" and evaluation_as_of is not None
+            and r["resolvedAt"] > evaluation_as_of for r in late)
+        late_unavailable = late_unresolved + late_settled_after_cutoff
         late_rate = late_unresolved / len(late) if late else 1.0
+        late_as_of_rate = late_unavailable / len(late) if late else 1.0
         # An issued-stream denominator can hide concentrated missing labels in
         # the fixed nonoverlapping census actually used for scoring. Require
         # BOTH the whole-stream and selected-census fractions to pass. The
@@ -152,15 +170,21 @@ def audit_temporal_forecast_calibration(snapshot, *, min_per_window=30,
             r["status"] != "SETTLED" or boundary is None or r["resolvedAt"] >= boundary
             for r in early_census)
         late_census_unresolved = sum(r["status"] != "SETTLED" for r in late_census)
+        late_census_after_cutoff = sum(
+            r["status"] == "SETTLED" and evaluation_as_of is not None
+            and r["resolvedAt"] > evaluation_as_of for r in late_census)
         early_census_rate = (early_census_unavailable / len(early_census)
                              if early_census else 1.0)
         late_census_rate = (late_census_unresolved / len(late_census)
                             if late_census else 1.0)
+        late_census_as_of_rate = (
+            (late_census_unresolved + late_census_after_cutoff) / len(late_census)
+            if late_census else 1.0)
         sufficient = len(train) >= min_per_window and len(test) >= min_per_window
         complete_enough = (early_rate <= max_unresolved_fraction
-                           and late_rate <= max_unresolved_fraction
+                           and late_as_of_rate <= max_unresolved_fraction
                            and early_census_rate <= max_unresolved_fraction
-                           and late_census_rate <= max_unresolved_fraction)
+                           and late_census_as_of_rate <= max_unresolved_fraction)
         entry = {
             "modelVersion": model, "horizonCandles": horizon,
             "issued": len(rows), "earlyIssued": len(early), "lateIssued": len(late),
@@ -170,12 +194,16 @@ def audit_temporal_forecast_calibration(snapshot, *, min_per_window=30,
             "earlyUnavailableAtBoundary": early_unavailable,
             "earlyUnavailableAtBoundaryFraction": early_rate,
             "lateUnresolvedOrVoidFraction": late_rate,
+            "lateSettledAfterDeclaredAsOf": late_settled_after_cutoff,
+            "lateUnavailableAtDeclaredAsOfFraction": late_as_of_rate,
             "earlyNonoverlappingIssued": len(early_census),
             "lateNonoverlappingIssued": len(late_census),
             "earlyCensusUnavailableAtBoundary": early_census_unavailable,
             "lateCensusUnresolvedOrVoid": late_census_unresolved,
+            "lateCensusSettledAfterDeclaredAsOf": late_census_after_cutoff,
             "earlyCensusUnavailableAtBoundaryFraction": early_census_rate,
             "lateCensusUnresolvedOrVoidFraction": late_census_rate,
+            "lateCensusUnavailableAtDeclaredAsOfFraction": late_census_as_of_rate,
             "earlyNonoverlappingSettled": len(train),
             "lateNonoverlappingSettled": len(test),
             "earlyBrier": None, "lateBrier": None, "lateBrierDelta": None,
@@ -231,10 +259,13 @@ def audit_temporal_forecast_calibration(snapshot, *, min_per_window=30,
         "forwardNetReturn": None, "maximumDrawdown": None,
         "maySendNotification": False, "mayExecutePaperOrder": False,
         "mayExecuteLiveOrder": False,
+        "evaluationAsOfDeclared": evaluation_as_of,
+        "evaluationCutoffAuthenticated": False,
         "identity": snapshot["identity"].copy(),
         "issuedTotal": len(snapshot["forecasts"]), "groups": reports,
         "limitations": "Caller journal unauthenticated; split is retrospective and not an "
                        "untouched holdout; dependent market regimes and sample selection remain; "
+                       "declared as-of cutoff and settlement times are not independently verified; "
                        "missing/void outcomes can bias scores; log loss heavily penalizes "
                        "confident wrong probabilities and is not financial loss; "
                        "10-bin ECE is bin-dependent "
