@@ -65,10 +65,9 @@ class ChunkedReply(Reply):
             raise TimeoutError("secret after response prefix")
         if not self.chunks:
             return b""
-        chunk = self.chunks.pop(0)
-        if type(chunk) is bytes:
-            assert len(chunk) <= size
-        return chunk
+        # Deliberately permit a malformed injected reader to exceed size.
+        # Production code must enforce the byte bound itself.
+        return self.chunks.pop(0)
 
 
 def accepted(chat=CHAT, mid=55, text=None):
