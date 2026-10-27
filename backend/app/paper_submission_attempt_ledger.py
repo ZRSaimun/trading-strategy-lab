@@ -13,6 +13,10 @@ from pathlib import Path
 
 SCHEMA_VERSION = 1
 MAX_EVENTS = 10000
+# Local SQLite evidence only: bound database bytes and decoded SQLite values
+# before scanning an untrusted or corrupted ledger. No automatic truncation.
+MAX_LEDGER_BYTES = 32 * 1024 * 1024
+MAX_SQLITE_VALUE_BYTES = 4096
 MAX_TIME = 8_640_000_000_000_000
 ZERO = '0' * 64
 IDENTIFIER = re.compile(r'[A-Za-z0-9][A-Za-z0-9._:/+-]{0,79}\Z')
@@ -77,13 +81,25 @@ def _connect(path, *, read_only=False):
     p = Path(path)
     if p.is_symlink() or not p.is_file():
         raise ValueError('Existing regular ledger file required; initialize separately')
+    try:
+        if p.stat().st_size > MAX_LEDGER_BYTES:
+            raise ValueError('Ledger file exceeds reviewed byte capacity')
+    except FileNotFoundError as exc:
+        raise ValueError('Ledger disappeared before SQLite open') from exc
     # mode=ro/rw prevents sqlite3's default rwc mode from recreating a ledger
     # removed between the filesystem preflight and SQLite's actual open.
     # Use a URI to preserve escaping of spaces, '?' and '#' in the path.
     uri = p.absolute().as_uri() + ('?mode=ro' if read_only else '?mode=rw')
     conn = sqlite3.connect(uri, timeout=5, isolation_level=None, uri=True)
-    conn.execute('PRAGMA foreign_keys=ON')
-    conn.execute('PRAGMA busy_timeout=5000')
+    try:
+        # Python 3.12/SQLite limits apply to values decoded from malicious rows,
+        # not merely the number of rows returned by LIMIT.
+        conn.setlimit(sqlite3.SQLITE_LIMIT_LENGTH, MAX_SQLITE_VALUE_BYTES)
+        conn.execute('PRAGMA foreign_keys=ON')
+        conn.execute('PRAGMA busy_timeout=5000')
+    except BaseException:
+        conn.close()
+        raise
     return conn
 
 
