@@ -7,7 +7,7 @@
  */
 import type {Bar} from './research.ts';
 
-export const HOURLY_FVG_VERSION='hourly-fvg-first-midpoint-touch-v32';
+export const HOURLY_FVG_VERSION='hourly-fvg-first-midpoint-touch-v33';
 export type Evidence='PASS'|'FAIL'|'INSUFFICIENT_DATA';
 export type Side='BULLISH'|'BEARISH';
 export type FvgSource={
@@ -61,6 +61,15 @@ export type PairedNetSignCells={
  bothPositive:number;blindOnlyPositive:number;
  confirmedOnlyPositive:number;neitherPositive:number;
 };
+// Directional ordering on the same matured matched fixed-exit population.
+// Costs are not applied: equal scenario costs cancel in the comparison.
+export type PairedGrossOrderingCells={
+ confirmedHigher:number;blindHigher:number;equal:number;
+};
+export type PairedGrossOrderingCensus={
+ all:PairedGrossOrderingCells;strict:PairedGrossOrderingCells;
+ strictFail:PairedGrossOrderingCells;strictUnknown:PairedGrossOrderingCells;
+};
 export type PairedNetSignCostCensus={
  scenarioIndex:number;costBps:number;
  // Partition all matched outcomes by the declared strict evidence state.
@@ -75,6 +84,8 @@ export type FvgCohort={
  midpointTouch:EvidenceCounts;strictCandidate:EvidenceCounts;markout:EvidenceCounts;
  pairedMarkouts:number;strictPairedMarkouts:number;nonStrictPairedMarkouts:number;
  pairedNetSignByCost:readonly PairedNetSignCostCensus[];
+ // Descriptive paired gross-BID markout ordering; not realized execution P&L.
+ pairedGrossOrdering:PairedGrossOrderingCensus;
  // Count matched and right-censored candidates by strict evidence status.
  pairedByStrictCandidate:EvidenceCounts;unpairedByStrictCandidate:EvidenceCounts;
  blindOnlyMarkouts:number;
@@ -203,6 +214,28 @@ function summarizeCohort(observations:readonly FvgObservation[],costs:readonly n
   const counts=paired(observation)?pairedByStrictCandidate:unpairedByStrictCandidate;
   counts[observation.gates.strictCandidate]++;
  }
+ // Compare the two fixed-exit gross BID markouts only after BOTH outcomes
+ // mature. This ranking does not depend on an illustrative cost scenario
+ // because both comparators subtract the same declared bps cost. It does
+ // not establish an executable advantage or equal exposure/holding time.
+ const emptyOrdering=():PairedGrossOrderingCells=>({
+  confirmedHigher:0,blindHigher:0,equal:0,
+ });
+ const pairedGrossOrdering:PairedGrossOrderingCensus={
+  all:emptyOrdering(),strict:emptyOrdering(),
+  strictFail:emptyOrdering(),strictUnknown:emptyOrdering(),
+ };
+ for(const observation of observations){
+  if(!paired(observation))continue;
+  const blindGross=observation.blindMidpointTouch!.grossBps;
+  const confirmedGross=observation.confirmedNextOpen!.grossBps;
+  const cell:keyof PairedGrossOrderingCells=confirmedGross>blindGross?
+   'confirmedHigher':confirmedGross<blindGross?'blindHigher':'equal';
+  pairedGrossOrdering.all[cell]++;
+  if(observation.gates.strictCandidate==='PASS')pairedGrossOrdering.strict[cell]++;
+  else if(observation.gates.strictCandidate==='FAIL')pairedGrossOrdering.strictFail[cell]++;
+  else pairedGrossOrdering.strictUnknown[cell]++;
+ }
  // Count every matured matched pair, not only attractive strict candidates.
  // Unpaired, right-censored and opening-gap-through outcomes are excluded.
  // Costs are hypothetical; zero net bps is nonpositive.
@@ -246,7 +279,7 @@ function summarizeCohort(observations:readonly FvgObservation[],costs:readonly n
  }
  return {
   formations:observations.length,firstTouchOutcome,incompleteWindowByReason,
-  pairedNetSignByCost,
+  pairedNetSignByCost,pairedGrossOrdering,
   markoutCensoredByReason,
   midpointTouch:count('midpointTouch'),
   strictCandidate:count('strictCandidate'),

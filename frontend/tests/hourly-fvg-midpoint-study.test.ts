@@ -534,7 +534,7 @@ test('research report source metadata excludes arbitrary caller properties',()=>
  assert.deepEqual(Object.keys(report.source).sort(),Object.keys(source).sort());
  assert.equal(JSON.stringify(report).includes('synthetic-private-marker'),false);
  assert.equal(JSON.stringify(report).includes('synthetic-account-marker'),false);
- assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v32');
+ assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v33');
 });
 test('ambiguous source labels and contradictory volume evidence fail closed',()=>{
  // These are declared metadata, not independent vendor authentication.
@@ -910,7 +910,7 @@ test('an overflowing next-open comparator suppresses both matched markouts',()=>
 });
 test('completed hourly timestamps are safe and numeric rule changes have a new version',()=>{
  const report=studyHourlyFvgMidpoint(fixture(),source);
- assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v32');
+ assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v33');
  const lastSafeAlignedOpen=Math.floor(Number.MAX_SAFE_INTEGER/H)*H;
  assert.equal(Number.isSafeInteger(lastSafeAlignedOpen),true);
  assert.equal(Number.isSafeInteger(lastSafeAlignedOpen+H),false);
@@ -1102,6 +1102,50 @@ test('matched net-sign costs partition strict pass, known fail and unknown evide
     assert.equal(sumNetCells(scenario.strictFail),0);
     assert.equal(sumNetCells(scenario.strictUnknown),0);
    }
+  }
+ }
+});
+
+test('matured paired gross ordering preserves adverse, favorable and equal next-open entries',()=>{
+ const sum=(cells:{confirmedHigher:number;blindHigher:number;equal:number})=>
+  cells.confirmedHigher+cells.blindHigher+cells.equal;
+ for(const bearish of [false,true]){
+  const flip=(bars:Bar[])=>bearish?bars.map(b=>({...b,
+   open:220-b.open,high:220-b.low,low:220-b.high,close:220-b.close})):bars;
+  for(const [nextOpen,expected] of [
+   [105.5,'blindHigher'],[101,'confirmedHigher'],[102,'equal'],
+  ] as const){
+   const base=onePairedFvgFixture();
+   base[24]=candle(24,nextOpen,107,100,106);
+   const bars=flip(base);
+   const report=studyHourlyFvgMidpoint(bars,source,{
+    hypotheticalRoundTripCostsBps:[0,500,900],
+   });
+   const ordering=report.cohort.pairedGrossOrdering;
+   assert.equal(report.cohort.pairedMarkouts,1);
+   assert.equal(sum(ordering.all),1);
+   assert.equal(ordering.all[expected],1);
+   assert.deepEqual(ordering.strict,ordering.all);
+   assert.equal(sum(ordering.strictFail),0);
+   assert.equal(sum(ordering.strictUnknown),0);
+   // An observed touch is not a completed fixed-exit comparison.
+   const before=studyHourlyFvgMidpointAsOf(bars,source,BASE+26*H);
+   assert.equal(before.cohort.pairedMarkouts,0);
+   assert.equal(sum(before.cohort.pairedGrossOrdering.all),0);
+   const matured=studyHourlyFvgMidpointAsOf(bars,source,BASE+27*H);
+   assert.deepEqual(matured.cohort.pairedGrossOrdering,ordering);
+   // A known failed volume gate and an unauthenticated volume declaration
+   // must remain distinct partitions, without altering the matched basis.
+   const failed=base.map(b=>({...b}));
+   failed[23].volume=100;
+   const failReport=studyHourlyFvgMidpoint(flip(failed),source);
+   assert.deepEqual(failReport.cohort.pairedGrossOrdering.strictFail,ordering.all);
+   assert.equal(sum(failReport.cohort.pairedGrossOrdering.strict),0);
+   const unknown=studyHourlyFvgMidpoint(bars,{
+    ...source,volumeType:'unverified',volumeVerified:false,
+   });
+   assert.deepEqual(unknown.cohort.pairedGrossOrdering.strictUnknown,ordering.all);
+   assert.equal(sum(unknown.cohort.pairedGrossOrdering.strict),0);
   }
  }
 });
