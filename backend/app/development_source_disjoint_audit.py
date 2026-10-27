@@ -152,6 +152,18 @@ def audit_development_source_disjointness(manifest, observations, folds):
                 raise ValueError("Reused, unknown or out-of-window test observation")
             years.add(datetime.fromtimestamp(row["decision_at"], timezone.utc).year)
             seen_test_ids.add(key)
+        # A declared population is not a complete census if the caller may
+        # silently omit an eligible losing observation from a fold. Verify
+        # the entire eligible membership, not only the supplied ID subset.
+        eligible_train = {key for key, row in obs.items()
+                          if ts <= row["decision_at"] < te
+                          and row["feature_start_at"] >= ts
+                          and row["label_available_at"] + embargo <= vs}
+        eligible_test = {key for key, row in obs.items()
+                         if vs <= row["decision_at"] < ve
+                         and row["feature_start_at"] >= ts}
+        if set(train_ids) != eligible_train or set(test_ids) != eligible_test:
+            raise ValueError("Selective fold membership or omitted eligible observation")
         used_ids.update(train_ids)
         used_ids.update(test_ids)
         fold_reports.append({"fold_id": fold["fold_id"], "training_count": len(train_ids),
