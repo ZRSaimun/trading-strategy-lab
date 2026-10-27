@@ -109,6 +109,17 @@ def _private_file(info):
         raise ValueError('Ledger file hardlinks are forbidden')
 
 
+def _reject_wal_sidecars(path):
+    """Refuse unreviewed SQLite WAL/SHM evidence, including dangling symlinks.
+
+    A WAL may contain committed transactions absent from the main DB file.
+    This research ledger uses rollback journaling only; never auto-delete or
+    checkpoint a sidecar whose provenance has not been established.
+    """
+    if any(os.path.lexists(str(path) + suffix) for suffix in ('-wal', '-shm')):
+        raise ValueError('Unreviewed SQLite WAL/SHM sidecar; quarantine ledger')
+
+
 def _connect(path, *, read_only=False):
     if not isinstance(path, (str, Path)):
         raise ValueError('Database path required')
@@ -121,6 +132,7 @@ def _connect(path, *, read_only=False):
     except FileNotFoundError as exc:
         raise ValueError('Ledger disappeared before SQLite open') from exc
     _private_file(before)
+    _reject_wal_sidecars(p)
     if before.st_size > MAX_LEDGER_BYTES:
         raise ValueError('Ledger file exceeds reviewed byte capacity')
     # mode=ro/rw prevents sqlite3's default rwc mode from recreating a ledger
@@ -143,11 +155,17 @@ def _connect(path, *, read_only=False):
                 or (after.st_dev, after.st_ino) != (before.st_dev, before.st_ino)):
             raise ValueError('Ledger file identity changed during SQLite open')
         _private_file(after)
+        _reject_wal_sidecars(p)
         if after.st_size > MAX_LEDGER_BYTES:
             raise ValueError('Ledger file exceeds reviewed byte capacity')
         # Python 3.12/SQLite limits apply to values decoded from malicious rows,
         # not merely the number of rows returned by LIMIT.
         conn.setlimit(sqlite3.SQLITE_LIMIT_LENGTH, MAX_SQLITE_VALUE_BYTES)
+        # The on-disk SQLite header can request WAL even after sidecar files
+        # have been removed. Query only: never silently switch journal modes.
+        if conn.execute('PRAGMA journal_mode').fetchone() != ('delete',):
+            raise ValueError('Unexpected SQLite journal mode; quarantine ledger')
+        conn.execute('PRAGMA trusted_schema=OFF')
         conn.execute('PRAGMA foreign_keys=ON')
         conn.execute('PRAGMA busy_timeout=5000')
     except BaseException:
@@ -162,6 +180,7 @@ def initialize_ledger(path):
     parent_identity = _private_parent(p)
     if p.exists() or p.is_symlink():
         raise ValueError('Ledger already exists; refusing overwrite')
+    _reject_wal_sidecars(p)
     # Create mode 0600 regardless of a permissive process umask. O_EXCL
     # refuses an existing file, including a symlink. Never auto-recreate it.
     fd = os.open(p, os.O_CREAT | os.O_EXCL | os.O_WRONLY
