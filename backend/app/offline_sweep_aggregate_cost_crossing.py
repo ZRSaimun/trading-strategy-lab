@@ -9,7 +9,7 @@ import json
 from decimal import Decimal, ROUND_CEILING, ROUND_FLOOR
 from pathlib import Path
 
-from .offline_sweep_aggregate_audit import STATES, audit_aggregate
+from .offline_sweep_aggregate_audit import STATES, audit_aggregate, load_declared_aggregate
 
 _HALF_UNIT = Decimal("0.000005")
 _DISPLAY_UNIT = Decimal("0.00000001")
@@ -86,7 +86,7 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("aggregate_json", type=Path)
     args = parser.parse_args(argv)
-    print(json.dumps(audit_cost_crossing(json.loads(args.aggregate_json.read_text(encoding="utf-8"))),
+    print(json.dumps(audit_cost_crossing(load_declared_aggregate(args.aggregate_json)),
                      sort_keys=True))
 
 
