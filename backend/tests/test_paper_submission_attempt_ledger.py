@@ -639,3 +639,90 @@ def test_wal_mode_in_sqlite_header_is_not_silently_repaired(db, operation):
         assert conn.execute('PRAGMA journal_mode').fetchone() == ('wal',)
     finally:
         conn.close()
+
+
+@pytest.mark.parametrize('kind', ['symlink', 'directory', 'hardlink', 'oversize'])
+@pytest.mark.parametrize('operation', ['inspect', 'prepare'])
+def test_unsafe_rollback_journal_quarantines_without_touching_target(
+        db, tmp_path, kind, operation):
+    """A journal is writable SQLite state; reject unsafe path types before open."""
+    import os
+    journal = ledger.Path(str(db) + '-journal')
+    target = tmp_path / 'protected'
+    target.write_bytes(b'protected-data')
+    original = db.read_bytes()
+    if kind == 'symlink':
+        journal.symlink_to(target)
+    elif kind == 'directory':
+        journal.mkdir()
+    elif kind == 'hardlink':
+        os.link(target, journal)
+    else:
+        with journal.open('wb') as handle:
+            handle.truncate(ledger.MAX_LEDGER_BYTES * 2 + 1)
+    try:
+        with pytest.raises(ValueError, match='Unsafe SQLite rollback journal'):
+            if operation == 'inspect':
+                inspect_ledger(db)
+            else:
+                prep(db)
+        assert db.read_bytes() == original
+        assert target.read_bytes() == b'protected-data'
+    finally:
+        if kind == 'directory':
+            journal.rmdir()
+        else:
+            journal.unlink()
+    assert inspect_ledger(db)['event_count'] == 0
+
+
+def test_initialize_rejects_orphan_rollback_journal(tmp_path):
+    db = tmp_path / 'new.sqlite'
+    journal = ledger.Path(str(db) + '-journal')
+    journal.symlink_to(tmp_path / 'missing-target')
+    try:
+        with pytest.raises(ValueError, match='Unsafe SQLite rollback journal'):
+            initialize_ledger(db)
+        assert not db.exists()
+    finally:
+        journal.unlink()
+
+
+@pytest.mark.parametrize('operation', ['inspect', 'prepare'])
+def test_rollback_journal_swap_during_open_fails_closed(db, tmp_path, monkeypatch, operation):
+    """Recheck journal paths after sqlite3.connect before SQL or writes."""
+    journal = ledger.Path(str(db) + '-journal')
+    target = tmp_path / 'protected'
+    target.write_bytes(b'protected-data')
+    original = db.read_bytes()
+    real_connect = ledger.sqlite3.connect
+
+    def swapped_connect(*args, **kwargs):
+        conn = real_connect(*args, **kwargs)
+        journal.symlink_to(target)
+        return conn
+
+    monkeypatch.setattr(ledger.sqlite3, 'connect', swapped_connect)
+    try:
+        with pytest.raises(ValueError, match='Unsafe SQLite rollback journal'):
+            if operation == 'inspect':
+                inspect_ledger(db)
+            else:
+                prep(db)
+        assert db.read_bytes() == original
+        assert target.read_bytes() == b'protected-data'
+    finally:
+        monkeypatch.setattr(ledger.sqlite3, 'connect', real_connect)
+        journal.unlink()
+    assert inspect_ledger(db)['event_count'] == 0
+
+
+def test_regular_private_parent_rollback_journal_does_not_disable_read(db):
+    """Normal DELETE-mode crash recovery must remain possible."""
+    journal = ledger.Path(str(db) + '-journal')
+    journal.write_bytes(b'')
+    try:
+        assert inspect_ledger(db)['event_count'] == 0
+    finally:
+        if journal.exists():
+            journal.unlink()
