@@ -96,6 +96,34 @@ def _calibration_bin_diagnostics10(rows):
     ]
 
 
+def _brier_components_binned10(rows, bins):
+    """Descriptive ten-bin Brier components with an explicit binning residual.
+
+    Reliability - resolution + uncertainty is NOT generally the exact Brier
+    score when individual probabilities vary inside a bin. Preserve that
+    discrepancy rather than presenting a false exact Murphy decomposition.
+    The caller supplies only eligible, fixed-census settled observations.
+    """
+    n = len(rows)
+    observed_rate = sum(int(r["outcomeUp"]) for r in rows) / n
+    reliability = sum(
+        b["count"] / n * (b["meanProbability"] - b["observedUpRate"]) ** 2
+        for b in bins if b["count"]
+    )
+    resolution = sum(
+        b["count"] / n * (b["observedUpRate"] - observed_rate) ** 2
+        for b in bins if b["count"]
+    )
+    uncertainty = observed_rate * (1 - observed_rate)
+    residual = _brier(rows) - (reliability - resolution + uncertainty)
+    return {
+        "lateBrierBinned10Reliability": reliability,
+        "lateBrierBinned10Resolution": resolution,
+        "lateBrierBinned10Uncertainty": uncertainty,
+        "lateBrierBinned10Residual": residual,
+    }
+
+
 def _confidence_tail_diagnostics(rows):
     """Descriptive realized error in the fixed >=90% binary-confidence tail.
 
@@ -266,6 +294,10 @@ def audit_temporal_forecast_calibration(snapshot, *, min_per_window=30,
             "lateExpectedCalibrationError10": None, "lateEceBins10": None,
             "lateEceOccupiedBinsUnder30": None,
             "lateEceMinOccupiedBinCount": None,
+            "lateBrierBinned10Reliability": None,
+            "lateBrierBinned10Resolution": None,
+            "lateBrierBinned10Uncertainty": None,
+            "lateBrierBinned10Residual": None,
             "lateHighConfidenceCount": None,
             "lateHighConfidenceFractionOfSettled": None,
             "lateHighConfidenceWrong": None,
@@ -307,6 +339,7 @@ def audit_temporal_forecast_calibration(snapshot, *, min_per_window=30,
                 lateEceBins10=late_bins,
                 lateEceOccupiedBinsUnder30=sum(n < 30 for n in occupied),
                 lateEceMinOccupiedBinCount=min(occupied),
+                **_brier_components_binned10(test, late_bins),
                 descriptiveDriftFlag=delta >= brier_deterioration,
                 **_confidence_tail_diagnostics(test),
             )
@@ -334,6 +367,8 @@ def audit_temporal_forecast_calibration(snapshot, *, min_per_window=30,
                        "confident wrong probabilities and is not financial loss; "
                        "high-confidence tail errors are descriptive and depend on "
                        "the fixed 90% threshold; empty tails have no error estimate; "
+                       "10-bin Brier components are bin-dependent and their "
+                       "explicit residual is not a forecast return; "
                        "10-bin ECE is bin-dependent "
                        "and noisy with sparse bins; binomial Wilson ranges assume "
                        "independence that is not established; heuristic drift is not a p-value. "
