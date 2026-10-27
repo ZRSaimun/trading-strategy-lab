@@ -211,6 +211,23 @@ def _settlement_lag_diagnostics(rows, seconds):
     }
 
 
+
+def _issuance_lag_diagnostics(rows, seconds):
+    """Declared issuance delay after completed base candle close, all late issued.
+
+    Use the full late issuance cohort, NOT settled-only or outcome-selected rows.
+    A late or absent forecast is not proof of an actual provider delivery delay.
+    """
+    lags = sorted(r["issuedAt"] - (r["baseStart"] + seconds) for r in rows)
+    return {
+        "lateIssuanceLagCensusCount": len(lags),
+        "lateIssuanceLagP95Seconds": lags[math.ceil(.95 * len(lags)) - 1],
+        "lateIssuanceLagMaxSeconds": lags[-1],
+        "lateIssuanceLagOverHalfCandleFraction":
+            sum(lag * 2 > seconds for lag in lags) / len(lags),
+    }
+
+
 def audit_temporal_forecast_calibration(snapshot, *, min_per_window=30,
                                         brier_deterioration=0.05,
                                         max_unresolved_fraction=0.10,
@@ -345,6 +362,9 @@ def audit_temporal_forecast_calibration(snapshot, *, min_per_window=30,
             "lateCensusUnavailableAtDeclaredAsOfFraction": late_census_as_of_rate,
             "earlyNonoverlappingSettled": len(train),
             "lateNonoverlappingSettled": len(test),
+            # Issuance latency uses ALL late issued forecasts, including pending/void.
+            # It is descriptive even when outcome-scoring gates withhold metrics.
+            **_issuance_lag_diagnostics(late, seconds),
             "earlyBrier": None, "lateBrier": None, "lateBrierDelta": None,
             "lateBrierBestCaseAllIssuedCensus": None,
             "lateBrierWorstCaseAllIssuedCensus": None,
@@ -443,6 +463,8 @@ def audit_temporal_forecast_calibration(snapshot, *, min_per_window=30,
                        "they are NOT realized performance; log loss heavily penalizes "
                        "confident wrong probabilities and is not financial loss; "
                        "settlement lag is caller-declared, not authenticated provider latency; "
+                       "issuance lag is caller-declared, not authenticated alert timeliness; "
+                       "unissued or missing completed candles are outside this census; "
                        "log-loss tail concentration and paired regret are descriptive "
                        "observed-label statistics, not financial downside; "
                        "high-confidence tail errors are descriptive and depend on "
