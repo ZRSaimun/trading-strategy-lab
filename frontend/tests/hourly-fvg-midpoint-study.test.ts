@@ -553,7 +553,7 @@ test('research report source metadata excludes arbitrary caller properties',()=>
  assert.deepEqual(Object.keys(report.source).sort(),Object.keys(source).sort());
  assert.equal(JSON.stringify(report).includes('synthetic-private-marker'),false);
  assert.equal(JSON.stringify(report).includes('synthetic-account-marker'),false);
- assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v46');
+ assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v47');
 });
 test('ambiguous source labels and contradictory volume evidence fail closed',()=>{
  // These are declared metadata, not independent vendor authentication.
@@ -929,7 +929,7 @@ test('an overflowing next-open comparator suppresses both matched markouts',()=>
 });
 test('completed hourly timestamps are safe and numeric rule changes have a new version',()=>{
  const report=studyHourlyFvgMidpoint(fixture(),source);
- assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v46');
+ assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v47');
  const lastSafeAlignedOpen=Math.floor(Number.MAX_SAFE_INTEGER/H)*H;
  assert.equal(Number.isSafeInteger(lastSafeAlignedOpen),true);
  assert.equal(Number.isSafeInteger(lastSafeAlignedOpen+H),false);
@@ -1712,4 +1712,37 @@ test('v46 unknown own research settings fail closed, including hidden and symbol
   volumeMultiple:1.5,
  }),studyHourlyFvgMidpointAsOf(bars,source,cutoff),
  'an ordinary partial explicit protocol remains valid in as-of replay');
+});
+
+
+test('v47 undeclared source identity fields fail closed without reading hostile getters',()=>{
+ const bars=fixture(),cutoff=BASE+37*H;
+ const baseline=studyHourlyFvgMidpoint(bars,source);
+ const hidden={...source} as FvgSource & {executionSide?:string};
+ Object.defineProperty(hidden,'executionSide',{value:'ask',enumerable:false});
+ const symbolic={...source,[Symbol('broker-verified')]:true};
+ const misspelled={...source,volumeVerifed:true};
+ for(const invalid of [hidden,symbolic,misspelled]){
+  assert.throws(()=>studyHourlyFvgMidpoint(bars,invalid),
+   /Unexpected FVG source declaration/,
+   'an unrecognized provenance field cannot be silently omitted from the report');
+  assert.throws(()=>studyHourlyFvgMidpointAsOf(bars,invalid,cutoff),
+   /Unexpected FVG source declaration/,
+   'as-of replay must enforce the identical frozen source schema');
+ }
+ let hostileReads=0;
+ const hostile={...source};
+ Object.defineProperty(hostile,'brokerCertified',{enumerable:true,get(){
+  hostileReads++;
+  throw Error('unrecognized provenance getter must not execute');
+ }});
+ assert.throws(()=>studyHourlyFvgMidpoint(bars,hostile),
+  /Unexpected FVG source declaration/);
+ assert.equal(hostileReads,0,'unrecognized source values are never evaluated');
+ const valid=Object.assign(Object.create(null),source) as FvgSource;
+ assert.deepEqual(studyHourlyFvgMidpoint(bars,valid),baseline,
+  'a complete explicit seven-field source declaration remains unchanged');
+ assert.deepEqual(studyHourlyFvgMidpointAsOf(bars,valid,cutoff),
+  studyHourlyFvgMidpointAsOf(bars,source,cutoff),
+  'as-of replay retains the same valid source evidence');
 });
