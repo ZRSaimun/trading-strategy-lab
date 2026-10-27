@@ -127,6 +127,11 @@ async def retrieve(key,instrument,limit,end,now,transport=None, *, include_wire_
                 if response.status_code==429:raise ProviderError('Provider quota exceeded.',429)
                 if response.status_code!=200:raise ProviderError('Provider request failed; no data imported.')
                 credit_headers = _credit_header_observation(response.headers) if include_wire_evidence else None
+                # A 200 response must represent the complete JSON entity, not a
+                # claimed byte-range fragment. A valid-looking JSON body with a
+                # Content-Range claim is ambiguous provenance and is quarantined.
+                if response.headers.get_list('content-range'):
+                    raise ProviderError('Unexpected provider partial-content claim; no data imported.')
                 # A successful historical JSON endpoint must not explicitly
                 # identify its response as HTML, plain text or another media
                 # type. Keep missing Content-Type compatible with legacy

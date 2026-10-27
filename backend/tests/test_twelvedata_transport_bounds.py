@@ -138,6 +138,26 @@ def test_single_chunked_transfer_encoding_is_supported(transfer_encoding):
     assert wire["decoded_http_body_bytes"] == len(_body())
 
 
+@pytest.mark.parametrize("range_claim", [
+    "bytes 0-9/100", "bytes */100", "", "bytes 0-99/*",
+])
+def test_successful_json_response_with_content_range_is_quarantined(range_claim):
+    # 200 OK must be a full entity; a range claim makes provenance ambiguous
+    # even if a mock returns valid-looking complete JSON bytes.
+    with pytest.raises(ProviderError, match="partial-content claim") as exc:
+        _fetch(_body(), {"Content-Range": range_claim})
+    assert exc.value.status == 502
+    assert "synthetic-only-key" not in str(exc.value)
+
+
+def test_duplicate_content_range_headers_are_quarantined():
+    with pytest.raises(ProviderError, match="partial-content claim"):
+        _fetch(_body(), [
+            ("Content-Range", "bytes 0-9/100"),
+            ("content-range", "bytes 10-19/100"),
+        ])
+
+
 def test_absent_length_header_keeps_bounded_identity_stream_supported():
     body = _body()
     (rows, _, wire), _ = _fetch(body)
