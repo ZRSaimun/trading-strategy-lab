@@ -42,3 +42,33 @@ for an additional round-trip cost `b` in basis points. When `sum(R_i) > 0`, the 
 - Never use this probe to execute real-money orders. Any later live integration requires a supported eligible scoped account, fresh executable quote, independent hard risk limits and explicit owner approval **for each order**.
 
 Tests: `PYTHONPATH=. pytest -q tests/test_offline_sweep_probe.py` from `backend/`. All fixtures are synthetic; no proprietary historical data or credentials are checked in.
+
+
+## v3: causal confirmation boundary and full signal-attrition census
+
+Protocol `source-local-sweep-confirmation-v3` excludes a development
+sweep whose **confirmation** falls inside the chronological embargo; v2 could
+inspect that embargo confirmation before recording an unobservable entry.
+All earlier v1/v2 exploratory returns are **stale** under this changed
+population rule and must be rerun on authorized source archives. The
+already-inspected later slices are never independent holdouts.
+
+Every *admitted, completed-confirmation* signal is counted exactly once in
+`confirmed_signals`, and must satisfy both exact identities:
+
+`confirmed_signals = confirmed_signals_without_observable_entry + invalid_entry_stop_or_target_geometry + entered_positions`
+
+`entered_positions = observed_outcomes + censored_due_to_gaps_or_boundaries`
+
+`unresolved_or_unadmitted_signals = confirmed_signals - observed_outcomes`.
+`all_confirmed_signals_resolved` is true only for a nonempty cohort with
+no missing entry, invalid entry risk/target geometry, or censored outcome.
+The mean-R and cost break-even statistics **still apply only to observed
+entered outcomes**. These counts disclose potential selection bias; they
+do not impute missing outcomes, bound adverse gap losses, establish
+statistical significance or make incomplete samples representative.
+In particular, no amount of zero observed censoring authenticates source
+rights, timezone, executable costs, or holdout independence.
+
+The census is *capacity-admitted* (non-overlapping) signals only, not a
+claim about every market pattern during an already-open simulated trade.

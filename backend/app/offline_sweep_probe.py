@@ -112,13 +112,18 @@ def research(bars, *, lookback=16, horizon=16, embargo=16):
     split = len(bars) * 7 // 10
     cohorts = {"development": [], "exploratory_later": []}
     censored = {"development": 0, "exploratory_later": 0}
+    confirmed = {"development": 0, "exploratory_later": 0}
+    invalid_entry_geometry = {"development": 0, "exploratory_later": 0}
+    entered = {"development": 0, "exploratory_later": 0}
     # A confirmed signal must not vanish from the sample simply because its
     # *future* entry bar is missing, crosses a source gap, or enters embargo.
     # These have no observable fill and must not be counted as entered trades.
     entry_unobservable = {"development": 0, "exploratory_later": 0}
     next_free = 0
     for i in range(lookback, len(bars) - 1):
-        cohort = ("development" if i < split - embargo else
+        # The completed confirmation must also be inside the selected cohort;
+        # a sweep immediately before embargo cannot borrow its confirmation.
+        cohort = ("development" if i + 1 < split - embargo else
                   "exploratory_later" if i >= split + embargo else None)
         if cohort is None or i < next_free:
             continue
@@ -145,6 +150,7 @@ def research(bars, *, lookback=16, horizon=16, embargo=16):
             continue
         if is_short and confirmation.c >= sweep.l:
             continue
+        confirmed[cohort] += 1
         entry_index = i + 2
         if (entry_index >= len(bars) or
                 bars[entry_index].segment != confirmation.segment or
@@ -159,10 +165,13 @@ def research(bars, *, lookback=16, horizon=16, embargo=16):
         stop = sweep.l if is_long else sweep.h
         risk = entry - stop if is_long else stop - entry
         if risk <= 0:
+            invalid_entry_geometry[cohort] += 1
             continue
         target = entry + 2*risk if is_long else entry - 2*risk
         if target <= 0:
+            invalid_entry_geometry[cohort] += 1
             continue
+        entered[cohort] += 1
         outcome = None
         last = min(entry_index + horizon, len(bars))
         for j in range(entry_index, last):
@@ -207,6 +216,11 @@ def research(bars, *, lookback=16, horizon=16, embargo=16):
     with localcontext() as ctx:
         ctx.prec = 60
         for name, trades in cohorts.items():
+            if entered[name] != censored[name] + len(trades):
+                raise RuntimeError("Entered-position outcome census mismatch")
+            if confirmed[name] != (entry_unobservable[name] +
+                                   invalid_entry_geometry[name] + entered[name]):
+                raise RuntimeError("Confirmed-signal census mismatch")
             # Frozen uncensored cohort: mean net R is linear in additional
             # round-trip bps. The zero-crossing is a descriptive cost budget,
             # never a measured spread or an executable profitability claim.
@@ -225,6 +239,14 @@ def research(bars, *, lookback=16, horizon=16, embargo=16):
                                   sum_net_r=str(sum(net, Q(0))),
                                   strictly_positive=sum(v > 0 for v in net)))
             reports[name] = dict(
+                confirmed_signals=confirmed[name],
+                entered_positions=entered[name],
+                invalid_entry_stop_or_target_geometry=invalid_entry_geometry[name],
+                observed_outcomes=len(trades),
+                unresolved_or_unadmitted_signals=(confirmed[name] - len(trades)),
+                all_confirmed_signals_resolved=(confirmed[name] > 0 and
+                                                confirmed[name] == len(trades)),
+                return_population_scope="OBSERVED_ENTERED_OUTCOMES_ONLY",
                 censored_due_to_gaps_or_boundaries=censored[name],
                 confirmed_signals_without_observable_entry=entry_unobservable[name],
                 uncensored_mean_gross_r=(str(mean_gross_r) if trades else None),
@@ -232,7 +254,7 @@ def research(bars, *, lookback=16, horizon=16, embargo=16):
                 positive_mean_break_even_additional_bps=(
                     str(break_even_bps) if break_even_bps is not None else None),
                 cost_scenarios=cases)
-    return dict(protocol="source-local-sweep-confirmation-v2",
+    return dict(protocol="source-local-sweep-confirmation-v3",
                 source_authenticated=False, timezone_verified=False,
                 untouched_holdout_verified=False, executable_broker_costs=False,
                 verified_profitability=False, may_execute_order=False,

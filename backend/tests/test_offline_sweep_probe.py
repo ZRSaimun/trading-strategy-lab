@@ -126,7 +126,7 @@ def test_adverse_source_open_gap_does_not_credit_exact_stop(
         b = rows[index]
         rows[index] = Bar(b.time, *(D(v) for v in values), b.segment)
     result = research(rows)
-    assert result["protocol"] == "source-local-sweep-confirmation-v2"
+    assert result["protocol"] == "source-local-sweep-confirmation-v3"
     cases = result["cohorts"]["development"]["cost_scenarios"]
     assert cases[0]["count"] == 1, direction
     assert D(cases[0]["mean_net_r"]) == D("-4.6"), direction
@@ -199,3 +199,67 @@ def test_confirmed_signal_with_nonconsecutive_entry_is_censused():
     report = research(rows)["cohorts"]["development"]
     assert report["confirmed_signals_without_observable_entry"] == 1
     assert report["cost_scenarios"][0]["count"] == 0
+
+
+def test_frozen_signal_census_for_observed_stop_and_missing_entry():
+    observed = research(synthetic_bars())["cohorts"]["development"]
+    assert observed["confirmed_signals"] == 1
+    assert observed["entered_positions"] == 1
+    assert observed["observed_outcomes"] == 1
+    assert observed["unresolved_or_unadmitted_signals"] == 0
+    assert observed["all_confirmed_signals_resolved"] is True
+    rows = synthetic_bars()
+    b = rows[32]
+    rows[32] = Bar(b.time, b.o, b.h, b.l, b.c, 1)
+    missing = research(rows)["cohorts"]["development"]
+    assert missing["confirmed_signals"] == 1
+    assert missing["confirmed_signals_without_observable_entry"] == 1
+    assert missing["entered_positions"] == missing["observed_outcomes"] == 0
+    assert missing["unresolved_or_unadmitted_signals"] == 1
+    assert missing["all_confirmed_signals_resolved"] is False
+
+
+def test_observed_entry_with_invalid_stop_geometry_is_not_silently_dropped():
+    rows = synthetic_bars()
+    b = rows[32]
+    # Long signal stop=98, but next-bar open=97: nonpositive stop distance.
+    rows[32] = Bar(b.time, D(97), D(114), D(97), D(100), b.segment)
+    report = research(rows)["cohorts"]["development"]
+    assert report["confirmed_signals"] == 1
+    assert report["invalid_entry_stop_or_target_geometry"] == 1
+    assert report["confirmed_signals_without_observable_entry"] == 0
+    assert report["entered_positions"] == 0
+    assert report["observed_outcomes"] == 0
+    assert report["unresolved_or_unadmitted_signals"] == 1
+    assert report["all_confirmed_signals_resolved"] is False
+
+
+def test_confirmation_inside_embargo_cannot_qualify_development_signal():
+    rows = synthetic_bars()
+    b = rows[30]
+    rows[30] = Bar(b.time, D(100), D(101), D(99), D(100), b.segment)
+    # For 200 bars, split=140 and embargo=16; 123 is last development
+    # sweep index, but confirmation at 124 is *inside* embargo.
+    for index, values in ((123, (100, 101, 98, 100)),
+                          (124, (100, 103, 99, 102))):
+        b = rows[index]
+        rows[index] = Bar(b.time, *(D(v) for v in values), b.segment)
+    result = research(rows)
+    assert result["split_index"] == 140
+    assert all(cohort["confirmed_signals"] == 0
+               for cohort in result["cohorts"].values())
+
+
+def test_censored_entered_signal_is_in_denominator_but_not_return_mean():
+    rows = synthetic_bars()
+    b = rows[32]
+    rows[32] = Bar(b.time, D(103), D(104), D(99), D(103), b.segment)
+    rows[33:] = [Bar(b.time, b.o, b.h, b.l, b.c, 1) for b in rows[33:]]
+    report = research(rows)["cohorts"]["development"]
+    assert report["confirmed_signals"] == 1
+    assert report["entered_positions"] == 1
+    assert report["censored_due_to_gaps_or_boundaries"] == 1
+    assert report["observed_outcomes"] == 0
+    assert report["unresolved_or_unadmitted_signals"] == 1
+    assert report["all_confirmed_signals_resolved"] is False
+    assert report["cost_scenarios"][0]["mean_net_r"] is None
