@@ -961,3 +961,68 @@ def test_issued_high_confidence_delay_visible_when_scores_withheld():
     assert row["lateIssuedHighConfidenceDelayedOverHalfCandleCount"] == 1
     assert row["lateIssuedHighConfidenceDelayedOverHalfCandleFraction"] == pytest.approx(1 / 80)
     assert row["lateIssuedOtherDelayedOverHalfCandleFraction"] is None
+
+
+def test_outcome_availability_bins_use_fixed_nonoverlapping_issued_census():
+    row = audit_temporal_forecast_calibration(fixture())["groups"][0]
+    bins = row["lateCensusOutcomeAvailabilityBins10"]
+    assert len(bins) == 10
+    assert sum(b["issued"] for b in bins) == row["lateNonoverlappingIssued"] == 40
+    assert bins[7] == {"bin": 7, "issued": 40, "eligibleSettled": 40,
+                       "unavailable": 0, "unavailableFraction": 0,
+                       "lowSupportUnder30": False}
+    assert bins[0]["issued"] == 0
+    assert bins[0]["unavailableFraction"] is None
+    assert bins[0]["lowSupportUnder30"] is None
+
+
+def test_outcome_availability_bins_do_not_replace_missing_selected_with_neighbor():
+    s = fixture()
+    s["forecasts"][80].update(status="PENDING", resolvedAt=None, outcomeUp=None)
+    s["forecasts"][81].update(status="PENDING", resolvedAt=None, outcomeUp=None)
+    row = audit_temporal_forecast_calibration(s)["groups"][0]
+    b = row["lateCensusOutcomeAvailabilityBins10"][7]
+    assert b["issued"] == 40
+    assert b["eligibleSettled"] == 39
+    assert b["unavailable"] == 1
+    assert b["unavailableFraction"] == pytest.approx(1 / 40)
+    # The unselected index 81 cannot shift the precommitted sampling census.
+    s["forecasts"][81].update(status="SETTLED", resolvedAt=4920, outcomeUp=True)
+    again = audit_temporal_forecast_calibration(s)["groups"][0]
+    assert again["lateCensusOutcomeAvailabilityBins10"] == row["lateCensusOutcomeAvailabilityBins10"]
+
+
+def test_outcome_availability_bins_respect_declared_as_of_settlement_cutoff():
+    s = fixture()
+    cutoff = max(r["issuedAt"] for r in s["forecasts"])
+    s["forecasts"][80]["resolvedAt"] = cutoff + 120
+    row = audit_temporal_forecast_calibration(
+        s, evaluation_as_of=cutoff)["groups"][0]
+    b = row["lateCensusOutcomeAvailabilityBins10"][7]
+    assert b["issued"] == 40
+    assert b["eligibleSettled"] == 39
+    assert b["unavailable"] == 1
+    assert row["lateCensusSettledAfterDeclaredAsOf"] == 1
+
+
+def test_outcome_availability_bins_remain_when_scoring_insufficient():
+    row = audit_temporal_forecast_calibration(fixture(horizon=12))["groups"][0]
+    assert row["status"] == "INSUFFICIENT_NONOVERLAPPING_OUTCOMES"
+    assert row["lateBrier"] is None
+    b = row["lateCensusOutcomeAvailabilityBins10"][7]
+    assert b["issued"] == row["lateNonoverlappingIssued"]
+    assert b["eligibleSettled"] == b["issued"]
+    assert b["lowSupportUnder30"] is True
+
+
+def test_outcome_availability_bins_include_probability_boundaries():
+    s = fixture()
+    for index, p in ((80, .10), (82, .90)):
+        s["forecasts"][index]["probability"] = p
+        s["events"][index]["probability"] = p
+    bins = audit_temporal_forecast_calibration(s)["groups"][0][
+        "lateCensusOutcomeAvailabilityBins10"]
+    assert bins[1]["issued"] == 1
+    assert bins[9]["issued"] == 1
+    assert bins[7]["issued"] == 38
+    assert sum(b["unavailable"] for b in bins) == 0
