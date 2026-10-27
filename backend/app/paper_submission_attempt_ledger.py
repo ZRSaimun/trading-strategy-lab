@@ -91,7 +91,7 @@ def _private_parent(path):
     # SQLite sidecar of another database in the same directory. Reject it
     # before creation/opening so this ledger cannot consume or overwrite
     # another database's recovery evidence.
-    if path.name.endswith(('-journal', '-wal', '-shm')):
+    if path.name.lower().endswith(('-journal', '-wal', '-shm')):
         raise ValueError('Ledger filename collides with a SQLite sidecar suffix')
     parent = path.absolute().parent
     # A symlink anywhere in the directory path can redirect SQLite's journal
