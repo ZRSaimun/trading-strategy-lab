@@ -186,8 +186,24 @@ def test_deleted_event_rejected(db):
 def test_deleted_index_rejected(db):
     with sqlite3.connect(db) as c:
         c.execute('DROP INDEX unique_account_intent')
-    with pytest.raises(ValueError, match='index'):
+    with pytest.raises(ValueError, match='schema objects'):
         inspect_ledger(db)
+
+
+@pytest.mark.parametrize('ddl', [
+    'ALTER TABLE events ADD COLUMN ignored TEXT',
+    'CREATE VIEW extra_audit AS SELECT * FROM events',
+    'CREATE INDEX extra_event_index ON events (event)',
+    'DROP INDEX unique_account_intent; CREATE INDEX unique_account_intent ON intents (broker, account, intent_sha)',
+])
+def test_ledger_rejects_unreviewed_schema_changes(db, ddl):
+    prep(db)
+    with sqlite3.connect(db) as c:
+        c.executescript(ddl)
+    with pytest.raises(ValueError, match='schema objects'):
+        inspect_ledger(db)
+    with pytest.raises(ValueError, match='schema objects'):
+        attempt(db)
 
 
 def test_schema_mismatch_rejected(db):
