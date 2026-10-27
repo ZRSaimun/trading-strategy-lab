@@ -140,6 +140,7 @@ def test_wrapper_burns_claim_before_invalid_evaluation(tmp_path, clock, monkeypa
     fake = types.ModuleType("app.declared_holdout_release_gate")
     fake.prepare_declared_holdout_manifest_sha256 = lambda manifest: "a" * 64
     fake._validate_census = lambda manifest, census: None
+    fake._validate_anchor = lambda manifest, anchor, digest: None
     def fail(*args):
         raise ValueError("bad outcomes")
     fake.audit_declared_holdout_release = fail
@@ -161,6 +162,7 @@ def test_loader_runs_only_after_durable_claim(tmp_path, clock, monkeypatch):
     fake = types.ModuleType("app.declared_holdout_release_gate")
     fake.prepare_declared_holdout_manifest_sha256 = lambda manifest: "a" * 64
     fake._validate_census = lambda manifest, census: None
+    fake._validate_anchor = lambda manifest, anchor, digest: None
     fake.audit_declared_holdout_release = lambda *args: {"status": "synthetic"}
     monkeypatch.setitem(sys.modules, "app.declared_holdout_release_gate", fake)
     def loader():
@@ -183,6 +185,7 @@ def test_noncallable_loader_does_not_consume_claim(tmp_path, clock, monkeypatch)
     fake = types.ModuleType("app.declared_holdout_release_gate")
     fake.prepare_declared_holdout_manifest_sha256 = lambda manifest: "a" * 64
     fake._validate_census = lambda manifest, census: None
+    fake._validate_anchor = lambda manifest, anchor, digest: None
     monkeypatch.setitem(sys.modules, "app.declared_holdout_release_gate", fake)
     with pytest.raises(ValueError, match="callable"):
         registry.audit_declared_holdout_release_once(
@@ -232,6 +235,7 @@ def test_wrapper_rejects_modified_registered_interval_without_loading_outcomes(
     fake = types.ModuleType("app.declared_holdout_release_gate")
     fake.prepare_declared_holdout_manifest_sha256 = lambda manifest: "a" * 64
     fake._validate_census = lambda manifest, census: None
+    fake._validate_anchor = lambda manifest, anchor, digest: None
     fake.audit_declared_holdout_release = lambda *args: pytest.fail(
         "Unexpected evaluation of a changed registered interval")
     monkeypatch.setitem(sys.modules, "app.declared_holdout_release_gate", fake)
@@ -395,3 +399,52 @@ def test_guarded_wrapper_validates_frozen_census_before_legacy_claim_or_outcomes
         assert conn.execute(
             "SELECT release_claimed_at_utc FROM holdout_claims "
             "WHERE study_id=?", (manifest["study_id"],)).fetchone() == (None,)
+
+
+@pytest.mark.parametrize("corruption", [
+    "missing_field", "wrong_manifest", "late_anchor", "early_anchor",
+    "invalid_receipt", "invalid_reference",
+])
+def test_declared_anchor_preflight_rejects_before_claim_and_outcome_loading(
+        tmp_path, clock, corruption):
+    """Bad anchor declarations must not burn the sole holdout release."""
+    from app.local_holdout_population_lock import register_population_locked_holdout
+    from test_declared_holdout_release_gate import fixture as holdout_fixture
+
+    manifest, census, anchor, outcomes, _ = holdout_fixture()
+    path = tmp_path / "anchor-preflight.sqlite"
+    clock[0] = manifest["registered_at_utc"] + 1
+    register_population_locked_holdout(path, manifest, census)
+    clock[0] = manifest["holdout_end_at_utc"] + 1
+    bad_anchor = dict(anchor)
+    if corruption == "missing_field":
+        del bad_anchor["external_record_sha256"]
+    elif corruption == "wrong_manifest":
+        bad_anchor["manifest_sha256"] = "f" * 64
+    elif corruption == "late_anchor":
+        bad_anchor["anchored_at_utc"] = manifest["holdout_start_at_utc"]
+    elif corruption == "early_anchor":
+        bad_anchor["anchored_at_utc"] = manifest["registered_at_utc"] - 1
+    elif corruption == "invalid_receipt":
+        bad_anchor["external_record_sha256"] = "not-a-digest"
+    else:
+        bad_anchor["anchor_reference"] = ""
+
+    calls = []
+    def forbidden_loader():
+        calls.append(True)
+        pytest.fail("Invalid anchor reached outcome loader")
+
+    with pytest.raises(ValueError):
+        registry.audit_declared_holdout_release_once(
+            path, manifest, census, bad_anchor, forbidden_loader)
+    assert calls == []
+    with sqlite3.connect(path) as conn:
+        assert conn.execute(
+            "SELECT release_claimed_at_utc FROM holdout_claims WHERE study_id=?",
+            (manifest["study_id"],)).fetchone() == (None,)
+    # A valid declaration can still use the original, unconsumed attempt.
+    result = registry.audit_declared_holdout_release_once(
+        path, manifest, census, anchor, lambda: outcomes)
+    assert result["local_release_claim"]["local_one_attempt_claim_recorded"] is True
+    assert result["local_release_claim"]["local_frozen_population_matched"] is True
