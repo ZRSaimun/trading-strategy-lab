@@ -36,7 +36,8 @@ database or independently authenticated preregistration.
 the guarded `audit_declared_holdout_release_once` wrapper now passes its
 frozen row SHA-256 values, decision timestamps, and declared market-feed key
 into the *same SQLite transaction* that claims the release. When population
-reservation tables exist, both exact reservation sets must match. This
+reservation tables exist, the exact row set, decision-time set, and
+row-to-decision pairing set must all match. This
 detects balanced row replacement, shifted decision timestamps and even a
 consistent replacement of the source key in both reservation tables that
 the earlier count and one-source checks could miss. A mismatch rejects the
@@ -44,7 +45,7 @@ claim **before outcome loading** and leaves the attempt unconsumed. The
 claim response's `local_frozen_population_matched` is `true` only when
 the exact locked sets were compared; direct legacy calls without frozen
 population arguments and unreserved legacy registries report `false`.
-A frozen-census release now **requires both reservation tables**: an old
+A frozen-census release now **requires all three reservation tables**: an old
 legacy registry with no population lock is rejected before outcome loading,
 leaving the attempt unconsumed. Direct legacy claims *without* a frozen
 census remain available for compatibility, but report
@@ -52,9 +53,10 @@ census remain available for compatibility, but report
 Existing legacy studies must not be silently upgraded or backfilled from
 post-holdout observations; use a newly preregistered population-locked study.
 This does not establish external archive authenticity or prevent rewriting
-the caller's manifest and database together. The schema stores row hashes
-and decision times in separate sets, so it does **not** attest their original
-one-to-one pairing. Do not interpret this local comparison as independent
+the caller's manifest and database together. The paired reservation table additionally detects a balanced swap of
+row-to-decision associations, but does **not** independently attest the
+original market-source pairing or prevent rewriting the database and manifest
+together. Existing pairless registries cannot be backfilled safely. Do not interpret this local comparison as independent
 holdout verification or permission to place orders.
 
 
