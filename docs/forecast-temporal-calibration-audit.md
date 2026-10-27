@@ -304,3 +304,34 @@ statistical significance, forward accuracy, realized trading returns or
 drawdown. The caller journal, provider, timestamps and declared cutoff
 remain unauthenticated; Loop 1 must provide independently anchored entitled
 completed-candle evidence before prospective operational use.
+
+
+## Eligible-outcome settlement-lag census (27 October 2026)
+
+When the existing minimum-effective-sample, chronology, and **both**
+missingness gates pass, three descriptive late-cohort fields report how
+long the caller-declared journal took to settle each eligible forecast
+**after its target candle closed**:
+
+- `lateSettlementLagP95Seconds`: empirical nearest-rank 95th percentile
+  of `resolvedAt - (targetStart + seconds)`.
+- `lateSettlementLagMaxSeconds`: largest such delay in seconds.
+- `lateSettlementLagOverOneCandleFraction`: fraction of eligible late
+  outcomes whose settlement lag **strictly exceeds** one source candle.
+
+Only the fixed, nonoverlapping, eligible **settled** late scoring census is
+used. Outcomes resolved after `evaluation_as_of` are excluded and counted
+as unavailable by the existing as-of missingness gate. Pending, void/gapped,
+and excluded observations are **not** treated as zero-lag outcomes.
+All three values remain **null** whenever existing scoring gates withhold
+metrics. The nearest-rank P95 is a sample order statistic, not a latency
+service-level guarantee, confidence interval, or market-data freshness proof.
+
+These numbers measure **declared journal timestamps**, not independently
+authenticated provider latency, server receipt times, exchange completion,
+Telegram delivery, or broker execution. Selective missingness and the
+unauthenticated caller-declared as-of cutoff remain material limitations.
+No notifications, orders, paper fills, dataset writes or trading permissions
+are enabled. Loop 1 still needs authenticated provider/source/price-side
+completed-candle receipts, server-owned immutable timestamps, session-aware
+expected-bar inventories and usage rights before operational activation.
