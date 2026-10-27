@@ -59,3 +59,18 @@ holdout verification or permission to place orders.
 
 
 **Transactional clock recheck (27 October 2026):** Both local registration and one-attempt release now sample the local UTC clock again inside the SQLite writer transaction. A registration that crosses the holdout start while waiting for the lock or performing writes rolls back, and the persisted registration time is the final precommit clock sample. A release claim rejects a clock rollback before consuming the attempt and persists the final sample. Synthetic tests simulate both timing races. This only protects against local timing inconsistencies: host clocks remain untrusted, and an attacker can still alter or restore SQLite or access outcomes outside the wrapper.
+
+
+**Pre-claim frozen-census validation (27 October 2026):** The guarded
+`audit_declared_holdout_release_once` wrapper now validates the complete
+declared census against its manifest commitment **before** consuming a local
+one-attempt release claim or invoking the outcome loader. Previously a
+legacy/unreserved registry could allow a malformed, reordered or altered
+census to reach the outcome loader before the later declared audit rejected
+it. Four synthetic regression cases cover reordered, altered, missing and
+cross-source census rows; each verifies no outcome-loader call and no
+consumed release attempt. A *valid* evaluation still consumes the one
+attempt before loading outcomes, even if outcome evaluation subsequently
+fails. This is caller-side consistency checking, **not** authenticated
+market history, independent preregistration, or prevention of raw data
+access outside the cooperating wrapper.
