@@ -25,7 +25,7 @@ bytes** with a separately controlled Ed25519 private key:
 
 ```python
 message = (
-    b"trading-strategy-lab:declared-m1-receipt-witness:v1\\n"
+    b"trading-strategy-lab:declared-m1-receipt-witness:v1\n"
     + json.dumps(payload, sort_keys=True, separators=(",", ":"),
                  ensure_ascii=True, allow_nan=False).encode("ascii")
 )
