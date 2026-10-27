@@ -6,7 +6,7 @@ to those exits. It is not an imputed return, loss bound or trade signal.
 """
 import argparse
 import json
-from decimal import Decimal
+from decimal import Decimal, ROUND_CEILING, ROUND_FLOOR
 from pathlib import Path
 
 from .offline_sweep_aggregate_audit import STATES, audit_aggregate
@@ -26,8 +26,13 @@ def _tipping(observed, censored, weighted_observed_net_r):
     return {
         "status": "UNKNOWN_EXIT_TIPPING_POINT_ONLY",
         "required_unknown_mean_net_r": str(centre.quantize(_OUTPUT_PLACE)),
-        "required_unknown_mean_net_r_min": str((centre - margin).quantize(_OUTPUT_PLACE)),
-        "required_unknown_mean_net_r_max": str((centre + margin).quantize(_OUTPUT_PLACE)),
+        # Outward rounding is essential: default half-even could round the
+        # lower bound UP or the upper bound DOWN, falsely narrowing a
+        # supposedly conservative interval.
+        "required_unknown_mean_net_r_min": str((centre - margin).quantize(
+            _OUTPUT_PLACE, rounding=ROUND_FLOOR)),
+        "required_unknown_mean_net_r_max": str((centre + margin).quantize(
+            _OUTPUT_PLACE, rounding=ROUND_CEILING)),
     }
 
 
