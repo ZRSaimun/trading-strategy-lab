@@ -123,3 +123,23 @@ that already occurred, so the caller must quarantine the outcome and reconcile
 independently. Do not integrate an order sender until storage ownership,
 authenticated broker inventory, crash-point recovery and independent audit
 anchors are verified. No execution permission is introduced.
+
+
+## Parent traversal quarantine (27 October 2026)
+
+Ledger paths containing an explicit `..` component are now rejected before
+initialization, read-only inspection or write transactions. A path such as
+`alias/../ledger.sqlite` is **not** safe to validate by checking only
+`Path.absolute().parent` and its ancestors: on POSIX the kernel traverses
+`alias` before resolving `..`, and `alias` may be a symlink that the
+parent-only scan never sees. The ledger therefore requires paths without
+parent traversal components instead of silently canonicalizing them. Six
+synthetic regression cases cover ordinary-directory and symlink intermediate
+components for read, write and initialization. Existing canonical private
+paths remain supported.
+
+This is a defense-in-depth pathname preflight, not atomic binding of SQLite's
+open file descriptors, a complete defense against privileged filesystem races,
+or permission to submit broker orders. The ledger still requires an isolated
+service-owned private directory, independent audit anchoring and broker
+reconciliation before any future integration.
