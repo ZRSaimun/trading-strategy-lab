@@ -7,13 +7,13 @@ import pytest
 from app.offline_sweep_censor_threshold import audit_research
 
 
-def fixture(observed=2, censored=2):
+def fixture(observed=2, censored=2, observed_gross=D(2)):
     entered = observed + censored
     # Observed gross +2R per trade, each hypothetical 5bps costs 0.1R.
     cases = []
     stresses = []
     for bps in (0, 5, 10, 20):
-        observed_net = D(observed) * (D(2) - D(bps) / 50)
+        observed_net = D(observed) * (observed_gross - D(bps) / 50)
         censored_cost = D(censored) * D(bps) / 50
         cases.append(dict(additional_round_trip_bps=bps, count=observed,
                           sum_net_r=str(observed_net)))
@@ -39,10 +39,40 @@ def test_threshold_full_entered_population_and_costs():
     result = audit_research(fixture())
     rows = result["cohorts"]["development"]["scenarios"]
     assert [D(x["required_mean_censored_gross_r_for_zero_entered_net"]) for x in rows] == [
-        D(2), D("1.8"), D("1.6"), D("1.2")]
+        D(-2), D("-1.8"), D("-1.6"), D("-1.2")]
     assert [D(x["implied_censored_additional_cost_r_sum"]) for x in rows] == [
         D(0), D("0.2"), D("0.4"), D("0.8")]
     assert not result["may_execute_order"]
+
+
+
+@pytest.mark.parametrize("observed,censored,observed_gross", [
+    (2, 2, D(2)),
+    (0, 2, D(2)),
+    (3, 5, D(2)),
+    (2, 2, D(-2)),
+])
+def test_threshold_reconstructs_zero_net_on_full_entered_population(
+        observed, censored, observed_gross):
+    """Independent accounting identity, including losing observed cohorts."""
+    report = fixture(observed=observed, censored=censored,
+                     observed_gross=observed_gross)
+    output = audit_research(report)
+    for cohort_name in ("development", "exploratory_later"):
+        scenarios = report["research"]["cohorts"][cohort_name]["cost_scenarios"]
+        rows = output["cohorts"][cohort_name]["scenarios"]
+        for original, row in zip(scenarios, rows):
+            assert original["additional_round_trip_bps"] == row["additional_round_trip_bps"]
+            observed_net = D(original["sum_net_r"])
+            required_gross = D(row["required_mean_censored_gross_r_for_zero_entered_net"])
+            censored_cost = D(row["implied_censored_additional_cost_r_sum"])
+            assert observed_net + D(censored) * required_gross - censored_cost == 0
+
+
+def test_negative_observed_returns_require_positive_censored_recovery():
+    rows = audit_research(fixture(observed_gross=D(-2)))["cohorts"]["development"]["scenarios"]
+    assert [D(row["required_mean_censored_gross_r_for_zero_entered_net"])
+            for row in rows] == [D(2), D("2.2"), D("2.4"), D("2.8")]
 
 
 def test_no_censored_exits_threshold_undefined():
