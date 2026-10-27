@@ -208,3 +208,55 @@ def test_real_declared_gate_integration_with_local_one_attempt(tmp_path, clock):
     with pytest.raises(ValueError, match="already claimed"):
         registry.audit_declared_holdout_release_once(
             path, manifest, census, anchor, lambda: outcomes)
+
+
+@pytest.mark.parametrize("column,replacement", [
+    ("holdout_start_at_utc", 201),
+    ("holdout_end_at_utc", 301),
+])
+def test_wrapper_rejects_modified_registered_interval_without_loading_outcomes(
+        tmp_path, clock, monkeypatch, column, replacement):
+    # The stored manifest digest remains correct, but a local database edit
+    # changes one interval endpoint. The guarded wrapper must not consume a
+    # release claim or load any outcome data.
+    path = tmp_path / "interval.sqlite"
+    _register(path)
+    with sqlite3.connect(path) as conn:
+        conn.execute(f"UPDATE holdout_claims SET {column}=?", (replacement,))
+    clock[0] = 350
+    import sys
+    import types
+    fake = types.ModuleType("app.declared_holdout_release_gate")
+    fake.prepare_declared_holdout_manifest_sha256 = lambda manifest: "a" * 64
+    fake.audit_declared_holdout_release = lambda *args: pytest.fail(
+        "Unexpected evaluation of a changed registered interval")
+    monkeypatch.setitem(sys.modules, "app.declared_holdout_release_gate", fake)
+
+    def unexpected_loader():
+        pytest.fail("Outcomes loaded before registered interval check")
+
+    with pytest.raises(ValueError, match="differs from frozen manifest"):
+        registry.audit_declared_holdout_release_once(
+            path, {"study_id": "study-1", "holdout_start_at_utc": 200,
+                   "holdout_end_at_utc": 300}, [], {}, unexpected_loader)
+    with sqlite3.connect(path) as conn:
+        assert conn.execute(
+            "SELECT release_claimed_at_utc FROM holdout_claims"
+        ).fetchone() == (None,)
+
+
+def test_expected_holdout_interval_arguments_fail_closed_before_claim(tmp_path, clock):
+    path = tmp_path / "interval.sqlite"
+    _register(path)
+    clock[0] = 350
+    for start, end in [(200, None), (None, 300), (True, 300),
+                       (200, False), (300, 200)]:
+        with pytest.raises(ValueError, match="Expected holdout interval|Invalid expected"):
+            registry.claim_local_holdout_release(
+                path, study_id="study-1", manifest_sha256="a" * 64,
+                expected_holdout_start_at_utc=start,
+                expected_holdout_end_at_utc=end)
+    assert registry.claim_local_holdout_release(
+        path, study_id="study-1", manifest_sha256="a" * 64,
+        expected_holdout_start_at_utc=200,
+        expected_holdout_end_at_utc=300)["release_claimed_at_utc"] == 350
