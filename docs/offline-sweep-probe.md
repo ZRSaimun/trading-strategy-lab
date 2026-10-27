@@ -314,3 +314,34 @@ be claimed profitable, statistically validated or broker-executable
 without new independently registered prospective observations, verified
 source/side/timezone and executable trading-cost evidence. No order
 permission is granted.
+
+
+## Completed-confirmation prior-range break census (additive MSS-like proxy)
+
+The `confirmation_prior_range_break_census` is a two-state **descriptive**
+classification of the existing frozen, capacity-admitted sweep/confirmation
+signals. It uses only the prior `lookback_15m` (normally 16) **completed**
+pre-sweep bars to define a range. At the **completed confirmation** candle,
+a long is classified as `CONFIRMATION_CLOSE_BREAKS_PRIOR_RANGE` only if
+its close is **strictly above** the highest high of those prior bars;
+a short only if its close is **strictly below** their lowest low.
+Equality is `NO_CONFIRMATION_CLOSE_BREAK_OF_PRIOR_RANGE`.
+This is a minimal causal range-break or **MSS-like proxy**, *not* a
+verified ICT market-structure shift: it does not detect pivot swings,
+displacement strength, trend context, order blocks or genuine order flow.
+
+Both states account for confirmed signals, entry-unobservable signals,
+invalid stop/target geometry, entered positions, observed exits and
+entered-but-censored outcomes. The states must reconcile to the original
+cohort. Each state reports observed-only 0/5/10/20 additional-bps
+hypothetical mean R, with `null` for empty observed populations.
+This classification is fixed **before** the following-open hypothetical
+entry; no future entry, stop, target or return may define it.
+
+This diagnostic **never filters or alters** trades, stop-first same-bar
+assumptions, holding reservations, chronological embargo, cost scenarios
+or order permissions. Repeated subgroup inspection can overfit; the
+previously inspected 32 archives are exploratory, not untouched holdouts.
+The source, timezone, quote side, rights, actual executable spreads,
+financing, broker fills and independent forward expectancy remain
+unverified. No profitability or live-order authorization is implied.

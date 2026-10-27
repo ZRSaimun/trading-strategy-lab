@@ -738,3 +738,75 @@ def test_confirmation_fvg_default_and_empty_cohort_do_not_invent_performance():
     for cell in later["confirmation_three_candle_fvg_census"]["states"].values():
         assert cell["confirmed_signals"] == cell["entered_positions"] == 0
         assert all(x["mean_net_r"] is None for x in cell["observed_only_cost_scenarios"])
+
+
+@pytest.mark.parametrize("side", ["long", "short"])
+@pytest.mark.parametrize("boundary", ["break", "equal", "no_break"])
+def test_confirmation_prior_range_break_strict_causal_census(side, boundary):
+    rows = synthetic_bars()
+    if side == "long":
+        # Prior high 101/102/104; confirmation close 102, sweep high 101.
+        high = {"break": 101, "equal": 102, "no_break": 104}[boundary]
+        b = rows[29]
+        rows[29] = Bar(b.time, D(100), D(high), D(99), D(100), b.segment)
+    else:
+        # Prior low 99/96/94; confirmation close 96, sweep low 99.
+        low = {"break": 99, "equal": 96, "no_break": 94}[boundary]
+        b = rows[29]
+        rows[29] = Bar(b.time, D(100), D(101), D(low), D(100), b.segment)
+        for index, values in (
+            (30, (100, 102, 99, 100)),
+            (31, (98, 98, 95, 96)),
+            (32, (97, 103, 90, 95)),
+        ):
+            b = rows[index]
+            rows[index] = Bar(b.time, *(D(v) for v in values), b.segment)
+    result = research(rows)
+    cohort = result["cohorts"]["development"]
+    states = cohort["confirmation_prior_range_break_census"]["states"]
+    yes = states["CONFIRMATION_CLOSE_BREAKS_PRIOR_RANGE"]
+    no = states["NO_CONFIRMATION_CLOSE_BREAK_OF_PRIOR_RANGE"]
+    assert cohort["confirmed_signals"] == cohort["entered_positions"] == 1
+    assert cohort["observed_outcomes"] == 1
+    assert yes["confirmed_signals"] == int(boundary == "break")
+    assert no["confirmed_signals"] == int(boundary != "break")
+    selected = yes if boundary == "break" else no
+    assert selected["entered_positions"] == selected["observed_outcomes"] == 1
+    for i, case in enumerate(selected["observed_only_cost_scenarios"]):
+        assert case["mean_net_r"] == cohort["cost_scenarios"][i]["mean_net_r"]
+    assert result["may_execute_order"] is False
+
+
+@pytest.mark.parametrize("mode", ["missing_entry", "censored", "invalid"])
+def test_prior_range_break_retains_unobserved_and_invalid_signals(mode):
+    rows = synthetic_bars()
+    b = rows[32]
+    if mode == "missing_entry":
+        rows[32] = Bar(b.time, b.o, b.h, b.l, b.c, 1)
+    elif mode == "censored":
+        rows[32] = Bar(b.time, D(103), D(104), D(99), D(103), 0)
+        rows[33:] = [Bar(x.time, x.o, x.h, x.l, x.c, 1) for x in rows[33:]]
+    else:
+        rows[32] = Bar(b.time, D(97), D(114), D(97), D(100), 0)
+    cohort = research(rows)["cohorts"]["development"]
+    yes = cohort["confirmation_prior_range_break_census"]["states"][
+        "CONFIRMATION_CLOSE_BREAKS_PRIOR_RANGE"]
+    assert yes["confirmed_signals"] == 1
+    assert yes["observed_outcomes"] == 0
+    assert yes["confirmed_signals_without_observable_entry"] == int(
+        mode == "missing_entry")
+    assert yes["invalid_entry_stop_or_target_geometry"] == int(mode == "invalid")
+    assert yes["censored_entered_outcomes"] == int(mode == "censored")
+    assert yes["entered_positions"] == int(mode == "censored")
+    assert all(x["mean_net_r"] is None for x in yes["observed_only_cost_scenarios"])
+
+
+def test_prior_range_break_empty_later_cohort_no_fabricated_returns():
+    result = research(synthetic_bars())
+    later = result["cohorts"]["exploratory_later"]
+    states = later["confirmation_prior_range_break_census"]["states"]
+    assert sum(s["confirmed_signals"] for s in states.values()) == 0
+    assert all(s["entered_positions"] == s["observed_outcomes"] == 0
+               for s in states.values())
+    assert all(c["mean_net_r"] is None for s in states.values()
+               for c in s["observed_only_cost_scenarios"])

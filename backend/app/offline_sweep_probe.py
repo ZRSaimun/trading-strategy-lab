@@ -19,6 +19,8 @@ VOLATILITY_REGIMES = ("LOW_LT_10_BPS", "MID_10_TO_LT_30_BPS", "HIGH_GTE_30_BPS")
 SIGNAL_DIRECTIONS = ("LONG_SWEEP_LOW", "SHORT_SWEEP_HIGH")
 CONFIRMATION_FVG_STATES = ("SAME_DIRECTION_THREE_CANDLE_FVG",
                            "NO_SAME_DIRECTION_THREE_CANDLE_FVG")
+CONFIRMATION_STRUCTURE_STATES = ("CONFIRMATION_CLOSE_BREAKS_PRIOR_RANGE",
+                                 "NO_CONFIRMATION_CLOSE_BREAK_OF_PRIOR_RANGE")
 
 
 def prior_range_regime(prior_bars):
@@ -189,6 +191,14 @@ def research(bars, *, lookback=16, horizon=16, embargo=16):
                for state in CONFIRMATION_FVG_STATES}
         for name in cohorts
     }
+    # Minimal MSS-like completed-confirmation range-break proxy. This is not
+    # a pivot/structure algorithm and cannot be used to select trades.
+    structure = {
+        name: {state: {"confirmed": 0, "entered": 0, "observed": [],
+                      "censored": 0, "missing_entry": 0, "invalid": 0}
+               for state in CONFIRMATION_STRUCTURE_STATES}
+        for name in cohorts
+    }
     next_free = 0
     for i in range(lookback, len(bars) - 1):
         # The completed confirmation must also be inside the selected cohort;
@@ -233,6 +243,13 @@ def research(bars, *, lookback=16, horizon=16, embargo=16):
         fvg_cell = fvg[cohort][CONFIRMATION_FVG_STATES[
             0 if same_direction_fvg else 1]]
         fvg_cell["confirmed"] += 1
+        # Both range bounds come exclusively from completed pre-sweep bars.
+        # The completed confirmation is known before the following-open entry.
+        range_break = (confirmation.c > previous_high if is_long else
+                       confirmation.c < previous_low)
+        structure_cell = structure[cohort][CONFIRMATION_STRUCTURE_STATES[
+            0 if range_break else 1]]
+        structure_cell["confirmed"] += 1
         entry_index = i + 2
         if (entry_index >= len(bars) or
                 bars[entry_index].segment != confirmation.segment or
@@ -243,6 +260,7 @@ def research(bars, *, lookback=16, horizon=16, embargo=16):
             direction["missing_entry"] += 1
             regime["missing_entry"] += 1
             fvg_cell["missing_entry"] += 1
+            structure_cell["missing_entry"] += 1
             # No entry observation means no demonstrated position exposure.
             # Do not manufacture a fill, return or position reservation.
             continue
@@ -254,6 +272,7 @@ def research(bars, *, lookback=16, horizon=16, embargo=16):
             direction["invalid"] += 1
             regime["invalid"] += 1
             fvg_cell["invalid"] += 1
+            structure_cell["invalid"] += 1
             continue
         target = entry + 2*risk if is_long else entry - 2*risk
         if target <= 0:
@@ -261,11 +280,13 @@ def research(bars, *, lookback=16, horizon=16, embargo=16):
             direction["invalid"] += 1
             regime["invalid"] += 1
             fvg_cell["invalid"] += 1
+            structure_cell["invalid"] += 1
             continue
         entered[cohort] += 1
         direction["entered"] += 1
         regime["entered"] += 1
         fvg_cell["entered"] += 1
+        structure_cell["entered"] += 1
         outcome = None
         observed_prefix = 0
         last = min(entry_index + horizon, len(bars))
@@ -321,6 +342,7 @@ def research(bars, *, lookback=16, horizon=16, embargo=16):
             direction["censored"] += 1
             regime["censored"] += 1
             fvg_cell["censored"] += 1
+            structure_cell["censored"] += 1
             censored_entry_risks[cohort].append((entry, risk))
             censored_observed_prefix_bars[cohort].append(observed_prefix)
             # A censored position has no observed exit. Do not admit another
@@ -331,6 +353,7 @@ def research(bars, *, lookback=16, horizon=16, embargo=16):
             direction["observed"].append((outcome, entry, risk))
             regime["observed"].append((outcome, entry, risk))
             fvg_cell["observed"].append((outcome, entry, risk))
+            structure_cell["observed"].append((outcome, entry, risk))
             cohorts[cohort].append((outcome, entry, risk))
             observed_holding_bars[cohort].append(observed_prefix)
     reports = {}
@@ -516,7 +539,45 @@ def research(bars, *, lookback=16, horizon=16, embargo=16):
                     raise RuntimeError("FVG population reconciliation failed")
             if sum(len(cell["observed"]) for cell in fvg[name].values()) != len(trades):
                 raise RuntimeError("FVG observed population mismatch")
+            structure_report = {}
+            for state, cell in structure[name].items():
+                observed = cell["observed"]
+                if cell["confirmed"] != (cell["missing_entry"] + cell["invalid"] +
+                                         cell["entered"]):
+                    raise RuntimeError("Structure signal census mismatch")
+                if cell["entered"] != cell["censored"] + len(observed):
+                    raise RuntimeError("Structure entered census mismatch")
+                structure_cases = []
+                for bps in (0, 5, 10, 20):
+                    total = sum((r - abs(entry) * Q(bps) / Q(10000) / risk
+                                 for r, entry, risk in observed), Q(0))
+                    structure_cases.append(dict(
+                        additional_round_trip_bps=bps,
+                        observed_outcomes=len(observed),
+                        mean_net_r=str(total / len(observed)) if observed else None))
+                structure_report[state] = dict(
+                    confirmed_signals=cell["confirmed"],
+                    confirmed_signals_without_observable_entry=cell["missing_entry"],
+                    invalid_entry_stop_or_target_geometry=cell["invalid"],
+                    entered_positions=cell["entered"],
+                    observed_outcomes=len(observed),
+                    censored_entered_outcomes=cell["censored"],
+                    observed_only_cost_scenarios=structure_cases)
+            for kind, expected in (
+                ("confirmed", confirmed[name]), ("entered", entered[name]),
+                ("missing_entry", entry_unobservable[name]),
+                ("invalid", invalid_entry_geometry[name]),
+                ("censored", censored[name])):
+                if sum(cell[kind] for cell in structure[name].values()) != expected:
+                    raise RuntimeError("Structure population reconciliation failed")
+            if sum(len(cell["observed"]) for cell in structure[name].values()) != len(trades):
+                raise RuntimeError("Structure observed population mismatch")
             reports[name] = dict(
+                confirmation_prior_range_break_census=dict(
+                    definition="LONG_CLOSE_GT_PRIOR_LOOKBACK_HIGH_OR_SHORT_CLOSE_LT_PRIOR_LOOKBACK_LOW",
+                    range_lookback_completed_bars=lookback,
+                    states=structure_report,
+                    interpretation="CAUSAL_MINIMAL_MSS_PROXY_NOT_PIVOT_MSS_OR_ENTRY_FILTER_OR_EDGE"),
                 confirmation_three_candle_fvg_census=dict(
                     definition="PRIOR_HIGH_LT_CONFIRMATION_LOW_LONG_OR_PRIOR_LOW_GT_CONFIRMATION_HIGH_SHORT",
                     first_candle="LAST_COMPLETED_PRE_SWEEP",
