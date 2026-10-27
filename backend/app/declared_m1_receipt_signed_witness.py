@@ -37,7 +37,7 @@ def _canonical_signed_message(payload):
 def audit_signed_declared_m1_receipt_anchor_evidence(
     db_path, manifest, envelope, evaluation_as_of_utc,
     trusted_public_key_hex, trusted_public_key_sha256, *,
-    trusted_witness_id=None,
+    trusted_witness_id=None, trusted_floor=None,
 ):
     """Check signature against an *externally pinned* key, then journal chain.
 
@@ -52,6 +52,22 @@ def audit_signed_declared_m1_receipt_anchor_evidence(
         raise ValueError("Invalid independently pinned witness identifier")
     if type(manifest) is not ExpectedM1Manifest:
         raise ValueError("Compiled M1 manifest required")
+    # This floor must be obtained from a separate operator-controlled record.
+    # It protects against jointly replaying an older *valid* journal and
+    # older *valid* signed envelope. It does not establish external custody.
+    if trusted_floor is not None:
+        if (type(trusted_floor) is not dict
+                or set(trusted_floor) != {
+                    "scope_key", "revision", "checkpoint_sha256", "witness_id",
+                }
+                or trusted_floor["scope_key"] != _key(manifest)
+                or type(trusted_floor["revision"]) is not int
+                or trusted_floor["revision"] <= 0
+                or type(trusted_floor["checkpoint_sha256"]) is not str
+                or not _HEX64.fullmatch(trusted_floor["checkpoint_sha256"])
+                or trusted_witness_id is None
+                or trusted_floor["witness_id"] != trusted_witness_id):
+            raise ValueError("Invalid independently pinned checkpoint floor")
     if type(evaluation_as_of_utc) is not int or evaluation_as_of_utc <= 0:
         raise ValueError("Invalid evaluation cutoff")
     if type(envelope) is not dict or set(envelope) != {"payload", "signature_hex"}:
@@ -107,6 +123,13 @@ def audit_signed_declared_m1_receipt_anchor_evidence(
     except (InvalidSignature, ValueError):
         raise ValueError("Detached witness signature verification failed") from None
 
+    if trusted_floor is not None and not any(
+        anchor["revision"] == trusted_floor["revision"]
+        and anchor["checkpoint_sha256"] == trusted_floor["checkpoint_sha256"]
+        for anchor in anchors
+    ):
+        raise ValueError("Signed anchors omit operator-pinned checkpoint floor")
+
     # Revalidate the entire SQLite chain and all chronology/scope constraints
     # after cryptographic verification. Never convert a HOLD into approval.
     result = audit_declared_m1_receipt_anchor_evidence(
@@ -119,6 +142,7 @@ def audit_signed_declared_m1_receipt_anchor_evidence(
         "signature_verified_against_supplied_key": True,
         "operator_pinned_key_fingerprint_matched": True,
         "witness_id_matched_operator_pin": trusted_witness_id is not None,
+        "operator_pinned_checkpoint_floor_matched": trusted_floor is not None,
         "external_witness_authenticated": False,
         "independent_custody_verified": False,
         "trusted_witness_clock_verified": False,
