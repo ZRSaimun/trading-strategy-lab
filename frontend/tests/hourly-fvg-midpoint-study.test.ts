@@ -543,16 +543,24 @@ test('paired and censored strict-gate cohorts reconcile without promoting missin
  assert.ok(reports[4].cohort.unpairedByStrictCandidate.INSUFFICIENT_DATA>0,
   'opening gap-through cannot become a paired return');
 });
-test('research report source metadata excludes arbitrary caller properties',()=>{
- // TypeScript structural typing does not remove runtime fields. A caller
- // may pass a richer vendor object; its extra data must never be exported.
+test('research report rejects extra source fields without leaking caller private metadata',()=>{
+ // TypeScript structural typing does not remove runtime fields. Reject a
+ // richer vendor object instead of silently dropping unsupported claims or
+ // accidentally exporting credential-like data in a research report.
  const richerSource={...source,debugAccessToken:'synthetic-private-marker',
   rawVendorPayload:{account:'synthetic-account-marker'}};
- const report=studyHourlyFvgMidpoint(fixture(),richerSource);
+ for(const study of [
+  ()=>studyHourlyFvgMidpoint(fixture(),richerSource),
+  ()=>studyHourlyFvgMidpointAsOf(fixture(),richerSource,BASE+37*H),
+ ]){
+  assert.throws(study,(error:unknown)=>error instanceof Error&&
+   /Unexpected FVG source declaration/.test(error.message)&&
+   !error.message.includes('synthetic-private-marker')&&
+   !error.message.includes('synthetic-account-marker'));
+ }
+ const report=studyHourlyFvgMidpoint(fixture(),source);
  assert.deepEqual(report.source,source);
  assert.deepEqual(Object.keys(report.source).sort(),Object.keys(source).sort());
- assert.equal(JSON.stringify(report).includes('synthetic-private-marker'),false);
- assert.equal(JSON.stringify(report).includes('synthetic-account-marker'),false);
  assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v47');
 });
 test('ambiguous source labels and contradictory volume evidence fail closed',()=>{
