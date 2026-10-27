@@ -857,3 +857,43 @@ def test_rollback_journal_injected_during_audit_is_quarantined(
         if journal.is_symlink():
             journal.unlink()
     assert inspect_ledger(db)['event_count'] == 0
+
+
+@pytest.mark.parametrize('intermediate', ['directory', 'symlink'])
+@pytest.mark.parametrize('operation', ['inspect', 'prepare'])
+def test_parent_traversal_path_is_rejected_before_sqlite_open(
+        db, tmp_path, intermediate, operation):
+    """A/../ledger traverses A, even if a pathname-only symlink scan misses A."""
+    original = db.read_bytes()
+    nested = tmp_path / 'nested'
+    nested.mkdir()
+    alias = tmp_path / 'alias'
+    if intermediate == 'symlink':
+        alias.symlink_to(nested, target_is_directory=True)
+    else:
+        alias.mkdir()
+    traversal = alias / '..' / db.name
+    assert traversal.read_bytes() == original  # OS resolves the path successfully
+    with pytest.raises(ValueError, match='parent traversal components'):
+        if operation == 'inspect':
+            inspect_ledger(traversal)
+        else:
+            prep(traversal)
+    assert db.read_bytes() == original
+    assert inspect_ledger(db)['event_count'] == 0
+
+
+@pytest.mark.parametrize('intermediate', ['directory', 'symlink'])
+def test_initialization_rejects_parent_traversal_without_creating(
+        tmp_path, intermediate):
+    nested = tmp_path / 'nested'
+    nested.mkdir()
+    alias = tmp_path / 'alias'
+    if intermediate == 'symlink':
+        alias.symlink_to(nested, target_is_directory=True)
+    else:
+        alias.mkdir()
+    target = tmp_path / 'new-ledger.sqlite'
+    with pytest.raises(ValueError, match='parent traversal components'):
+        initialize_ledger(alias / '..' / target.name)
+    assert not target.exists()
