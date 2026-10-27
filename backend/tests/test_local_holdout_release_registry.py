@@ -448,3 +448,35 @@ def test_declared_anchor_preflight_rejects_before_claim_and_outcome_loading(
         path, manifest, census, anchor, lambda: outcomes)
     assert result["local_release_claim"]["local_one_attempt_claim_recorded"] is True
     assert result["local_release_claim"]["local_frozen_population_matched"] is True
+
+
+@pytest.mark.parametrize("column,corrupt_time,restored_time", [
+    ("registered_at_utc", -1, 100),
+    ("registered_at_utc", 100.5, 100),
+    ("holdout_start_at_utc", 200.5, 200),
+    ("holdout_end_at_utc", 300.5, 300),
+])
+def test_corrupted_persisted_chronology_never_consumes_release(
+        tmp_path, clock, column, corrupt_time, restored_time):
+    # SQLite INTEGER affinity permits fractional values, and a negative
+    # registration timestamp satisfies the original CHECK constraint.
+    # Neither should be treated as a legitimate preregistration record.
+    path = tmp_path / "corrupt-clock.sqlite"
+    _register(path)
+    with sqlite3.connect(path) as conn:
+        conn.execute(
+            f"UPDATE holdout_claims SET {column}=? WHERE study_id='study-1'",
+            (corrupt_time,))
+    clock[0] = 350
+    with pytest.raises(ValueError, match="Invalid stored holdout chronology"):
+        _claim(path)
+    with sqlite3.connect(path) as conn:
+        assert conn.execute(
+            "SELECT release_claimed_at_utc FROM holdout_claims "
+            "WHERE study_id='study-1'"
+        ).fetchone() == (None,)
+        conn.execute(
+            f"UPDATE holdout_claims SET {column}=? WHERE study_id='study-1'",
+            (restored_time,))
+    # A corrected record still has its original, unused one-attempt claim.
+    assert _claim(path)["release_claimed_at_utc"] == 350
