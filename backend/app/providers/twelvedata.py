@@ -110,6 +110,13 @@ async def retrieve(key,instrument,limit,end,now,transport=None, *, include_wire_
         datetime.fromtimestamp(now,timezone.utc)
     except (OverflowError,OSError,ValueError):
         raise ProviderError('Invalid UTC request timestamp; no provider call.',422) from None
+    # A direct adapter caller must not spend a credit on an impossible or
+    # unfinished historical window. The HTTP route also enforces this gate,
+    # but offline callers and prospective reviews invoke retrieve directly.
+    # Fractional epoch seconds remain supported; the requested end is never
+    # rounded forward into a candle that has not yet closed.
+    if end < 0 or now < 60 or end > now - 60:
+        raise ProviderError('Historical request must end at a completed UTC candle boundary; no provider call.',422)
     # Key goes in the official Authorization header, never URL/query/log output.
     params={'symbol':MAPPINGS[instrument]['symbol'],'interval':'1min','timezone':'UTC','order':'ASC','outputsize':str(limit),
             'end_date':end_date}
