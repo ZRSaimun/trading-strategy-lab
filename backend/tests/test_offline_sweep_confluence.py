@@ -1,7 +1,15 @@
 """Joint FVG/range-break/body proxy census: synthetic-only regression tests."""
+from datetime import datetime, timedelta
 from decimal import Decimal as D
 from app.offline_sweep_probe import CONFLUENCE_STATES, Bar, research
-from tests.test_offline_sweep_probe import synthetic_bars
+def synthetic_bars():
+    t = datetime(2025, 1, 1)
+    rows = [Bar(t + timedelta(minutes=15*i), D(100), D(101), D(99), D(100), 0)
+            for i in range(200)]
+    rows[30] = Bar(rows[30].time, D(100), D(101), D(98), D(100), 0)
+    rows[31] = Bar(rows[31].time, D(100), D(103), D(99), D(102), 0)
+    rows[32] = Bar(rows[32].time, D(103), D(114), D(97), D(100), 0)
+    return rows
 
 
 def test_joint_census_is_exhaustive_and_matches_all_marginals():
