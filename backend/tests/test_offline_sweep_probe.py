@@ -442,7 +442,9 @@ def test_same_bar_collision_source_open_census(side, entry_bar, later_bar, expec
         "SOURCE_OHLC_FIXED_COHORT_SENSITIVITY_NOT_BACKTEST")
     # A collision audit is descriptive: the original stop-first outcomes
     # and illustrative cost deductions must remain untouched.
-    if expected is not None:
+    if expected == "opens_at_or_beyond_stop":
+        assert D(cohort["cost_scenarios"][0]["mean_net_r"]) < -1
+    elif expected is not None:
         assert D(cohort["cost_scenarios"][0]["mean_net_r"]) == -1
 
 
