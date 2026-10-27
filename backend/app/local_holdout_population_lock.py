@@ -57,6 +57,10 @@ def register_population_locked_holdout(db_path, manifest, census):
     digest = prepare_declared_holdout_manifest_sha256(manifest)
     _validate_census(manifest, census)
     now = _clock()
+    # A declared registration timestamp in the local clock's future is not
+    # point-in-time evidence. Reject it before creating or changing the DB.
+    if now < manifest["registered_at_utc"]:
+        raise ValueError("Local registration precedes declared registration timestamp")
     if now >= manifest["holdout_start_at_utc"]:
         raise ValueError("Registration must precede holdout start")
     path = _path(db_path)
