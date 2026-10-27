@@ -550,3 +550,29 @@ def test_unknown_commit_survives_abrupt_process_exit(db):
     assert inspect_ledger(db)['orders'][0]['status'] == 'ATTEMPT_UNKNOWN'
     with pytest.raises(ValueError, match='retry forbidden'):
         attempt(db)
+
+
+def test_uncommitted_sqlite_transition_rolls_back_after_process_death(db):
+    """Abrupt exit inside an IMMEDIATE transaction must not persist partial state."""
+    import os
+    import subprocess
+    import sys
+    prep(db)
+    script = (
+        "import os, sys; "
+        "from app.paper_submission_attempt_ledger import _connect; "
+        "conn=_connect(sys.argv[1]); conn.execute('PRAGMA synchronous=FULL'); "
+        "conn.execute('BEGIN IMMEDIATE'); "
+        "conn.execute(\"UPDATE intents SET status='ATTEMPT_UNKNOWN'\"); "
+        "os._exit(41)"
+    )
+    env = os.environ.copy()
+    backend_dir = str(ledger.Path(ledger.__file__).resolve().parents[1])
+    env['PYTHONPATH'] = backend_dir + os.pathsep + env.get('PYTHONPATH', '')
+    child = subprocess.run([sys.executable, '-c', script, str(db)],
+                           env=env, timeout=15, check=False)
+    assert child.returncode == 41
+    snapshot = inspect_ledger(db)
+    assert snapshot['event_count'] == 1
+    assert snapshot['orders'][0]['status'] == 'PREPARED'
+    assert attempt(db)['status'] == 'ATTEMPT_UNKNOWN'
