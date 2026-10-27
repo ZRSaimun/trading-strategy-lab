@@ -665,3 +665,76 @@ def test_direction_census_empty_cohort_has_no_invented_return():
         assert side["confirmed_signals"] == side["entered_positions"] == 0
         assert all(x["mean_net_r"] is None for x in
                    side["observed_only_cost_scenarios"])
+
+
+@pytest.mark.parametrize("side", ["long", "short"])
+def test_confirmation_three_candle_fvg_is_causal_and_does_not_filter(side):
+    rows = synthetic_bars()
+    if side == "long":
+        b = rows[31]
+        rows[31] = Bar(b.time, D(102), D(105), D(102), D(104), b.segment)
+    else:
+        for index, values in (
+            (30, (100, 102, 99, 100)),
+            (31, (98, 98, 95, 96)),
+            (32, (97, 103, 90, 95)),
+        ):
+            b = rows[index]
+            rows[index] = Bar(b.time, *(D(v) for v in values), b.segment)
+    cohort = research(rows)["cohorts"]["development"]
+    fvg = cohort["confirmation_three_candle_fvg_census"]
+    yes = fvg["states"]["SAME_DIRECTION_THREE_CANDLE_FVG"]
+    no = fvg["states"]["NO_SAME_DIRECTION_THREE_CANDLE_FVG"]
+    assert cohort["confirmed_signals"] == cohort["entered_positions"] == 1
+    assert cohort["observed_outcomes"] == 1
+    assert yes["confirmed_signals"] == yes["entered_positions"] == 1
+    assert yes["observed_outcomes"] == 1
+    assert no["confirmed_signals"] == no["entered_positions"] == 0
+    for i, scenario in enumerate(yes["observed_only_cost_scenarios"]):
+        assert scenario["mean_net_r"] == cohort["cost_scenarios"][i]["mean_net_r"]
+        assert scenario["additional_round_trip_bps"] == (0, 5, 10, 20)[i]
+    assert research(rows)["may_execute_order"] is False
+
+
+@pytest.mark.parametrize("mode", ["missing_entry", "censored", "invalid"])
+def test_confirmation_fvg_retains_all_nonreturn_signal_populations(mode):
+    rows = synthetic_bars()
+    b = rows[31]
+    rows[31] = Bar(b.time, D(102), D(105), D(102), D(104), b.segment)
+    entry = rows[32]
+    if mode == "missing_entry":
+        rows[32] = Bar(entry.time, entry.o, entry.h, entry.l, entry.c, 1)
+    elif mode == "censored":
+        rows[32] = Bar(entry.time, D(103), D(104), D(99), D(103), 0)
+        rows[33:] = [Bar(x.time, x.o, x.h, x.l, x.c, 1) for x in rows[33:]]
+    else:
+        rows[32] = Bar(entry.time, D(97), D(114), D(97), D(100), 0)
+    cohort = research(rows)["cohorts"]["development"]
+    yes = cohort["confirmation_three_candle_fvg_census"]["states"][
+        "SAME_DIRECTION_THREE_CANDLE_FVG"]
+    assert yes["confirmed_signals"] == 1
+    assert yes["observed_outcomes"] == 0
+    assert yes["confirmed_signals_without_observable_entry"] == int(
+        mode == "missing_entry")
+    assert yes["invalid_entry_stop_or_target_geometry"] == int(mode == "invalid")
+    assert yes["censored_entered_outcomes"] == int(mode == "censored")
+    assert yes["entered_positions"] == int(mode == "censored")
+    assert all(x["mean_net_r"] is None for x in yes["observed_only_cost_scenarios"])
+
+
+def test_confirmation_fvg_default_and_empty_cohort_do_not_invent_performance():
+    result = research(synthetic_bars())
+    dev = result["cohorts"]["development"]
+    states = dev["confirmation_three_candle_fvg_census"]["states"]
+    assert states["SAME_DIRECTION_THREE_CANDLE_FVG"]["confirmed_signals"] == 0
+    assert states["NO_SAME_DIRECTION_THREE_CANDLE_FVG"]["confirmed_signals"] == 1
+    for i, case in enumerate(dev["cost_scenarios"]):
+        total = sum(
+            (D(cell["observed_only_cost_scenarios"][i]["mean_net_r"]) *
+             cell["observed_outcomes"]
+             for cell in states.values() if cell["observed_outcomes"]), D(0))
+        assert total == D(case["sum_net_r"])
+    later = result["cohorts"]["exploratory_later"]
+    for cell in later["confirmation_three_candle_fvg_census"]["states"].values():
+        assert cell["confirmed_signals"] == cell["entered_positions"] == 0
+        assert all(x["mean_net_r"] is None for x in cell["observed_only_cost_scenarios"])
