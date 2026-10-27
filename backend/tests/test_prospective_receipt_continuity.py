@@ -126,3 +126,70 @@ def test_duplicate_rows_remain_review_required():
     r = audit(current=[bar(T), bar(T), bar(T + 60), bar(T + 180)])
     assert r["current_census_status"] == "REVIEW_REQUIRED"
     assert r["status"] == "REVIEW_REQUIRED"
+
+
+def test_resegmented_session_declaration_requires_review():
+    # Same expected minutes and identical prices, but historical session
+    # provenance was silently rewritten into two adjacent declarations.
+    changed = manifest(T + 300, [
+        (T, T + 60), (T + 60, T + 120), (T + 180, T + 240)])
+    result = audit(current_manifest=changed)
+    assert result["previous_census_status"] == "INTERNAL_CENSUS_ONLY_NOT_LIVE"
+    assert result["current_census_status"] == "INTERNAL_CENSUS_ONLY_NOT_LIVE"
+    assert result["historical_session_declaration_rewritten"] is True
+    assert result["status"] == "REVIEW_REQUIRED"
+
+
+def test_resegmented_closure_declaration_requires_review():
+    before = manifest(T + 240, [(T, T + 180)],
+                      exclusions_utc=[(T, T + 120)])
+    after = manifest(T + 360, [(T, T + 180), (T + 240, T + 300)],
+                     exclusions_utc=[(T, T + 60), (T + 60, T + 120)])
+    result = audit(previous=[bar(T + 120)],
+                   current=[bar(T + 120), bar(T + 240)],
+                   previous_manifest=before, current_manifest=after)
+    assert result["historical_exclusion_declaration_rewritten"] is True
+    assert result["status"] == "REVIEW_REQUIRED"
+
+
+def test_newly_declared_already_completed_minute_is_not_prospective():
+    changed = manifest(T + 300, [(T, T + 120), (T + 120, T + 240)])
+    result = audit(current_manifest=changed, current=[
+        bar(T), bar(T + 60),
+        bar(T + 120, received_at_utc=T + 185), bar(T + 180)])
+    assert result["current_census_status"] == "INTERNAL_CENSUS_ONLY_NOT_LIVE"
+    assert result["retroactive_new_expected_minutes"] == 1
+    assert result["retroactive_new_expected_utc_samples"]
+    assert result["status"] == "REVIEW_REQUIRED"
+
+
+def test_in_progress_at_previous_observation_is_not_retroactive():
+    before = manifest(T + 150, [(T, T + 120)])
+    after = manifest(T + 300, [(T, T + 120), (T + 120, T + 240)])
+    result = audit(previous_manifest=before, current_manifest=after,
+                   current=[bar(T), bar(T + 60), bar(T + 120), bar(T + 180)])
+    assert result["retroactive_new_expected_minutes"] == 0
+    assert result["historical_session_declaration_rewritten"] is False
+    assert result["status"] == "INTERNAL_CONTINUITY_ONLY_NOT_LIVE"
+
+
+def test_valid_last_session_extension_is_not_a_rewrite():
+    before = manifest(T + 120, [(T, T + 120)])
+    after = manifest(T + 300, [(T, T + 240)])
+    result = audit(previous_manifest=before, current_manifest=after,
+                   previous=[bar(T), bar(T + 60, received_at_utc=T + 120)],
+                   current=[bar(T), bar(T + 60, received_at_utc=T + 120),
+                            bar(T + 120), bar(T + 180)])
+    assert result["historical_session_declaration_rewritten"] is False
+    assert result["retroactive_new_expected_minutes"] == 0
+    assert result["status"] == "INTERNAL_CONTINUITY_ONLY_NOT_LIVE"
+
+
+def test_retroactive_sample_redaction_retains_count():
+    changed = manifest(T + 300, [(T, T + 120), (T + 120, T + 240)])
+    result = audit(current_manifest=changed, current=[
+        bar(T), bar(T + 60),
+        bar(T + 120, received_at_utc=T + 185), bar(T + 180)],
+        sample_limit=0)
+    assert result["retroactive_new_expected_minutes"] == 1
+    assert result["retroactive_new_expected_utc_samples"] == []
