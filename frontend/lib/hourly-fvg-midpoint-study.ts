@@ -7,7 +7,7 @@
  */
 import type {Bar} from './research.ts';
 
-export const HOURLY_FVG_VERSION='hourly-fvg-first-midpoint-touch-v37';
+export const HOURLY_FVG_VERSION='hourly-fvg-first-midpoint-touch-v38';
 export type Evidence='PASS'|'FAIL'|'INSUFFICIENT_DATA';
 export type Side='BULLISH'|'BEARISH';
 export type FvgSource={
@@ -82,6 +82,11 @@ export type PairedNetSignCostCensus={
 export type PairedWindowOverlapCensus={
  overlappingPairCombinations:number;maxConcurrentPairs:number;
 };
+// Mixed-evidence pairs overlap too. Keep these cross-status counts distinct
+// from the within-status dependence census; no unknown becomes a PASS.
+export type PairedCrossStrictOverlapCensus={
+ passFail:number;passUnknown:number;failUnknown:number;
+};
 export type FvgCohort={
  formations:number;firstTouchOutcome:Record<FirstTouchOutcome,number>;
   incompleteWindowByReason:Record<FirstTouchCensorReason,number>;
@@ -95,6 +100,9 @@ export type FvgCohort={
  // Overlap within each declared strict evidence population; cross-status
  // overlapping pairs are intentionally not assigned to either subgroup.
  pairedHoldingWindowOverlapByStrictCandidate:Record<Evidence,PairedWindowOverlapCensus>;
+ // Cross-status pair counts reconcile the full overlap count to its three
+ // within-status counts, without treating unverified evidence as PASS.
+ pairedHoldingWindowCrossStrictCandidate:PairedCrossStrictOverlapCensus;
  // Count matched and right-censored candidates by strict evidence status.
  pairedByStrictCandidate:EvidenceCounts;unpairedByStrictCandidate:EvidenceCounts;
  blindOnlyMarkouts:number;
@@ -267,6 +275,51 @@ function summarizeCohort(observations:readonly FvgObservation[],costs:readonly n
   FAIL:countOverlaps(matured.filter(o=>o.gates.strictCandidate==='FAIL')),
   INSUFFICIENT_DATA:countOverlaps(matured.filter(o=>o.gates.strictCandidate==='INSUFFICIENT_DATA')),
  };
+ // The three within-status overlap counts omit pairs whose evidence states
+ // differ. Count those disjoint cross-status combinations using the same
+ // half-open completed holding windows. The O(n log n) sweep expires windows
+ // at their exact exit time before admitting a new entry at that timestamp.
+ const countCrossStrictOverlaps=(eligible:readonly FvgObservation[]):PairedCrossStrictOverlapCensus=>{
+  const windows=eligible.map(o=>{
+   const confirmed=o.confirmedNextOpen!;
+   const start=confirmed.hypotheticalEntryAt;
+   if(start===null||start>=confirmed.exitObservedAt)
+    throw Error('Paired FVG holding window evidence is inconsistent');
+   return {start,end:confirmed.exitObservedAt,status:o.gates.strictCandidate};
+  }).sort((a,b)=>a.start-b.start||a.end-b.end);
+  const byEnd=[...windows].sort((a,b)=>a.end-b.end);
+  const active:EvidenceCounts={PASS:0,FAIL:0,INSUFFICIENT_DATA:0};
+  const cross:PairedCrossStrictOverlapCensus={
+   passFail:0,passUnknown:0,failUnknown:0,
+  };
+  let expired=0;
+  for(const current of windows){
+   while(expired<byEnd.length&&byEnd[expired].end<=current.start){
+    active[byEnd[expired].status]--;
+    expired++;
+   }
+   if(current.status==='PASS'){
+    cross.passFail+=active.FAIL;
+    cross.passUnknown+=active.INSUFFICIENT_DATA;
+   }else if(current.status==='FAIL'){
+    cross.passFail+=active.PASS;
+    cross.failUnknown+=active.INSUFFICIENT_DATA;
+   }else{
+    cross.passUnknown+=active.PASS;
+    cross.failUnknown+=active.FAIL;
+   }
+   active[current.status]++;
+  }
+  return cross;
+ };
+ const pairedHoldingWindowCrossStrictCandidate=countCrossStrictOverlaps(matured);
+ const withinStatusOverlaps=Object.values(pairedHoldingWindowOverlapByStrictCandidate)
+  .reduce((sum,group)=>sum+group.overlappingPairCombinations,0);
+ const crossStatusOverlaps=Object.values(pairedHoldingWindowCrossStrictCandidate)
+  .reduce((sum,count)=>sum+count,0);
+ if(withinStatusOverlaps+crossStatusOverlaps!==
+    pairedHoldingWindowOverlap.overlappingPairCombinations)
+  throw Error('Paired FVG overlap populations do not reconcile');
  const pairedByStrictCandidate:EvidenceCounts={PASS:0,FAIL:0,INSUFFICIENT_DATA:0};
  const unpairedByStrictCandidate:EvidenceCounts={PASS:0,FAIL:0,INSUFFICIENT_DATA:0};
  for(const observation of observations){
@@ -352,6 +405,7 @@ function summarizeCohort(observations:readonly FvgObservation[],costs:readonly n
   formations:observations.length,firstTouchOutcome,incompleteWindowByReason,
   pairedNetSignByCost,pairedGrossOrdering,pairedHoldingWindowOverlap,
   pairedHoldingWindowOverlapByStrictCandidate,
+  pairedHoldingWindowCrossStrictCandidate,
   markoutCensoredByReason,
   midpointTouch:count('midpointTouch'),
   strictCandidate:count('strictCandidate'),
