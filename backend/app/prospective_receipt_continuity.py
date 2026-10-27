@@ -72,7 +72,7 @@ def audit_declared_m1_receipt_continuity(
     new = set(after) - set(before)
     prior_expected = set(earlier)
     backfills = sorted(new & prior_expected)
-    new_expected = sorted(new - prior_expected)
+    new_expected = sorted((new - prior_expected) & set(later))
     backdated = sorted(t for t in new
                        if after[t]["received_at_utc"] <= previous_manifest.observed_at_utc)
     anomalies = bool(removed or price_revisions or timestamp_revisions or backfills
