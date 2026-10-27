@@ -72,6 +72,31 @@ def _calibration_bin_diagnostics10(rows):
     ]
 
 
+def _confidence_tail_diagnostics(rows):
+    """Descriptive realized error in the fixed >=90% binary-confidence tail.
+
+    Includes p<=0.10 for DOWN and p>=0.90 for UP; neither side is an
+    executable trading signal. A zero-count tail has no observed error rate.
+    """
+    tail = [r for r in rows if r["probability"] <= 0.10
+            or r["probability"] >= 0.90]
+    count = len(tail)
+    wrong = sum(
+        (r["probability"] >= 0.90 and not r["outcomeUp"])
+        or (r["probability"] <= 0.10 and r["outcomeUp"])
+        for r in tail
+    )
+    return {
+        "lateHighConfidenceCount": count,
+        "lateHighConfidenceFractionOfSettled": count / len(rows),
+        "lateHighConfidenceWrong": wrong,
+        "lateHighConfidenceWrongFraction": wrong / count if count else None,
+        "lateHighConfidenceWrongWilson95Descriptive":
+            _wilson(wrong, count) if count else None,
+        "lateHighConfidenceLowSupportUnder30": count < 30 if count else None,
+    }
+
+
 def audit_temporal_forecast_calibration(snapshot, *, min_per_window=30,
                                         brier_deterioration=0.05,
                                         max_unresolved_fraction=0.10,
@@ -215,6 +240,12 @@ def audit_temporal_forecast_calibration(snapshot, *, min_per_window=30,
             "lateExpectedCalibrationError10": None, "lateEceBins10": None,
             "lateEceOccupiedBinsUnder30": None,
             "lateEceMinOccupiedBinCount": None,
+            "lateHighConfidenceCount": None,
+            "lateHighConfidenceFractionOfSettled": None,
+            "lateHighConfidenceWrong": None,
+            "lateHighConfidenceWrongFraction": None,
+            "lateHighConfidenceWrongWilson95Descriptive": None,
+            "lateHighConfidenceLowSupportUnder30": None,
             "descriptiveDriftFlag": None,
             "status": "INSUFFICIENT_NONOVERLAPPING_OUTCOMES" if not sufficient
                       else "UNRESOLVED_SELECTION_RISK" if not complete_enough
@@ -248,6 +279,7 @@ def audit_temporal_forecast_calibration(snapshot, *, min_per_window=30,
                 lateEceOccupiedBinsUnder30=sum(n < 30 for n in occupied),
                 lateEceMinOccupiedBinCount=min(occupied),
                 descriptiveDriftFlag=delta >= brier_deterioration,
+                **_confidence_tail_diagnostics(test),
             )
             if entry["descriptiveDriftFlag"]:
                 entry["status"] = "DESCRIPTIVE_BRIER_DETERIORATION_REVIEW"
@@ -268,6 +300,8 @@ def audit_temporal_forecast_calibration(snapshot, *, min_per_window=30,
                        "declared as-of cutoff and settlement times are not independently verified; "
                        "missing/void outcomes can bias scores; log loss heavily penalizes "
                        "confident wrong probabilities and is not financial loss; "
+                       "high-confidence tail errors are descriptive and depend on "
+                       "the fixed 90% threshold; empty tails have no error estimate; "
                        "10-bin ECE is bin-dependent "
                        "and noisy with sparse bins; binomial Wilson ranges assume "
                        "independence that is not established; heuristic drift is not a p-value. "
