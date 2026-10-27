@@ -394,3 +394,35 @@ fraction is not forecast calibration, directional accuracy, statistical
 significance, an alert trigger, executable BID/ASK evidence, paper P&L or
 permission to place any order. Loop 1 still needs independently attested
 completed-candle inventories and immutable issuance timestamps.
+
+
+## High-confidence issuance versus declared delay (27 October 2026)
+
+An outcome-independent cross-tab connects the **full late-issued confidence
+population** with the **full late-issued timing population**, rather than
+selecting forecasts with convenient settled labels. For the fixed thresholds
+`p <= 0.10` or `p >= 0.90`, and strictly more than half the base-candle
+duration after declared base close, it reports:
+
+- `lateIssuedHighConfidenceDelayedOverHalfCandleCount`: delayed high-confidence
+  forecasts in the entire late-issued cohort.
+- `lateIssuedHighConfidenceDelayedOverHalfCandleFraction`: delayed count
+  divided by **all high-confidence late-issued** forecasts, or null if none.
+- `lateIssuedOtherDelayedOverHalfCandleFraction`: delayed fraction of the
+  complementary `0.10 < p < 0.90` issuance population, or null if empty.
+
+A forecast issued **exactly** half a candle after close is not in the delayed
+count. Pending, void, overlapping and as-of-unresolved forecasts are included
+without inspecting labels. These diagnostics remain available when Brier and
+log-loss scores are withheld by the existing sample/chronology/missingness
+gates. They do not change the gates, forecast issuance, alert delivery or
+trading permissions.
+
+**Interpretation:** A high-confidence forecast issued relatively late may
+deserve human review for stale-signal risk, but this does not establish actual
+feed delay, alert delivery, probability calibration, an executable opportunity,
+or financial harm. Timestamps are caller-declared and source receipts are not
+independently authenticated. Unissued forecasts and missing expected candles
+are outside this census; PR #86 and Loop 1 require separately verified
+completed-candle/session inventories. No live orders, demo fills, Telegram
+messages or production changes are authorized by these statistics.
