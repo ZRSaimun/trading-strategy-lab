@@ -451,3 +451,33 @@ def test_legacy_direct_claim_does_not_pretend_population_was_checked(
     result = registry.claim_local_holdout_release(
         path, study_id="legacy", manifest_sha256="a" * 64)
     assert result["local_frozen_population_matched"] is False
+
+
+def test_registration_rechecks_clock_before_commit(tmp_path, clock, monkeypatch):
+    path = tmp_path / "late-population.sqlite"
+    manifest, census = _study()
+    ticks = iter((1251, 2000))  # Census insertion finishes at holdout start.
+    monkeypatch.setattr(registry, "_now_utc_seconds", lambda: next(ticks))
+    with pytest.raises(ValueError, match="reached holdout start"):
+        register_population_locked_holdout(path, manifest, census)
+    with sqlite3.connect(path) as conn:
+        assert conn.execute(
+            "SELECT count(*) FROM sqlite_master WHERE name='holdout_claims'"
+        ).fetchone() == (0,)
+        assert conn.execute(
+            "SELECT count(*) FROM sqlite_master WHERE name='holdout_locked_rows'"
+        ).fetchone() == (0,)
+
+
+def test_registration_persists_final_transaction_clock(tmp_path, clock, monkeypatch):
+    path = tmp_path / "committed-population.sqlite"
+    manifest, census = _study()
+    ticks = iter((1251, 1252))
+    monkeypatch.setattr(registry, "_now_utc_seconds", lambda: next(ticks))
+    result = register_population_locked_holdout(path, manifest, census)
+    assert result["registered_at_utc"] == 1252
+    with sqlite3.connect(path) as conn:
+        assert conn.execute(
+            "SELECT registered_at_utc FROM holdout_claims WHERE study_id='one'"
+        ).fetchone() == (1252,)
+        assert conn.execute("SELECT count(*) FROM holdout_locked_rows").fetchone() == (35,)
