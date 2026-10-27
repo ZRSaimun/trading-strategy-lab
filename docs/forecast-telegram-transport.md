@@ -48,3 +48,24 @@ tests exercise the mismatches without network access.
 ## Mandatory non-tradable message boundary (26 October 2026)
 
 The review-only Telegram adapter now rejects any outbound text that does not begin with the exact formatter warning `UNVERIFIED RESEARCH FORECAST - NOT LIVE / NOT A TRADE` and end with the exact `Source NOT authenticated; no broker BID/ASK or fill. NO BUY/SELL SIGNAL. NO PAPER OR LIVE ORDER.` disclaimer. These markers match the existing disconnected forecast-review formatter. This prevents an accidental direct call from sending an unlabeled forecast or a misleading buy/sell message through the review-only transport. The check is local and runs before HTTP; it does **not** authenticate the underlying data or permit real notification activation. Additional synthetic negative tests ensure no network attempt on missing/altered warnings. Do not use this research-only adapter for authenticated live alerts without a separately reviewed design.
+
+
+## Strict provider acceptance identity (27 October 2026)
+
+The disconnected adapter now requires Telegram's echoed `result.chat.id` to be
+a JSON **integer** (not a numeric string, float, boolean or null) and to match
+the exact requested recipient. It also caps the positive `message_id` at
+`2**53 - 1`, matching the downstream disconnected
+`forecast_delivery_acceptance_audit` contract. An oversized message ID or
+incorrect chat-ID type yields a sanitized `DeliveryUncertain` result **after
+one attempt**, never an automatic retry: a provider may already have accepted
+the request. This closes an internal acceptance/reconciliation mismatch, not
+a demonstrated provider exploit or a live-delivery failure.
+
+Seven synthetic fake-HTTP cases cover two oversized IDs, the upper valid
+boundary, and four invalid chat-ID representations. No provider request,
+real notification, paper fill or broker order was made. The test cases
+exercise only response parsing; they do not independently authenticate a
+Telegram response, market-data source, opt-in, device receipt or journal
+timestamp. Keep the sender disconnected until the existing release and
+activation gates are independently satisfied.
