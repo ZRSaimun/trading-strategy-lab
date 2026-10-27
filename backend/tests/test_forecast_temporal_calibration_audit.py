@@ -4,7 +4,8 @@ import math
 import pytest
 
 from app.forecast_temporal_calibration_audit import (
-    _issued_probability_ecdf_shift, audit_temporal_forecast_calibration)
+    _issued_probability_ecdf_shift, _issued_probability_shape_shift,
+    audit_temporal_forecast_calibration)
 
 IDENTITY = {"instrument": "SYNTH", "provider": "FAKE", "venue": "TEST",
             "sourceId": "offline", "priceSide": "bid", "seconds": 60}
@@ -1110,3 +1111,65 @@ def test_issued_unbinned_shift_unequal_cohorts_and_empty_support():
     assert ks_gap == pytest.approx(.5)
     assert _issued_probability_ecdf_shift([], late) == (None, None)
     assert _issued_probability_ecdf_shift(early, []) == (None, None)
+
+
+def test_issued_shape_identical_cohorts_have_zero_signed_shifts():
+    row = audit_temporal_forecast_calibration(fixture())["groups"][0]
+    assert row["earlyIssuedMeanProbability"] == pytest.approx(.7)
+    assert row["issuedProbabilityMeanShift"] == pytest.approx(0)
+    assert row["issuedProbabilityMedianShift"] == pytest.approx(0)
+    assert row["issuedProbabilityInterdecileRangeShift"] == pytest.approx(0)
+    assert row["earlyIssuedHighConfidenceFraction"] == pytest.approx(0)
+    assert row["issuedHighConfidenceFractionShift"] == pytest.approx(0)
+
+
+def test_issued_shape_signed_direction_and_tail_concentration():
+    row = audit_temporal_forecast_calibration(
+        fixture(p_early=.60, p_late=.95))["groups"][0]
+    assert row["earlyIssuedMeanProbability"] == pytest.approx(.60)
+    assert row["issuedProbabilityMeanShift"] == pytest.approx(.35)
+    assert row["issuedProbabilityMedianShift"] == pytest.approx(.35)
+    assert row["issuedProbabilityInterdecileRangeShift"] == pytest.approx(0)
+    assert row["earlyIssuedHighConfidenceFraction"] == pytest.approx(0)
+    assert row["issuedHighConfidenceFractionShift"] == pytest.approx(1)
+
+
+def test_issued_shape_spread_widens_without_mean_movement():
+    early = [{"probability": .5} for _ in range(40)]
+    late = [{"probability": .2 if i % 2 else .8} for i in range(40)]
+    row = _issued_probability_shape_shift(early, late)
+    assert row["issuedProbabilityMeanShift"] == pytest.approx(0)
+    assert row["issuedProbabilityMedianShift"] == pytest.approx(0)
+    assert row["issuedProbabilityInterdecileRangeShift"] == pytest.approx(.6)
+    assert row["issuedHighConfidenceFractionShift"] == pytest.approx(0)
+
+
+def test_issued_shape_boundary_confidence_is_inclusive():
+    row = _issued_probability_shape_shift(
+        [{"probability": .1}, {"probability": .9}],
+        [{"probability": .10001}, {"probability": .89999}])
+    assert row["earlyIssuedHighConfidenceFraction"] == pytest.approx(1)
+    assert row["issuedHighConfidenceFractionShift"] == pytest.approx(-1)
+
+
+def test_issued_shape_empty_cohort_returns_null_without_imputation():
+    early = [{"probability": .5}]
+    names = ("earlyIssuedMeanProbability", "issuedProbabilityMeanShift",
+             "issuedProbabilityMedianShift", "issuedProbabilityInterdecileRangeShift",
+             "earlyIssuedHighConfidenceFraction", "issuedHighConfidenceFractionShift")
+    for report in (_issued_probability_shape_shift([], early),
+                   _issued_probability_shape_shift(early, [])):
+        assert all(report[name] is None for name in names)
+
+
+def test_issued_shape_independent_of_late_outcome_availability():
+    snapshot = fixture(p_early=.6, p_late=.95)
+    before = audit_temporal_forecast_calibration(snapshot)["groups"][0]
+    for row in snapshot["forecasts"][80:]:
+        row.update(status="PENDING", outcomeUp=None, resolvedAt=None)
+    after = audit_temporal_forecast_calibration(snapshot)["groups"][0]
+    names = ("earlyIssuedMeanProbability", "issuedProbabilityMeanShift",
+             "issuedProbabilityMedianShift", "issuedProbabilityInterdecileRangeShift",
+             "earlyIssuedHighConfidenceFraction", "issuedHighConfidenceFractionShift")
+    assert all(before[name] == after[name] for name in names)
+    assert after["lateBrier"] is None
