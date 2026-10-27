@@ -427,3 +427,126 @@ def test_initialize_rejects_replacement_after_exclusive_create(
     monkeypatch.setattr(ledger, '_connect', real_connect)
     assert saved.stat().st_size == 0
     assert inspect_ledger(p if replacement_kind == 'regular' else other)['event_count'] == 0
+
+
+@pytest.mark.parametrize('mode', [0o644, 0o666, 0o400, 0o700])
+@pytest.mark.parametrize('operation', ['inspect', 'prepare'])
+def test_ledger_rejects_nonprivate_file_modes(db, mode, operation):
+    original = db.read_bytes()
+    db.chmod(mode)
+    try:
+        with pytest.raises(ValueError, match='private mode 0600'):
+            if operation == 'inspect':
+                inspect_ledger(db)
+            else:
+                prep(db)
+        assert db.read_bytes() == original
+    finally:
+        db.chmod(0o600)
+    assert inspect_ledger(db)['event_count'] == 0
+
+
+def test_ledger_rejects_hardlinked_storage(db, tmp_path):
+    import os
+    second_name = tmp_path / 'second-ledger-name.sqlite'
+    os.link(db, second_name)
+    try:
+        with pytest.raises(ValueError, match='hardlinks'):
+            inspect_ledger(db)
+        with pytest.raises(ValueError, match='hardlinks'):
+            prep(db)
+    finally:
+        second_name.unlink()
+    assert inspect_ledger(db)['event_count'] == 0
+
+
+def test_initialize_rejects_public_parent_before_creating_file(tmp_path):
+    parent = tmp_path / 'public'
+    parent.mkdir(mode=0o700)
+    parent.chmod(0o777)
+    try:
+        db = parent / 'ledger.sqlite'
+        with pytest.raises(ValueError, match='private directory'):
+            initialize_ledger(db)
+        assert not db.exists()
+    finally:
+        parent.chmod(0o700)
+
+
+def test_existing_ledger_rejects_relaxed_parent_permissions(tmp_path):
+    parent = tmp_path / 'private'
+    parent.mkdir(mode=0o700)
+    db = parent / 'ledger.sqlite'
+    initialize_ledger(db)
+    parent.chmod(0o755)
+    try:
+        with pytest.raises(ValueError, match='private directory'):
+            inspect_ledger(db)
+        with pytest.raises(ValueError, match='private directory'):
+            prepare_intent(db, recorded_at_ms=100, **KEY)
+    finally:
+        parent.chmod(0o700)
+    assert inspect_ledger(db)['event_count'] == 0
+
+
+def test_initialize_rejects_symlinked_parent(tmp_path):
+    actual = tmp_path / 'actual'
+    actual.mkdir(mode=0o700)
+    alias = tmp_path / 'alias'
+    alias.symlink_to(actual, target_is_directory=True)
+    with pytest.raises(ValueError, match='symlinks'):
+        initialize_ledger(alias / 'ledger.sqlite')
+    assert not (actual / 'ledger.sqlite').exists()
+
+
+def test_ledger_parent_swap_during_open_fails_closed(tmp_path, monkeypatch):
+    active = tmp_path / 'active'
+    active.mkdir(mode=0o700)
+    db = active / 'ledger.sqlite'
+    initialize_ledger(db)
+    other = tmp_path / 'other'
+    other.mkdir(mode=0o700)
+    initialize_ledger(other / 'ledger.sqlite')
+    saved = tmp_path / 'saved'
+    real_connect = ledger.sqlite3.connect
+    swapped = False
+
+    def swap_parent_during_open(*args, **kwargs):
+        nonlocal swapped
+        if not swapped:
+            swapped = True
+            active.rename(saved)
+            other.rename(active)
+        return real_connect(*args, **kwargs)
+
+    monkeypatch.setattr(ledger.sqlite3, 'connect', swap_parent_during_open)
+    with pytest.raises(ValueError, match='parent identity changed'):
+        inspect_ledger(db)
+    assert swapped
+    monkeypatch.setattr(ledger.sqlite3, 'connect', real_connect)
+    assert inspect_ledger(saved / 'ledger.sqlite')['event_count'] == 0
+    assert inspect_ledger(db)['event_count'] == 0
+
+
+def test_unknown_commit_survives_abrupt_process_exit(db):
+    """A committed UNKNOWN must survive an actual process death, not just restart."""
+    import os
+    import subprocess
+    import sys
+    prep(db)
+    script = (
+        "import os, sys; "
+        "from app.paper_submission_attempt_ledger import mark_attempt_unknown; "
+        "mark_attempt_unknown(sys.argv[1], broker='T212-INVEST-DEMO', "
+        "account_alias='demo-account', client_order_id='order-1', "
+        "intent_sha256='a'*64, recorded_at_ms=101); os._exit(37)"
+    )
+    env = os.environ.copy()
+    backend_dir = str(ledger.Path(ledger.__file__).resolve().parents[1])
+    env['PYTHONPATH'] = backend_dir + os.pathsep + env.get('PYTHONPATH', '')
+    child = subprocess.run([sys.executable, '-c', script, str(db)],
+                           env=env, timeout=15, check=False)
+    assert child.returncode == 37
+    assert inspect_ledger(db)['orders'][0]['status'] == 'ATTEMPT_UNKNOWN'
+    with pytest.raises(ValueError, match='retry forbidden'):
+        attempt(db)
