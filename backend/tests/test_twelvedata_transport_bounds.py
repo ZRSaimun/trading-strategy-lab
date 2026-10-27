@@ -165,11 +165,13 @@ def test_invalid_request_limit_is_rejected_before_provider_call(limit):
     ("1790000040", T + 120),
     (True, T + 120),
     (10 ** 30, T + 120),
+    (10 ** 1000, T + 120),
     (T, float("nan")),
     (T, float("inf")),
     (T, None),
     (T, False),
     (T, 10 ** 30),
+    (T, 10 ** 1000),
 ])
 def test_invalid_utc_boundary_is_rejected_before_provider_call(end, now):
     transport = httpx.MockTransport(lambda request: pytest.fail("No HTTP request expected"))
