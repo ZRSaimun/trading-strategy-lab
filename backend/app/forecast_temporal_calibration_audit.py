@@ -443,7 +443,7 @@ def audit_temporal_forecast_calibration(snapshot, *, min_per_window=30,
                        "they are NOT realized performance; log loss heavily penalizes "
                        "confident wrong probabilities and is not financial loss; "
                        "settlement lag is caller-declared, not authenticated provider latency; "
-                       "log-loss tail concentration and paired regret are descriptive 
+                       "log-loss tail concentration and paired regret are descriptive "
                        "observed-label statistics, not financial downside; "
                        "high-confidence tail errors are descriptive and depend on "
                        "the fixed 90% threshold; empty tails have no error estimate; "
