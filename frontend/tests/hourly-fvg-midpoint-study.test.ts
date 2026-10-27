@@ -527,7 +527,7 @@ test('research report source metadata excludes arbitrary caller properties',()=>
  assert.deepEqual(Object.keys(report.source).sort(),Object.keys(source).sort());
  assert.equal(JSON.stringify(report).includes('synthetic-private-marker'),false);
  assert.equal(JSON.stringify(report).includes('synthetic-account-marker'),false);
- assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v30');
+ assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v31');
 });
 test('ambiguous source labels and contradictory volume evidence fail closed',()=>{
  // These are declared metadata, not independent vendor authentication.
@@ -903,7 +903,7 @@ test('an overflowing next-open comparator suppresses both matched markouts',()=>
 });
 test('completed hourly timestamps are safe and numeric rule changes have a new version',()=>{
  const report=studyHourlyFvgMidpoint(fixture(),source);
- assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v30');
+ assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v31');
  const lastSafeAlignedOpen=Math.floor(Number.MAX_SAFE_INTEGER/H)*H;
  assert.equal(Number.isSafeInteger(lastSafeAlignedOpen),true);
  assert.equal(Number.isSafeInteger(lastSafeAlignedOpen+H),false);
@@ -980,4 +980,70 @@ test('coverage counts unobserved hours without leaking future gaps into as-of re
   observedBars:0,unobservedHourSlots:0,gapIntervals:0,
  });
  assert.equal(full.coverage.observedBars+full.coverage.unobservedHourSlots,40);
+});
+
+
+function onePairedFvgFixture():Bar[]{
+ const bars=Array.from({length:27},(_,i)=>candle(i));
+ bars[20]=candle(20,99,100,98,99);
+ bars[21]=candle(21,100,102,99,101);
+ bars[22]=candle(22,105,106,104,105);
+ bars[23]=candle(23,105,106,101,105.5,200);
+ bars[24]=candle(24,105.5,107,105,106);
+ bars[25]=candle(25,106,108,105,107);
+ bars[26]=candle(26,107,111,106,110);
+ return bars;
+}
+const sumNetCells=(x:{bothPositive:number;blindOnlyPositive:number;
+ confirmedOnlyPositive:number;neitherPositive:number})=>
+ x.bothPositive+x.blindOnlyPositive+x.confirmedOnlyPositive+x.neitherPositive;
+
+test('paired hypothetical net-sign census preserves every cost and as-of exit boundary',()=>{
+ for(const bearish of [false,true]){
+  const base=onePairedFvgFixture();
+  const bars=bearish?base.map(b=>({...b,open:220-b.open,
+   high:220-b.low,low:220-b.high,close:220-b.close})):base;
+  const settings={hypotheticalRoundTripCostsBps:[0,500,900]};
+  const study=studyHourlyFvgMidpoint(bars,source,settings);
+  assert.equal(study.cohort.pairedMarkouts,1);
+  assert.equal(study.cohort.strictPairedMarkouts,1);
+  const scenarios=study.cohort.pairedNetSignByCost;
+  assert.deepEqual(scenarios.map(x=>x.costBps),[0,500,900]);
+  assert.deepEqual(scenarios.map(x=>x.scenarioIndex),[0,1,2]);
+  assert.equal(scenarios[0].all.bothPositive,1);
+  assert.equal(scenarios[1].all.blindOnlyPositive,1);
+  assert.equal(scenarios[2].all.neitherPositive,1);
+  for(const scenario of scenarios){
+   assert.equal(sumNetCells(scenario.all),study.cohort.pairedMarkouts);
+   assert.equal(sumNetCells(scenario.strict),study.cohort.strictPairedMarkouts);
+   assert.deepEqual(scenario.strict,scenario.all);
+  }
+  const beforeExit=studyHourlyFvgMidpointAsOf(bars,source,BASE+26*H,settings);
+  assert.equal(beforeExit.cohort.pairedMarkouts,0);
+  assert.ok(beforeExit.cohort.pairedNetSignByCost.every(x=>
+   sumNetCells(x.all)===0&&sumNetCells(x.strict)===0));
+  const afterExit=studyHourlyFvgMidpointAsOf(bars,source,BASE+27*H,settings);
+  assert.deepEqual(afterExit.cohort.pairedNetSignByCost,scenarios);
+  const unverified=studyHourlyFvgMidpoint(bars,{...source,volumeVerified:false},settings);
+  assert.equal(unverified.cohort.pairedMarkouts,1);
+  assert.equal(unverified.cohort.strictPairedMarkouts,0);
+  assert.ok(unverified.cohort.pairedNetSignByCost.every(x=>
+   sumNetCells(x.all)===1&&sumNetCells(x.strict)===0));
+ }
+});
+
+test('favorable next-open hypothetical entry is counted without blind-only bias',()=>{
+ for(const bearish of [false,true]){
+  const base=onePairedFvgFixture();
+  base[24]=candle(24,101,107,100,106);
+  base[26]=candle(26,107,111,102,103);
+  const bars=bearish?base.map(b=>({...b,open:220-b.open,
+   high:220-b.low,low:220-b.high,close:220-b.close})):base;
+  const study=studyHourlyFvgMidpoint(bars,source,{
+   hypotheticalRoundTripCostsBps:[120],
+  });
+  assert.equal(study.cohort.pairedMarkouts,1);
+  assert.equal(study.cohort.pairedNetSignByCost[0].all.confirmedOnlyPositive,1);
+  assert.equal(study.cohort.pairedNetSignByCost[0].strict.confirmedOnlyPositive,1);
+ }
 });

@@ -7,7 +7,7 @@
  */
 import type {Bar} from './research.ts';
 
-export const HOURLY_FVG_VERSION='hourly-fvg-first-midpoint-touch-v30';
+export const HOURLY_FVG_VERSION='hourly-fvg-first-midpoint-touch-v31';
 export type Evidence='PASS'|'FAIL'|'INSUFFICIENT_DATA';
 export type Side='BULLISH'|'BEARISH';
 export type FvgSource={
@@ -56,12 +56,22 @@ export type EvidenceCounts=Record<Evidence,number>;
 export type FirstTouchOutcome='TOUCH'|'NO_TOUCH'|'OPEN_GAP_THROUGH'|'INCOMPLETE_WINDOW';
 export type FirstTouchCensorReason='MISSING_HOUR'|'RIGHT_CENSORED';
 export type MarkoutCensorReason=FirstTouchCensorReason|'UNREPRESENTABLE_RETURN';
+// Exhaustive matched-pair net-sign cells for illustrative costs only.
+export type PairedNetSignCells={
+ bothPositive:number;blindOnlyPositive:number;
+ confirmedOnlyPositive:number;neitherPositive:number;
+};
+export type PairedNetSignCostCensus={
+ scenarioIndex:number;costBps:number;
+ all:PairedNetSignCells;strict:PairedNetSignCells;
+};
 export type FvgCohort={
  formations:number;firstTouchOutcome:Record<FirstTouchOutcome,number>;
   incompleteWindowByReason:Record<FirstTouchCensorReason,number>;
   markoutCensoredByReason:Record<MarkoutCensorReason,number>;
  midpointTouch:EvidenceCounts;strictCandidate:EvidenceCounts;markout:EvidenceCounts;
  pairedMarkouts:number;strictPairedMarkouts:number;nonStrictPairedMarkouts:number;
+ pairedNetSignByCost:readonly PairedNetSignCostCensus[];
  // Count matched and right-censored candidates by strict evidence status.
  pairedByStrictCandidate:EvidenceCounts;unpairedByStrictCandidate:EvidenceCounts;
  blindOnlyMarkouts:number;
@@ -177,7 +187,7 @@ function markout(entryAt:number,entry:number,exitAt:number,exit:number,
 // Account for the full observed formation population, not just attractive
 // confirmed returns. Unknown outcomes remain unknown, and blind-only markouts
 // must not be presented as matched wick-versus-limit comparisons.
-function summarizeCohort(observations:readonly FvgObservation[]):FvgCohort{
+function summarizeCohort(observations:readonly FvgObservation[],costs:readonly number[]):FvgCohort{
  const count=(gate:'midpointTouch'|'strictCandidate'|'markout'):EvidenceCounts=>{
   const result:EvidenceCounts={PASS:0,FAIL:0,INSUFFICIENT_DATA:0};
   for(const observation of observations)result[observation.gates[gate]]++;
@@ -190,6 +200,29 @@ function summarizeCohort(observations:readonly FvgObservation[]):FvgCohort{
   const counts=paired(observation)?pairedByStrictCandidate:unpairedByStrictCandidate;
   counts[observation.gates.strictCandidate]++;
  }
+ // Count every matured matched pair, not only attractive strict candidates.
+ // Unpaired, right-censored and opening-gap-through outcomes are excluded.
+ // Costs are hypothetical; zero net bps is nonpositive.
+ const pairedNetSignByCost:PairedNetSignCostCensus[]=costs.map((costBps,scenarioIndex)=>{
+  const empty=():PairedNetSignCells=>({
+   bothPositive:0,blindOnlyPositive:0,confirmedOnlyPositive:0,neitherPositive:0,
+  });
+  const all=empty(),strict=empty();
+  for(const observation of observations){
+   if(!paired(observation))continue;
+   const blind=observation.blindMidpointTouch!.netBpsByCost[scenarioIndex];
+   const confirmed=observation.confirmedNextOpen!.netBpsByCost[scenarioIndex];
+   if(!blind||!confirmed||blind.costBps!==costBps||confirmed.costBps!==costBps)
+    throw Error('Paired FVG cost evidence is inconsistent');
+   const blindPositive=blind.netBps>0,confirmedPositive=confirmed.netBps>0;
+   const cell:keyof PairedNetSignCells=blindPositive?
+    confirmedPositive?'bothPositive':'blindOnlyPositive':
+    confirmedPositive?'confirmedOnlyPositive':'neitherPositive';
+   all[cell]++;
+   if(observation.gates.strictCandidate==='PASS')strict[cell]++;
+  }
+  return {scenarioIndex,costBps,all,strict};
+ });
  const firstTouchOutcome:Record<FirstTouchOutcome,number>={
   TOUCH:0,NO_TOUCH:0,OPEN_GAP_THROUGH:0,INCOMPLETE_WINDOW:0,
  };
@@ -208,6 +241,7 @@ function summarizeCohort(observations:readonly FvgObservation[]):FvgCohort{
  }
  return {
   formations:observations.length,firstTouchOutcome,incompleteWindowByReason,
+  pairedNetSignByCost,
   markoutCensoredByReason,
   midpointTouch:count('midpointTouch'),
   strictCandidate:count('strictCandidate'),
@@ -478,7 +512,7 @@ export function studyHourlyFvgMidpoint(
    coverage:summarizeCoverage(bars),
   config:{maxTouchWaitBars,markoutBars,minimumRejectionWickFraction,
    volumeMultiple,hypotheticalRoundTripCostsBps:[...costs]},
-  observations,cohort:summarizeCohort(observations),
+  observations,cohort:summarizeCohort(observations,costs),
   warning:'Read-only hourly BID OHLC research. Midpoint touch is a hypothetical blind limit, not an executable fill. Rejection entry uses only the next observed hourly open. Markouts omit intrabar stops, spreads, financing, news, slippage and broker contracts; bps costs are illustrative, not measured. No strategy edge or live execution is established.'};
 }
 
