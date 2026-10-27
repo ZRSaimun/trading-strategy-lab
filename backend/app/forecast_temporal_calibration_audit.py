@@ -196,6 +196,21 @@ def _log_loss_tail_diagnostics(rows, prior_up):
     }
 
 
+def _settlement_lag_diagnostics(rows, seconds):
+    """Observed late outcome receipt lag after target candle close, in seconds.
+
+    Only the eligible fixed-census settled cohort is passed by the caller.
+    These caller-declared timestamps are not authenticated provider latency.
+    """
+    lags = sorted(r["resolvedAt"] - (r["targetStart"] + seconds) for r in rows)
+    return {
+        "lateSettlementLagP95Seconds": lags[math.ceil(.95 * len(lags)) - 1],
+        "lateSettlementLagMaxSeconds": lags[-1],
+        "lateSettlementLagOverOneCandleFraction":
+            sum(lag > seconds for lag in lags) / len(lags),
+    }
+
+
 def audit_temporal_forecast_calibration(snapshot, *, min_per_window=30,
                                         brier_deterioration=0.05,
                                         max_unresolved_fraction=0.10,
@@ -337,6 +352,9 @@ def audit_temporal_forecast_calibration(snapshot, *, min_per_window=30,
             "lateLogLossBestCaseAllIssuedCensus": None,
             "lateLogLossWorstCaseAllIssuedCensus": None,
             "lateLogLossSkillVsFrozenEarlyClimatology": None,
+            "lateSettlementLagP95Seconds": None,
+            "lateSettlementLagMaxSeconds": None,
+            "lateSettlementLagOverOneCandleFraction": None,
             "lateLogLossWorstSingle": None,
             "lateLogLossP95NearestRank": None,
             "lateLogLossTopDecileShare": None,
@@ -388,6 +406,7 @@ def audit_temporal_forecast_calibration(snapshot, *, min_per_window=30,
                 lateLogLossWorstCaseAllIssuedCensus=late_log_worst,
                 lateLogLossSkillVsFrozenEarlyClimatology=1 - late_log / frozen_log,
                 **_log_loss_tail_diagnostics(test, prior_up),
+                **_settlement_lag_diagnostics(test, seconds),
                 lateBrierSkillVsFrozenEarlyClimatology=1 - late_brier / baseline,
                 lateMeanProbability=sum(r["probability"] for r in test) / len(test),
                 lateObservedUpRate=sum(r["outcomeUp"] for r in test) / len(test),
@@ -423,7 +442,8 @@ def audit_temporal_forecast_calibration(snapshot, *, min_per_window=30,
                        "records, including potentially unobservable gaps; "
                        "they are NOT realized performance; log loss heavily penalizes "
                        "confident wrong probabilities and is not financial loss; "
-                       "log-loss tail concentration and paired regret are descriptive "
+                       "settlement lag is caller-declared, not authenticated provider latency; "
+                       "log-loss tail concentration and paired regret are descriptive 
                        "observed-label statistics, not financial downside; "
                        "high-confidence tail errors are descriptive and depend on "
                        "the fixed 90% threshold; empty tails have no error estimate; "
