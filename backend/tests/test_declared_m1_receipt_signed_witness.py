@@ -197,3 +197,97 @@ def test_no_external_signature_or_key_generation_side_effects(tmp_path):
         _check(path, manifest, envelope | {"signature_hex": "0" * 128}, pub, pin)
     with pytest.raises(ValueError, match="envelope"):
         _check(path, manifest, envelope | {"private_key": "not accepted"}, pub, pin)
+
+
+def _trusted_floor(anchor):
+    return {
+        "scope_key": anchor["scope_key"],
+        "revision": anchor["revision"],
+        "checkpoint_sha256": anchor["checkpoint_sha256"],
+        "witness_id": anchor["witness_id"],
+    }
+
+
+def test_operator_floor_matches_signed_anchor_and_does_not_grant_trust(tmp_path):
+    path, manifest, _, anchors, key, pub, pin = _fixture(tmp_path)
+    result = audit_signed_declared_m1_receipt_anchor_evidence(
+        path, manifest, _signed(key, anchors, _key(manifest)),
+        T + 400, pub, pin,
+        trusted_witness_id="synthetic-witness",
+        trusted_floor=_trusted_floor(anchors[-1]),
+    )
+    assert result["operator_pinned_checkpoint_floor_matched"] is True
+    assert result["status"] == "DECLARED_HEAD_ANCHOR_MATCH_ONLY"
+    assert result["independent_custody_verified"] is False
+    assert result["live"] is False and result["may_execute_order"] is False
+
+
+def test_valid_older_signature_cannot_satisfy_newer_operator_floor(tmp_path):
+    path, manifest, _, anchors, key, pub, pin = _fixture(tmp_path)
+    with pytest.raises(ValueError, match="operator-pinned checkpoint floor"):
+        audit_signed_declared_m1_receipt_anchor_evidence(
+            path, manifest, _signed(key, anchors[:1], _key(manifest)),
+            T + 400, pub, pin, trusted_witness_id="synthetic-witness",
+            trusted_floor=_trusted_floor(anchors[-1]),
+        )
+
+
+def test_jointly_replayed_valid_journal_and_signature_fail_operator_floor(tmp_path):
+    path, manifest, first, anchors, key, pub, pin = _fixture(tmp_path)
+    older_envelope = _signed(key, anchors[:1], _key(manifest))
+    with sqlite3.connect(path) as conn:
+        conn.execute("DELETE FROM declared_m1_snapshots WHERE revision=2")
+        conn.execute(
+            "UPDATE declared_m1_heads SET revision=1, head_sha256=?",
+            (first["checkpoint_sha256"],),
+        )
+    # Both the older journal and older signature are internally consistent.
+    assert _check(path, manifest, older_envelope, pub, pin)["status"] == (
+        "DECLARED_HEAD_ANCHOR_MATCH_ONLY"
+    )
+    with pytest.raises(ValueError, match="operator-pinned checkpoint floor"):
+        audit_signed_declared_m1_receipt_anchor_evidence(
+            path, manifest, older_envelope, T + 400, pub, pin,
+            trusted_witness_id="synthetic-witness",
+            trusted_floor=_trusted_floor(anchors[-1]),
+        )
+
+
+@pytest.mark.parametrize("change", [
+    lambda floor: floor.update(revision=0),
+    lambda floor: floor.update(revision=True),
+    lambda floor: floor.update(checkpoint_sha256="X" * 64),
+    lambda floor: floor.update(scope_key="0" * 64),
+    lambda floor: floor.update(witness_id="another-witness"),
+    lambda floor: floor.update(extra="unexpected"),
+])
+def test_invalid_independent_floor_fails_closed(tmp_path, change):
+    path, manifest, _, anchors, key, pub, pin = _fixture(tmp_path)
+    floor = _trusted_floor(anchors[-1])
+    change(floor)
+    with pytest.raises(ValueError, match="checkpoint floor"):
+        audit_signed_declared_m1_receipt_anchor_evidence(
+            path, manifest, _signed(key, anchors, _key(manifest)),
+            T + 400, pub, pin, trusted_witness_id="synthetic-witness",
+            trusted_floor=floor,
+        )
+
+
+def test_operator_floor_requires_separate_witness_identity_pin(tmp_path):
+    path, manifest, _, anchors, key, pub, pin = _fixture(tmp_path)
+    with pytest.raises(ValueError, match="checkpoint floor"):
+        audit_signed_declared_m1_receipt_anchor_evidence(
+            path, manifest, _signed(key, anchors, _key(manifest)),
+            T + 400, pub, pin, trusted_floor=_trusted_floor(anchors[-1]),
+        )
+
+
+def test_valid_old_floor_does_not_override_unanchored_newer_head(tmp_path):
+    path, manifest, _, anchors, key, pub, pin = _fixture(tmp_path)
+    result = audit_signed_declared_m1_receipt_anchor_evidence(
+        path, manifest, _signed(key, anchors[:1], _key(manifest)),
+        T + 400, pub, pin, trusted_witness_id="synthetic-witness",
+        trusted_floor=_trusted_floor(anchors[0]),
+    )
+    assert result["operator_pinned_checkpoint_floor_matched"] is True
+    assert result["status"] == "HOLD_LOCAL_HEAD_NOT_EXTERNALLY_ANCHORED"
