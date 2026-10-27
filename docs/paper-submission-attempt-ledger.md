@@ -99,3 +99,27 @@ execution based on this ledger.
 SQLite DELETE-mode rollback journals can be necessary for **recovering an interrupted transaction**. The ledger therefore does not delete, truncate or automatically reject an ordinary regular `-journal` file. However, an attacker-controlled symlink, hardlink, directory, special file, foreign-owned file or oversized journal could redirect SQLite reads/writes or cause unexpected resource consumption. Before opening a ledger, immediately after SQLite opens it, and before one-time initialization, the connector now inspects the `-journal` pathname with `lstat`. If present, it must be a regular file owned by the service user, have exactly one hardlink and be no larger than twice the reviewed ledger byte limit. Unsafe paths fail closed without cleanup or automatic repair. A rollback journal with group/other **write** bits is now also rejected (e.g. `0666` or `0620`); ordinary SQLite `0644` journals are permitted because the service-owned parent directory is private (`0700`). This is defense in depth against unsafe sidecar permissions, not an atomic defense against same-user or privileged path replacement. The parent directory remains required to be service-owned and private.
 
 Synthetic tests exercise symlink, hardlink, directory and oversized journal rejection for read and write entry points, orphaned journal initialization, a journal swapped in during SQLite opening, and ordinary empty-journal inspection. The existing abrupt-process-death rollback regression is retained to verify real crash recovery. A same-user or privileged attacker with directory write access can still swap journal paths between checks; these are **not** atomic openat/O_NOFOLLOW protections. Journal bytes are not authenticated broker evidence. Keep the ledger offline, draft and undeployed pending independently verified production restore/rollback/health gates and broker-specific reconciliation.
+
+
+## Mid-operation storage identity fence (27 October 2026)
+
+Opening a verified SQLite file does not guarantee that its pathname, private
+permissions, parent directory or journal remain unchanged during a potentially
+long audit or transaction. Both read-only inspection and transitions now
+capture a fresh storage fingerprint (parent device/inode and ledger device/inode)
+after opening, and recheck the private parent, 0600 ledger permissions, file
+size, WAL/SHM absence and rollback-journal safety after audit replay. Writes
+also recheck before and immediately after commit; reads recheck after their
+transaction ends. A mismatch or unsafe sidecar **fails closed**. Six synthetic
+regressions inject mid-audit regular-file replacement, permission relaxation,
+or an unsafe journal symlink for both read and write paths.
+
+These are **best-effort pathname observations**, not an atomic fd-to-path
+binding, a cryptographically anchored audit, or a defense against same-user or
+privileged actors swapping files between checks. If an attacker replaces a
+journal during a write or after the final check, this guard cannot guarantee
+safe SQLite rollback or commit. A post-commit mismatch cannot undo a commit
+that already occurred, so the caller must quarantine the outcome and reconcile
+independently. Do not integrate an order sender until storage ownership,
+authenticated broker inventory, crash-point recovery and independent audit
+anchors are verified. No execution permission is introduced.
