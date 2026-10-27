@@ -187,6 +187,6 @@ def audit_temporal_forecast_calibration(snapshot, *, min_per_window=30,
         "limitations": "Caller journal unauthenticated; split is retrospective and not an "
                        "untouched holdout; dependent market regimes and sample selection remain; "
                        "missing/void outcomes can bias scores; 10-bin ECE is bin-dependent "
-                       "and noisy with sparse bins; heuristic drift is not a p-value. 
+                       "and noisy with sparse bins; heuristic drift is not a p-value. "
                        "No executable BID/ASK, transaction costs, fills or trading returns.",
     }
