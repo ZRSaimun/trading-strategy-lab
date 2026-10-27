@@ -1000,3 +1000,60 @@ def test_initialize_quarantines_growth_after_sqlite_open(tmp_path, monkeypatch):
         initialize_ledger(db)
     assert db.exists()
     assert db.stat().st_size == ledger.MAX_LEDGER_BYTES + 1
+
+
+def test_unknown_submission_quarantines_new_same_account_intents(db):
+    """A second client ID cannot hide an unresolved first broker attempt."""
+    prep(db)
+    attempt(db)
+    with pytest.raises(ValueError, match='Unresolved broker submission'):
+        prep(db, client_order_id='order-2', intent_sha256=E)
+    snapshot = inspect_ledger(db)
+    assert snapshot['event_count'] == 2
+    assert snapshot['order_count'] == 1
+    assert snapshot['orders'][0]['status'] == 'ATTEMPT_UNKNOWN'
+
+
+def test_prepared_second_order_cannot_attempt_during_first_unknown(db):
+    """Preparing before the ambiguity must not bypass the account fence."""
+    prep(db)
+    prep(db, client_order_id='order-2', intent_sha256=E)
+    attempt(db)
+    with pytest.raises(ValueError, match='Unresolved broker submission'):
+        attempt(db, client_order_id='order-2', intent_sha256=E)
+    assert inspect_ledger(db)['event_count'] == 3
+    # Declared terminal reconciliation clears this *local* pending status,
+    # but is NOT authenticated broker proof or permission to execute.
+    reconcile(db)
+    assert attempt(db, client_order_id='order-2', intent_sha256=E)['may_submit_real_order'] is False
+
+
+def test_unknown_quarantine_is_scoped_to_broker_and_account(db):
+    prep(db)
+    attempt(db)
+    # A different account or broker label has a separate evidence namespace.
+    assert prep(db, account_alias='other-account')['may_submit_paper_order'] is False
+    assert prep(db, broker='T212-STOCKSISA-DEMO')['may_submit_real_order'] is False
+    assert attempt(db, account_alias='other-account')['may_submit_real_order'] is False
+    assert attempt(db, broker='T212-STOCKSISA-DEMO')['may_submit_real_order'] is False
+
+
+def test_concurrent_distinct_attempts_only_one_becomes_unknown(db):
+    prep(db)
+    prep(db, client_order_id='order-2', intent_sha256=E)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        futures = [
+            pool.submit(attempt, db),
+            pool.submit(attempt, db, client_order_id='order-2', intent_sha256=E),
+        ]
+        results = []
+        for future in futures:
+            try:
+                results.append(future.result())
+            except ValueError as exc:
+                assert 'Unresolved broker submission' in str(exc)
+                results.append(None)
+    assert sum(result is not None for result in results) == 1
+    snapshot = inspect_ledger(db)
+    assert snapshot['event_count'] == 3
+    assert sum(order['status'] == 'ATTEMPT_UNKNOWN' for order in snapshot['orders']) == 1
