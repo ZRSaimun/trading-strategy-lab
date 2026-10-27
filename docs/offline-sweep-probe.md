@@ -275,3 +275,42 @@ holdout, or live trading permission. Both previously inspected
 later-period slices and the 32-archive exploratory census are **not**
 untouched holdouts. This code addition has not itself rerun the original
 private archives; synthetic regression cases are not market evidence.
+
+
+## Causal confirmation three-candle FVG census (additive, not a signal filter)
+
+The `confirmation_three_candle_fvg_census` is a strictly **descriptive**
+two-state classification of already-confirmed, capacity-admitted sweep signals.
+It inspects only three **completed, contiguous** M15 candles: the final
+pre-sweep candle, the sweep candle, and its completed confirmation candle.
+For a long sweep, a same-direction bullish wick gap exists when the
+confirmation **low is strictly greater** than the pre-sweep candle **high**.
+For a short sweep, a bearish gap exists when the confirmation **high is
+strictly less** than the pre-sweep candle **low**. Equality is *not* a gap.
+The middle sweep candle is part of the three-candle pattern. This is one
+minimal FVG geometric definition, **not** a verified full ICT FVG strategy,
+a liquidity-zone quality score, a future retest or an executable entry.
+
+Each of `SAME_DIRECTION_THREE_CANDLE_FVG` and
+`NO_SAME_DIRECTION_THREE_CANDLE_FVG` independently reports confirmed
+signals, missing entry, invalid stop/target geometry, entered positions,
+observed exits and entered-but-censored exits. The two states reconcile
+exactly with the original full-cohort counts. Each state reports the
+original **0/5/10/20 additional round-trip bps** observed-only mean R on
+the *same* frozen trades; an empty observed population returns `null`.
+No FVG status can select, exclude, delay, resize or execute a trade. No
+historical trade, stop-first outcome, holding reservation, embargo or
+cost assumption changes.
+
+Because the confirmation is completed **before** the hypothetical following
+bar's opening entry, the classification never examines a future entry,
+target touch, exit or gap fill. A future missing entry or censored exit
+remains visible in its original FVG state. Comparing observed-only FVG
+groups can be strongly biased by missing exits and repeated hypothesis
+inspection. The historical 32-archive later slices have already been
+examined; they are **not** untouched holdouts, and this change has not
+run the committed Decimal implementation on them. No FVG subgroup can
+be claimed profitable, statistically validated or broker-executable
+without new independently registered prospective observations, verified
+source/side/timezone and executable trading-cost evidence. No order
+permission is granted.
