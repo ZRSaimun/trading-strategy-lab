@@ -3,7 +3,8 @@ from copy import deepcopy
 import math
 import pytest
 
-from app.forecast_temporal_calibration_audit import audit_temporal_forecast_calibration
+from app.forecast_temporal_calibration_audit import (
+    _issued_probability_ecdf_shift, audit_temporal_forecast_calibration)
 
 IDENTITY = {"instrument": "SYNTH", "provider": "FAKE", "venue": "TEST",
             "sourceId": "offline", "priceSide": "bid", "seconds": 60}
@@ -1067,3 +1068,45 @@ def test_issued_probability_shift_small_cohorts_flag_low_support():
     assert row["issuedProbabilityJensenShannonBits10"] == pytest.approx(1)
     assert row["issuedProbabilityShiftLowSupportUnder30"] is True
     assert row["lateBrier"] is None
+
+
+def test_issued_unbinned_shift_identical_distributions_zero():
+    row = audit_temporal_forecast_calibration(fixture())["groups"][0]
+    assert row["issuedProbabilityWasserstein1"] == pytest.approx(0)
+    assert row["issuedProbabilityKsGap"] == pytest.approx(0)
+
+
+def test_issued_unbinned_shift_disjoint_probabilities_exact_distance():
+    row = audit_temporal_forecast_calibration(
+        fixture(p_early=.10, p_late=.90))["groups"][0]
+    assert row["issuedProbabilityWasserstein1"] == pytest.approx(.8)
+    assert row["issuedProbabilityKsGap"] == pytest.approx(1)
+
+
+def test_issued_unbinned_shift_within_same_bin_detected():
+    row = audit_temporal_forecast_calibration(
+        fixture(p_early=.71, p_late=.79))["groups"][0]
+    assert row["issuedProbabilityJensenShannonBits10"] == pytest.approx(0)
+    assert row["issuedProbabilityWasserstein1"] == pytest.approx(.08)
+    assert row["issuedProbabilityKsGap"] == pytest.approx(1)
+
+
+def test_issued_unbinned_shift_ignores_settlement_selection():
+    snapshot = fixture(p_early=.10, p_late=.90)
+    before = audit_temporal_forecast_calibration(snapshot)["groups"][0]
+    for row in snapshot["forecasts"][80:]:
+        row.update(status="PENDING", outcomeUp=None, resolvedAt=None)
+    after = audit_temporal_forecast_calibration(snapshot)["groups"][0]
+    for key in ("issuedProbabilityWasserstein1", "issuedProbabilityKsGap"):
+        assert after[key] == before[key]
+    assert after["lateBrier"] is None
+
+
+def test_issued_unbinned_shift_unequal_cohorts_and_empty_support():
+    early = [{"probability": .1}, {"probability": .9}]
+    late = [{"probability": .5}]
+    distance, ks_gap = _issued_probability_ecdf_shift(early, late)
+    assert distance == pytest.approx(.4)
+    assert ks_gap == pytest.approx(.5)
+    assert _issued_probability_ecdf_shift([], late) == (None, None)
+    assert _issued_probability_ecdf_shift(early, []) == (None, None)
