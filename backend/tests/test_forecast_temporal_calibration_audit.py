@@ -1026,3 +1026,44 @@ def test_outcome_availability_bins_include_probability_boundaries():
     assert bins[9]["issued"] == 1
     assert bins[7]["issued"] == 38
     assert sum(b["unavailable"] for b in bins) == 0
+
+
+def test_issued_probability_shift_identical_cohorts_is_zero():
+    row = audit_temporal_forecast_calibration(fixture())["groups"][0]
+    assert row["earlyIssuedProbabilityBins10"] == row["lateIssuedProbabilityBins10"]
+    assert row["earlyIssuedProbabilityBins10"][7] == 80
+    assert row["issuedProbabilityJensenShannonBits10"] == pytest.approx(0)
+    assert row["issuedProbabilityShiftLowSupportUnder30"] is False
+
+
+def test_issued_probability_shift_disjoint_cohorts_is_one_bit():
+    row = audit_temporal_forecast_calibration(
+        fixture(p_early=.10, p_late=.90))["groups"][0]
+    assert row["earlyIssuedProbabilityBins10"][1] == 80
+    assert row["lateIssuedProbabilityBins10"][9] == 80
+    assert row["issuedProbabilityJensenShannonBits10"] == pytest.approx(1)
+    assert row["lateBrier"] is not None
+
+
+def test_issued_probability_shift_does_not_select_on_settlement_or_cutoff():
+    s = fixture(p_early=.10, p_late=.90)
+    before = audit_temporal_forecast_calibration(s)["groups"][0]
+    for r in s["forecasts"][80:]:
+        r.update(status="PENDING", outcomeUp=None, resolvedAt=None)
+    after = audit_temporal_forecast_calibration(s)["groups"][0]
+    for key in ("earlyIssuedProbabilityBins10", "lateIssuedProbabilityBins10",
+                "issuedProbabilityJensenShannonBits10",
+                "issuedProbabilityShiftLowSupportUnder30"):
+        assert after[key] == before[key]
+    assert after["lateBrier"] is None
+    assert after["status"] == "INSUFFICIENT_NONOVERLAPPING_OUTCOMES"
+
+
+def test_issued_probability_shift_small_cohorts_flag_low_support():
+    row = audit_temporal_forecast_calibration(
+        fixture(n=2, p_early=.10, p_late=.90))["groups"][0]
+    assert sum(row["earlyIssuedProbabilityBins10"]) == 1
+    assert sum(row["lateIssuedProbabilityBins10"]) == 1
+    assert row["issuedProbabilityJensenShannonBits10"] == pytest.approx(1)
+    assert row["issuedProbabilityShiftLowSupportUnder30"] is True
+    assert row["lateBrier"] is None
