@@ -20,10 +20,16 @@ def _crossing(gross, cost5, observed):
     if observed == 0:
         return {"status": "NO_OBSERVED_EXITS", "zero_crossing_extra_bps": None,
                 "lower_bound_extra_bps": None, "upper_bound_extra_bps": None}
-    if gross <= 0:
+    # Each endpoint was rounded independently to five decimal places. A
+    # reported zero is not evidence of an exact zero: its true sign may vary
+    # by half a last place. Never claim a strict crossing or a definite
+    # non-crossing when either endpoint's sign is unresolved by rounding.
+    if gross <= -_HALF_UNIT:
         status = "NOT_STRICTLY_POSITIVE_AT_ZERO_BPS"
-    elif cost5 >= 0:
+    elif cost5 >= _HALF_UNIT:
         status = "NO_STRICT_CROSSING_WITHIN_DECLARED_0_TO_5_BPS"
+    elif gross <= _HALF_UNIT or cost5 >= -_HALF_UNIT:
+        status = "ROUNDING_AMBIGUOUS_ENDPOINT"
     else:
         # A linear interpolation of the two declared *rounded* mean returns.
         # For a>0>b, t=5a/(a-b) increases with either endpoint. Thus
