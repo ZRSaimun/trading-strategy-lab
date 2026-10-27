@@ -461,3 +461,53 @@ def test_same_bar_collision_censored_and_empty_populations_are_not_imputed():
         assert collision["observed_outcomes_total"] == 0
         assert D(collision["fixed_cohort_target_first_uplift_r_sum"]) == 0
         assert collision["fixed_cohort_target_first_uplift_r_per_observed"] is None
+
+
+def test_observed_holding_duration_same_bar_stop_and_time_cost_arithmetic():
+    cohort = research(synthetic_bars())["cohorts"]["development"]
+    duration = cohort["observed_holding_duration_census"]
+    assert duration["observed_outcomes_total"] == 1
+    assert duration["observed_holding_15m_bars_sum"] == 1
+    assert duration["observed_holding_15m_bars_min"] == 1
+    assert duration["observed_holding_15m_bars_max"] == 1
+    assert D(duration["observed_holding_15m_bars_mean"]) == 1
+    assert duration["censored_entered_positions"] == 0
+    scenarios = cohort["illustrative_observed_time_cost_scenarios"]
+    assert [D(x["illustrative_additional_bps_per_observed_15m_bar"])
+            for x in scenarios] == [D("0"), D("0.05"), D("0.2")]
+    # Entry 103, stop 98, risk 5; -1R gross, 5 bps round trip,
+    # plus 0.2 bps for one observed source bar.
+    assert D(scenarios[2]["mean_net_r"]) == D("-1.010712")
+    assert D(scenarios[0]["mean_net_r"]) == D(
+        cohort["cost_scenarios"][1]["mean_net_r"])
+
+
+def test_observed_holding_duration_full_horizon_and_empty_later():
+    rows = synthetic_bars()
+    b = rows[32]
+    rows[32] = Bar(b.time, D(103), D(104), D(99), D(103), b.segment)
+    reports = research(rows)["cohorts"]
+    duration = reports["development"]["observed_holding_duration_census"]
+    assert duration["observed_holding_15m_bars_sum"] == 16
+    assert duration["observed_holding_15m_bars_min"] == 16
+    assert duration["observed_holding_15m_bars_max"] == 16
+    assert D(duration["observed_holding_15m_bars_mean"]) == 16
+    empty = reports["exploratory_later"]
+    assert empty["observed_holding_duration_census"]["observed_holding_15m_bars_min"] is None
+    assert empty["illustrative_observed_time_cost_scenarios"][0]["mean_net_r"] is None
+
+
+def test_censored_holding_prefix_does_not_invent_exit_or_financing():
+    rows = synthetic_bars()
+    b = rows[32]
+    rows[32] = Bar(b.time, D(103), D(104), D(99), D(103), b.segment)
+    rows[33:] = [Bar(b.time, b.o, b.h, b.l, b.c, 1) for b in rows[33:]]
+    cohort = research(rows)["cohorts"]["development"]
+    duration = cohort["observed_holding_duration_census"]
+    assert cohort["entered_positions"] == cohort["censored_due_to_gaps_or_boundaries"] == 1
+    assert duration["observed_outcomes_total"] == 0
+    assert duration["observed_holding_15m_bars_sum"] == 0
+    assert duration["censored_observed_prefix_15m_bars_sum"] == 1
+    assert duration["censored_observed_prefix_15m_bars_max"] == 1
+    assert all(x["mean_net_r"] is None for x in
+               cohort["illustrative_observed_time_cost_scenarios"])
