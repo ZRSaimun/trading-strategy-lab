@@ -189,19 +189,27 @@ def audit_declared_holdout_release(manifest, census, anchor, outcomes, release_a
             peak = max(peak, running)
             drawdown = max(drawdown, peak - running)
             worst = net if worst is None else min(worst, net)
+        # A withheld holdout must not reveal the result it purports to withhold.
+        # Otherwise repeated small-sample probes can tune candidates on holdout P&L.
+        sufficient = len(census) >= 30
         return {
             "protocol": "declared-holdout-release-gate-v1",
-            "status": "DECLARED_EVALUATION_ONLY" if len(census) >= 30 else
+            "status": "DECLARED_EVALUATION_ONLY" if sufficient else
                       "WITHHELD_INSUFFICIENT_HOLDOUT",
             "study_id": manifest["study_id"],
             "candidate_id": manifest["candidate_id"],
             "manifest_sha256": _hash(manifest),
             "holdout_census_sha256": _hash(census),
-            "outcome_receipts_sha256": _hash(sorted(outcomes, key=lambda x: x["observation_id"])),
+            "outcome_receipts_sha256": (
+                _hash(sorted(outcomes, key=lambda x: x["observation_id"])) if sufficient else None
+            ),
             "observation_count": len(census),
-            "net_cash": format(total, ".4f"),
-            "worst_observation_net_cash": format(worst, ".4f"),
-            "max_observation_end_drawdown_cash": format(drawdown, ".4f"),
+            "outcome_metrics_withheld": not sufficient,
+            "net_cash": format(total, ".4f") if sufficient else None,
+            "worst_observation_net_cash": format(worst, ".4f") if sufficient else None,
+            "max_observation_end_drawdown_cash": (
+                format(drawdown, ".4f") if sufficient else None
+            ),
             "anchor_independently_authenticated": False,
             "source_bytes_independently_authenticated": False,
             "one_time_release_enforced": False,
@@ -212,5 +220,6 @@ def audit_declared_holdout_release(manifest, census, anchor, outcomes, release_a
             "may_execute_real_order": False,
             "warning": "All clocks, source digests, receipts and the anchor are caller-declared. "
                        "An external immutable registry is needed to prove precommitment and one-time release. "
-                       "Observation-end drawdown omits intraperiod risk. No broker fills are verified."
+                       "Observation-end drawdown omits intraperiod risk. No broker fills are verified. "
+                       "For fewer than 30 observations, outcome-dependent fields are withheld."
         }
