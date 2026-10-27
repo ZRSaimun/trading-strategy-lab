@@ -426,3 +426,25 @@ independently authenticated. Unissued forecasts and missing expected candles
 are outside this census; PR #86 and Loop 1 require separately verified
 completed-candle/session inventories. No live orders, demo fills, Telegram
 messages or production changes are authorized by these statistics.
+
+
+## Fixed-census probability-bin outcome availability (27 October 2026)
+
+The new `lateCensusOutcomeAvailabilityBins10` diagnostic exposes possible
+**probability-dependent outcome missingness** before attempting to interpret
+calibration or drift. It uses the existing fixed, nonoverlapping **late issued**
+census, selected without looking at outcome status. The same eligible settled
+IDs used by the declared as-of scoring review determine availability, but
+the outcome direction is never inspected. Each fixed-width probability bin
+0 through 9 reports `issued`, `eligibleSettled`, `unavailable`,
+`unavailableFraction`, and `lowSupportUnder30`. Empty bins have null rates
+and null support flags. A settled result received after the declared as-of
+cutoff is unavailable, not retroactively counted as known.
+
+These counts remain visible when the minimum-sample or missingness gates
+withhold Brier/log-loss metrics. They are **not** a missing-at-random test,
+a calibrated forecast, a proof of source completeness, or a live trading
+signal. Low-support bins are descriptive only; the journal cannot detect
+forecasts never issued or absent completed candles. Independent Loop 1
+provider/venue/side, receipt chronology, entitlement and session inventories
+are still required. No alert, paper order, real order or production activation.
