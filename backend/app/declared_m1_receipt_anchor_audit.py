@@ -80,10 +80,13 @@ def audit_declared_m1_receipt_anchor_evidence(
         snapshot = snapshots[revision - 1]
         if observed != snapshot["manifest"].observed_at_utc:
             raise ValueError("Declared anchor observation differs from journal")
-        for field in ("checkpoint_sha256", "previous_checkpoint_sha256"):
-            value = anchor[field]
+        for claim_field, stored_field in (
+            ("checkpoint_sha256", "checkpoint_sha256"),
+            ("previous_checkpoint_sha256", "previous_sha256"),
+        ):
+            value = anchor[claim_field]
             if (type(value) is not str or not _SHA.fullmatch(value)
-                    or value != snapshot[field]):
+                    or value != snapshot[stored_field]):
                 raise ValueError("Declared anchor disagrees with local receipt chain")
         last_revision = revision
         last_witnessed = witnessed
