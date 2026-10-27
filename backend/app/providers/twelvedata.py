@@ -106,6 +106,12 @@ def normalize(payload,instrument,now):
             dt=datetime.strptime(timestamp_text,'%Y-%m-%d %H:%M:%S').replace(tzinfo=timezone.utc)
             if dt.second:raise ValueError('Minute alignment')
             if dt.timestamp()+60>now:continue  # incomplete or future candles are ineligible
+            # JSON booleans are valid Python numbers (float(True) == 1.0).
+            # Do not silently turn a provider's true/false into a Gold quote.
+            # Preserve ordinary JSON decimal strings and numeric scalars.
+            for field in ('open','high','low','close'):
+                if type(value[field]) not in (str, int, float):
+                    raise ValueError('Non-numeric provider OHLC scalar type')
             normalized.append({'time':dt.isoformat(),**{k:value[k] for k in ('open','high','low','close')}})
         normalized.sort(key=lambda r:r['time'])
         stream=io.StringIO();writer=csv.DictWriter(stream,fieldnames=['time','open','high','low','close']);writer.writeheader();writer.writerows(normalized)
