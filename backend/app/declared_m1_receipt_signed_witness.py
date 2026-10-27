@@ -38,6 +38,7 @@ def audit_signed_declared_m1_receipt_anchor_evidence(
     db_path, manifest, envelope, evaluation_as_of_utc,
     trusted_public_key_hex, trusted_public_key_sha256, *,
     trusted_witness_id=None, trusted_floor=None,
+    max_declared_witness_age_seconds=None,
 ):
     """Check signature against an *externally pinned* key, then journal chain.
 
@@ -70,6 +71,12 @@ def audit_signed_declared_m1_receipt_anchor_evidence(
             raise ValueError("Invalid independently pinned checkpoint floor")
     if type(evaluation_as_of_utc) is not int or evaluation_as_of_utc <= 0:
         raise ValueError("Invalid evaluation cutoff")
+    # This only bounds ages relative to a caller-declared evaluation time.
+    # It is not a trusted wall clock or independent witness freshness proof.
+    if (max_declared_witness_age_seconds is not None
+            and (type(max_declared_witness_age_seconds) is not int
+                 or not 1 <= max_declared_witness_age_seconds <= 86_400)):
+        raise ValueError("Invalid declared witness age policy")
     if type(envelope) is not dict or set(envelope) != {"payload", "signature_hex"}:
         raise ValueError("Invalid signed witness envelope")
     payload = envelope["payload"]
@@ -100,6 +107,15 @@ def audit_signed_declared_m1_receipt_anchor_evidence(
         if (type(anchor["witnessed_at_utc"]) is not int
                 or anchor["witnessed_at_utc"] > issued):
             raise ValueError("Signed witness issued before claimed observation")
+    # A newly signed envelope over an old anchor must not satisfy the
+    # optional age policy. Both issuance and latest claimed observation are
+    # checked; neither timestamp is independently attested by this module.
+    if max_declared_witness_age_seconds is not None and (
+        evaluation_as_of_utc - issued > max_declared_witness_age_seconds
+        or evaluation_as_of_utc - anchors[-1]["witnessed_at_utc"]
+        > max_declared_witness_age_seconds
+    ):
+        raise ValueError("Declared signed witness evidence is stale")
     signature_hex = envelope["signature_hex"]
     if type(signature_hex) is not str or not _HEX128.fullmatch(signature_hex):
         raise ValueError("Invalid witness signature encoding")
@@ -143,6 +159,15 @@ def audit_signed_declared_m1_receipt_anchor_evidence(
         "operator_pinned_key_fingerprint_matched": True,
         "witness_id_matched_operator_pin": trusted_witness_id is not None,
         "operator_pinned_checkpoint_floor_matched": trusted_floor is not None,
+        "declared_witness_age_policy_checked": max_declared_witness_age_seconds is not None,
+        "declared_witness_issued_age_seconds": (
+            evaluation_as_of_utc - issued if max_declared_witness_age_seconds is not None
+            else None
+        ),
+        "declared_last_anchor_age_seconds": (
+            evaluation_as_of_utc - anchors[-1]["witnessed_at_utc"]
+            if max_declared_witness_age_seconds is not None else None
+        ),
         "external_witness_authenticated": False,
         "independent_custody_verified": False,
         "trusted_witness_clock_verified": False,
