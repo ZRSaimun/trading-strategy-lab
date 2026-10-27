@@ -335,3 +335,38 @@ def test_oversized_corrupt_audit_field_fails_closed(db):
         inspect_ledger(db)
     with pytest.raises(sqlite3.DataError, match='too big'):
         attempt(db)
+
+
+@pytest.mark.parametrize('operation', ['inspect', 'prepare'])
+@pytest.mark.parametrize('replacement_kind', ['regular', 'symlink'])
+def test_ledger_path_swap_during_sqlite_open_fails_closed(
+        db, tmp_path, monkeypatch, operation, replacement_kind):
+    """A changed inode or symlink after preflight must not receive writes."""
+    other = tmp_path / 'replacement.sqlite'
+    initialize_ledger(other)
+    original = tmp_path / 'saved-original.sqlite'
+    real_connect = ledger.sqlite3.connect
+    swapped = False
+
+    def swap_during_open(*args, **kwargs):
+        nonlocal swapped
+        if not swapped:
+            swapped = True
+            db.rename(original)
+            if replacement_kind == 'regular':
+                other.rename(db)
+            else:
+                db.symlink_to(other)
+        return real_connect(*args, **kwargs)
+
+    monkeypatch.setattr(ledger.sqlite3, 'connect', swap_during_open)
+    with pytest.raises(ValueError, match='identity changed'):
+        if operation == 'inspect':
+            inspect_ledger(db)
+        else:
+            prep(db)
+    assert swapped
+    # Restore the real connector before checking both untouched ledgers.
+    monkeypatch.setattr(ledger.sqlite3, 'connect', real_connect)
+    assert inspect_ledger(original)['event_count'] == 0
+    assert inspect_ledger(db if replacement_kind == 'regular' else other)['event_count'] == 0
