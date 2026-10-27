@@ -1327,3 +1327,53 @@ test('overlap dependence is partitioned by strict evidence without promoting unk
   });
  }
 });
+
+
+test('cross-status matched FVG overlaps reconcile without treating missing volume as PASS',()=>{
+ const cases=[
+  {first:200 as number|null,second:100 as number|null,cell:'passFail'},
+  {first:200 as number|null,second:null as number|null,cell:'passUnknown'},
+  {first:100 as number|null,second:null as number|null,cell:'failUnknown'},
+ ] as const;
+ const empty={passFail:0,passUnknown:0,failUnknown:0};
+ for(const bearish of [false,true]){
+  for(const {first,second,cell} of cases){
+   const base=Array.from({length:46},(_,i)=>candle(i,115,116,110,115));
+   const prefix=onePairedFvgFixture();
+   for(let i=0;i<prefix.length;i++)base[i]=prefix[i];
+   for(let i=26;i<=29;i++)base[i]=candle(i,106,110,103,106);
+   base[30]=candle(30,114,116,114,115);
+   base[31]=candle(31,114,116,109,115,second);
+   base[23]={...base[23],volume:first};
+   for(let i=32;i<46;i++)base[i]=candle(i,115,116,110,115);
+   const bars=bearish?base.map(b=>({...b,open:220-b.open,
+    high:220-b.low,low:220-b.high,close:220-b.close})):base;
+   const settings={markoutBars:14};
+   const full=studyHourlyFvgMidpoint(bars,source,settings);
+   assert.equal(full.cohort.pairedMarkouts,2);
+   assert.equal(full.cohort.pairedHoldingWindowOverlap.overlappingPairCombinations,1);
+   assert.deepEqual(full.cohort.pairedHoldingWindowCrossStrictCandidate,{
+    ...empty,[cell]:1,
+   });
+   const within=Object.values(full.cohort.pairedHoldingWindowOverlapByStrictCandidate)
+    .reduce((sum,x)=>sum+x.overlappingPairCombinations,0);
+   const cross=Object.values(full.cohort.pairedHoldingWindowCrossStrictCandidate)
+    .reduce((sum,n)=>sum+n,0);
+   assert.equal(within,0);
+   assert.equal(within+cross,
+    full.cohort.pairedHoldingWindowOverlap.overlappingPairCombinations);
+   const before=studyHourlyFvgMidpointAsOf(bars,source,BASE+37*H,settings);
+   const one=studyHourlyFvgMidpointAsOf(bars,source,BASE+38*H,settings);
+   assert.deepEqual(before.cohort.pairedHoldingWindowCrossStrictCandidate,empty);
+   assert.deepEqual(one.cohort.pairedHoldingWindowCrossStrictCandidate,empty);
+   const matured=studyHourlyFvgMidpointAsOf(bars,source,BASE+46*H,settings);
+   assert.deepEqual(matured.cohort.pairedHoldingWindowCrossStrictCandidate,
+    full.cohort.pairedHoldingWindowCrossStrictCandidate);
+   // At 8 bars, the first exit closes at the second hypothetical entry:
+   // half-open windows touch at the boundary but do not overlap.
+   const touching=studyHourlyFvgMidpoint(bars,source,{markoutBars:8});
+   assert.equal(touching.cohort.pairedMarkouts,2);
+   assert.deepEqual(touching.cohort.pairedHoldingWindowCrossStrictCandidate,empty);
+  }
+ }
+});
