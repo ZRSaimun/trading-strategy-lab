@@ -383,3 +383,29 @@ or a genuinely independent prospective period. Missing exits and unverified
 spreads, financing, source rights and timezone remain unresolved. A
 favorable subgroup mean would not establish profitable expectancy or
 authorize paper/live orders.
+
+## Joint FVG / MSS-like range-break / displacement audit (additive v3)
+
+`confirmation_fvg_mss_displacement_joint_census` reports the **eight mutually
+exclusive combinations** of three previously defined, completed-confirmation
+descriptive proxies: same-direction three-candle FVG, confirmation close beyond
+the preceding lookback range (minimal MSS-like proxy), and directional body
+at least the median pre-sweep full-bar range (displacement proxy). Keys use
+`FVG0_MSS1_DISP0` etc.; 1 means the corresponding proxy was observed.
+
+Every capacity-admitted confirmed signal is classified before any future
+entry or exit bar is inspected. Each state separately preserves counts for
+confirmed signals, missing future entry, invalid entry geometry, entered
+positions, observed exits and censored exits. All eight states must reconcile
+to each original cohort count; 0/5/10/20-bps illustrative observed-only
+mean R values are calculated without selecting or altering any trades.
+
+**This is a descriptive joint cross-tab, not a combined CRT/ICT trading
+strategy, an executable signal or a validation of institutional order flow.**
+Small or empty cells are expected and must not be promoted as an edge. It
+does not optimize combinations, retrospectively choose profitable subgroups,
+change stop-first OHLC outcomes, or authenticate broker costs, quote sides,
+timestamps or independent holdouts. The later cohort has already been
+inspected. Any later combination-selection hypothesis must be frozen before
+new independently protected forward observations. Synthetic regressions:
+`PYTHONPATH=. pytest -q tests/test_offline_sweep_confluence.py`.
