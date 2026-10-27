@@ -380,3 +380,25 @@ def test_direct_normalize_preserves_valid_fractional_completed_minute_clock():
     assert len(rows) == 1
     assert rows[0]["time"] == T
     assert b"XAU/USD" in snapshot
+
+
+def test_oversized_ohlc_csv_field_is_sanitized_by_direct_normalize():
+    # JSON under the 3 MB transport bound can still exceed Python's CSV
+    # per-field parser limit. Never propagate csv.Error as an HTTP 500.
+    payload = json.loads(_body())
+    payload["values"][0]["open"] = "1" * 140_000
+    with pytest.raises(ProviderError, match="Invalid, duplicate or incomplete") as exc:
+        normalize(payload, "XAUUSD-TD", T + 120)
+    assert exc.value.status == 502
+    assert "140000" not in str(exc.value)
+
+
+def test_oversized_ohlc_csv_field_is_sanitized_by_http_adapter():
+    payload = json.loads(_body())
+    payload["values"][0]["close"] = "1" * 140_000
+    body = json.dumps(payload).encode("utf-8")
+    assert len(body) < MAX_BYTES
+    with pytest.raises(ProviderError, match="Invalid, duplicate or incomplete") as exc:
+        _fetch(body, {"Content-Type": "application/json"})
+    assert exc.value.status == 502
+    assert "synthetic-only-key" not in str(exc.value)
