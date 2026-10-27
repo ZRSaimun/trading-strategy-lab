@@ -188,3 +188,27 @@ evidence transition after `ANALYZE`, preserving the original event count.
 No schema repair, journal deletion, broker connectivity, execution permission
 or production migration is introduced. Existing ledgers containing SQLite
 statistics tables now require independent review rather than auto-repair.
+
+
+## Same-account unresolved-submission quarantine (27 October 2026)
+
+The ledger now refuses a new `PREPARED` event or transition to
+`ATTEMPT_UNKNOWN` when **another** order for the same broker label and
+account alias is already `ATTEMPT_UNKNOWN`. This prevents a new client order
+ID from sidestepping an ambiguous non-idempotent submission and prevents
+previously prepared orders from becoming attempted while the first outcome is
+unresolved. A transactional `BEGIN IMMEDIATE` plus full audit replay
+serializes concurrent writers. Separate broker/account namespaces remain
+independent. Four synthetic regressions cover new preparation, previously
+prepared orders, independent namespaces and competing writers.
+
+A declared `RECONCILED_*` event removes that order's local UNKNOWN state,
+but **does not authenticate a broker fill, rejection or cancellation**. A
+caller can provide false reconciliation evidence, and the ledger does not
+validate broker account ownership, inventory, quote freshness, stop orders,
+margin, leverage or human approval. This quarantine is an additional offline
+safety constraint, **not** authorization to resume submissions. All returned
+paper/live execution flags remain false. Any future adapter must independently
+verify broker order/fill history and persist atomic risk reservations before
+allowing even paper execution. Never automatically retry an ambiguous broker
+POST or use this module as a live-order gate.
