@@ -301,3 +301,49 @@ def test_temporal_ece_bins_do_not_invent_rates_for_empty_bins():
     assert sum(b["count"] > 0 for b in bins) == 1
     assert all(b["meanProbability"] is None and b["observedUpRate"] is None
                for b in bins if b["count"] == 0)
+
+
+def test_temporal_ece_bin_wilson_intervals_flag_sparse_support():
+    s = fixture()
+    for i in range(80, 160):
+        low = ((i - 80) // 2) % 2 == 0
+        p = .2 if low else .8
+        s["forecasts"][i]["probability"] = p
+        s["forecasts"][i]["outcomeUp"] = low
+        s["events"][i]["probability"] = p
+    row = audit_temporal_forecast_calibration(s)["groups"][0]
+    bins = row["lateEceBins10"]
+    assert row["lateEceOccupiedBinsUnder30"] == 2
+    assert row["lateEceMinOccupiedBinCount"] == 20
+    for i in (2, 8):
+        assert bins[i]["count"] == 20
+        assert bins[i]["lowSupportUnder30"] is True
+        lo, hi = bins[i]["observedUpWilson95Descriptive"]
+        assert 0 <= lo <= hi <= 1
+        assert hi - lo == pytest.approx(.161125, abs=.0001)
+    assert bins[2]["observedUpWilson95Descriptive"][1] == pytest.approx(1)
+    assert bins[8]["observedUpWilson95Descriptive"][0] == pytest.approx(0)
+    assert bins[0]["observedUpWilson95Descriptive"] is None
+    assert bins[0]["lowSupportUnder30"] is None
+
+
+def test_temporal_ece_full_single_bin_has_reported_support():
+    row = audit_temporal_forecast_calibration(fixture())["groups"][0]
+    assert row["lateEceOccupiedBinsUnder30"] == 0
+    assert row["lateEceMinOccupiedBinCount"] == 40
+    occupied = [b for b in row["lateEceBins10"] if b["count"]]
+    assert len(occupied) == 1
+    assert occupied[0]["lowSupportUnder30"] is False
+    assert occupied[0]["observedUpWilson95Descriptive"][1] == pytest.approx(1)
+
+
+def test_temporal_ece_bin_uncertainty_withheld_on_selection_risk():
+    s = fixture()
+    for i in (80, 82, 84):
+        s["forecasts"][i].update(status="PENDING", outcomeUp=None, resolvedAt=None)
+    row = audit_temporal_forecast_calibration(
+        s, max_unresolved_fraction=.05)["groups"][0]
+    assert row["status"] == "UNRESOLVED_SELECTION_RISK"
+    assert row["lateEceBins10"] is None
+    assert row["lateEceOccupiedBinsUnder30"] is None
+    assert row["lateEceMinOccupiedBinCount"] is None
