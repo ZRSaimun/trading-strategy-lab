@@ -112,6 +112,10 @@ def research(bars, *, lookback=16, horizon=16, embargo=16):
     split = len(bars) * 7 // 10
     cohorts = {"development": [], "exploratory_later": []}
     censored = {"development": 0, "exploratory_later": 0}
+    # Entered but censored positions have known entry/stop geometry, even
+    # though no exit was observed. Retain it for explicitly hypothetical
+    # missing-outcome stress, never as an invented execution or fill.
+    censored_entry_risks = {"development": [], "exploratory_later": []}
     confirmed = {"development": 0, "exploratory_later": 0}
     invalid_entry_geometry = {"development": 0, "exploratory_later": 0}
     entered = {"development": 0, "exploratory_later": 0}
@@ -206,6 +210,7 @@ def research(bars, *, lookback=16, horizon=16, embargo=16):
                 next_free = last
         if outcome is None:
             censored[cohort] += 1
+            censored_entry_risks[cohort].append((entry, risk))
             # A censored position has no observed exit. Do not admit another
             # hypothetical position inside its entire reserved holding window.
             # This is an analysis-only exclusion, not proof of a flat account.
@@ -218,6 +223,8 @@ def research(bars, *, lookback=16, horizon=16, embargo=16):
         for name, trades in cohorts.items():
             if entered[name] != censored[name] + len(trades):
                 raise RuntimeError("Entered-position outcome census mismatch")
+            if censored[name] != len(censored_entry_risks[name]):
+                raise RuntimeError("Censored-entry risk census mismatch")
             if confirmed[name] != (entry_unobservable[name] +
                                    invalid_entry_geometry[name] + entered[name]):
                 raise RuntimeError("Confirmed-signal census mismatch")
@@ -231,6 +238,28 @@ def research(bars, *, lookback=16, horizon=16, embargo=16):
                           if trades else None)
             break_even_bps = (gross_sum * Q(10000) / notional_r_sum
                               if trades and gross_sum > 0 else None)
+            # This is NOT a lower bound: missing exits can be arbitrarily
+            # worse than any chosen -R penalty, especially across gaps.
+            # Only positions with observed entry/risk are eligible; missing
+            # entries and invalid stop geometry are never imputed.
+            censored_cost_notional = sum(
+                (abs(entry) / risk for entry, risk in censored_entry_risks[name]), Q(0))
+            censored_loss_stress = []
+            for assumed_loss_r in (1, 3, 5):
+                for stress_bps in (0, 5, 10, 20):
+                    stress_sum = (gross_sum - Q(assumed_loss_r) * censored[name]
+                                  - Q(stress_bps) / Q(10000) *
+                                  (notional_r_sum + censored_cost_notional))
+                    censored_loss_stress.append(dict(
+                        assumed_loss_per_censored_entered_r=str(-Q(assumed_loss_r)),
+                        additional_round_trip_bps=stress_bps,
+                        entered_population=entered[name],
+                        observed_outcomes=len(trades),
+                        censored_entered_outcomes=censored[name],
+                        mean_net_r_if_assumption=str(stress_sum / entered[name])
+                        if entered[name] else None,
+                        sum_net_r_if_assumption=str(stress_sum),
+                        interpretation="ILLUSTRATIVE_MISSING_EXIT_STRESS_NOT_A_LOWER_BOUND"))
             cases = []
             for bps in (0, 5, 10, 20):
                 net = [r - abs(entry)*Q(bps)/Q(10000)/risk for r, entry, risk in trades]
@@ -253,7 +282,8 @@ def research(bars, *, lookback=16, horizon=16, embargo=16):
                 mean_r_cost_per_additional_bps=(str(cost_slope) if trades else None),
                 positive_mean_break_even_additional_bps=(
                     str(break_even_bps) if break_even_bps is not None else None),
-                cost_scenarios=cases)
+                cost_scenarios=cases,
+                censored_entered_loss_stress_scenarios=censored_loss_stress)
     return dict(protocol="source-local-sweep-confirmation-v3",
                 source_authenticated=False, timezone_verified=False,
                 untouched_holdout_verified=False, executable_broker_costs=False,
