@@ -526,7 +526,7 @@ test('research report source metadata excludes arbitrary caller properties',()=>
  assert.deepEqual(Object.keys(report.source).sort(),Object.keys(source).sort());
  assert.equal(JSON.stringify(report).includes('synthetic-private-marker'),false);
  assert.equal(JSON.stringify(report).includes('synthetic-account-marker'),false);
- assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v28');
+ assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v29');
 });
 test('ambiguous source labels and contradictory volume evidence fail closed',()=>{
  // These are declared metadata, not independent vendor authentication.
@@ -902,7 +902,7 @@ test('an overflowing next-open comparator suppresses both matched markouts',()=>
 });
 test('completed hourly timestamps are safe and numeric rule changes have a new version',()=>{
  const report=studyHourlyFvgMidpoint(fixture(),source);
- assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v28');
+ assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v29');
  const lastSafeAlignedOpen=Math.floor(Number.MAX_SAFE_INTEGER/H)*H;
  assert.equal(Number.isSafeInteger(lastSafeAlignedOpen),true);
  assert.equal(Number.isSafeInteger(lastSafeAlignedOpen+H),false);
@@ -924,4 +924,33 @@ test('invalid source, incomplete candles and unsafe settings fail closed',()=>{
  assert.throws(()=>studyHourlyFvgMidpoint(badOrder,source),/Invalid, incomplete/);
  assert.throws(()=>studyHourlyFvgMidpoint(fixture(),source,{maxTouchWaitBars:0}),/Invalid source/);
  assert.throws(()=>studyHourlyFvgMidpoint(fixture(),source,{hypotheticalRoundTripCostsBps:[-5]}),/Invalid source/);
+});
+
+test('inherited array slots never substitute for observed archive rows or declared costs',()=>{
+ const stable=studyHourlyFvgMidpoint(fixture(),source);
+ const bars=fixture();
+ const candlePrototype=Object.create(Array.prototype);
+ Object.defineProperty(candlePrototype,'0',{value:bars[0],configurable:true});
+ assert.equal(Reflect.deleteProperty(bars,'0'),true);
+ Object.setPrototypeOf(bars,candlePrototype);
+ assert.throws(()=>studyHourlyFvgMidpoint(bars,source),/own-index candle evidence/);
+ assert.throws(()=>studyHourlyFvgMidpointAsOf(bars,source,BASE+33*H),
+  /own-index candle evidence/);
+ const future=fixture();
+ const futurePrototype=Object.create(Array.prototype);
+ Object.defineProperty(futurePrototype,'39',{value:future[39],configurable:true});
+ assert.equal(Reflect.deleteProperty(future,'39'),true);
+ Object.setPrototypeOf(future,futurePrototype);
+ assert.throws(()=>studyHourlyFvgMidpointAsOf(future,source,BASE+33*H),
+  /own-index candle evidence/,
+  'future timestamp audit must reject an inherited row without reading future OHLC');
+ const costs=[0,5,15];
+ const costPrototype=Object.create(Array.prototype);
+ Object.defineProperty(costPrototype,'1',{value:5,configurable:true});
+ assert.equal(Reflect.deleteProperty(costs,'1'),true);
+ Object.setPrototypeOf(costs,costPrototype);
+ assert.throws(()=>studyHourlyFvgMidpoint(fixture(),source,{
+  hypotheticalRoundTripCostsBps:costs,
+ }),/Invalid source/);
+ assert.deepEqual(studyHourlyFvgMidpoint(fixture(),source),stable);
 });

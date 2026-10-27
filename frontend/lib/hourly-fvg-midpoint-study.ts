@@ -7,7 +7,7 @@
  */
 import type {Bar} from './research.ts';
 
-export const HOURLY_FVG_VERSION='hourly-fvg-first-midpoint-touch-v28';
+export const HOURLY_FVG_VERSION='hourly-fvg-first-midpoint-touch-v29';
 export type Evidence='PASS'|'FAIL'|'INSUFFICIENT_DATA';
 export type Side='BULLISH'|'BEARISH';
 export type FvgSource={
@@ -241,6 +241,10 @@ export function studyHourlyFvgMidpoint(
  // Indexed reads keep the snapshot bounded and preserve sparse-hole rejection.
  const bars:Bar[]=[];
  for(let index=0;index<barCount;index++){
+  // A hole may resolve through Array.prototype or a custom prototype to a
+  // plausible candle. That is not an observed archive row: fail closed.
+  if(!Object.prototype.hasOwnProperty.call(suppliedBars,index))
+   throw Error('Hourly research array contains missing own-index candle evidence');
   const b=suppliedBars[index];
   bars.push({
    time:b.time,open:b.open,high:b.high,low:b.low,close:b.close,
@@ -268,8 +272,12 @@ export function studyHourlyFvgMidpoint(
  // before reading getters, and reject an array resized during capture.
  const costCount=suppliedCosts.length;
  const costs:number[]=[];
- for(let index=0;index<costCount;index++)
+ for(let index=0;index<costCount;index++){
+  // Never allow inherited values to fill a missing cost-scenario cell.
+  if(!Object.prototype.hasOwnProperty.call(suppliedCosts,index))
+   throw Error('Invalid source identity, volume provenance or frozen FVG study settings');
   costs.push(suppliedCosts[index]);
+ }
  if(suppliedCosts.length!==costCount)
   throw Error('Hypothetical CFD cost array length changed during snapshot');
  // Snapshot the seven allowlisted source fields exactly once. A mutable or
@@ -471,6 +479,10 @@ export function studyHourlyFvgMidpointAsOf(
  const prefix:Bar[]=[];
  let previousTime:number|null=null;
  for(let index=0;index<barCount;index++){
+  // Even a future timestamp must be backed by an actual archive slot;
+  // future OHLC, volume and minute coverage remain unread.
+  if(!Object.prototype.hasOwnProperty.call(suppliedBars,index))
+   throw Error('Hourly as-of input contains missing own-index candle evidence');
   const bar=suppliedBars[index];
   // Check every supplied timestamp, including future timestamps, to reject
   // out-of-order/duplicate archives that could otherwise silently truncate
