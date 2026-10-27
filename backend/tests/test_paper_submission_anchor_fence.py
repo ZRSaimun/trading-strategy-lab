@@ -9,6 +9,7 @@ def ledger(monkeypatch):
     state = {
         'schema': 'paper-submission-attempt-ledger-v1',
         'event_count': 2,
+        'last_recorded_at_ms': 900,
         'order_count': 1,
         'audit_tip_sha256': 'a' * 64,
         'orders': [{'broker': 'PAPER-LOCAL', 'account_alias': 'demo',
@@ -98,3 +99,39 @@ def test_projection_digest_is_deterministic():
     a = [{'broker': 'PAPER-LOCAL', 'status': 'PREPARED'}]
     b = [{'status': 'PREPARED', 'broker': 'PAPER-LOCAL'}]
     assert fence.projection_sha256(a) == fence.projection_sha256(b)
+
+
+@pytest.mark.parametrize('event_clock', [1001, 10_000_000, -1, True, '900', None])
+def test_future_or_malformed_event_clock_fails_closed(ledger, event_clock):
+    state, anchor = ledger
+    state['last_recorded_at_ms'] = event_clock
+    with pytest.raises(ValueError, match='event clock'):
+        verify(anchor)
+
+
+def test_checkpoint_time_equal_to_last_event_is_allowed_but_still_hold(ledger):
+    state, anchor = ledger
+    state['last_recorded_at_ms'] = anchor['recorded_at_ms']
+    result = verify(anchor)
+    assert result['status'] == 'HOLD_RECONCILIATION'
+    assert result['may_submit_real_order'] is False
+
+
+def test_empty_ledger_requires_absent_event_clock(ledger):
+    state, anchor = ledger
+    state.update(event_count=0, order_count=0, orders=[],
+                 audit_tip_sha256='0' * 64, last_recorded_at_ms=None)
+    anchor.update(event_count=0, order_count=0,
+                  audit_tip_sha256='0' * 64,
+                  order_projection_sha256=fence.projection_sha256([]))
+    assert verify(anchor)['status'] == 'HOLD_RECONCILIATION'
+    state['last_recorded_at_ms'] = 0
+    with pytest.raises(ValueError, match='inconsistent event clock'):
+        verify(anchor)
+
+
+def test_missing_audited_event_clock_fails_closed(ledger):
+    state, anchor = ledger
+    del state['last_recorded_at_ms']
+    with pytest.raises(ValueError, match='event clock'):
+        verify(anchor)
