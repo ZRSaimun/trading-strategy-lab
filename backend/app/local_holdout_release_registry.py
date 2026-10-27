@@ -174,6 +174,14 @@ def claim_local_holdout_release(db_path, *, study_id, manifest_sha256,
                 (study_id,)).fetchone()
             if row is None or row[0] != manifest_sha256:
                 raise ValueError("Study not registered with this manifest")
+            # SQLite's INTEGER affinity and CHECK constraints alone do not
+            # guarantee an integral, nonnegative persisted registration time.
+            # A local edit to -1 or 100.5 can satisfy registered < start.
+            # Reject corrupted chronology before burning the one attempt.
+            start, end, registered = row[1:4]
+            if (any(type(value) is not int for value in (start, end, registered))
+                    or not 0 <= registered < start < end <= _MAX_TIME):
+                raise ValueError("Invalid stored holdout chronology")
             if (expected_holdout_start_at_utc is not None and
                     (row[1] != expected_holdout_start_at_utc or
                      row[2] != expected_holdout_end_at_utc)):
