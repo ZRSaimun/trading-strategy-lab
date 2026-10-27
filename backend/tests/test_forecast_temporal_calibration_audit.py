@@ -593,3 +593,67 @@ def test_unselected_missing_outcome_does_not_change_fixed_census_bounds():
     row = audit_temporal_forecast_calibration(s)["groups"][0]
     assert row["lateBrierBestCaseAllIssuedCensus"] == pytest.approx(.09)
     assert row["lateBrierWorstCaseAllIssuedCensus"] == pytest.approx(.09)
+
+
+def test_binned_brier_components_constant_cohort():
+    row = audit_temporal_forecast_calibration(fixture())["groups"][0]
+    assert row["lateBrierBinned10Reliability"] == pytest.approx(.09)
+    assert row["lateBrierBinned10Resolution"] == pytest.approx(0)
+    assert row["lateBrierBinned10Uncertainty"] == pytest.approx(0)
+    assert row["lateBrierBinned10Residual"] == pytest.approx(0)
+    assert row["lateBrier"] == pytest.approx(
+        row["lateBrierBinned10Reliability"] -
+        row["lateBrierBinned10Resolution"] +
+        row["lateBrierBinned10Uncertainty"] +
+        row["lateBrierBinned10Residual"])
+
+
+def test_binned_brier_components_separate_reliability_and_resolution():
+    s = fixture()
+    for i in range(80, 160):
+        low = ((i - 80) // 2) % 2 == 0
+        s["forecasts"][i]["probability"] = .2 if low else .8
+        s["forecasts"][i]["outcomeUp"] = low
+        s["events"][i]["probability"] = .2 if low else .8
+    row = audit_temporal_forecast_calibration(s)["groups"][0]
+    assert row["lateBrier"] == pytest.approx(.64)
+    assert row["lateBrierBinned10Reliability"] == pytest.approx(.64)
+    assert row["lateBrierBinned10Resolution"] == pytest.approx(.25)
+    assert row["lateBrierBinned10Uncertainty"] == pytest.approx(.25)
+    assert row["lateBrierBinned10Residual"] == pytest.approx(0)
+
+
+@pytest.mark.parametrize("correlated,expected_residual", [
+    (None, .0016), (True, -.0384),
+])
+def test_binned_brier_components_expose_within_bin_discrepancy(
+        correlated, expected_residual):
+    s = fixture()
+    for i in range(80, 160):
+        low = ((i - 80) // 2) % 2 == 0
+        p = .21 if low else .29
+        s["forecasts"][i]["probability"] = p
+        s["forecasts"][i]["outcomeUp"] = not low if correlated else True
+        s["events"][i]["probability"] = p
+    row = audit_temporal_forecast_calibration(s)["groups"][0]
+    assert row["lateBrierBinned10Residual"] == pytest.approx(expected_residual)
+    assert row["lateBrier"] == pytest.approx(
+        row["lateBrierBinned10Reliability"] -
+        row["lateBrierBinned10Resolution"] +
+        row["lateBrierBinned10Uncertainty"] +
+        row["lateBrierBinned10Residual"])
+
+
+def test_binned_brier_components_withheld_under_missingness_gate():
+    s = fixture()
+    for i in (80, 82, 84):
+        s["forecasts"][i].update(status="PENDING", outcomeUp=None, resolvedAt=None)
+    report = audit_temporal_forecast_calibration(s, max_unresolved_fraction=.05)
+    row = report["groups"][0]
+    assert row["status"] == "UNRESOLVED_SELECTION_RISK"
+    for key in ("lateBrierBinned10Reliability", "lateBrierBinned10Resolution",
+                "lateBrierBinned10Uncertainty", "lateBrierBinned10Residual"):
+        assert row[key] is None
+    assert report["maySendNotification"] is False
+    assert report["mayExecutePaperOrder"] is False
+    assert report["mayExecuteLiveOrder"] is False
