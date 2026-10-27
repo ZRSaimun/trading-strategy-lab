@@ -143,3 +143,10 @@ open file descriptors, a complete defense against privileged filesystem races,
 or permission to submit broker orders. The ledger still requires an isolated
 service-owned private directory, independent audit anchoring and broker
 reconciliation before any future integration.
+
+
+## SQLite recovery-sidecar filename alias quarantine (27 October 2026)
+
+Ledger paths ending in SQLite's reserved `-journal`, `-wal` or `-shm` sidecar suffixes are rejected before one-time creation, read-only inspection or any evidence transition. For example, treating `orders.sqlite-journal` as a separate ledger in the same directory as `orders.sqlite` risks consuming or overwriting another database's rollback evidence. This defense-in-depth validation prevents an ambiguous pathname from being handed to SQLite. Three parameterized regression cases cover each suffix across creation, inspection and preparation, including verifying that the rejected file remains unchanged.
+
+The rule does not resolve general SQLite pathname TOCTOU races, defend against a privileged same-user filesystem attacker or authenticate broker evidence. Use a dedicated private directory, independent audit checkpoints and broker-side reconciliation. No order sender or execution permission is introduced.
