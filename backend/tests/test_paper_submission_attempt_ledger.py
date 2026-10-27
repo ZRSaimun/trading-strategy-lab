@@ -370,3 +370,60 @@ def test_ledger_path_swap_during_sqlite_open_fails_closed(
     monkeypatch.setattr(ledger.sqlite3, 'connect', real_connect)
     assert inspect_ledger(original)['event_count'] == 0
     assert inspect_ledger(db if replacement_kind == 'regular' else other)['event_count'] == 0
+
+
+def test_initialize_creates_private_ledger_even_with_permissive_umask(tmp_path):
+    import os
+    p = tmp_path / 'private-ledger.sqlite'
+    original_umask = os.umask(0)
+    try:
+        initialize_ledger(p)
+    finally:
+        os.umask(original_umask)
+    assert p.stat().st_mode & 0o077 == 0
+    assert inspect_ledger(p)['event_count'] == 0
+
+
+def test_initialize_does_not_recreate_disappeared_exclusive_file(tmp_path, monkeypatch):
+    p = tmp_path / 'disappearing-init.sqlite'
+    real_connect = ledger._connect
+
+    def disappear_before_sqlite_open(path, **kwargs):
+        if path == p:
+            p.unlink()
+        return real_connect(path, **kwargs)
+
+    monkeypatch.setattr(ledger, '_connect', disappear_before_sqlite_open)
+    with pytest.raises(ValueError, match='Existing regular ledger file required'):
+        initialize_ledger(p)
+    assert not p.exists()
+
+
+@pytest.mark.parametrize('replacement_kind', ['regular', 'symlink'])
+def test_initialize_rejects_replacement_after_exclusive_create(
+        tmp_path, monkeypatch, replacement_kind):
+    p = tmp_path / 'new-ledger.sqlite'
+    other = tmp_path / 'other-ledger.sqlite'
+    saved = tmp_path / 'saved-new-ledger.sqlite'
+    initialize_ledger(other)
+    real_connect = ledger._connect
+    replaced = False
+
+    def swap_before_sqlite_open(path, **kwargs):
+        nonlocal replaced
+        if path == p and not replaced:
+            replaced = True
+            p.rename(saved)
+            if replacement_kind == 'regular':
+                other.rename(p)
+            else:
+                p.symlink_to(other)
+        return real_connect(path, **kwargs)
+
+    monkeypatch.setattr(ledger, '_connect', swap_before_sqlite_open)
+    with pytest.raises(ValueError, match='identity changed|Existing regular ledger'):
+        initialize_ledger(p)
+    assert replaced
+    monkeypatch.setattr(ledger, '_connect', real_connect)
+    assert saved.stat().st_size == 0
+    assert inspect_ledger(p if replacement_kind == 'regular' else other)['event_count'] == 0
