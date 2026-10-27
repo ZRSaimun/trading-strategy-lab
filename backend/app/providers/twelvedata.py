@@ -64,6 +64,18 @@ class ProviderError(Exception):
         super().__init__(message);self.status=status
 
 def normalize(payload,instrument,now):
+    # Direct normalization callers do not necessarily pass through retrieve().
+    # NaN would make every completed-bar comparison false, while +Infinity
+    # would silently admit future candles. Never trust a caller-supplied
+    # observation clock without the same finite UTC checks as retrieve().
+    if type(now) not in (int, float):
+        raise ProviderError('Invalid UTC observation timestamp; no data imported.', 422)
+    try:
+        if not math.isfinite(now) or now < 60:
+            raise ValueError('Invalid UTC observation clock')
+        datetime.fromtimestamp(now, timezone.utc)
+    except (OverflowError, OSError, ValueError):
+        raise ProviderError('Invalid UTC observation timestamp; no data imported.', 422) from None
     expected=MAPPINGS[instrument]['symbol']
     if not isinstance(payload,dict) or payload.get('status')!='ok':
         code=payload.get('code') if isinstance(payload,dict) else None
