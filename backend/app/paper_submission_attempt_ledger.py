@@ -342,10 +342,11 @@ def inspect_ledger(path):
     conn = _connect(path, read_only=True)
     try:
         conn.execute('BEGIN')
-        count, digest, _, state = _verify(conn)
+        count, digest, last_time, state = _verify(conn)
         conn.execute('COMMIT')
         return {'schema': 'paper-submission-attempt-ledger-v1', 'event_count': count,
                 'order_count': len(state), 'audit_tip_sha256': digest,
+                'last_recorded_at_ms': last_time if count else None,
                 'orders': [{'broker': b, 'account_alias': a, 'client_order_id': o,
                             'status': v[1]} for (b, a, o), v in sorted(state.items())],
                 'status': 'HOLD_RECONCILIATION',
