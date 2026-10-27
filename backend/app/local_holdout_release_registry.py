@@ -184,7 +184,8 @@ def claim_local_holdout_release(db_path, *, study_id, manifest_sha256,
             # evidence of incomplete/tampered local state: never release.
             tables = {r[0] for r in conn.execute(
                 "SELECT name FROM sqlite_master WHERE type='table' AND "
-                "name IN ('holdout_locked_rows', 'holdout_locked_decisions')"
+                "name IN ('holdout_locked_rows', 'holdout_locked_decisions', " 
+                "'holdout_locked_pairs')"
             )}
             # A caller that supplies a frozen census is requesting exact
             # population verification. A legacy registry without reservation
@@ -192,7 +193,8 @@ def claim_local_holdout_release(db_path, *, study_id, manifest_sha256,
             if expected_population_rows is not None and not tables:
                 raise ValueError("Frozen population requires locked reservation tables")
             if tables:
-                if tables != {'holdout_locked_rows', 'holdout_locked_decisions'}:
+                if tables != {'holdout_locked_rows', 'holdout_locked_decisions',
+                              'holdout_locked_pairs'}:
                     raise ValueError("Incomplete population-lock tables at release")
                 if conn.execute(
                     "SELECT 1 FROM holdout_claims AS c WHERE "
@@ -232,6 +234,26 @@ def claim_local_holdout_release(db_path, *, study_id, manifest_sha256,
                 "HAVING count(DISTINCT source_sha256) != 1 LIMIT 1"
             ).fetchone() is not None:
                 raise ValueError("Split-source population reservations at release")
+            if tables and conn.execute(
+                "SELECT 1 FROM holdout_claims AS c WHERE "
+                "(SELECT count(*) FROM holdout_locked_pairs AS p "
+                "WHERE p.study_id=c.study_id) != "
+                "(SELECT count(*) FROM holdout_locked_rows AS r "
+                "WHERE r.study_id=c.study_id) LIMIT 1"
+            ).fetchone() is not None:
+                raise ValueError("Incomplete paired population reservations at release")
+            if tables and conn.execute(
+                "SELECT 1 FROM holdout_locked_pairs AS p "
+                "LEFT JOIN holdout_claims AS c ON c.study_id=p.study_id "
+                "LEFT JOIN holdout_locked_rows AS r ON r.study_id=p.study_id "
+                "AND r.source_sha256=p.source_sha256 AND r.row_sha256=p.row_sha256 "
+                "LEFT JOIN holdout_locked_decisions AS d ON d.study_id=p.study_id "
+                "AND d.source_sha256=p.source_sha256 "
+                "AND d.decision_at_utc=p.decision_at_utc "
+                "WHERE c.study_id IS NULL OR r.row_sha256 IS NULL "
+                "OR d.decision_at_utc IS NULL LIMIT 1"
+            ).fetchone() is not None:
+                raise ValueError("Inconsistent paired population reservations at release")
             # Compare the *actual* row and decision sets with the caller's
             # frozen census under the same transaction as the release claim.
             # Counts and one-source checks alone miss balanced substitutions.
@@ -247,7 +269,14 @@ def claim_local_holdout_release(db_path, *, study_id, manifest_sha256,
                 actual_decisions = set(conn.execute(
                     "SELECT source_sha256, decision_at_utc FROM holdout_locked_decisions "
                     "WHERE study_id=?", (study_id,)))
-                if actual_rows != expected_rows or actual_decisions != expected_decisions:
+                expected_pairs = {(expected_source_key_sha256, r[0], r[1])
+                                  for r in expected_population_rows}
+                actual_pairs = set(conn.execute(
+                    "SELECT source_sha256, row_sha256, decision_at_utc "
+                    "FROM holdout_locked_pairs WHERE study_id=?", (study_id,)))
+                if (actual_rows != expected_rows or
+                        actual_decisions != expected_decisions or
+                        actual_pairs != expected_pairs):
                     raise ValueError("Frozen holdout population reservations differ")
                 population_matched = True
             # The first clock sample precedes the SQLite writer lock. A
