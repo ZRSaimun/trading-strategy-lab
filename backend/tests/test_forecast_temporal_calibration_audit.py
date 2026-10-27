@@ -5,6 +5,7 @@ import pytest
 
 from app.forecast_temporal_calibration_audit import (
     _issued_probability_ecdf_shift, _issued_probability_shape_shift,
+    _issued_utc_hour_mix,
     audit_temporal_forecast_calibration)
 
 IDENTITY = {"instrument": "SYNTH", "provider": "FAKE", "venue": "TEST",
@@ -1173,3 +1174,84 @@ def test_issued_shape_independent_of_late_outcome_availability():
              "earlyIssuedHighConfidenceFraction", "issuedHighConfidenceFractionShift")
     assert all(before[name] == after[name] for name in names)
     assert after["lateBrier"] is None
+
+
+# All observations below are invented, and these are UTC clock-hour bins,
+# NOT provider-confirmed trading sessions or an executable market quote.
+def _utc_hour_rows(hour, count, probability, day=0):
+    return [{"baseStart": day * 86400 + hour * 3600,
+             "probability": probability} for _ in range(count)]
+
+
+def test_utc_hour_composition_only_does_not_fake_within_hour_drift():
+    early = _utc_hour_rows(0, 10, .2) + _utc_hour_rows(1, 10, .8)
+    late = _utc_hour_rows(0, 2, .2) + _utc_hour_rows(1, 18, .8)
+    result = _issued_utc_hour_mix(early, late)
+    assert result["issuedUtcHourTotalVariation"] == pytest.approx(.4)
+    assert result["issuedUtcHourCommonSupportFraction"] == pytest.approx(.6)
+    assert result["issuedUtcHourCommonHourCount"] == 2
+    assert result["issuedUtcHourWithinCommonMeanShift"] == pytest.approx(0)
+    assert result["issuedUtcHourCommonLowSupportUnder30"] is True
+    assert sum(result["earlyIssuedUtcHourCounts24"]) == 20
+    assert sum(result["lateIssuedUtcHourCounts24"]) == 20
+    assert sum(r["probability"] for r in late) / 20 - sum(
+        r["probability"] for r in early) / 20 == pytest.approx(.24)
+
+
+def test_utc_hour_within_common_shift_uses_fixed_overlap_weights():
+    early = _utc_hour_rows(0, 10, .2) + _utc_hour_rows(1, 10, .8)
+    late = _utc_hour_rows(0, 10, .4) + _utc_hour_rows(1, 10, .8)
+    result = _issued_utc_hour_mix(early, late)
+    assert result["issuedUtcHourTotalVariation"] == pytest.approx(0)
+    assert result["issuedUtcHourCommonSupportFraction"] == pytest.approx(1)
+    assert result["issuedUtcHourWithinCommonMeanShift"] == pytest.approx(.1)
+
+
+def test_utc_hour_disjoint_support_has_no_fabricated_shift():
+    result = _issued_utc_hour_mix(
+        _utc_hour_rows(0, 40, .2), _utc_hour_rows(1, 40, .8))
+    assert result["issuedUtcHourTotalVariation"] == pytest.approx(1)
+    assert result["issuedUtcHourCommonSupportFraction"] == pytest.approx(0)
+    assert result["issuedUtcHourCommonHourCount"] == 0
+    assert result["issuedUtcHourWithinCommonMeanShift"] is None
+    assert result["issuedUtcHourCommonLowSupportUnder30"] is None
+
+
+def test_utc_hour_empty_cohort_withholds_comparison():
+    result = _issued_utc_hour_mix([], _utc_hour_rows(2, 2, .6))
+    assert result["issuedUtcHourTotalVariation"] is None
+    assert result["issuedUtcHourCommonSupportFraction"] is None
+    assert result["issuedUtcHourWithinCommonMeanShift"] is None
+    assert result["issuedUtcHourCommonLowSupportUnder30"] is None
+    assert sum(result["earlyIssuedUtcHourCounts24"]) == 0
+    assert sum(result["lateIssuedUtcHourCounts24"]) == 2
+
+
+def test_utc_hour_bins_wrap_day_in_utc_not_local_timezone():
+    result = _issued_utc_hour_mix(
+        _utc_hour_rows(23, 30, .2, day=0),
+        _utc_hour_rows(23, 30, .3, day=1))
+    assert result["earlyIssuedUtcHourCounts24"][23] == 30
+    assert result["lateIssuedUtcHourCounts24"][23] == 30
+    assert result["issuedUtcHourWithinCommonMeanShift"] == pytest.approx(.1)
+    assert result["issuedUtcHourCommonLowSupportUnder30"] is False
+
+
+def test_utc_hour_audit_is_outcome_independent_and_never_authorizes_trading():
+    original = fixture()
+    changed = deepcopy(original)
+    for row in changed["forecasts"][100:]:
+        row.update(status="PENDING", outcomeUp=None, resolvedAt=None)
+    first = audit_temporal_forecast_calibration(original)
+    second = audit_temporal_forecast_calibration(changed)
+    keys = ("earlyIssuedUtcHourCounts24", "lateIssuedUtcHourCounts24",
+            "issuedUtcHourTotalVariation", "issuedUtcHourCommonSupportFraction",
+            "issuedUtcHourCommonHourCount", "issuedUtcHourWithinCommonMeanShift",
+            "issuedUtcHourCommonLowSupportUnder30")
+    for key in keys:
+        assert first["groups"][0][key] == second["groups"][0][key]
+    assert sum(first["groups"][0]["earlyIssuedUtcHourCounts24"]) == 80
+    assert sum(first["groups"][0]["lateIssuedUtcHourCounts24"]) == 80
+    assert second["maySendNotification"] is False
+    assert second["mayExecutePaperOrder"] is False
+    assert second["mayExecuteLiveOrder"] is False
