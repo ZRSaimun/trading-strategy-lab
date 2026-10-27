@@ -263,3 +263,66 @@ def test_censored_entered_signal_is_in_denominator_but_not_return_mean():
     assert report["unresolved_or_unadmitted_signals"] == 1
     assert report["all_confirmed_signals_resolved"] is False
     assert report["cost_scenarios"][0]["mean_net_r"] is None
+
+
+def test_censored_entered_outcomes_have_explicit_hypothetical_loss_stress():
+    # First confirmed long is entered but becomes censored at a source break.
+    # A later source-local long in the new segment completes at +2R.
+    # No missing exit is silently credited as a flat or winning trade.
+    rows = synthetic_bars()
+    b = rows[32]
+    rows[32] = Bar(b.time, D(103), D(104), D(99), D(103), b.segment)
+    rows[33:] = [Bar(b.time, b.o, b.h, b.l, b.c, 1) for b in rows[33:]]
+    for index, values in ((80, (100, 101, 98, 100)),
+                          (81, (100, 103, 99, 102)),
+                          (82, (103, 114, 99, 113))):
+        b = rows[index]
+        rows[index] = Bar(b.time, *(D(v) for v in values), b.segment)
+    cohort = research(rows)["cohorts"]["development"]
+    assert cohort["confirmed_signals"] == 2
+    assert cohort["entered_positions"] == 2
+    assert cohort["observed_outcomes"] == 1
+    assert cohort["censored_due_to_gaps_or_boundaries"] == 1
+    assert D(cohort["uncensored_mean_gross_r"]) == D(2)
+    scenarios = {
+        (D(v["assumed_loss_per_censored_entered_r"]),
+         v["additional_round_trip_bps"]): v
+        for v in cohort["censored_entered_loss_stress_scenarios"]
+    }
+    assert len(scenarios) == 12
+    assert D(scenarios[(D(-1), 0)]["mean_net_r_if_assumption"]) == D("0.5")
+    assert D(scenarios[(D(-3), 0)]["mean_net_r_if_assumption"]) == D("-0.5")
+    assert D(scenarios[(D(-5), 0)]["mean_net_r_if_assumption"]) == D("-1.5")
+    # Both entered positions pay the illustrative cost, including the
+    # censored position; each has entry=103 and stop-distance=5.
+    assert D(scenarios[(D(-3), 5)]["mean_net_r_if_assumption"]) == (
+        D("-0.5") - D(103) * D(5) / D(50000))
+    assert all(v["interpretation"] ==
+               "ILLUSTRATIVE_MISSING_EXIT_STRESS_NOT_A_LOWER_BOUND"
+               for v in scenarios.values())
+
+
+def test_censored_loss_stress_does_not_invent_unobservable_entry():
+    rows = synthetic_bars()
+    b = rows[32]
+    rows[32] = Bar(b.time, b.o, b.h, b.l, b.c, 1)
+    cohort = research(rows)["cohorts"]["development"]
+    assert cohort["confirmed_signals_without_observable_entry"] == 1
+    assert cohort["entered_positions"] == 0
+    assert cohort["censored_due_to_gaps_or_boundaries"] == 0
+    assert len(cohort["censored_entered_loss_stress_scenarios"]) == 12
+    assert all(v["entered_population"] == 0 and
+               v["mean_net_r_if_assumption"] is None and
+               D(v["sum_net_r_if_assumption"]) == 0
+               for v in cohort["censored_entered_loss_stress_scenarios"])
+
+
+def test_no_censor_stress_equals_observed_cost_scenarios():
+    cohort = research(synthetic_bars())["cohorts"]["development"]
+    assert cohort["entered_positions"] == cohort["observed_outcomes"] == 1
+    assert cohort["censored_due_to_gaps_or_boundaries"] == 0
+    for scenario in cohort["censored_entered_loss_stress_scenarios"]:
+        bps = scenario["additional_round_trip_bps"]
+        original = next(x for x in cohort["cost_scenarios"]
+                        if x["additional_round_trip_bps"] == bps)
+        assert D(scenario["mean_net_r_if_assumption"]) == D(original["mean_net_r"])
