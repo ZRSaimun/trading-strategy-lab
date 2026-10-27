@@ -193,3 +193,48 @@ def test_retroactive_sample_redaction_retains_count():
         sample_limit=0)
     assert result["retroactive_new_expected_minutes"] == 1
     assert result["retroactive_new_expected_utc_samples"] == []
+
+
+def test_retroactively_declared_fully_excluded_session_requires_review():
+    # Old expected minutes and retained OHLC are unchanged. A historical
+    # session and closure were appended after both had already completed.
+    # Without auditing declarations themselves this falsely looked clean.
+    before = manifest(T + 180, [(T, T + 120)])
+    after = manifest(T + 300, [(T, T + 120), (T + 120, T + 180)],
+                     exclusions_utc=[(T + 120, T + 180)])
+    rows = [bar(T), bar(T + 60)]
+    r = audit(previous=rows, current=rows,
+              previous_manifest=before, current_manifest=after)
+    assert r["previous_census_status"] == "INTERNAL_CENSUS_ONLY_NOT_LIVE"
+    assert r["current_census_status"] == "INTERNAL_CENSUS_ONLY_NOT_LIVE"
+    assert r["retroactive_new_expected_minutes"] == 0
+    assert r["historical_session_declaration_rewritten"] is False
+    assert r["historical_exclusion_declaration_rewritten"] is False
+    assert r["retroactive_new_session_declaration_minutes"] == 1
+    assert r["retroactive_new_exclusion_declaration_minutes"] == 1
+    assert r["status"] == "REVIEW_REQUIRED"
+
+
+def test_prospectively_declared_excluded_session_does_not_trigger_retroactive_review():
+    # A fully excluded interval that had not completed at the prior
+    # observation is allowed as an internal calendar extension.
+    before = manifest(T + 120, [(T, T + 120)])
+    after = manifest(T + 240, [(T, T + 120), (T + 120, T + 180)],
+                     exclusions_utc=[(T + 120, T + 180)])
+    rows = [bar(T), bar(T + 60, received_at_utc=T + 120)]
+    r = audit(previous=rows, current=rows,
+              previous_manifest=before, current_manifest=after)
+    assert r["retroactive_new_session_declaration_minutes"] == 0
+    assert r["retroactive_new_exclusion_declaration_minutes"] == 0
+    assert r["status"] == "INTERNAL_CONTINUITY_ONLY_NOT_LIVE"
+
+
+def test_retroactive_final_interval_extension_is_counted():
+    # An extension to a historical session can add old completed minutes.
+    before = manifest(T + 180, [(T, T + 120)])
+    after = manifest(T + 300, [(T, T + 240)])
+    r = audit(previous_manifest=before, current_manifest=after,
+              current=[bar(T), bar(T + 60), bar(T + 120), bar(T + 180)])
+    assert r["retroactive_new_session_declaration_minutes"] == 1
+    assert r["retroactive_new_exclusion_declaration_minutes"] == 0
+    assert r["status"] == "REVIEW_REQUIRED"
