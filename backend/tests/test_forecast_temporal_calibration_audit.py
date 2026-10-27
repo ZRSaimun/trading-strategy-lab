@@ -697,7 +697,7 @@ def test_late_log_loss_bounds_remain_finite_for_extreme_interior_probabilities()
     assert row["status"] == "DESCRIPTIVE_ONLY"
     assert math.isfinite(row["lateLogLossBestCaseAllIssuedCensus"])
     assert math.isfinite(row["lateLogLossWorstCaseAllIssuedCensus"])
-    assert row["lateLogLossBestCaseAllIssuedCensus"] <= row["lateLogLoss"]
+    assert row["lateLogLossBestCaseAllIssuedCensus"] == pytest.approx(\n        row["lateLogLoss"], rel=1e-12, abs=0)
     assert row["lateLogLossWorstCaseAllIssuedCensus"] > 17
 
 
