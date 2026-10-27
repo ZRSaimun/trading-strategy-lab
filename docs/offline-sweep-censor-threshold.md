@@ -1,0 +1,21 @@
+# Conditional missing-exit break-even threshold (offline research only)
+
+Run from `backend/` after privately generating an **existing v3** offline sweep probe JSON report:
+
+```sh
+PYTHONPATH=. python -m app.offline_sweep_censor_threshold /private/path/probe-report.json
+```
+
+The separate auditor reads at most 20 MB of a local report, rejects duplicate JSON keys, unsupported protocols, asserted source/broker/holdout assurances, inconsistent entered/observed/censored populations, missing or duplicated 0/5/10/20-bps cost scenarios, incomplete -1/-3/-5R missing-outcome stress scenarios, nonfinite Decimal values, and contradictory scenario arithmetic. It does not read or publish underlying licensed candle archives, call any vendor, write a database, or submit orders.
+
+For each frozen cohort and illustrative extra round-trip cost b, let O(b) be the existing sum of **observed** net R, N be the count of **entered positions with censored exits**, and C(b) be the extra cost assigned to those censored entries in the existing v3 stress census. The *required mean censored gross R for the entire entered population to sum to zero* is:
+
+```text
+T(b) = [O(b) - C(b)] / N, for N > 0.
+```
+
+C(b) is recovered algebraically from the already-present -1R stress sum: `C(b) = O(b) - N - stress_sum(b,-1R)`. The independent -3R/-5R scenario sums and linear extra-cost scaling are cross-checked before reporting. If N=0, T is null, not a fabricated estimate. Positive T means the censored exits would need to average a positive gross return to achieve a zero full-population sum. Negative T means they could average a loss no worse than that threshold **under the stated counterfactual and extra-cost model**. No unknown exit is filled or assigned T.
+
+This is a *conditional arithmetic threshold*, **not** a measured missing outcome, a confidence interval, a finite adverse-loss bound, broker executable spread, financing receipt, or evidence of positive expectancy. Previously inspected later-period samples are development-only and cannot become untouched holdouts. The output always reports `source_authenticated=false`, `untouched_holdout_verified=false`, `executable_broker_costs=false` and `may_execute_order=false`.
+
+Synthetic regression command: `PYTHONPATH=. pytest -q tests/test_offline_sweep_censor_threshold.py`. This feature is additive and does not change the existing frozen strategy, position admissions, outcomes, or production application.
