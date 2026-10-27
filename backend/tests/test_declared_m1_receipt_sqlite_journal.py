@@ -64,8 +64,8 @@ def test_idempotent_genesis_retry_and_stale_writer_rejected(tmp_path):
 @pytest.mark.parametrize("rows", [
     [bar(T, close=100.5), bar(T + 60), bar(T + 180)],
     [bar(T), bar(T + 180)],
-    [bar(T), bar(T + 60, received_at_utc=T + 125), bar(T + 180)],
-    [bar(T), bar(T + 60), bar(T + 180, received_at_utc=T + 240)],
+    [bar(T), bar(T + 60, received_at_utc=T + 126), bar(T + 180)],
+    [bar(T), bar(T + 60), bar(T + 180, received_at_utc=T + 239)],
 ])
 def test_revisions_removal_or_backdated_receipt_do_not_append(tmp_path, rows):
     path = tmp_path / "m1.db"
