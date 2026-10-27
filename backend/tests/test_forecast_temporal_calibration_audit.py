@@ -657,3 +657,64 @@ def test_binned_brier_components_withheld_under_missingness_gate():
     assert report["maySendNotification"] is False
     assert report["mayExecutePaperOrder"] is False
     assert report["mayExecuteLiveOrder"] is False
+
+
+def test_late_log_loss_bounds_collapse_when_fixed_census_fully_settled():
+    row = audit_temporal_forecast_calibration(fixture())["groups"][0]
+    assert row["lateLogLossBestCaseAllIssuedCensus"] == pytest.approx(row["lateLogLoss"])
+    assert row["lateLogLossWorstCaseAllIssuedCensus"] == pytest.approx(row["lateLogLoss"])
+
+
+def test_late_log_loss_bounds_cover_one_pending_selected_outcome_without_imputation():
+    s = fixture()
+    s["forecasts"][80].update(status="PENDING", outcomeUp=None, resolvedAt=None)
+    original = deepcopy(s)
+    row = audit_temporal_forecast_calibration(s)["groups"][0]
+    assert row["status"] == "DESCRIPTIVE_ONLY"
+    assert row["lateNonoverlappingIssued"] == 40
+    assert row["lateNonoverlappingSettled"] == 39
+    assert row["lateLogLossBestCaseAllIssuedCensus"] == pytest.approx(-math.log(.7))
+    assert row["lateLogLossWorstCaseAllIssuedCensus"] == pytest.approx(
+        (39 * -math.log(.7) - math.log(.3)) / 40)
+    assert s == original
+
+
+def test_late_log_loss_bounds_respect_declared_as_of_cutoff():
+    s = fixture()
+    cutoff = max(r["issuedAt"] for r in s["forecasts"])
+    s["forecasts"][80]["resolvedAt"] = cutoff + 100
+    row = audit_temporal_forecast_calibration(s, evaluation_as_of=cutoff)["groups"][0]
+    assert row["lateCensusSettledAfterDeclaredAsOf"] == 1
+    assert row["lateLogLossBestCaseAllIssuedCensus"] == pytest.approx(-math.log(.7))
+    assert row["lateLogLossWorstCaseAllIssuedCensus"] == pytest.approx(
+        (39 * -math.log(.7) - math.log(.3)) / 40)
+
+
+def test_late_log_loss_bounds_remain_finite_for_extreme_interior_probabilities():
+    s = fixture(p_late=1e-300, y_late=False)
+    s["forecasts"][80].update(status="VOID_GAP", outcomeUp=None)
+    row = audit_temporal_forecast_calibration(s)["groups"][0]
+    assert row["status"] == "DESCRIPTIVE_ONLY"
+    assert math.isfinite(row["lateLogLossBestCaseAllIssuedCensus"])
+    assert math.isfinite(row["lateLogLossWorstCaseAllIssuedCensus"])
+    assert row["lateLogLossBestCaseAllIssuedCensus"] <= row["lateLogLoss"]
+    assert row["lateLogLossWorstCaseAllIssuedCensus"] > 17
+
+
+def test_late_log_loss_bounds_withheld_under_selected_missingness_gate():
+    s = fixture()
+    for i in (80, 82, 84):
+        s["forecasts"][i].update(status="PENDING", outcomeUp=None, resolvedAt=None)
+    row = audit_temporal_forecast_calibration(
+        s, max_unresolved_fraction=.05)["groups"][0]
+    assert row["status"] == "UNRESOLVED_SELECTION_RISK"
+    assert row["lateLogLossBestCaseAllIssuedCensus"] is None
+    assert row["lateLogLossWorstCaseAllIssuedCensus"] is None
+
+
+def test_unselected_missing_outcome_does_not_change_fixed_log_loss_bounds():
+    s = fixture()
+    s["forecasts"][81].update(status="PENDING", outcomeUp=None, resolvedAt=None)
+    row = audit_temporal_forecast_calibration(s)["groups"][0]
+    assert row["lateLogLossBestCaseAllIssuedCensus"] == pytest.approx(-math.log(.7))
+    assert row["lateLogLossWorstCaseAllIssuedCensus"] == pytest.approx(-math.log(.7))

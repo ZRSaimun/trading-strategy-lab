@@ -249,3 +249,34 @@ Brier, including a declared as-of cutoff that excludes too many
 late-settling labels. Sparse bins, serial dependence, repeated peeking,
 unauthenticated source receipts and unverified outcome clocks remain.
 The report grants no notification, paper fill or live order permission.
+
+
+## Missing-outcome Bernoulli log-loss sensitivity (27 October 2026)
+
+When **all existing** chronological, sample-size and dual issued-stream/fixed-census
+missingness gates pass, `lateLogLossBestCaseAllIssuedCensus` and
+`lateLogLossWorstCaseAllIssuedCensus` report counterfactual minimum and
+maximum binary-label log loss (natural-log units, **not money**) on the
+preselected **nonoverlapping late issued-forecast census**.
+
+Eligible settled outcomes contribute their actual Bernoulli log score.
+Each unavailable selected record (pending, void/gap, or settled after a
+caller-declared as-of cutoff) contributes the smaller or larger of
+`-ln(p)` and `-ln(1-p)`. Strictly interior finite probabilities are
+already enforced by the existing journal validator; `log1p(-p)`
+maintains precision near zero. The denominator includes **all selected
+issued forecasts**, never just the settled subset. When all selected
+labels are eligible, both bounds equal `lateLogLoss`. Unselected missing
+records still count toward the whole-stream gate.
+
+No missing outcomes are filled, stored, predicted or declared observed.
+A void/gapped target may never have a legitimate binary outcome. These
+are mathematical **sensitivity scenarios**, not confidence intervals,
+realized log loss, independently authenticated calibration, financial
+losses, profits, a trade signal or authorization for any alert or order.
+Both fields remain `null` when any existing evaluation gate withholds
+scores. The caller journal and cutoff are unauthenticated; genuine
+forward verification requires Loop 1's entitled completed-candle
+receipts, independently retained timestamp anchors and expected-bar
+inventories. No notification, paper fill, broker call or deployment
+is enabled by this change.

@@ -58,6 +58,29 @@ def _log_loss(rows):
                else -math.log1p(-r["probability"]) for r in rows) / len(rows)
 
 
+def _log_loss_unavailable_binary_bounds(issued_census, eligible_settled):
+    """Counterfactual best/worst binary-label log loss on fixed issued census.
+
+    Missing/void observations are NOT imputed; gaps may have no true target.
+    The caller's existing chronology, minimum-sample and dual missingness
+    gates must pass before exposing these mathematical sensitivity bounds.
+    """
+    eligible_ids = {row["id"] for row in eligible_settled}
+    lower = upper = 0.0
+    for row in issued_census:
+        p = row["probability"]
+        loss_up = -math.log(p)
+        loss_down = -math.log1p(-p)
+        if row["id"] in eligible_ids:
+            loss = loss_up if row["outcomeUp"] else loss_down
+            lower += loss
+            upper += loss
+        else:
+            lower += min(loss_up, loss_down)
+            upper += max(loss_up, loss_down)
+    return lower / len(issued_census), upper / len(issued_census)
+
+
 def _calibration_ece10(rows):
     """Descriptive 10-bin ECE; do not interpret as statistical significance.
 
@@ -287,6 +310,8 @@ def audit_temporal_forecast_calibration(snapshot, *, min_per_window=30,
             "lateBrierBestCaseAllIssuedCensus": None,
             "lateBrierWorstCaseAllIssuedCensus": None,
             "earlyLogLoss": None, "lateLogLoss": None, "lateLogLossDelta": None,
+            "lateLogLossBestCaseAllIssuedCensus": None,
+            "lateLogLossWorstCaseAllIssuedCensus": None,
             "lateLogLossSkillVsFrozenEarlyClimatology": None,
             "lateBrierSkillVsFrozenEarlyClimatology": None,
             "lateMeanProbability": None, "lateObservedUpRate": None,
@@ -318,6 +343,8 @@ def audit_temporal_forecast_calibration(snapshot, *, min_per_window=30,
             baseline = sum((prior_up - int(r["outcomeUp"])) ** 2 for r in test) / len(test)
             delta = late_brier - early_brier
             early_log, late_log = _log_loss(train), _log_loss(test)
+            late_log_best, late_log_worst = _log_loss_unavailable_binary_bounds(
+                late_census, test)
             frozen_log = sum(-math.log(prior_up) if r["outcomeUp"]
                              else -math.log1p(-prior_up) for r in test) / len(test)
             late_bins = _calibration_bin_diagnostics10(test)
@@ -329,6 +356,8 @@ def audit_temporal_forecast_calibration(snapshot, *, min_per_window=30,
                 lateBrierWorstCaseAllIssuedCensus=late_worst,
                 earlyLogLoss=early_log, lateLogLoss=late_log,
                 lateLogLossDelta=late_log - early_log,
+                lateLogLossBestCaseAllIssuedCensus=late_log_best,
+                lateLogLossWorstCaseAllIssuedCensus=late_log_worst,
                 lateLogLossSkillVsFrozenEarlyClimatology=1 - late_log / frozen_log,
                 lateBrierSkillVsFrozenEarlyClimatology=1 - late_brier / baseline,
                 lateMeanProbability=sum(r["probability"] for r in test) / len(test),
