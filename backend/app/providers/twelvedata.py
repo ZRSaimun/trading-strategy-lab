@@ -120,10 +120,18 @@ async def retrieve(key,instrument,limit,end,now,transport=None, *, include_wire_
                                       or int(lengths[0]) > MAX_BYTES))):
                     raise ProviderError('Invalid or oversized provider response length; no data imported.')
                 raw=bytearray()
-                async for chunk in response.aiter_raw(chunk_size=65536):
-                    if len(chunk) > MAX_BYTES - len(raw):
+                if response.is_stream_consumed and transport is not None:
+                    # Injected mock transports may return an already-buffered
+                    # Response. It cannot be streamed again; still bound it.
+                    buffered = response.content
+                    if len(buffered) > MAX_BYTES:
                         raise ProviderError('Provider response exceeded the safe size limit.')
-                    raw.extend(chunk)
+                    raw.extend(buffered)
+                else:
+                    async for chunk in response.aiter_raw(chunk_size=65536):
+                        if len(chunk) > MAX_BYTES - len(raw):
+                            raise ProviderError('Provider response exceeded the safe size limit.')
+                        raw.extend(chunk)
                 payload=json.loads(raw,object_pairs_hook=_reject_duplicate_response_keys,
                                    parse_constant=_reject_nonstandard_response_constant)
     except (httpx.HTTPError,ValueError):
