@@ -357,6 +357,56 @@ def _issued_probability_shift10(early, late):
     }
 
 
+
+def _issued_utc_hour_mix(early, late):
+    """Label-free UTC base-candle hour composition and common-hour probability shift.
+
+    Fixed UTC hour bins, not local/DST sessions. Common-hour shift uses
+    overlap weights min(early hour share, late hour share), normalized only
+    over shared support. It is descriptive, not a session-adjusted causal
+    estimate or an independently authenticated market-regime test.
+    """
+    before, after = [0] * 24, [0] * 24
+    early_sum, late_sum = [0.0] * 24, [0.0] * 24
+    for row in early:
+        hour = (row["baseStart"] // 3600) % 24
+        before[hour] += 1
+        early_sum[hour] += row["probability"]
+    for row in late:
+        hour = (row["baseStart"] // 3600) % 24
+        after[hour] += 1
+        late_sum[hour] += row["probability"]
+
+    result = {
+        "earlyIssuedUtcHourCounts24": before,
+        "lateIssuedUtcHourCounts24": after,
+        "issuedUtcHourTotalVariation": None,
+        "issuedUtcHourCommonSupportFraction": None,
+        "issuedUtcHourCommonHourCount": 0,
+        "issuedUtcHourWithinCommonMeanShift": None,
+        "issuedUtcHourCommonLowSupportUnder30": None,
+    }
+    if not early or not late:
+        return result
+
+    weights = [min(a / len(early), b / len(late))
+               for a, b in zip(before, after)]
+    overlap = sum(weights)
+    common = [h for h, weight in enumerate(weights) if weight > 0]
+    result["issuedUtcHourTotalVariation"] = 0.5 * sum(
+        abs(a / len(early) - b / len(late))
+        for a, b in zip(before, after))
+    result["issuedUtcHourCommonSupportFraction"] = overlap
+    result["issuedUtcHourCommonHourCount"] = len(common)
+    result["issuedUtcHourCommonLowSupportUnder30"] = (
+        any(min(before[h], after[h]) < 30 for h in common) if common else None)
+    if common:
+        result["issuedUtcHourWithinCommonMeanShift"] = sum(
+            weights[h] * (late_sum[h] / after[h] - early_sum[h] / before[h])
+            for h in common) / overlap
+    return result
+
+
 def _outcome_availability_bins10(issued_census, eligible_settled):
     """Probability-stratified outcome availability on a PRESELECTED census.
 
@@ -516,6 +566,8 @@ def audit_temporal_forecast_calibration(snapshot, *, min_per_window=30,
             "lateNonoverlappingSettled": len(test),
             # Label-free distribution drift on all issued forecasts, not settled-only.
             **_issued_probability_shift10(early, late),
+            # Label-free UTC hour composition; does not assert session equivalence.
+            **_issued_utc_hour_mix(early, late),
             # Issuance latency uses ALL late issued forecasts, including pending/void.
             # It is descriptive even when outcome-scoring gates withhold metrics.
             **_issuance_lag_diagnostics(late, seconds),
@@ -628,6 +680,8 @@ def audit_temporal_forecast_calibration(snapshot, *, min_per_window=30,
                        "probability-bin outcome availability is descriptive, sparse and "
                        "issued probability divergence is descriptive and bin-dependent; unbinned empirical CDF distances are descriptive, sample-dependent, "
                        "not a statistical drift test or a calibrated probability; "
+                       "UTC-hour composition and common-hour shifts are descriptive, " 
+                       "not a market-session, DST, regime or significance adjustment; " 
                        "signed mean, median, tail and spread changes are descriptive and "
                        "not seasonal-adjusted, independent or significance-tested; "
                        "cannot prove missingness is random or establish calibration; "
