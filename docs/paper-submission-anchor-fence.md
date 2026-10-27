@@ -25,3 +25,5 @@ paid resources, database migration or production write is introduced.
 This is an additive defense against unnoticed local ledger rollback. It is
 not a replacement for authenticated broker reconciliation, one-time signed
 owner approval, atomic risk reservations, or recovery/rollback verification.
+
+The read-only check also compares the ledger's audited last event timestamp with the externally trusted checkpoint's `recorded_at_ms`. An empty ledger must have no last event time; a populated ledger must have a valid integer event time not later than the trusted checkpoint. A future-dated event or missing/malformed event-clock metadata fails closed. This is a **consistency** check, not proof of a trustworthy system clock, event provenance, checkpoint signer, or broker receipt.
