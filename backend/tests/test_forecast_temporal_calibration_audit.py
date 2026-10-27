@@ -172,3 +172,55 @@ def test_does_not_mutate_journal():
     before = deepcopy(s)
     audit_temporal_forecast_calibration(s)
     assert s == before
+
+
+@pytest.mark.parametrize("cohort, indices", [
+    ("early", (0, 2, 4)), ("late", (80, 82, 84)),
+])
+def test_selected_census_missingness_cannot_hide_in_issued_denominator(cohort, indices):
+    s = fixture()
+    for i in indices:
+        s["forecasts"][i].update(status="PENDING", outcomeUp=None, resolvedAt=None)
+    row = audit_temporal_forecast_calibration(
+        s, max_unresolved_fraction=.05)["groups"][0]
+    assert row["earlyNonoverlappingIssued"] == 40
+    assert row["lateNonoverlappingIssued"] == 40
+    if cohort == "early":
+        assert row["earlyUnavailableAtBoundaryFraction"] == pytest.approx(.05)
+        assert row["earlyCensusUnavailableAtBoundary"] == 3
+        assert row["earlyCensusUnavailableAtBoundaryFraction"] == pytest.approx(.075)
+    else:
+        assert row["lateUnresolvedOrVoidFraction"] == pytest.approx(3 / 80)
+        assert row["lateCensusUnresolvedOrVoid"] == 3
+        assert row["lateCensusUnresolvedOrVoidFraction"] == pytest.approx(.075)
+    assert row["status"] == "UNRESOLVED_SELECTION_RISK"
+    assert row["earlyBrier"] is None and row["lateBrier"] is None
+
+
+@pytest.mark.parametrize("indices", [(1, 3, 5), (81, 83, 85)])
+def test_unselected_missingness_still_counted_but_does_not_shift_census(indices):
+    s = fixture()
+    for i in indices:
+        s["forecasts"][i].update(status="PENDING", outcomeUp=None, resolvedAt=None)
+    row = audit_temporal_forecast_calibration(
+        s, max_unresolved_fraction=.05)["groups"][0]
+    assert row["earlyCensusUnavailableAtBoundary"] == 0
+    assert row["lateCensusUnresolvedOrVoid"] == 0
+    assert row["earlyNonoverlappingIssued"] == 40
+    assert row["lateNonoverlappingIssued"] == 40
+    assert row["status"] == "DESCRIPTIVE_ONLY"
+    assert row["lateBrier"] is not None
+
+
+def test_selected_early_post_boundary_labels_count_in_census_risk():
+    s = fixture()
+    boundary = s["forecasts"][80]["issuedAt"]
+    for i in (72, 74, 76):
+        s["forecasts"][i]["resolvedAt"] = boundary
+    row = audit_temporal_forecast_calibration(
+        s, max_unresolved_fraction=.05)["groups"][0]
+    assert row["earlyUnavailableAtBoundaryFraction"] == pytest.approx(.05)
+    assert row["earlyCensusUnavailableAtBoundary"] == 3
+    assert row["earlyCensusUnavailableAtBoundaryFraction"] == pytest.approx(.075)
+    assert row["status"] == "UNRESOLVED_SELECTION_RISK"
+    assert row["lateBrierSkillVsFrozenEarlyClimatology"] is None
