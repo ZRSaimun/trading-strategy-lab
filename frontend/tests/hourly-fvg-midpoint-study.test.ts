@@ -363,6 +363,8 @@ test('formation census preserves unknown outcomes and distinguishes paired from 
    scenarioIndex,costBps,
    all:{bothPositive:1,blindOnlyPositive:0,confirmedOnlyPositive:0,neitherPositive:0},
    strict:{bothPositive:0,blindOnlyPositive:0,confirmedOnlyPositive:0,neitherPositive:0},
+   strictFail:{bothPositive:0,blindOnlyPositive:0,confirmedOnlyPositive:0,neitherPositive:0},
+   strictUnknown:{bothPositive:1,blindOnlyPositive:0,confirmedOnlyPositive:0,neitherPositive:0},
   })),
   midpointTouch:{PASS:1,FAIL:0,INSUFFICIENT_DATA:0},
   strictCandidate:{PASS:0,FAIL:0,INSUFFICIENT_DATA:1},
@@ -532,7 +534,7 @@ test('research report source metadata excludes arbitrary caller properties',()=>
  assert.deepEqual(Object.keys(report.source).sort(),Object.keys(source).sort());
  assert.equal(JSON.stringify(report).includes('synthetic-private-marker'),false);
  assert.equal(JSON.stringify(report).includes('synthetic-account-marker'),false);
- assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v31');
+ assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v32');
 });
 test('ambiguous source labels and contradictory volume evidence fail closed',()=>{
  // These are declared metadata, not independent vendor authentication.
@@ -908,7 +910,7 @@ test('an overflowing next-open comparator suppresses both matched markouts',()=>
 });
 test('completed hourly timestamps are safe and numeric rule changes have a new version',()=>{
  const report=studyHourlyFvgMidpoint(fixture(),source);
- assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v31');
+ assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v32');
  const lastSafeAlignedOpen=Math.floor(Number.MAX_SAFE_INTEGER/H)*H;
  assert.equal(Number.isSafeInteger(lastSafeAlignedOpen),true);
  assert.equal(Number.isSafeInteger(lastSafeAlignedOpen+H),false);
@@ -1050,5 +1052,56 @@ test('favorable next-open hypothetical entry is counted without blind-only bias'
   assert.equal(study.cohort.pairedMarkouts,1);
   assert.equal(study.cohort.pairedNetSignByCost[0].all.confirmedOnlyPositive,1);
   assert.equal(study.cohort.pairedNetSignByCost[0].strict.confirmedOnlyPositive,1);
+ }
+});
+
+
+test('matched net-sign costs partition strict pass, known fail and unknown evidence without as-of leakage',()=>{
+ for(const bearish of [false,true]){
+  const baseline=onePairedFvgFixture();
+  const flipped=(rows:Bar[])=>bearish?rows.map(b=>({...b,
+   open:220-b.open,high:220-b.low,low:220-b.high,close:220-b.close})):rows;
+  const settings={hypotheticalRoundTripCostsBps:[0,500,900]};
+  const passed=studyHourlyFvgMidpoint(flipped(baseline),source,settings);
+  const failed=baseline.map(b=>({...b}));
+  failed[23]={...failed[23],volume:100}; // Exactly prior-20 mean: known FAIL.
+  const knownFail=studyHourlyFvgMidpoint(flipped(failed),source,settings);
+  const unknown=studyHourlyFvgMidpoint(flipped(baseline),{
+   ...source,volumeType:'none',volumeVerified:false,
+  },settings);
+  const groups=[
+   [passed,'strict'],[knownFail,'strictFail'],[unknown,'strictUnknown'],
+  ] as const;
+  for(const [study,expected] of groups){
+   assert.equal(study.cohort.pairedMarkouts,1);
+   assert.equal(study.cohort.pairedByStrictCandidate.PASS,
+    expected==='strict'?1:0);
+   assert.equal(study.cohort.pairedByStrictCandidate.FAIL,
+    expected==='strictFail'?1:0);
+   assert.equal(study.cohort.pairedByStrictCandidate.INSUFFICIENT_DATA,
+    expected==='strictUnknown'?1:0);
+   for(const scenario of study.cohort.pairedNetSignByCost){
+    assert.equal(sumNetCells(scenario.all),1);
+    assert.deepEqual(scenario[expected],scenario.all);
+    for(const key of ['strict','strictFail','strictUnknown'] as const){
+     if(key!==expected)assert.equal(sumNetCells(scenario[key]),0);
+    }
+    for(const cell of ['bothPositive','blindOnlyPositive',
+     'confirmedOnlyPositive','neitherPositive'] as const){
+     assert.equal(scenario.all[cell],
+      scenario.strict[cell]+scenario.strictFail[cell]+scenario.strictUnknown[cell]);
+    }
+   }
+   const asOf=studyHourlyFvgMidpointAsOf(flipped(expected==='strictFail'?failed:baseline),
+    expected==='strictUnknown'?{...source,volumeType:'none',volumeVerified:false}:source,
+    BASE+26*H,settings);
+   assert.equal(asOf.cohort.pairedMarkouts,0);
+   for(const scenario of asOf.cohort.pairedNetSignByCost){
+    assert.equal(sumNetCells(scenario.all),0);
+    assert.equal(sumNetCells(scenario.strict),0);
+    assert.equal(sumNetCells(scenario.strictFail),0);
+    assert.equal(sumNetCells(scenario.strictUnknown),0);
+   }
+  }
  }
 });
