@@ -481,3 +481,79 @@ def test_registration_persists_final_transaction_clock(tmp_path, clock, monkeypa
             "SELECT registered_at_utc FROM holdout_claims WHERE study_id='one'"
         ).fetchone() == (1252,)
         assert conn.execute("SELECT count(*) FROM holdout_locked_rows").fetchone() == (35,)
+
+
+def test_frozen_release_rejects_swapped_row_decision_pairing(tmp_path, clock):
+    """Equal row and time sets must not conceal a changed row/time association."""
+    from test_declared_holdout_release_gate import fixture as holdout_fixture
+
+    manifest, census, anchor, outcomes, release_at = holdout_fixture()
+    path = tmp_path / "swapped-pair.sqlite"
+    registration = register_population_locked_holdout(path, manifest, census)
+    assert registration["locked_pair_count"] == len(census)
+    with sqlite3.connect(path) as conn:
+        # Use a temporary unused timestamp to satisfy the UNIQUE constraint.
+        conn.execute("UPDATE holdout_locked_pairs SET decision_at_utc=9999 "
+                     "WHERE decision_at_utc=2100")
+        conn.execute("UPDATE holdout_locked_pairs SET decision_at_utc=2100 "
+                     "WHERE decision_at_utc=2200")
+        conn.execute("UPDATE holdout_locked_pairs SET decision_at_utc=2200 "
+                     "WHERE decision_at_utc=9999")
+        assert conn.execute("SELECT count(*) FROM holdout_locked_pairs").fetchone() == (35,)
+    clock[0] = release_at
+    loaded = []
+    def load_outcomes():
+        loaded.append(True)
+        return outcomes
+    with pytest.raises(ValueError, match="Frozen holdout population reservations differ"):
+        registry.audit_declared_holdout_release_once(
+            path, manifest, census, anchor, load_outcomes)
+    assert loaded == []
+    with sqlite3.connect(path) as conn:
+        assert conn.execute(
+            "SELECT release_claimed_at_utc FROM holdout_claims WHERE study_id=?",
+            (manifest["study_id"],)).fetchone() == (None,)
+
+
+def test_missing_pair_reservation_blocks_registration_and_release(tmp_path, clock):
+    path = tmp_path / "missing-pair.sqlite"
+    manifest, census = _study()
+    registration = register_population_locked_holdout(path, manifest, census)
+    with sqlite3.connect(path) as conn:
+        conn.execute("DELETE FROM holdout_locked_pairs WHERE decision_at_utc=2100")
+    second, other = _study(study="second", offset=100, decision_offset=5000)
+    with pytest.raises(ValueError, match="Incomplete paired population"):
+        register_population_locked_holdout(path, second, other)
+    clock[0] = manifest["holdout_end_at_utc"] + 1
+    with pytest.raises(ValueError, match="Incomplete paired population"):
+        registry.claim_local_holdout_release(
+            path, study_id="one", manifest_sha256=registration["manifest_sha256"])
+    with sqlite3.connect(path) as conn:
+        assert conn.execute(
+            "SELECT release_claimed_at_utc FROM holdout_claims WHERE study_id='one'"
+        ).fetchone() == (None,)
+        assert conn.execute(
+            "SELECT count(*) FROM holdout_claims WHERE study_id='second'"
+        ).fetchone() == (0,)
+
+
+def test_pre_pair_registry_not_silently_upgraded(tmp_path, clock):
+    path = tmp_path / "old-pairless.sqlite"
+    manifest, census = _study()
+    registration = register_population_locked_holdout(path, manifest, census)
+    with sqlite3.connect(path) as conn:
+        conn.execute("DROP TABLE holdout_locked_pairs")
+    second, other = _study(study="second", offset=100, decision_offset=5000)
+    with pytest.raises(ValueError, match="lacks paired reservations"):
+        register_population_locked_holdout(path, second, other)
+    clock[0] = manifest["holdout_end_at_utc"] + 1
+    with pytest.raises(ValueError, match="Incomplete population-lock tables"):
+        registry.claim_local_holdout_release(
+            path, study_id="one", manifest_sha256=registration["manifest_sha256"])
+    with sqlite3.connect(path) as conn:
+        assert conn.execute(
+            "SELECT count(*) FROM sqlite_master WHERE name='holdout_locked_pairs'"
+        ).fetchone() == (0,)
+        assert conn.execute(
+            "SELECT release_claimed_at_utc FROM holdout_claims WHERE study_id='one'"
+        ).fetchone() == (None,)
