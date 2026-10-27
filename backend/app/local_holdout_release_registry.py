@@ -177,6 +177,11 @@ def claim_local_holdout_release(db_path, *, study_id, manifest_sha256,
                 "SELECT name FROM sqlite_master WHERE type='table' AND "
                 "name IN ('holdout_locked_rows', 'holdout_locked_decisions')"
             )}
+            # A caller that supplies a frozen census is requesting exact
+            # population verification. A legacy registry without reservation
+            # tables cannot satisfy that request: do not silently release.
+            if expected_population_rows is not None and not tables:
+                raise ValueError("Frozen population requires locked reservation tables")
             if tables:
                 if tables != {'holdout_locked_rows', 'holdout_locked_decisions'}:
                     raise ValueError("Incomplete population-lock tables at release")
