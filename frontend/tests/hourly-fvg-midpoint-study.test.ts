@@ -376,6 +376,11 @@ test('formation census preserves unknown outcomes and distinguishes paired from 
   strictCandidate:{PASS:0,FAIL:0,INSUFFICIENT_DATA:1},
   markout:{PASS:1,FAIL:0,INSUFFICIENT_DATA:0},
   pairedHoldingWindowOverlap:{overlappingPairCombinations:0,maxConcurrentPairs:1},
+  pairedHoldingWindowOverlapByStrictCandidate:{
+   PASS:{overlappingPairCombinations:0,maxConcurrentPairs:0},
+   FAIL:{overlappingPairCombinations:0,maxConcurrentPairs:0},
+   INSUFFICIENT_DATA:{overlappingPairCombinations:0,maxConcurrentPairs:1},
+  },
   pairedMarkouts:1,strictPairedMarkouts:0,nonStrictPairedMarkouts:1,
   pairedByStrictCandidate:{PASS:0,FAIL:0,INSUFFICIENT_DATA:1},
   unpairedByStrictCandidate:{PASS:0,FAIL:0,INSUFFICIENT_DATA:0},
