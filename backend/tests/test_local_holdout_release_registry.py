@@ -308,3 +308,42 @@ def test_frozen_wrapper_never_loads_outcomes_from_legacy_registry(tmp_path, cloc
         assert conn.execute(
             "SELECT release_claimed_at_utc FROM holdout_claims"
         ).fetchone() == (None,)
+
+
+def test_registration_rechecks_clock_before_commit(tmp_path, clock, monkeypatch):
+    path = tmp_path / "late-registration.sqlite"
+    ticks = iter((100, 200))  # Lock wait or work crosses holdout start.
+    monkeypatch.setattr(registry, "_now_utc_seconds", lambda: next(ticks))
+    with pytest.raises(ValueError, match="reached holdout start"):
+        _register(path)
+    with sqlite3.connect(path) as conn:
+        assert conn.execute(
+            "SELECT count(*) FROM sqlite_master WHERE name='holdout_claims'"
+        ).fetchone() == (0,)
+
+
+def test_registration_uses_final_transaction_clock(tmp_path, clock, monkeypatch):
+    path = tmp_path / "committed-registration.sqlite"
+    ticks = iter((100, 101))
+    monkeypatch.setattr(registry, "_now_utc_seconds", lambda: next(ticks))
+    assert _register(path)["registered_at_utc"] == 101
+    with sqlite3.connect(path) as conn:
+        assert conn.execute(
+            "SELECT registered_at_utc FROM holdout_claims WHERE study_id='study-1'"
+        ).fetchone() == (101,)
+
+
+def test_release_rechecks_clock_before_consuming_claim(tmp_path, clock, monkeypatch):
+    path = tmp_path / "clock-race.sqlite"
+    _register(path)
+    ticks = iter((301, 299))  # The local clock rolls back while awaiting the lock.
+    monkeypatch.setattr(registry, "_now_utc_seconds", lambda: next(ticks))
+    with pytest.raises(ValueError, match="clock moved backwards"):
+        _claim(path)
+    with sqlite3.connect(path) as conn:
+        assert conn.execute(
+            "SELECT release_claimed_at_utc FROM holdout_claims "
+            "WHERE study_id='study-1'"
+        ).fetchone() == (None,)
+    monkeypatch.setattr(registry, "_now_utc_seconds", lambda: 302)
+    assert _claim(path)["release_claimed_at_utc"] == 302
