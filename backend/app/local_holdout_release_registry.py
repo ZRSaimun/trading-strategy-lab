@@ -102,12 +102,21 @@ def register_local_holdout(db_path, *, study_id, manifest_sha256,
             conn.execute("INSERT INTO holdout_claims VALUES (?, ?, ?, ?, ?, NULL)",
                          (study_id, manifest_sha256, holdout_start_at_utc,
                           holdout_end_at_utc, now))
+            # BEGIN IMMEDIATE may wait on another writer. A pre-lock clock
+            # sample cannot prove that registration finished before the
+            # holdout opened. Recheck after all writes, before committing.
+            committed_at = _clock()
+            if committed_at < now or committed_at >= holdout_start_at_utc:
+                raise ValueError("Registration clock moved backwards or reached holdout start")
+            conn.execute(
+                "UPDATE holdout_claims SET registered_at_utc=? WHERE study_id=?",
+                (committed_at, study_id))
             conn.execute("COMMIT")
         except BaseException:
             conn.execute("ROLLBACK")
             raise
     return {"study_id": study_id, "manifest_sha256": manifest_sha256,
-            "registered_at_utc": now, "local_registry_only": True}
+            "registered_at_utc": committed_at, "local_registry_only": True}
 
 
 def claim_local_holdout_release(db_path, *, study_id, manifest_sha256,
@@ -241,14 +250,18 @@ def claim_local_holdout_release(db_path, *, study_id, manifest_sha256,
                 if actual_rows != expected_rows or actual_decisions != expected_decisions:
                     raise ValueError("Frozen holdout population reservations differ")
                 population_matched = True
-            if now < row[2] or now < row[3]:
+            # The first clock sample precedes the SQLite writer lock. A
+            # delayed claim must not use that stale sample if the local clock
+            # has moved backwards while waiting for the transaction.
+            claimed_at = _clock()
+            if claimed_at < now or claimed_at < row[2] or claimed_at < row[3]:
                 raise ValueError("Holdout not complete or local clock moved backwards")
             if row[4] is not None:
                 raise ValueError("Holdout release already claimed")
             changed = conn.execute(
                 "UPDATE holdout_claims SET release_claimed_at_utc=? "
                 "WHERE study_id=? AND release_claimed_at_utc IS NULL",
-                (now, study_id)).rowcount
+                (claimed_at, study_id)).rowcount
             if changed != 1:
                 raise ValueError("Concurrent holdout claim")
             conn.execute("COMMIT")
@@ -256,7 +269,7 @@ def claim_local_holdout_release(db_path, *, study_id, manifest_sha256,
             conn.execute("ROLLBACK")
             raise
     return {"study_id": study_id, "manifest_sha256": manifest_sha256,
-            "release_claimed_at_utc": now, "local_one_attempt_claim_recorded": True,
+            "release_claimed_at_utc": claimed_at, "local_one_attempt_claim_recorded": True,
             "independently_trusted_registry": False,
             "local_frozen_population_matched": population_matched}
 
