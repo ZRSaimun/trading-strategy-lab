@@ -7,7 +7,7 @@
  */
 import type {Bar} from './research.ts';
 
-export const HOURLY_FVG_VERSION='hourly-fvg-first-midpoint-touch-v34';
+export const HOURLY_FVG_VERSION='hourly-fvg-first-midpoint-touch-v35';
 export type Evidence='PASS'|'FAIL'|'INSUFFICIENT_DATA';
 export type Side='BULLISH'|'BEARISH';
 export type FvgSource={
@@ -198,6 +198,26 @@ function markout(entryAt:number,entry:number,exitAt:number,exit:number,
  return {entryObservedAt:entryAt,hypotheticalEntryAt,entryPrice:entry,exitObservedAt:exitAt,
   exitPrice:exit,grossBps,netBpsByCost};
 }
+// Compare the *exact supplied IEEE-754 values* for the hypothetical net
+// markout sign. A separately rounded grossBps - costBps can equal zero
+// even when the true difference is positive (or vice versa). This is an
+// evidence-census comparison, not a broker-executable profit calculation.
+function positiveNetAfterCost(entry:number,exit:number,direction:Side,costBps:number):boolean{
+ const entryParts=positiveFloatParts(entry),exitParts=positiveFloatParts(exit);
+ const commonExponent=Math.min(entryParts.exponent,exitParts.exponent);
+ const entryInteger=entryParts.mantissa<<BigInt(entryParts.exponent-commonExponent);
+ const exitInteger=exitParts.mantissa<<BigInt(exitParts.exponent-commonExponent);
+ const directionalMove=direction==='BULLISH'?
+  exitInteger-entryInteger:entryInteger-exitInteger;
+ if(directionalMove<=0n)return false;
+ const costParts=positiveFloatParts(costBps);
+ let lhs=directionalMove*10000n;
+ let rhs=entryParts.mantissa*costParts.mantissa;
+ const exponentDifference=commonExponent-entryParts.exponent-costParts.exponent;
+ if(exponentDifference>=0)lhs<<=BigInt(exponentDifference);
+ else rhs<<=BigInt(-exponentDifference);
+ return lhs>rhs;
+}
 // Account for the full observed formation population, not just attractive
 // confirmed returns. Unknown outcomes remain unknown, and blind-only markouts
 // must not be presented as matched wick-versus-limit comparisons.
@@ -255,7 +275,14 @@ function summarizeCohort(observations:readonly FvgObservation[],costs:readonly n
    const confirmed=observation.confirmedNextOpen!.netBpsByCost[scenarioIndex];
    if(!blind||!confirmed||blind.costBps!==costBps||confirmed.costBps!==costBps)
     throw Error('Paired FVG cost evidence is inconsistent');
-   const blindPositive=blind.netBps>0,confirmedPositive=confirmed.netBps>0;
+   // Classify signs from exact validated entry/exit/cost floats, not from
+   // rounded descriptive bps fields (which may display a false zero).
+   const blindPositive=positiveNetAfterCost(
+    observation.blindMidpointTouch!.entryPrice,observation.blindMidpointTouch!.exitPrice,
+    observation.direction,costBps);
+   const confirmedPositive=positiveNetAfterCost(
+    observation.confirmedNextOpen!.entryPrice,observation.confirmedNextOpen!.exitPrice,
+    observation.direction,costBps);
    const cell:keyof PairedNetSignCells=blindPositive?
     confirmedPositive?'bothPositive':'blindOnlyPositive':
     confirmedPositive?'confirmedOnlyPositive':'neitherPositive';

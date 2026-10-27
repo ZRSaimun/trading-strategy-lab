@@ -540,7 +540,7 @@ test('research report source metadata excludes arbitrary caller properties',()=>
  assert.deepEqual(Object.keys(report.source).sort(),Object.keys(source).sort());
  assert.equal(JSON.stringify(report).includes('synthetic-private-marker'),false);
  assert.equal(JSON.stringify(report).includes('synthetic-account-marker'),false);
- assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v34');
+ assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v35');
 });
 test('ambiguous source labels and contradictory volume evidence fail closed',()=>{
  // These are declared metadata, not independent vendor authentication.
@@ -916,7 +916,7 @@ test('an overflowing next-open comparator suppresses both matched markouts',()=>
 });
 test('completed hourly timestamps are safe and numeric rule changes have a new version',()=>{
  const report=studyHourlyFvgMidpoint(fixture(),source);
- assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v34');
+ assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v35');
  const lastSafeAlignedOpen=Math.floor(Number.MAX_SAFE_INTEGER/H)*H;
  assert.equal(Number.isSafeInteger(lastSafeAlignedOpen),true);
  assert.equal(Number.isSafeInteger(lastSafeAlignedOpen+H),false);
@@ -1186,5 +1186,57 @@ test('paired gross ordering does not turn one-ULP entry differences into rounded
   const mature=studyHourlyFvgMidpointAsOf(bars,source,BASE+27*H);
   assert.deepEqual(mature.cohort.pairedGrossOrdering,
    report.cohort.pairedGrossOrdering);
+ }
+});
+
+
+test('matched cost-sign census uses exact price-vs-cost threshold despite rounded zero bps',()=>{
+ // 0.3 bps is not exactly representable as a binary float. Both the
+ // bullish and mirrored bearish prices produce a rounded grossBps of 0.3
+ // and a displayed netBps of zero, despite a strictly positive exact
+ // directional move after the supplied float cost.
+ const entry=3.0517578125,exit=3.051849365234375;
+ const base=Array.from({length:27},(_,i)=>candle(i,3,3.5,2.5,3));
+ base[20]=candle(20,2.8,2.9267578125,2.7,2.8);
+ base[21]=candle(21,2.9,3,2.8,2.95);
+ base[22]=candle(22,3.25,3.4,3.1767578125,3.25);
+ base[23]=candle(23,3.3,3.4,3,3.32,200);
+ base[24]=candle(24,entry,3.5,3,3.3);
+ base[25]=candle(25,3.3,3.6,3,3.4);
+ base[26]=candle(26,3.4,3.5,3,exit);
+ const settings={hypotheticalRoundTripCostsBps:[0,0.3,1]};
+ for(const bearish of [false,true]){
+  const pivot=2*entry;
+  const bars=bearish?base.map(b=>({...b,open:pivot-b.open,
+   high:pivot-b.low,low:pivot-b.high,close:pivot-b.close})):base;
+  const report=studyHourlyFvgMidpoint(bars,source,settings);
+  assert.equal(report.cohort.formations,1);
+  assert.equal(report.cohort.pairedMarkouts,1);
+  const matched=report.observations[0];
+  assert.equal(matched.midpoint,entry);
+  assert.equal(matched.gates.strictCandidate,'PASS');
+  for(const candidate of [matched.blindMidpointTouch,matched.confirmedNextOpen]){
+   assert.ok(candidate);
+   assert.equal(candidate.entryPrice,entry);
+   assert.equal(candidate.grossBps,0.3);
+   assert.equal(candidate.netBpsByCost[1].netBps,0,
+    'descriptive rounded net bps cannot decide the sign');
+  }
+  const [zero,threshold,high]=report.cohort.pairedNetSignByCost;
+  assert.equal(zero.all.bothPositive,1);
+  assert.equal(threshold.all.bothPositive,1,
+   'strictly positive exact net must not be counted as a zero');
+  assert.deepEqual(threshold.strict,threshold.all);
+  assert.equal(high.all.neitherPositive,1);
+  const beforeExit=studyHourlyFvgMidpointAsOf(bars,source,BASE+26*H,settings);
+  assert.equal(beforeExit.cohort.pairedMarkouts,0);
+  assert.equal(sumNetCells(beforeExit.cohort.pairedNetSignByCost[1].all),0);
+  const atExit=studyHourlyFvgMidpointAsOf(bars,source,BASE+27*H,settings);
+  assert.deepEqual(atExit.cohort.pairedNetSignByCost,report.cohort.pairedNetSignByCost);
+  // Exact zero gross return must remain nonpositive even at zero cost.
+  const flat=bars.map(b=>({...b}));
+  flat[26]={...flat[26],close:entry};
+  const flatReport=studyHourlyFvgMidpoint(flat,source,{hypotheticalRoundTripCostsBps:[0]});
+  assert.equal(flatReport.cohort.pairedNetSignByCost[0].all.neitherPositive,1);
  }
 });
