@@ -345,3 +345,41 @@ previously inspected 32 archives are exploratory, not untouched holdouts.
 The source, timezone, quote side, rights, actual executable spreads,
 financing, broker fills and independent forward expectancy remain
 unverified. No profitability or live-order authorization is implied.
+
+
+## Completed-confirmation directional body displacement census (additive proxy)
+
+The `confirmation_body_displacement_census` is a **fixed, descriptive**
+two-state classification of the existing capacity-admitted confirmed signals.
+At the completed confirmation candle, compare the absolute *directional*
+confirmation candle body with the median **full high-low range** of the
+`lookback_15m` (normally 16) completed **pre-sweep** candles. A long
+qualifies only when `confirmation.close > confirmation.open` and the
+positive body is **at least** that pre-sweep median range. A short qualifies
+only when `confirmation.open > confirmation.close` and the negative-direction
+body magnitude is at least the median. Equality at the median qualifies.
+An opposite-direction or doji body never qualifies, even if the median is zero.
+
+This is a **minimal displacement-strength proxy**, not a full ICT displacement
+detector. It does not verify pivot-based market-structure shift, FVG,
+institutional order flow, news context, executable liquidity or future
+retests. Its prior-range threshold is fixed before the signal and is not
+optimized against outcomes. The confirmation candle is completed before
+the hypothetical next-open entry. No future entry or exit observations
+enter this classification.
+
+Both states independently reconcile confirmed, missing-entry, invalid
+entry/stop/target geometry, entered, observed and censored populations.
+They report observed-only 0/5/10/20 additional round-trip bps hypothetical
+mean R, returning `null` for empty observed populations. The auditor
+does **not** change signals, entries, stops, targets, stop-first ties,
+holding reservations, split/embargo, cost assumptions, or order permissions.
+
+Subgroup comparisons are **exploratory**, particularly because multiple
+hypotheses have already been inspected. The historical later slices of the
+32 private archives are not untouched holdouts; this new classification
+has not been evaluated on authenticated executable BID/ASK source archives
+or a genuinely independent prospective period. Missing exits and unverified
+spreads, financing, source rights and timezone remain unresolved. A
+favorable subgroup mean would not establish profitable expectancy or
+authorize paper/live orders.
