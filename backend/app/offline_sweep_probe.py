@@ -17,6 +17,9 @@ STEP = timedelta(minutes=1)
 BAR_STEP = timedelta(minutes=15)
 VOLATILITY_REGIMES = ("LOW_LT_10_BPS", "MID_10_TO_LT_30_BPS", "HIGH_GTE_30_BPS")
 SIGNAL_DIRECTIONS = ("LONG_SWEEP_LOW", "SHORT_SWEEP_HIGH")
+CONFLUENCE_STATES = tuple(
+    f"FVG{fvg}_MSS{mss}_DISP{disp}"
+    for fvg in (0, 1) for mss in (0, 1) for disp in (0, 1))
 CONFIRMATION_FVG_STATES = ("SAME_DIRECTION_THREE_CANDLE_FVG",
                            "NO_SAME_DIRECTION_THREE_CANDLE_FVG")
 CONFIRMATION_STRUCTURE_STATES = ("CONFIRMATION_CLOSE_BREAKS_PRIOR_RANGE",
@@ -229,6 +232,13 @@ def research(bars, *, lookback=16, horizon=16, embargo=16):
                for state in CONFIRMATION_DISPLACEMENT_STATES}
         for name in cohorts
     }
+    # All eight joint states are descriptive; never filter admissions.
+    confluence = {
+        name: {key: {"confirmed": 0, "entered": 0, "observed": [],
+                     "censored": 0, "missing_entry": 0, "invalid": 0}
+               for key in CONFLUENCE_STATES}
+        for name in cohorts
+    }
     next_free = 0
     for i in range(lookback, len(bars) - 1):
         # The completed confirmation must also be inside the selected cohort;
@@ -283,6 +293,12 @@ def research(bars, *, lookback=16, horizon=16, embargo=16):
         displacement_cell = displacement[cohort][confirmation_displacement_state(
             window[:lookback], confirmation, is_long)]
         displacement_cell["confirmed"] += 1
+        displacement_present = (
+            displacement_cell is displacement[cohort][CONFIRMATION_DISPLACEMENT_STATES[0]])
+        confluence_key = (f"FVG{int(same_direction_fvg)}_"
+                          f"MSS{int(range_break)}_DISP{int(displacement_present)}")
+        confluence_cell = confluence[cohort][confluence_key]
+        confluence_cell["confirmed"] += 1
         entry_index = i + 2
         if (entry_index >= len(bars) or
                 bars[entry_index].segment != confirmation.segment or
@@ -295,6 +311,7 @@ def research(bars, *, lookback=16, horizon=16, embargo=16):
             fvg_cell["missing_entry"] += 1
             structure_cell["missing_entry"] += 1
             displacement_cell["missing_entry"] += 1
+            confluence_cell["missing_entry"] += 1
             # No entry observation means no demonstrated position exposure.
             # Do not manufacture a fill, return or position reservation.
             continue
@@ -308,6 +325,7 @@ def research(bars, *, lookback=16, horizon=16, embargo=16):
             fvg_cell["invalid"] += 1
             structure_cell["invalid"] += 1
             displacement_cell["invalid"] += 1
+            confluence_cell["invalid"] += 1
             continue
         target = entry + 2*risk if is_long else entry - 2*risk
         if target <= 0:
@@ -317,6 +335,7 @@ def research(bars, *, lookback=16, horizon=16, embargo=16):
             fvg_cell["invalid"] += 1
             structure_cell["invalid"] += 1
             displacement_cell["invalid"] += 1
+            confluence_cell["invalid"] += 1
             continue
         entered[cohort] += 1
         direction["entered"] += 1
@@ -324,6 +343,7 @@ def research(bars, *, lookback=16, horizon=16, embargo=16):
         fvg_cell["entered"] += 1
         structure_cell["entered"] += 1
         displacement_cell["entered"] += 1
+        confluence_cell["entered"] += 1
         outcome = None
         observed_prefix = 0
         last = min(entry_index + horizon, len(bars))
@@ -381,6 +401,7 @@ def research(bars, *, lookback=16, horizon=16, embargo=16):
             fvg_cell["censored"] += 1
             structure_cell["censored"] += 1
             displacement_cell["censored"] += 1
+            confluence_cell["censored"] += 1
             censored_entry_risks[cohort].append((entry, risk))
             censored_observed_prefix_bars[cohort].append(observed_prefix)
             # A censored position has no observed exit. Do not admit another
@@ -393,6 +414,7 @@ def research(bars, *, lookback=16, horizon=16, embargo=16):
             fvg_cell["observed"].append((outcome, entry, risk))
             structure_cell["observed"].append((outcome, entry, risk))
             displacement_cell["observed"].append((outcome, entry, risk))
+            confluence_cell["observed"].append((outcome, entry, risk))
             cohorts[cohort].append((outcome, entry, risk))
             observed_holding_bars[cohort].append(observed_prefix)
     reports = {}
@@ -644,7 +666,45 @@ def research(bars, *, lookback=16, horizon=16, embargo=16):
                     raise RuntimeError("Displacement population reconciliation failed")
             if sum(len(cell["observed"]) for cell in displacement[name].values()) != len(trades):
                 raise RuntimeError("Displacement observed population mismatch")
+            # Each confirmed signal belongs to exactly one causal joint state.
+            confluence_report = {}
+            for key, cell in confluence[name].items():
+                observed = cell["observed"]
+                if cell["confirmed"] != (cell["missing_entry"] + cell["invalid"] +
+                                         cell["entered"]):
+                    raise RuntimeError("Confluence signal census mismatch")
+                if cell["entered"] != cell["censored"] + len(observed):
+                    raise RuntimeError("Confluence entered census mismatch")
+                joint_costs = []
+                for bps in (0, 5, 10, 20):
+                    total = sum((r - abs(entry) * Q(bps) / Q(10000) / risk
+                                 for r, entry, risk in observed), Q(0))
+                    joint_costs.append(dict(
+                        additional_round_trip_bps=bps,
+                        observed_outcomes=len(observed),
+                        mean_net_r=str(total / len(observed)) if observed else None))
+                confluence_report[key] = dict(
+                    confirmed_signals=cell["confirmed"],
+                    confirmed_signals_without_observable_entry=cell["missing_entry"],
+                    invalid_entry_stop_or_target_geometry=cell["invalid"],
+                    entered_positions=cell["entered"],
+                    observed_outcomes=len(observed),
+                    censored_entered_outcomes=cell["censored"],
+                    observed_only_cost_scenarios=joint_costs)
+            for kind, expected in (
+                ("confirmed", confirmed[name]), ("entered", entered[name]),
+                ("missing_entry", entry_unobservable[name]),
+                ("invalid", invalid_entry_geometry[name]),
+                ("censored", censored[name])):
+                if sum(cell[kind] for cell in confluence[name].values()) != expected:
+                    raise RuntimeError("Confluence population reconciliation failed")
+            if sum(len(cell["observed"]) for cell in confluence[name].values()) != len(trades):
+                raise RuntimeError("Confluence observed population mismatch")
             reports[name] = dict(
+                confirmation_fvg_mss_displacement_joint_census=dict(
+                    states=confluence_report,
+                    definition="FVG_THREE_CANDLE_AND_PRIOR_RANGE_BREAK_AND_BODY_DISPLACEMENT",
+                    interpretation="EIGHT_WAY_CAUSAL_DESCRIPTIVE_CROSS_TAB_NOT_FILTER_OR_EDGE"),
                 confirmation_body_displacement_census=dict(
                     definition="DIRECTIONAL_CONFIRMATION_BODY_GTE_PRIOR_MEDIAN_FULL_RANGE",
                     range_lookback_completed_bars=lookback,
