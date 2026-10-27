@@ -21,3 +21,18 @@ C(b) is recovered algebraically from the already-present -1R stress sum: `C(b) =
 This is a *conditional arithmetic threshold*, **not** a measured missing outcome, a confidence interval, a finite adverse-loss bound, broker executable spread, financing receipt, or evidence of positive expectancy. Previously inspected later-period samples are development-only and cannot become untouched holdouts. The output always reports `source_authenticated=false`, `untouched_holdout_verified=false`, `executable_broker_costs=false` and `may_execute_order=false`.
 
 Synthetic regression command: `PYTHONPATH=. pytest -q tests/test_offline_sweep_censor_threshold.py`. This feature is additive and does not change the existing frozen strategy, position admissions, outcomes, or production application.
+
+
+## Additional observed-cost integrity fence
+
+The auditor also requires the **same frozen observed population** to exhibit a
+nonnegative, linearly scaling reduction in summed net R when illustrative
+additional round-trip bps increase from 0 to 5, 10 and 20. If there are zero
+observed outcomes, every observed sum must be zero. This closes a report
+tampering/corruption gap: changing an observed cost sum and every corresponding
+censored-stress sum by the same offset could previously preserve all missing-exit
+stress identities while making the cost table internally contradictory.
+
+The check is arithmetic validation of a *declared* additive-bps model. It does
+not validate real broker spread, slippage, financing, source authenticity or
+profitability. No signal, stop, exit, cost parameter or population is changed.
