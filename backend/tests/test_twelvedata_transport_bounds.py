@@ -145,6 +145,19 @@ def test_absent_length_header_keeps_bounded_identity_stream_supported():
     assert wire["decoded_http_body_bytes"] == len(body)
 
 
+@pytest.mark.parametrize("payload", [
+    b"[" * 10000 + b"0" + b"]" * 10000,
+    b'{"ignored":' + b"[" * 10000 + b"0" + b"]" * 10000 + b"}",
+])
+def test_excessively_nested_json_fails_closed_without_leaking_provider_details(payload):
+    # Well below MAX_BYTES; Python's JSON decoder may raise RecursionError
+    # before the adapter can validate the provider response shape.
+    with pytest.raises(ProviderError, match="invalid JSON") as exc:
+        _fetch(payload)
+    assert exc.value.status == 502
+    assert "synthetic-only-key" not in str(exc.value)
+
+
 @pytest.mark.parametrize("limit", [True, False, 0, 5001, 1.5, "1", None])
 def test_invalid_request_limit_is_rejected_before_provider_call(limit):
     # Avoid charging a provider or sending a distorted outputsize when callers
