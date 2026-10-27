@@ -156,6 +156,43 @@ test('bounded FVG studies ignore untrusted array iterators for candles and costs
  assert.throws(()=>studyHourlyFvgMidpoint(sparse as Bar[],source),TypeError);
 });
 
+test('research rejects candle and cost array resizing during evidence snapshots',()=>{
+ const appended=fixture();
+ let candleReads=0;
+ Object.defineProperty(appended[0],'open',{get(){
+  candleReads++;
+  appended.push(candle(40));
+  return 100;
+ }});
+ assert.throws(()=>studyHourlyFvgMidpoint(appended,source),
+  /Hourly research candle array length changed during snapshot/);
+ assert.equal(candleReads,1,'candle getter must be evaluated only once');
+
+ const futureTruncated=fixture();
+ const cutoff=BASE+33*H;
+ const last=futureTruncated[futureTruncated.length-1];
+ Object.defineProperty(last,'time',{get(){
+  futureTruncated.pop();
+  return BASE+39*H;
+ }});
+ assert.throws(()=>studyHourlyFvgMidpointAsOf(futureTruncated,source,cutoff),
+  /Hourly research candle array length changed during snapshot/);
+
+ const costs=[0,5,15];
+ let costReads=0;
+ Object.defineProperty(costs,'0',{get(){
+  costReads++;
+  costs.push(25);
+  return 0;
+ }});
+ assert.throws(()=>studyHourlyFvgMidpoint(fixture(),source,{
+  hypotheticalRoundTripCostsBps:costs,
+ }),/Hypothetical CFD cost array length changed during snapshot/);
+ assert.equal(costReads,1,'cost getter must be evaluated only once');
+ assert.deepEqual(studyHourlyFvgMidpoint(fixture(),source).config.hypotheticalRoundTripCostsBps,
+  [0,5,15],'stable research configurations remain valid');
+});
+
 test('hourly candle fields are snapshotted once before validation and research',()=>{
  const stable=target(fixture());
  const bars=fixture();
@@ -430,7 +467,7 @@ test('research report source metadata excludes arbitrary caller properties',()=>
  assert.deepEqual(Object.keys(report.source).sort(),Object.keys(source).sort());
  assert.equal(JSON.stringify(report).includes('synthetic-private-marker'),false);
  assert.equal(JSON.stringify(report).includes('synthetic-account-marker'),false);
- assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v25');
+ assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v26');
 });
 test('ambiguous source labels and contradictory volume evidence fail closed',()=>{
  // These are declared metadata, not independent vendor authentication.
@@ -805,7 +842,7 @@ test('an overflowing next-open comparator suppresses both matched markouts',()=>
 });
 test('completed hourly timestamps are safe and numeric rule changes have a new version',()=>{
  const report=studyHourlyFvgMidpoint(fixture(),source);
- assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v25');
+ assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v26');
  const lastSafeAlignedOpen=Math.floor(Number.MAX_SAFE_INTEGER/H)*H;
  assert.equal(Number.isSafeInteger(lastSafeAlignedOpen),true);
  assert.equal(Number.isSafeInteger(lastSafeAlignedOpen+H),false);

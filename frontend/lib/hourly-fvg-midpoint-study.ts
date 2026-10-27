@@ -7,7 +7,7 @@
  */
 import type {Bar} from './research.ts';
 
-export const HOURLY_FVG_VERSION='hourly-fvg-first-midpoint-touch-v25';
+export const HOURLY_FVG_VERSION='hourly-fvg-first-midpoint-touch-v26';
 export type Evidence='PASS'|'FAIL'|'INSUFFICIENT_DATA';
 export type Side='BULLISH'|'BEARISH';
 export type FvgSource={
@@ -208,17 +208,23 @@ export function studyHourlyFvgMidpoint(
  // Bound the array before copying; holes/invalid fields fail validation.
  if(!Array.isArray(suppliedBars)||suppliedBars.length>20000)
   throw Error('Invalid or oversized hourly research window');
+ // Snapshot the population size as well as each candle. A getter may append
+ // or remove elements while we read them; never let the loop expand to
+ // include those late arrivals or silently accept a truncated population.
+ const barCount=suppliedBars.length;
  // Do not invoke a caller-controlled Symbol.iterator: a short Array can
  // otherwise yield unbounded or substituted candles despite the length cap.
  // Indexed reads keep the snapshot bounded and preserve sparse-hole rejection.
  const bars:Bar[]=[];
- for(let index=0;index<suppliedBars.length;index++){
+ for(let index=0;index<barCount;index++){
   const b=suppliedBars[index];
   bars.push({
    time:b.time,open:b.open,high:b.high,low:b.low,close:b.close,
    volume:b.volume,observed_minutes:b.observed_minutes,
   });
  }
+ if(suppliedBars.length!==barCount)
+  throw Error('Hourly research candle array length changed during snapshot');
  const maxTouchWaitBars=config.maxTouchWaitBars??12;
  const markoutBars=config.markoutBars??3;
  const minimumRejectionWickFraction=config.minimumRejectionWickFraction??0.5;
@@ -234,10 +240,14 @@ export function studyHourlyFvgMidpoint(
  if(!Array.isArray(suppliedCosts)||suppliedCosts.length<1||suppliedCosts.length>10)
   throw Error('Invalid source identity, volume provenance or frozen FVG study settings');
  // Likewise, an overridden iterator must not replace the validated cost
- // population or bypass the ten-scenario allocation bound.
+ // population or bypass the ten-scenario allocation bound. Fix the count
+ // before reading getters, and reject an array resized during capture.
+ const costCount=suppliedCosts.length;
  const costs:number[]=[];
- for(let index=0;index<suppliedCosts.length;index++)
+ for(let index=0;index<costCount;index++)
   costs.push(suppliedCosts[index]);
+ if(suppliedCosts.length!==costCount)
+  throw Error('Hypothetical CFD cost array length changed during snapshot');
  // Snapshot the seven allowlisted source fields exactly once. A mutable or
  // accessor-backed declaration must not pass validation as one identity,
  // qualify volume under another, then export a third identity.
@@ -411,9 +421,10 @@ export function studyHourlyFvgMidpointAsOf(
   throw Error('Invalid UTC hourly as-of close');
  if(!Array.isArray(suppliedBars)||suppliedBars.length>20000)
   throw Error('Invalid or oversized hourly research window');
+ const barCount=suppliedBars.length;
  const prefix:Bar[]=[];
  let previousTime:number|null=null;
- for(let index=0;index<suppliedBars.length;index++){
+ for(let index=0;index<barCount;index++){
   const bar=suppliedBars[index];
   // Check every supplied timestamp, including future timestamps, to reject
   // out-of-order/duplicate archives that could otherwise silently truncate
@@ -429,5 +440,7 @@ export function studyHourlyFvgMidpointAsOf(
   prefix.push({time,open:bar.open,high:bar.high,low:bar.low,
    close:bar.close,volume:bar.volume,observed_minutes:bar.observed_minutes});
  }
+ if(suppliedBars.length!==barCount)
+  throw Error('Hourly research candle array length changed during snapshot');
  return studyHourlyFvgMidpoint(prefix,source,config);
 }
