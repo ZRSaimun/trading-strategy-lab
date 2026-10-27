@@ -335,3 +335,34 @@ No notifications, orders, paper fills, dataset writes or trading permissions
 are enabled. Loop 1 still needs authenticated provider/source/price-side
 completed-candle receipts, server-owned immutable timestamps, session-aware
 expected-bar inventories and usage rights before operational activation.
+
+
+## Full late-issued forecast timing census (27 October 2026)
+
+Four additional **descriptive** fields quantify the caller-declared delay
+between each completed base candle close and the corresponding forecast
+issuance. Unlike outcome-scoring diagnostics, they cover **every forecast
+issued in the late half of the model/horizon group**, including pending,
+void, overlapping and as-of-unresolved forecasts. This avoids the
+settled-outcome selection bias of reporting timing only for scored forecasts.
+
+- `lateIssuanceLagCensusCount`: number of late issued forecasts included.
+- `lateIssuanceLagP95Seconds`: empirical nearest-rank 95th-percentile
+  `issuedAt - (baseStart + seconds)` over that entire late issuance cohort.
+- `lateIssuanceLagMaxSeconds`: maximum of those declared issuance delays.
+- `lateIssuanceLagOverHalfCandleFraction`: proportion with issuance delay
+  **strictly greater** than half the candle duration.
+
+The pre-existing causal chronology check requires issuance at or after base
+close and before the next candle close. These fields remain available even
+when calibration scores are withheld for missing outcomes or insufficient
+nonoverlapping samples, because they do **not** inspect labels. They are
+not a permission to notify or trade, nor an alert-delivery SLA.
+
+**Limits:** the journal and `issuedAt` are caller-declared and not
+independently timestamped; no authenticated market-data receipt or
+notification acknowledgement is established. This census only covers
+forecasts that were actually issued. Missing expected candles and
+omitted forecasts require a separately authenticated session-aware
+inventory (Loop 1 and Loop 5 PR #86). No real notifications, fills,
+broker calls or production changes are enabled.
