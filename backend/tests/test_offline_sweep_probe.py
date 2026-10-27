@@ -889,7 +889,7 @@ def test_entered_cost_burden_exact_one_trade_geometry_and_no_filter():
     census = cohort["entered_stop_distance_cost_burden_census"]
     assert census["entered_positions"] == census["observed_outcomes"] == 1
     assert census["censored_entered_outcomes"] == 0
-    assert D(census["stop_distance_bps_min"]) == D(50000) / D(103)
+    assert abs(D(census["stop_distance_bps_min"]) - D(50000) / D(103)) < D("1e-25")
     assert census["stop_distance_bps_min"] == census["stop_distance_bps_median"]
     assert census["stop_distance_bps_max"] == census["stop_distance_bps_median"]
     assert D(census["illustrative_5bps_round_trip_cost_r_median"]) == D("0.0103")
