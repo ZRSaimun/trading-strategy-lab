@@ -101,6 +101,33 @@ def register_population_locked_holdout(db_path, manifest, census):
                 "WHERE d.study_id=c.study_id) LIMIT 1"
             ).fetchone() is not None:
                 raise ValueError("Incomplete row or decision-time holdout reservations")
+            # Refuse to add a new study to a registry with orphaned or
+            # balanced-but-inconsistent reservations from an older study.
+            if (conn.execute(
+                "SELECT 1 FROM holdout_locked_rows AS r LEFT JOIN "
+                "holdout_claims AS c ON c.study_id=r.study_id "
+                "WHERE c.study_id IS NULL LIMIT 1"
+            ).fetchone() is not None or conn.execute(
+                "SELECT 1 FROM holdout_locked_decisions AS d LEFT JOIN "
+                "holdout_claims AS c ON c.study_id=d.study_id "
+                "WHERE c.study_id IS NULL LIMIT 1"
+            ).fetchone() is not None):
+                raise ValueError("Orphaned population reservations block registration")
+            if conn.execute(
+                "SELECT 1 FROM holdout_locked_decisions AS d JOIN "
+                "holdout_claims AS c ON c.study_id=d.study_id WHERE "
+                "typeof(d.decision_at_utc) != 'integer' OR "
+                "d.decision_at_utc < c.holdout_start_at_utc OR "
+                "d.decision_at_utc >= c.holdout_end_at_utc LIMIT 1"
+            ).fetchone() is not None:
+                raise ValueError("Noncausal population decision reservations block registration")
+            if conn.execute(
+                "SELECT 1 FROM (SELECT study_id, source_sha256 FROM "
+                "holdout_locked_rows UNION ALL SELECT study_id, source_sha256 "
+                "FROM holdout_locked_decisions) AS p GROUP BY study_id "
+                "HAVING count(DISTINCT source_sha256) != 1 LIMIT 1"
+            ).fetchone() is not None:
+                raise ValueError("Split-source population reservations block registration")
             conn.execute(
                 "INSERT INTO holdout_claims VALUES (?, ?, ?, ?, ?, NULL)",
                 (study_id, digest, manifest["holdout_start_at_utc"],
