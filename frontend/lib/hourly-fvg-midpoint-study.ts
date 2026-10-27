@@ -7,7 +7,7 @@
  */
 import type {Bar} from './research.ts';
 
-export const HOURLY_FVG_VERSION='hourly-fvg-first-midpoint-touch-v41';
+export const HOURLY_FVG_VERSION='hourly-fvg-first-midpoint-touch-v42';
 export type Evidence='PASS'|'FAIL'|'INSUFFICIENT_DATA';
 // First-touch volume evidence is not independent broker/source authentication.
 export type VolumeEvidenceReason='NOT_EVALUATED'|'SOURCE_UNVERIFIED'|
@@ -47,6 +47,10 @@ export type FvgObservation={
   // Missing interior source hours and incomplete archive tails are different
   // evidence gaps; neither can be treated as an observed no-touch failure.
   firstTouchCensorReason:FirstTouchCensorReason|null;
+  // A missing interior hour becomes identifiable only after the first
+  // subsequently observed hourly bar CLOSES. Null for an incomplete tail,
+  // because absence of a future bar is not a timestamped missing-hour receipt.
+  firstTouchCensorObservedAt:number|null;
   // A real midpoint intersection can have an unobserved fixed exit.
   // Do not confuse an interior source gap with an as-of/right-censored tail.
   markoutCensorReason:MarkoutCensorReason|null;
@@ -610,6 +614,7 @@ export function studyHourlyFvgMidpoint(
   let markoutExitObservedAt:number|null=null;
   let windowComplete=true;
   let censorReason:FirstTouchCensorReason|null=null;
+  let censorObservedAt:number|null=null;
   let markoutCensorReason:MarkoutCensorReason|null=null;
   let openingGapThrough=false;
   let outcomeObservedAt:number|null=null;
@@ -620,6 +625,7 @@ export function studyHourlyFvgMidpoint(
     // A missing interior hour and a not-yet-observed tail are both unknown,
     // but have different data-quality implications for later validation.
     censorReason=!b?'RIGHT_CENSORED':'MISSING_HOUR';
+    if(b)censorObservedAt=b.time+HOUR;
     break;
    }
    // A bar that OPENS beyond the midpoint has already jumped across the
@@ -726,7 +732,8 @@ export function studyHourlyFvgMidpoint(
     gates.markout==='FAIL'?outcomeObservedAt:null,
    firstTouchOutcome:openingGapThrough?'OPEN_GAP_THROUGH':
     touch!==null?'TOUCH':windowComplete?'NO_TOUCH':'INCOMPLETE_WINDOW',
-   firstTouchCensorReason:censorReason,markoutCensorReason,
+   firstTouchCensorReason:censorReason,firstTouchCensorObservedAt:censorObservedAt,
+   markoutCensorReason,
    rejectionWickFraction:wickFraction,volumeEvidenceObservedAt,
    volumeEvidenceReason,gates,
    blindMidpointTouch:blind,confirmedNextOpen:confirmed,
