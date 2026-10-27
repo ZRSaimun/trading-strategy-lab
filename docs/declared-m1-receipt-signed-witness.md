@@ -31,7 +31,7 @@ message = (
 )
 ```
 
-The `\\n` above denotes a single LF byte (not two literal backslash
+The `\n` above denotes a single LF byte (not two literal backslash
 characters). `signature_hex` is the lowercase 128-character hex signature.
 `trusted_public_key_hex` is a 32-byte raw Ed25519 public key encoded as
 64 lowercase hex characters. `trusted_public_key_sha256` is the lowercase
