@@ -60,7 +60,34 @@ def test_complete_declared_release_and_no_trade_permissions():
 
 
 def test_small_sample_withheld_even_if_net_positive():
-    assert audit(fixture(2))["status"] == "WITHHELD_INSUFFICIENT_HOLDOUT"
+    result = audit(fixture(2))
+    assert result["status"] == "WITHHELD_INSUFFICIENT_HOLDOUT"
+    assert result["outcome_metrics_withheld"] is True
+    for key in ("net_cash", "worst_observation_net_cash",
+                "max_observation_end_drawdown_cash", "outcome_receipts_sha256"):
+        assert result[key] is None
+
+
+def test_withheld_holdout_does_not_leak_outcome_changes():
+    data = fixture(29)
+    baseline = audit(data)
+    modified = copy.deepcopy(data)
+    for i, row in enumerate(modified[3]):
+        row["gross_cash"] = "-999.00" if i % 2 else "999.00"
+        row["financing_cash"] = "-500.00" if i % 2 else "500.00"
+        row["receipt_sha256"] = f"{i + 5000:064x}"
+    assert audit(modified) == baseline
+    assert baseline["observation_count"] == 29
+    assert baseline["outcome_metrics_withheld"] is True
+
+
+def test_release_threshold_exposes_only_declared_not_verified_results():
+    result = audit(fixture(30))
+    assert result["status"] == "DECLARED_EVALUATION_ONLY"
+    assert result["outcome_metrics_withheld"] is False
+    assert result["net_cash"] is not None
+    assert result["outcome_receipts_sha256"] is not None
+    assert result["profitable_edge_verified"] is False
 
 
 def test_outcome_order_independent_and_no_input_mutation():
