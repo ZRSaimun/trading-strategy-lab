@@ -255,6 +255,35 @@ def _issued_confidence_diagnostics(rows, seconds):
 
 
 
+def _issued_probability_ecdf_shift(early, late):
+    """Exact empirical 1-D W1 and KS distances on ALL issued probabilities.
+
+    W1 integrates the absolute empirical CDF gap over the probability axis,
+    in probability units [0, 1]. KS is the largest CDF gap [0, 1].
+    Neither is a significance test; forecasts can be highly dependent.
+    No binning, outcome selection, or synthetic observations are involved.
+    """
+    if not early or not late:
+        return None, None
+    before = sorted(row["probability"] for row in early)
+    after = sorted(row["probability"] for row in late)
+    i = j = 0
+    previous = min(before[0], after[0])
+    distance = maximum_cdf_gap = 0.0
+    while i < len(before) or j < len(after):
+        value = min(before[i] if i < len(before) else float("inf"),
+                    after[j] if j < len(after) else float("inf"))
+        distance += (value - previous) * abs(i / len(before) - j / len(after))
+        while i < len(before) and before[i] == value:
+            i += 1
+        while j < len(after) and after[j] == value:
+            j += 1
+        maximum_cdf_gap = max(maximum_cdf_gap,
+                              abs(i / len(before) - j / len(after)))
+        previous = value
+    return distance, maximum_cdf_gap
+
+
 def _issued_probability_shift10(early, late):
     """Label-free, fixed-bin probability distribution shift on ALL issued rows.
 
@@ -279,10 +308,13 @@ def _issued_probability_shift10(early, late):
                 divergence += p * math.log2(p / midpoint) / 2
             if q:
                 divergence += q * math.log2(q / midpoint) / 2
+    wasserstein, ks_gap = _issued_probability_ecdf_shift(early, late)
     return {
         "earlyIssuedProbabilityBins10": before,
         "lateIssuedProbabilityBins10": after,
         "issuedProbabilityJensenShannonBits10": divergence,
+        "issuedProbabilityWasserstein1": wasserstein,
+        "issuedProbabilityKsGap": ks_gap,
         "issuedProbabilityShiftLowSupportUnder30":
             min(len(early), len(late)) < 30 if early and late else None,
     }
@@ -557,7 +589,7 @@ def audit_temporal_forecast_calibration(snapshot, *, min_per_window=30,
                        "issuance lag is caller-declared, not authenticated alert timeliness; "
                        "all-issued confidence is descriptive and cannot establish calibration; "
                        "probability-bin outcome availability is descriptive, sparse and "
-                       "issued probability divergence is descriptive, bin-dependent, "
+                       "issued probability divergence is descriptive and bin-dependent; unbinned empirical CDF distances are descriptive, sample-dependent, "
                        "not a statistical drift test or a calibrated probability; "
                        "cannot prove missingness is random or establish calibration; "
                        "unissued or missing completed candles are outside this census; "
