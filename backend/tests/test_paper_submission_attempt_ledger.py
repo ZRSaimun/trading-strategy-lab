@@ -578,3 +578,64 @@ def test_uncommitted_sqlite_transition_rolls_back_after_process_death(db):
     assert snapshot['event_count'] == 1
     assert snapshot['orders'][0]['status'] == 'PREPARED'
     assert attempt(db)['status'] == 'ATTEMPT_UNKNOWN'
+
+
+@pytest.mark.parametrize('suffix', ['-wal', '-shm'])
+@pytest.mark.parametrize('operation', ['inspect', 'prepare'])
+def test_unreviewed_sqlite_sidecars_quarantine_read_and_write(db, suffix, operation):
+    prep(db)
+    before = db.read_bytes()
+    sidecar = ledger.Path(str(db) + suffix)
+    sidecar.write_bytes(b'untrusted-sidecar')
+    try:
+        with pytest.raises(ValueError, match='WAL/SHM sidecar'):
+            if operation == 'inspect':
+                inspect_ledger(db)
+            else:
+                attempt(db)
+        assert db.read_bytes() == before
+    finally:
+        sidecar.unlink()
+    assert inspect_ledger(db)['event_count'] == 1
+
+
+def test_dangling_wal_sidecar_symlink_fails_closed(db):
+    sidecar = ledger.Path(str(db) + '-wal')
+    sidecar.symlink_to(db.parent / 'does-not-exist')
+    try:
+        with pytest.raises(ValueError, match='WAL/SHM sidecar'):
+            inspect_ledger(db)
+    finally:
+        sidecar.unlink()
+    assert inspect_ledger(db)['event_count'] == 0
+
+
+def test_initialization_refuses_orphan_sqlite_sidecar(tmp_path):
+    db = tmp_path / 'orphan-ledger.sqlite'
+    sidecar = ledger.Path(str(db) + '-wal')
+    sidecar.write_bytes(b'orphaned')
+    with pytest.raises(ValueError, match='WAL/SHM sidecar'):
+        initialize_ledger(db)
+    assert not db.exists()
+    assert sidecar.read_bytes() == b'orphaned'
+
+
+@pytest.mark.parametrize('operation', ['inspect', 'prepare'])
+def test_wal_mode_in_sqlite_header_is_not_silently_repaired(db, operation):
+    conn = sqlite3.connect(db)
+    try:
+        assert conn.execute('PRAGMA journal_mode=WAL').fetchone() == ('wal',)
+    finally:
+        conn.close()
+    # SQLite normally cleans its WAL sidecars on clean close, but the
+    # persisted journal mode still must be rejected without conversion.
+    with pytest.raises(ValueError, match='WAL/SHM sidecar|journal mode'):
+        if operation == 'inspect':
+            inspect_ledger(db)
+        else:
+            prep(db)
+    conn = sqlite3.connect(db)
+    try:
+        assert conn.execute('PRAGMA journal_mode').fetchone() == ('wal',)
+    finally:
+        conn.close()
