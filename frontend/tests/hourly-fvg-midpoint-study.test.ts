@@ -1155,3 +1155,36 @@ test('matured paired gross ordering preserves adverse, favorable and equal next-
   }
  }
 });
+
+test('paired gross ordering does not turn one-ULP entry differences into rounded-bps ties',()=>{
+ // Distinct entry prices can produce identical rounded IEEE-754 gross bps.
+ for(const bearish of [false,true]){
+  const base=onePairedFvgFixture();
+  const bars=bearish?base.map(b=>({...b,open:220-b.open,
+   high:220-b.low,low:220-b.high,close:220-b.close})):base;
+  const midpoint=bearish?118:102;
+  const nextOpen=bearish?118.00000000000001:102.00000000000001;
+  const exit=bearish?25.80036566242495:9886164.165972022;
+  bars[24]={...bars[24],open:nextOpen,
+   high:bearish?119:107,low:bearish?113:100};
+  bars[26]={...bars[26],high:bearish?114:exit,
+   low:bearish?25:106,close:exit};
+  const report=studyHourlyFvgMidpoint(bars,source);
+  const matched=report.observations.find(o=>o.midpoint===midpoint&&
+   o.blindMidpointTouch!==null&&o.confirmedNextOpen!==null);
+  assert.ok(matched,'expected mature first-touch matched pair');
+  assert.equal(matched.blindMidpointTouch!.grossBps,
+   matched.confirmedNextOpen!.grossBps,
+   'fixture must exercise the actual rounded-bps tie');
+  const expected=bearish?'confirmedHigher':'blindHigher';
+  assert.equal(report.cohort.pairedMarkouts,1);
+  assert.equal(report.cohort.pairedGrossOrdering.all[expected],1);
+  assert.equal(report.cohort.pairedGrossOrdering.all.equal,0);
+  const before=studyHourlyFvgMidpointAsOf(bars,source,BASE+26*H);
+  assert.equal(before.cohort.pairedMarkouts,0);
+  assert.equal(before.cohort.pairedGrossOrdering.all[expected],0);
+  const mature=studyHourlyFvgMidpointAsOf(bars,source,BASE+27*H);
+  assert.deepEqual(mature.cohort.pairedGrossOrdering,
+   report.cohort.pairedGrossOrdering);
+ }
+});
