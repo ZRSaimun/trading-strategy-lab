@@ -25,3 +25,7 @@ Synthetic cases cover durable restart quarantine, duplicate order/intent prevent
 ## Integration handoff
 
 Before any paper broker integration: verify broker account and complete order/fill inventory from authenticated, authorized provider responses; atomically bind this ledger to persistent risk reservations, circuit breakers, quote/contract freshness, protective stops and human-specific signed approval. Reconcile unknown outcomes using authenticated order and fill history, not just the pending-order list. Use a server-owned append-only audit anchor and test crash points before/after every commit and broker request. Keep live execution disabled until individual per-order owner approval and independent release verification.
+
+## Reviewed schema integrity (27 October 2026)
+
+Every read and write verifies the exact reviewed SQLite `sqlite_master` DDL for both tables and the unique intent index, and rejects unexpected views, triggers or indexes. Merely recreating an index with the same name but weaker uniqueness no longer passes. Audit scans now fetch at most `MAX_EVENTS + 1` rows before rejecting oversized ledgers, avoiding unbounded `fetchall()` memory use. Regression cases cover added columns, views, indexes and a downgraded unique index. This is structural tamper detection, **not** cryptographic authentication: an attacker able to rewrite the database and recompute the unanchored hash chain can still forge history. Store externally anchored checkpoints and use authenticated broker reconciliation before any future execution integration.
