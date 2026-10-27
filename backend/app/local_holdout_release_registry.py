@@ -129,6 +129,37 @@ def claim_local_holdout_release(db_path, *, study_id, manifest_sha256):
                 (study_id,)).fetchone()
             if row is None or row[0] != manifest_sha256:
                 raise ValueError("Study not registered with this manifest")
+            # A population-locked registry must remain internally complete
+            # at release time, not just when the study was registered. A
+            # missing table, missing reservation, or orphaned reservation is
+            # evidence of incomplete/tampered local state: never release.
+            tables = {r[0] for r in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND "
+                "name IN ('holdout_locked_rows', 'holdout_locked_decisions')"
+            )}
+            if tables:
+                if tables != {'holdout_locked_rows', 'holdout_locked_decisions'}:
+                    raise ValueError("Incomplete population-lock tables at release")
+                if conn.execute(
+                    "SELECT 1 FROM holdout_claims AS c WHERE "
+                    "(SELECT count(*) FROM holdout_locked_rows AS r "
+                    "WHERE r.study_id=c.study_id) = 0 OR "
+                    "(SELECT count(*) FROM holdout_locked_rows AS r "
+                    "WHERE r.study_id=c.study_id) != "
+                    "(SELECT count(*) FROM holdout_locked_decisions AS d "
+                    "WHERE d.study_id=c.study_id) LIMIT 1"
+                ).fetchone() is not None:
+                    raise ValueError("Incomplete population reservations at release")
+                if (conn.execute(
+                    "SELECT 1 FROM holdout_locked_rows AS r LEFT JOIN "
+                    "holdout_claims AS c ON c.study_id=r.study_id "
+                    "WHERE c.study_id IS NULL LIMIT 1"
+                ).fetchone() is not None or conn.execute(
+                    "SELECT 1 FROM holdout_locked_decisions AS d LEFT JOIN "
+                    "holdout_claims AS c ON c.study_id=d.study_id "
+                    "WHERE c.study_id IS NULL LIMIT 1"
+                ).fetchone() is not None):
+                    raise ValueError("Orphaned population reservations at release")
             if now < row[1] or now < row[2]:
                 raise ValueError("Holdout not complete or local clock moved backwards")
             if row[3] is not None:
