@@ -290,3 +290,38 @@ def test_registration_at_declared_time_allowed_and_future_claim_preserves_db(tmp
         assert conn.execute("SELECT count(*) FROM holdout_claims").fetchone() == (1,)
         assert conn.execute("SELECT count(*) FROM holdout_locked_rows").fetchone() == (35,)
         assert conn.execute("SELECT count(*) FROM holdout_locked_decisions").fetchone() == (35,)
+
+
+@pytest.mark.parametrize("corruption", [
+    "missing_decision", "missing_all", "orphan_row", "orphan_decision",
+    "dropped_decision_table",
+])
+def test_release_rejects_corrupted_population_reservations_without_consuming_claim(
+        tmp_path, clock, corruption):
+    path = tmp_path / "release-integrity.sqlite"
+    manifest, census = _study()
+    registered = register_population_locked_holdout(path, manifest, census)
+    with sqlite3.connect(path) as conn:
+        if corruption == "missing_decision":
+            conn.execute("DELETE FROM holdout_locked_decisions WHERE decision_at_utc=2100")
+        elif corruption == "missing_all":
+            conn.execute("DELETE FROM holdout_locked_rows WHERE study_id='one'")
+            conn.execute("DELETE FROM holdout_locked_decisions WHERE study_id='one'")
+        elif corruption == "orphan_row":
+            conn.execute(
+                "INSERT INTO holdout_locked_rows VALUES (?, ?, ?)",
+                (_source_key(manifest["source"]), "f" * 64, "ghost"))
+        elif corruption == "orphan_decision":
+            conn.execute(
+                "INSERT INTO holdout_locked_decisions VALUES (?, ?, ?)",
+                (_source_key(manifest["source"]), 9999, "ghost"))
+        else:
+            conn.execute("DROP TABLE holdout_locked_decisions")
+    clock[0] = manifest["holdout_end_at_utc"] + 1
+    with pytest.raises(ValueError, match="Incomplete population|Orphaned population"):
+        registry.claim_local_holdout_release(
+            path, study_id="one", manifest_sha256=registered["manifest_sha256"])
+    with sqlite3.connect(path) as conn:
+        assert conn.execute(
+            "SELECT release_claimed_at_utc FROM holdout_claims WHERE study_id='one'"
+        ).fetchone() == (None,)
