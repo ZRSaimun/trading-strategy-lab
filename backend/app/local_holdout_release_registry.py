@@ -283,13 +283,16 @@ def audit_declared_holdout_release_once(db_path, manifest, census, anchor, outco
     if not callable(outcome_loader):
         raise ValueError("Outcome loader must be callable")
     from app.declared_holdout_release_gate import (
-        audit_declared_holdout_release, prepare_declared_holdout_manifest_sha256)
+        _validate_census, audit_declared_holdout_release,
+        prepare_declared_holdout_manifest_sha256)
     digest = prepare_declared_holdout_manifest_sha256(manifest)
-    expected_rows = expected_source_key = None
-    if type(census) is list and census:
-        from app.local_holdout_population_lock import _source_key
-        expected_rows = [(r["row_sha256"], r["decision_at_utc"]) for r in census]
-        expected_source_key = _source_key(manifest["source"])
+    # Validate the frozen population BEFORE consuming a claim or calling an
+    # outcome loader. A legacy registry without reservations must not allow
+    # malformed or reselected census membership to reach raw outcomes first.
+    _validate_census(manifest, census)
+    from app.local_holdout_population_lock import _source_key
+    expected_rows = [(r["row_sha256"], r["decision_at_utc"]) for r in census]
+    expected_source_key = _source_key(manifest["source"])
     claim = claim_local_holdout_release(
         db_path, study_id=manifest["study_id"], manifest_sha256=digest,
         expected_holdout_start_at_utc=manifest["holdout_start_at_utc"],
