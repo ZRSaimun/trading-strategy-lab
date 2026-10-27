@@ -7,7 +7,7 @@
  */
 import type {Bar} from './research.ts';
 
-export const HOURLY_FVG_VERSION='hourly-fvg-first-midpoint-touch-v26';
+export const HOURLY_FVG_VERSION='hourly-fvg-first-midpoint-touch-v27';
 export type Evidence='PASS'|'FAIL'|'INSUFFICIENT_DATA';
 export type Side='BULLISH'|'BEARISH';
 export type FvgSource={
@@ -39,7 +39,11 @@ export type FvgObservation={
  // A hypothetical markout is observed at the exit-bar close, not entry.
  // Known no-entry failure is observed at the completed no-touch deadline.
  markoutOutcomeObservedAt:number|null;
- firstTouchOutcome:FirstTouchOutcome;rejectionWickFraction:number|null;
+ firstTouchOutcome:FirstTouchOutcome;
+  // Missing interior source hours and incomplete archive tails are different
+  // evidence gaps; neither can be treated as an observed no-touch failure.
+  firstTouchCensorReason:FirstTouchCensorReason|null;
+  rejectionWickFraction:number|null;
  gates:{midpointTouch:Evidence;wickRejection:Evidence;verifiedVolume:Evidence;
   strictCandidate:Evidence;markout:Evidence};
  blindMidpointTouch:Markout|null;confirmedNextOpen:Markout|null;
@@ -47,8 +51,10 @@ export type FvgObservation={
 };
 export type EvidenceCounts=Record<Evidence,number>;
 export type FirstTouchOutcome='TOUCH'|'NO_TOUCH'|'OPEN_GAP_THROUGH'|'INCOMPLETE_WINDOW';
+export type FirstTouchCensorReason='MISSING_HOUR'|'RIGHT_CENSORED';
 export type FvgCohort={
  formations:number;firstTouchOutcome:Record<FirstTouchOutcome,number>;
+  incompleteWindowByReason:Record<FirstTouchCensorReason,number>;
  midpointTouch:EvidenceCounts;strictCandidate:EvidenceCounts;markout:EvidenceCounts;
  pairedMarkouts:number;strictPairedMarkouts:number;nonStrictPairedMarkouts:number;
  // Count matched and right-censored candidates by strict evidence status.
@@ -178,9 +184,16 @@ function summarizeCohort(observations:readonly FvgObservation[]):FvgCohort{
  const firstTouchOutcome:Record<FirstTouchOutcome,number>={
   TOUCH:0,NO_TOUCH:0,OPEN_GAP_THROUGH:0,INCOMPLETE_WINDOW:0,
  };
- for(const observation of observations)firstTouchOutcome[observation.firstTouchOutcome]++;
+ const incompleteWindowByReason:Record<FirstTouchCensorReason,number>={
+  MISSING_HOUR:0,RIGHT_CENSORED:0,
+ };
+ for(const observation of observations){
+  firstTouchOutcome[observation.firstTouchOutcome]++;
+  if(observation.firstTouchCensorReason!==null)
+   incompleteWindowByReason[observation.firstTouchCensorReason]++;
+ }
  return {
-  formations:observations.length,firstTouchOutcome,
+  formations:observations.length,firstTouchOutcome,incompleteWindowByReason,
   midpointTouch:count('midpointTouch'),
   strictCandidate:count('strictCandidate'),
   markout:count('markout'),
@@ -307,11 +320,18 @@ export function studyHourlyFvgMidpoint(
   let blind:Markout|null=null,confirmed:Markout|null=null;
   let markoutExitObservedAt:number|null=null;
   let windowComplete=true;
+  let censorReason:FirstTouchCensorReason|null=null;
   let openingGapThrough=false;
   let outcomeObservedAt:number|null=null;
   for(let wait=1;wait<=maxTouchWaitBars;wait++){
    const j=i+wait,b=bars[j],prev=bars[j-1];
-   if(!b||b.time-prev.time!==HOUR){windowComplete=false;break;}
+   if(!b||b.time-prev.time!==HOUR){
+    windowComplete=false;
+    // A missing interior hour and a not-yet-observed tail are both unknown,
+    // but have different data-quality implications for later validation.
+    censorReason=!b?'RIGHT_CENSORED':'MISSING_HOUR';
+    break;
+   }
    // A bar that OPENS beyond the midpoint has already jumped across the
    // proposed limit price. Even if its entire range stays beyond that level,
    // a later return cannot establish that the original order was filled.
@@ -399,6 +419,7 @@ export function studyHourlyFvgMidpoint(
     gates.markout==='FAIL'?outcomeObservedAt:null,
    firstTouchOutcome:openingGapThrough?'OPEN_GAP_THROUGH':
     touch!==null?'TOUCH':windowComplete?'NO_TOUCH':'INCOMPLETE_WINDOW',
+   firstTouchCensorReason:censorReason,
    rejectionWickFraction:wickFraction,gates,
    blindMidpointTouch:blind,confirmedNextOpen:confirmed,
    eligibleForLiveTrading:false});
