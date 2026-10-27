@@ -212,3 +212,40 @@ as though the result were a complete financing-adjusted backtest.
 This feature does not change signals, exits, chronological split,
 capacity reservations or the requirement for independently sealed
 holdouts and real executable broker-cost evidence.
+
+
+## Causal pre-signal volatility-regime census (additive descriptive diagnostic)
+
+The frozen v3 hypothesis is **unchanged**. For every already-confirmed,
+capacity-admitted signal, `pre_signal_volatility_regime_census` classifies
+the **median of the prior lookback completed 15m bars' (high-low)/close
+ranges in basis points**. These bars strictly precede the sweep candle;
+neither the sweep, confirmation, hypothetical entry, future exit, nor any
+subsequent observation contributes to the classification. The three
+predeclared bins are `LOW_LT_10_BPS`, `MID_10_TO_LT_30_BPS`, and
+`HIGH_GTE_30_BPS` (10 belongs to the middle bin, 30 to the high bin).
+The threshold units are source-price basis points, **not ATR, implied
+volatility, a universal cross-instrument volatility calibration, or
+broker executable spread**. A prior-window median uses Decimal arithmetic
+and the midpoint average for an even number of observations.
+
+Each bin reconciles confirmed signals into **missing observable entry +
+invalid stop/target geometry + entered**, and entered positions into
+**observed exits + censored exits**. The three bins' totals must match the
+original cohort's corresponding population counts. For observed exits
+only, the unchanged gross outcomes and original 0/5/10/20 additional
+round-trip bps produce descriptive per-bin mean net R; empty observed
+populations return null, not zero or an invented win/loss. Every signal
+remains admitted or excluded by the *original* capacity rule; the bins
+do not gate entries, change risk, optimize thresholds, or select trades.
+Censored entered positions and confirmed signals with no entry have no
+manufactured returns, and their counts remain visible in each bin.
+
+**Do not compare bins and choose the historically best one as a trading
+strategy or claim a profitable volatility filter.** The 10/30 bps
+thresholds are illustrative and not calibrated across gold, oil and
+index CFD proxies; source-local clocks, price side, rights and executable
+costs are unverified. All previously inspected later-period archives
+remain exploratory development evidence, not untouched holdouts.
+The report is not an independent significance test, a causal estimate
+of regime profitability, a broker quote, or authorization for an order.
