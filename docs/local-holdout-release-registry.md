@@ -56,3 +56,6 @@ the caller's manifest and database together. The schema stores row hashes
 and decision times in separate sets, so it does **not** attest their original
 one-to-one pairing. Do not interpret this local comparison as independent
 holdout verification or permission to place orders.
+
+
+**Transactional clock recheck (27 October 2026):** Both local registration and one-attempt release now sample the local UTC clock again inside the SQLite writer transaction. A registration that crosses the holdout start while waiting for the lock or performing writes rolls back, and the persisted registration time is the final precommit clock sample. A release claim rejects a clock rollback before consuming the attempt and persists the final sample. Synthetic tests simulate both timing races. This only protects against local timing inconsistencies: host clocks remain untrusted, and an attacker can still alter or restore SQLite or access outcomes outside the wrapper.
