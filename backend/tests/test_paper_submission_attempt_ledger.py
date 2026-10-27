@@ -1057,3 +1057,38 @@ def test_concurrent_distinct_attempts_only_one_becomes_unknown(db):
     snapshot = inspect_ledger(db)
     assert snapshot['event_count'] == 3
     assert sum(order['status'] == 'ATTEMPT_UNKNOWN' for order in snapshot['orders']) == 1
+
+
+@pytest.mark.parametrize('payload', [b'', b'untrusted-orphan-journal'])
+def test_initialization_rejects_regular_orphan_rollback_journal(tmp_path, payload):
+    """A fresh database cannot safely inherit a former database's journal."""
+    db = tmp_path / 'new-with-orphan.sqlite'
+    journal = ledger.Path(str(db) + '-journal')
+    journal.write_bytes(payload)
+    journal.chmod(0o644)
+    with pytest.raises(ValueError, match='Orphan SQLite rollback journal'):
+        initialize_ledger(db)
+    assert not db.exists()
+    assert journal.read_bytes() == payload
+
+
+def test_initialization_rejects_regular_journal_injected_after_open(tmp_path, monkeypatch):
+    """Do not begin schema DDL if a valid-looking orphan appears after open."""
+    db = tmp_path / 'new-race.sqlite'
+    journal = ledger.Path(str(db) + '-journal')
+    real_connect = ledger._connect
+
+    def inject_after_connect(*args, **kwargs):
+        conn = real_connect(*args, **kwargs)
+        journal.write_bytes(b'foreign-recovery-evidence')
+        journal.chmod(0o644)
+        return conn
+
+    monkeypatch.setattr(ledger, '_connect', inject_after_connect)
+    with pytest.raises(ValueError, match='Orphan SQLite rollback journal'):
+        initialize_ledger(db)
+    assert db.exists()  # Partial initialization remains for manual review.
+    assert journal.read_bytes() == b'foreign-recovery-evidence'
+    monkeypatch.setattr(ledger, '_connect', real_connect)
+    with pytest.raises(ValueError, match='schema'):
+        inspect_ledger(db)
