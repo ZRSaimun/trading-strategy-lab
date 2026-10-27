@@ -359,6 +359,12 @@ test('formation census preserves unknown outcomes and distinguishes paired from 
   firstTouchOutcome:{TOUCH:1,NO_TOUCH:0,OPEN_GAP_THROUGH:0,INCOMPLETE_WINDOW:0},
   incompleteWindowByReason:{MISSING_HOUR:0,RIGHT_CENSORED:0},
   markoutCensoredByReason:{MISSING_HOUR:0,RIGHT_CENSORED:0,UNREPRESENTABLE_RETURN:0},
+  pairedGrossOrdering:{
+   all:{confirmedHigher:0,blindHigher:1,equal:0},
+   strict:{confirmedHigher:0,blindHigher:0,equal:0},
+   strictFail:{confirmedHigher:0,blindHigher:0,equal:0},
+   strictUnknown:{confirmedHigher:0,blindHigher:1,equal:0},
+  },
   pairedNetSignByCost:[0,5,15].map((costBps,scenarioIndex)=>({
    scenarioIndex,costBps,
    all:{bothPositive:1,blindOnlyPositive:0,confirmedOnlyPositive:0,neitherPositive:0},
