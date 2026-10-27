@@ -4,6 +4,7 @@ import sqlite3
 
 import pytest
 
+from app import paper_submission_attempt_ledger as ledger
 from app.paper_submission_attempt_ledger import (
     initialize_ledger, inspect_ledger, prepare_intent, mark_attempt_unknown,
     record_declared_reconciliation,
@@ -248,3 +249,57 @@ def test_audit_tip_changes_on_transition(db):
     attempt(db)
     c = inspect_ledger(db)['audit_tip_sha256']
     assert len({a, b, c}) == 3
+
+
+def test_disappeared_ledger_cannot_be_recreated_by_read_or_write(tmp_path, monkeypatch):
+    """Simulate a stale is_file() preflight followed by a missing SQLite file."""
+    p = tmp_path / 'removed-between-check-and-open.sqlite'
+    original = ledger.Path.is_file
+
+    def stale_preflight(path):
+        return True if path == p else original(path)
+
+    monkeypatch.setattr(ledger.Path, 'is_file', stale_preflight)
+    with pytest.raises(sqlite3.OperationalError):
+        inspect_ledger(p)
+    assert not p.exists()
+    with pytest.raises(sqlite3.OperationalError):
+        prepare_intent(p, recorded_at_ms=100, **KEY)
+    assert not p.exists()
+
+
+def test_inspection_uses_read_only_uri_and_writes_require_existing_db(db, monkeypatch):
+    calls = []
+    real_connect = ledger.sqlite3.connect
+
+    def traced_connect(*args, **kwargs):
+        calls.append((args, kwargs))
+        return real_connect(*args, **kwargs)
+
+    monkeypatch.setattr(ledger.sqlite3, 'connect', traced_connect)
+    assert inspect_ledger(db)['event_count'] == 0
+    assert calls[-1][1]['uri'] is True
+    assert calls[-1][0][0].endswith('?mode=ro')
+    prep(db)
+    assert calls[-1][1]['uri'] is True
+    assert calls[-1][0][0].endswith('?mode=rw')
+
+
+def test_projection_capacity_rejected_before_unbounded_fetch(db, monkeypatch):
+    monkeypatch.setattr(ledger, 'MAX_EVENTS', 2)
+    with sqlite3.connect(db) as conn:
+        for i in range(3):
+            conn.execute('INSERT INTO intents VALUES (?,?,?,?,?)',
+                         ('PAPER-LOCAL', 'test-account', f'order-{i}',
+                          f'{i + 1:064x}', 'PREPARED'))
+    with pytest.raises(ValueError, match='intent capacity'):
+        inspect_ledger(db)
+    with pytest.raises(ValueError, match='intent capacity'):
+        prep(db)
+
+
+def test_ledger_path_uri_escapes_reserved_characters(tmp_path):
+    p = tmp_path / 'orders ? #.sqlite'
+    initialize_ledger(p)
+    assert inspect_ledger(p)['event_count'] == 0
+    assert prepare_intent(p, recorded_at_ms=100, **KEY)['may_submit_real_order'] is False
