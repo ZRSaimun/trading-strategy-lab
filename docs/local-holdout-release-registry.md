@@ -74,3 +74,17 @@ attempt before loading outcomes, even if outcome evaluation subsequently
 fails. This is caller-side consistency checking, **not** authenticated
 market history, independent preregistration, or prevention of raw data
 access outside the cooperating wrapper.
+
+
+**Declared anchor preflight (27 October 2026):** The guarded wrapper now
+validates the exact anchor declaration schema, frozen manifest digest,
+registration-to-holdout anchor chronology, reference identity, and receipt
+digest **before** consuming the local one-attempt release claim or invoking
+the outcome loader. The standalone declared audit reuses the same validator.
+Six synthetic invalid-anchor variants verify that no outcomes are loaded,
+the claim remains unconsumed, and a later valid declared anchor can still
+release once. This closes a premature outcome-loader exposure path for
+malformed anchor declarations, but **does not authenticate** the anchor,
+prove that an external record exists, or stop raw outcome access outside
+the cooperating wrapper. Never interpret the declared anchor as independent
+preregistration evidence.
