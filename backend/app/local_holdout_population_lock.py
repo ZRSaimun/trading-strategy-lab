@@ -21,6 +21,13 @@ _ROW_SCHEMA = """CREATE TABLE IF NOT EXISTS holdout_locked_rows (
     PRIMARY KEY (source_sha256, row_sha256)
 )"""
 
+_DECISION_SCHEMA = """CREATE TABLE IF NOT EXISTS holdout_locked_decisions (
+    source_sha256 TEXT NOT NULL,
+    decision_at_utc INTEGER NOT NULL,
+    study_id TEXT NOT NULL,
+    PRIMARY KEY (source_sha256, decision_at_utc)
+)"""
+
 
 def _source_key(source):
     """Bind rows to a declared market feed across accounts and archive splits."""
@@ -38,8 +45,10 @@ def register_population_locked_holdout(db_path, manifest, census):
 
     Duplicate or partially overlapping populations on the same declared feed
     are rejected, even across different study IDs, candidates, or census order.
-    This cannot detect changed/fabricated row hashes, legacy registrations,
-    other database files, or access to outcomes outside the cooperating API.
+    This also locks declared feed decision timestamps, so changed row bytes
+    cannot silently recycle the same timestamp within this local registry.
+    It cannot detect falsified feed identities, other database files, or
+    access to outcomes outside the cooperating API.
     """
     from app.declared_holdout_release_gate import (
         _validate_census, prepare_declared_holdout_manifest_sha256,
@@ -58,16 +67,36 @@ def register_population_locked_holdout(db_path, manifest, census):
         conn.execute("BEGIN IMMEDIATE")
         try:
             conn.execute(_SCHEMA)
-            conn.execute(_ROW_SCHEMA)
-            # A legacy study registered before the first population lock has
-            # no row reservations. Refuse to mix registration modes rather
-            # than claim complete cross-study overlap protection.
-            if conn.execute(
-                "SELECT 1 FROM holdout_claims AS c WHERE NOT EXISTS "
-                "(SELECT 1 FROM holdout_locked_rows AS r WHERE r.study_id=c.study_id) "
-                "LIMIT 1"
+            # Existing row-only registries cannot be upgraded safely without
+            # their original committed censuses. Never infer or backfill them.
+            has_decisions = conn.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' "
+                "AND name='holdout_locked_decisions'"
+            ).fetchone() is not None
+            if not has_decisions and conn.execute(
+                "SELECT 1 FROM holdout_claims LIMIT 1"
             ).fetchone() is not None:
+                has_rows = conn.execute(
+                    "SELECT 1 FROM sqlite_master WHERE type='table' "
+                    "AND name='holdout_locked_rows'"
+                ).fetchone() is not None
+                if has_rows and conn.execute(
+                    "SELECT 1 FROM holdout_locked_rows LIMIT 1"
+                ).fetchone() is not None:
+                    raise ValueError("Existing row-locked registry lacks decision-time reservations")
                 raise ValueError("Legacy unreserved holdout claims block population locking")
+            conn.execute(_ROW_SCHEMA)
+            conn.execute(_DECISION_SCHEMA)
+            # Fail closed if any earlier study has missing row or timestamp
+            # reservations, or mismatched counts across both populations.
+            if conn.execute(
+                "SELECT 1 FROM holdout_claims AS c WHERE "
+                "(SELECT count(*) FROM holdout_locked_rows AS r WHERE r.study_id=c.study_id) = 0 "
+                "OR (SELECT count(*) FROM holdout_locked_rows AS r WHERE r.study_id=c.study_id) "
+                "!= (SELECT count(*) FROM holdout_locked_decisions AS d "
+                "WHERE d.study_id=c.study_id) LIMIT 1"
+            ).fetchone() is not None:
+                raise ValueError("Incomplete row or decision-time holdout reservations")
             conn.execute(
                 "INSERT INTO holdout_claims VALUES (?, ?, ?, ?, ?, NULL)",
                 (study_id, digest, manifest["holdout_start_at_utc"],
@@ -80,6 +109,13 @@ def register_population_locked_holdout(db_path, manifest, census):
                 "(source_sha256, row_sha256, study_id) VALUES (?, ?, ?)",
                 ((source_key, row["row_sha256"], study_id) for row in census),
             )
+            # A revised vendor row hash cannot bypass the same-feed,
+            # same-decision-time lock. Both tables commit or roll back together.
+            conn.executemany(
+                "INSERT INTO holdout_locked_decisions "
+                "(source_sha256, decision_at_utc, study_id) VALUES (?, ?, ?)",
+                ((source_key, row["decision_at_utc"], study_id) for row in census),
+            )
             conn.execute("COMMIT")
         except BaseException:
             conn.execute("ROLLBACK")
@@ -90,6 +126,7 @@ def register_population_locked_holdout(db_path, manifest, census):
         "registered_at_utc": now,
         "declared_source_key_sha256": source_key,
         "locked_observation_count": len(census),
+        "locked_decision_count": len(census),
         "local_registry_only": True,
         "independently_trusted_registry": False,
     }
