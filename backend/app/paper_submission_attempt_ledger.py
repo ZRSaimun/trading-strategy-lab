@@ -6,6 +6,7 @@ The irreversible UNKNOWN transition must be committed BEFORE a future adapter
 attempts a non-idempotent submission; it can never be retried by this module.
 """
 import hashlib
+import os
 import json
 import re
 import sqlite3
@@ -125,12 +126,31 @@ def initialize_ledger(path):
     p = Path(path)
     if p.exists() or p.is_symlink():
         raise ValueError('Ledger already exists; refusing overwrite')
-    # Exclusive create avoids replacing an existing file. SQLite opens it next.
-    with p.open('xb'):
-        pass
+    # Create mode 0600 regardless of a permissive process umask. O_EXCL
+    # refuses an existing file, including a symlink. Never auto-recreate it.
+    fd = os.open(p, os.O_CREAT | os.O_EXCL | os.O_WRONLY
+                 | getattr(os, 'O_NOFOLLOW', 0), 0o600)
     try:
-        conn = sqlite3.connect(str(p), isolation_level=None)
+        created = os.fstat(fd)
+    finally:
+        os.close(fd)
+
+    def require_original_file():
         try:
+            current = p.lstat()
+        except FileNotFoundError as exc:
+            raise ValueError('New ledger disappeared during initialization') from exc
+        if (not stat.S_ISREG(current.st_mode)
+                or (current.st_dev, current.st_ino)
+                != (created.st_dev, created.st_ino)):
+            raise ValueError('New ledger file identity changed during initialization')
+
+    try:
+        # Existing-only SQLite URI: a removed freshly created file must not
+        # silently become a different, empty ledger at connection time.
+        conn = _connect(p)
+        try:
+            require_original_file()
             conn.execute('PRAGMA synchronous=FULL')
             conn.execute('BEGIN EXCLUSIVE')
             conn.execute('CREATE TABLE intents (broker TEXT NOT NULL, account TEXT NOT NULL, '
@@ -142,7 +162,9 @@ def initialize_ledger(path):
                          'evidence_sha TEXT NOT NULL, recorded_at_ms INTEGER NOT NULL, '
                          'prev_hash TEXT NOT NULL, event_hash TEXT NOT NULL)')
             conn.execute(f'PRAGMA user_version={SCHEMA_VERSION}')
+            require_original_file()
             conn.execute('COMMIT')
+            require_original_file()
         finally:
             conn.close()
     except BaseException:
