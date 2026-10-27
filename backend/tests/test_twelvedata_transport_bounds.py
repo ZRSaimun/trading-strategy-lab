@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 import httpx
 import pytest
 
-from app.providers.twelvedata import MAX_BYTES, ProviderError, retrieve
+from app.providers.twelvedata import MAX_BYTES, ProviderError, normalize, retrieve
 
 T = 1790000040
 
@@ -357,3 +357,26 @@ def test_canonical_ascii_provider_minute_timestamp_still_accepted():
         _body(), {"Content-Type": "application/json"})
     assert len(rows) == len(requests) == 1
     assert wire["decoded_http_body_sha256"] == hashlib.sha256(_body()).hexdigest()
+
+
+@pytest.mark.parametrize("invalid_now", [
+    float("nan"), float("inf"), float("-inf"),
+    True, False, None, "1790000160",
+    10 ** 1000, -1, 0, 59,
+])
+def test_direct_normalize_rejects_invalid_observation_clocks(invalid_now):
+    # retrieve() already validates now, but direct normalization callers must
+    # not accept NaN/+Infinity as evidence that future candles completed.
+    payload = json.loads(_body())
+    with pytest.raises(ProviderError, match="Invalid UTC observation timestamp") as exc:
+        normalize(payload, "XAUUSD-TD", invalid_now)
+    assert exc.value.status == 422
+    assert "synthetic-only-key" not in str(exc.value)
+
+
+def test_direct_normalize_preserves_valid_fractional_completed_minute_clock():
+    payload = json.loads(_body())
+    rows, snapshot = normalize(payload, "XAUUSD-TD", T + 60.5)
+    assert len(rows) == 1
+    assert rows[0]["time"] == T
+    assert b"XAU/USD" in snapshot
