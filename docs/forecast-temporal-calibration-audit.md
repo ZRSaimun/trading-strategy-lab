@@ -213,3 +213,39 @@ Unselected missing records do not change the fixed-census bounds, but still
 count against the whole-stream missingness gate. The bounds are **null**
 whenever any performance gate withholds scores. No notification, demo fill,
 live executable quote, order or production dataset is affected.
+
+
+## Ten-bin Brier component audit (27 October 2026)
+
+When all existing chronological, sample-size and issued/selected-census
+missingness gates pass, the fixed late **nonoverlapping settled** forecast
+sample now reports four *descriptive* fields:
+
+- `lateBrierBinned10Reliability`: sum over occupied probability bins of
+  bin weight times (mean forecast probability minus observed-up frequency)
+  squared. Lower is better **conditional on this binning**.
+- `lateBrierBinned10Resolution`: sum of bin weight times (observed-up
+  frequency minus overall observed-up frequency) squared. Larger means
+  bins separate different observed frequencies, not that the model is
+  profitable.
+- `lateBrierBinned10Uncertainty`: overall observed-up frequency times
+  one minus that frequency. This is an outcome-prevalence property.
+- `lateBrierBinned10Residual`: actual late Brier minus
+  (reliability - resolution + uncertainty).
+
+The **explicit signed residual is essential**: using ten probability
+bins means individual probabilities can vary within each bin, so
+reliability - resolution + uncertainty is generally **not** exactly
+equal to the raw forecast Brier score. The four terms together
+reconstruct `lateBrier` (up to floating-point rounding). A negative
+residual is possible and is **not** a negative financial loss.
+The binning is frozen at ten equal-width bins and shares the existing
+`lateEceBins10` population. This is a *binned Murphy-style
+diagnostic*, not an exact per-probability decomposition, statistical
+significance test, holdout result, trading edge or new alert trigger.
+
+All four fields are `null` when the existing evaluation gates withhold
+Brier, including a declared as-of cutoff that excludes too many
+late-settling labels. Sparse bins, serial dependence, repeated peeking,
+unauthenticated source receipts and unverified outcome clocks remain.
+The report grants no notification, paper fill or live order permission.
