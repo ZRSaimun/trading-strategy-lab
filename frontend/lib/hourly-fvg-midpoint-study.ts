@@ -7,7 +7,7 @@
  */
 import type {Bar} from './research.ts';
 
-export const HOURLY_FVG_VERSION='hourly-fvg-first-midpoint-touch-v35';
+export const HOURLY_FVG_VERSION='hourly-fvg-first-midpoint-touch-v36';
 export type Evidence='PASS'|'FAIL'|'INSUFFICIENT_DATA';
 export type Side='BULLISH'|'BEARISH';
 export type FvgSource={
@@ -77,6 +77,11 @@ export type PairedNetSignCostCensus={
  all:PairedNetSignCells;strict:PairedNetSignCells;
  strictFail:PairedNetSignCells;strictUnknown:PairedNetSignCells;
 };
+// Overlap is measured only between matured hypothetical confirmed-entry-to-exit
+// windows. It is a dependence warning, not an effective sample-size estimate.
+export type PairedWindowOverlapCensus={
+ overlappingPairCombinations:number;maxConcurrentPairs:number;
+};
 export type FvgCohort={
  formations:number;firstTouchOutcome:Record<FirstTouchOutcome,number>;
   incompleteWindowByReason:Record<FirstTouchCensorReason,number>;
@@ -86,6 +91,7 @@ export type FvgCohort={
  pairedNetSignByCost:readonly PairedNetSignCostCensus[];
  // Descriptive paired gross-BID markout ordering; not realized execution P&L.
  pairedGrossOrdering:PairedGrossOrderingCensus;
+ pairedHoldingWindowOverlap:PairedWindowOverlapCensus;
  // Count matched and right-censored candidates by strict evidence status.
  pairedByStrictCandidate:EvidenceCounts;unpairedByStrictCandidate:EvidenceCounts;
  blindOnlyMarkouts:number;
@@ -228,6 +234,27 @@ function summarizeCohort(observations:readonly FvgObservation[],costs:readonly n
   return result;
  };
  const paired=(o:FvgObservation)=>o.blindMidpointTouch!==null&&o.confirmedNextOpen!==null;
+ // Shared fixed-exit research windows make matched observations dependent.
+ // Count pairwise overlaps on [hypothetical confirmed next-open, exit close),
+ // not the unknown intrabar blind-limit fill time. An exit exactly at the
+ // next entry is not an overlap. The sweep is O(n log n), bounded by the
+ // validated 20,000-candle source population.
+ const pairedWindows=observations.filter(paired).map(o=>{
+  const confirmed=o.confirmedNextOpen!;
+  const start=confirmed.hypotheticalEntryAt;
+  if(start===null||start>=confirmed.exitObservedAt)
+   throw Error('Paired FVG holding window evidence is inconsistent');
+  return {start,end:confirmed.exitObservedAt};
+ }).sort((a,b)=>a.start-b.start||a.end-b.end);
+ const sortedEnds=pairedWindows.map(w=>w.end).sort((a,b)=>a-b);
+ let expired=0,overlappingPairCombinations=0,maxConcurrentPairs=0;
+ for(let index=0;index<pairedWindows.length;index++){
+  while(expired<index&&sortedEnds[expired]<=pairedWindows[index].start)expired++;
+  const concurrent=index-expired+1;
+  overlappingPairCombinations+=concurrent-1;
+  maxConcurrentPairs=Math.max(maxConcurrentPairs,concurrent);
+ }
+ const pairedHoldingWindowOverlap={overlappingPairCombinations,maxConcurrentPairs};
  const pairedByStrictCandidate:EvidenceCounts={PASS:0,FAIL:0,INSUFFICIENT_DATA:0};
  const unpairedByStrictCandidate:EvidenceCounts={PASS:0,FAIL:0,INSUFFICIENT_DATA:0};
  for(const observation of observations){
@@ -311,7 +338,7 @@ function summarizeCohort(observations:readonly FvgObservation[],costs:readonly n
  }
  return {
   formations:observations.length,firstTouchOutcome,incompleteWindowByReason,
-  pairedNetSignByCost,pairedGrossOrdering,
+  pairedNetSignByCost,pairedGrossOrdering,pairedHoldingWindowOverlap,
   markoutCensoredByReason,
   midpointTouch:count('midpointTouch'),
   strictCandidate:count('strictCandidate'),

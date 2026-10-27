@@ -1240,3 +1240,42 @@ test('matched cost-sign census uses exact price-vs-cost threshold despite rounde
   assert.equal(flatReport.cohort.pairedNetSignByCost[0].all.neitherPositive,1);
  }
 });
+
+
+test('paired FVG holding windows disclose overlap without leaking immature exits',()=>{
+ for(const bearish of [false,true]){
+  const base=Array.from({length:46},(_,i)=>candle(i,115,116,110,115));
+  const first=onePairedFvgFixture();
+  for(let i=0;i<first.length;i++)base[i]=first[i];
+  for(let i=26;i<=29;i++)base[i]=candle(i,106,110,103,106);
+  base[30]=candle(30,114,116,114,115);
+  base[31]=candle(31,114,116,109,115,200);
+  for(let i=32;i<46;i++)base[i]=candle(i,115,116,110,115);
+  const bars=bearish?base.map(b=>({...b,open:220-b.open,
+   high:220-b.low,low:220-b.high,close:220-b.close})):base;
+  const settings={markoutBars:14};
+  const full=studyHourlyFvgMidpoint(bars,source,settings);
+  assert.equal(full.cohort.pairedMarkouts,2);
+  assert.deepEqual(full.cohort.pairedHoldingWindowOverlap,{
+   overlappingPairCombinations:1,maxConcurrentPairs:2,
+  });
+  const before=studyHourlyFvgMidpointAsOf(bars,source,BASE+37*H,settings);
+  assert.equal(before.cohort.pairedMarkouts,0);
+  assert.deepEqual(before.cohort.pairedHoldingWindowOverlap,{
+   overlappingPairCombinations:0,maxConcurrentPairs:0,
+  });
+  const firstExit=studyHourlyFvgMidpointAsOf(bars,source,BASE+38*H,settings);
+  assert.equal(firstExit.cohort.pairedMarkouts,1);
+  assert.deepEqual(firstExit.cohort.pairedHoldingWindowOverlap,{
+   overlappingPairCombinations:0,maxConcurrentPairs:1,
+  });
+  const both=studyHourlyFvgMidpointAsOf(bars,source,BASE+46*H,settings);
+  assert.deepEqual(both.cohort.pairedHoldingWindowOverlap,
+   full.cohort.pairedHoldingWindowOverlap);
+  const disjoint=studyHourlyFvgMidpoint(bars,source,{markoutBars:3});
+  assert.equal(disjoint.cohort.pairedMarkouts,2);
+  assert.deepEqual(disjoint.cohort.pairedHoldingWindowOverlap,{
+   overlappingPairCombinations:0,maxConcurrentPairs:1,
+  });
+ }
+});
