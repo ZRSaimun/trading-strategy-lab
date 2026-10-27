@@ -254,6 +254,29 @@ def _issued_confidence_diagnostics(rows, seconds):
     }
 
 
+def _outcome_availability_bins10(issued_census, eligible_settled):
+    """Probability-stratified outcome availability on a PRESELECTED census.
+
+    Select nonoverlapping issued forecasts before reading outcome status.
+    Eligible labels are identified only by id, never by their direction. An
+    as-of-excluded settlement is unavailable. Empty bins have no rate.
+    These are unauthenticated, descriptive selection-risk diagnostics.
+    """
+    eligible_ids = {row["id"] for row in eligible_settled}
+    counts = [[0, 0] for _ in range(10)]
+    for row in issued_census:
+        index = min(int(row["probability"] * 10), 9)
+        counts[index][0] += 1
+        counts[index][1] += int(row["id"] in eligible_ids)
+    return [
+        {"bin": index, "issued": issued, "eligibleSettled": eligible,
+         "unavailable": issued - eligible,
+         "unavailableFraction": (issued - eligible) / issued if issued else None,
+         "lowSupportUnder30": issued < 30 if issued else None}
+        for index, (issued, eligible) in enumerate(counts)
+    ]
+
+
 def audit_temporal_forecast_calibration(snapshot, *, min_per_window=30,
                                         brier_deterioration=0.05,
                                         max_unresolved_fraction=0.10,
@@ -393,6 +416,10 @@ def audit_temporal_forecast_calibration(snapshot, *, min_per_window=30,
             **_issuance_lag_diagnostics(late, seconds),
             # All issued probabilities, independent of settlement selection.
             **_issued_confidence_diagnostics(late, seconds),
+            # Outcome availability by forecast probability on the fixed census.
+            # Remains visible when scoring is withheld; no labels are imputed.
+            "lateCensusOutcomeAvailabilityBins10":
+                _outcome_availability_bins10(late_census, test),
             "earlyBrier": None, "lateBrier": None, "lateBrierDelta": None,
             "lateBrierBestCaseAllIssuedCensus": None,
             "lateBrierWorstCaseAllIssuedCensus": None,
@@ -493,6 +520,8 @@ def audit_temporal_forecast_calibration(snapshot, *, min_per_window=30,
                        "settlement lag is caller-declared, not authenticated provider latency; "
                        "issuance lag is caller-declared, not authenticated alert timeliness; "
                        "all-issued confidence is descriptive and cannot establish calibration; "
+                       "probability-bin outcome availability is descriptive, sparse and "
+                       "cannot prove missingness is random or establish calibration; "
                        "unissued or missing completed candles are outside this census; "
                        "log-loss tail concentration and paired regret are descriptive "
                        "observed-label statistics, not financial downside; "
