@@ -325,3 +325,57 @@ def test_release_rejects_corrupted_population_reservations_without_consuming_cla
         assert conn.execute(
             "SELECT release_claimed_at_utc FROM holdout_claims WHERE study_id='one'"
         ).fetchone() == (None,)
+
+
+@pytest.mark.parametrize("corruption", [
+    "decision_after_end", "decision_text", "split_source", "orphan_row",
+])
+def test_balanced_corruption_blocks_new_registration_and_release(
+        tmp_path, clock, corruption):
+    """Counts may remain equal while decision/feed lineage is corrupt."""
+    path = tmp_path / "balanced-corruption.sqlite"
+    manifest, census = _study()
+    registration = register_population_locked_holdout(path, manifest, census)
+    with sqlite3.connect(path) as conn:
+        if corruption == "decision_after_end":
+            conn.execute(
+                "UPDATE holdout_locked_decisions SET decision_at_utc=? "
+                "WHERE decision_at_utc=2100",
+                (manifest["holdout_end_at_utc"],))
+        elif corruption == "decision_text":
+            conn.execute(
+                "UPDATE holdout_locked_decisions SET decision_at_utc='invalid' "
+                "WHERE decision_at_utc=2100")
+        elif corruption == "split_source":
+            conn.execute(
+                "UPDATE holdout_locked_rows SET source_sha256=? "
+                "WHERE row_sha256=?",
+                ("f" * 64, census[0]["row_sha256"]))
+        else:
+            conn.execute(
+                "INSERT INTO holdout_locked_rows VALUES (?, ?, ?)",
+                (_source_key(manifest["source"]), "f" * 64, "ghost"))
+    expected = ("Orphaned" if corruption == "orphan_row" else
+                "Split-source" if corruption == "split_source" else "Noncausal")
+    second, other = _study(study="second", offset=100, decision_offset=5000)
+    with pytest.raises(ValueError, match=expected):
+        register_population_locked_holdout(path, second, other)
+    with sqlite3.connect(path) as conn:
+        assert conn.execute(
+            "SELECT count(*) FROM holdout_claims WHERE study_id='second'"
+        ).fetchone() == (0,)
+        assert conn.execute(
+            "SELECT count(*) FROM holdout_locked_rows WHERE study_id='one'"
+        ).fetchone() == (35,)
+        assert conn.execute(
+            "SELECT count(*) FROM holdout_locked_decisions WHERE study_id='one'"
+        ).fetchone() == (35,)
+    clock[0] = manifest["holdout_end_at_utc"] + 1
+    with pytest.raises(ValueError, match=expected):
+        registry.claim_local_holdout_release(
+            path, study_id="one",
+            manifest_sha256=registration["manifest_sha256"])
+    with sqlite3.connect(path) as conn:
+        assert conn.execute(
+            "SELECT release_claimed_at_utc FROM holdout_claims WHERE study_id='one'"
+        ).fetchone() == (None,)
