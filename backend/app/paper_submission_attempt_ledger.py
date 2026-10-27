@@ -95,7 +95,7 @@ def _private_parent(path):
     # SQLite multi-database commits can create randomized super-journal
     # files with a -mj suffix. Never use such a recovery filename as a ledger.
     if (lower_name.endswith(('-journal', '-wal', '-shm'))
-            or re.search(r'-mj[a-z0-9]*\\Z', lower_name)):
+            or re.search(r'-mj[a-z0-9]*\Z', lower_name)):
         raise ValueError('Ledger filename collides with a SQLite sidecar suffix')
     parent = path.absolute().parent
     # A symlink anywhere in the directory path can redirect SQLite's journal
