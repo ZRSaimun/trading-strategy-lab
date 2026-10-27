@@ -21,10 +21,19 @@ backdated newly added receipt timestamps, and genuinely new expected minutes.
 - The current observation time must advance, and the old expected-minute
   population must remain an exact prefix of the new population. Changed
   historical expected minutes require a separate explicit calendar review.
+- Declared session and closure interval lists must also retain their historical
+  prefix (or extend only the last interval without changing its start).
+  Splitting or rearranging historical intervals is `REVIEW_REQUIRED` even if
+  the resulting expected-minute list and OHLC are identical.
+- A newly expected minute that had **already completed** at the previous
+  checkpoint is retrospective calendar expansion, not prospective coverage.
+  The report counts it and emits bounded UTC samples as
+  `retroactive_new_expected_minutes`. A minute still in progress at the
+  previous checkpoint is not treated as retrospective.
 - Retain original `received_at_utc` for every old minute. Do **not** replace
   retained rows with newly polled provider rows stamped at poll time.
 - Every duplicate, missing/unexpected minute, stale receipt, late receipt,
-  rewritten OHLC/receipt timestamp, removed old row, backfill or backdated
+  rewritten OHLC/receipt timestamp, changed historical session/closure declaration, retrospective expected-minute addition, removed old row, backfill or backdated
   newly added receipt forces `REVIEW_REQUIRED`. Both underlying censuses
   must independently pass for a clean internal continuity result.
 - Input sizes, timestamp alignment, OHLC shape, and sample limits are
