@@ -30,3 +30,22 @@ automatically. Tests cover edited start/end values, malformed or partial
 expected intervals, and preservation of the unconsumed claim. This detects
 inconsistent local records, not deliberate rewriting of both manifest and
 database or independently authenticated preregistration.
+
+
+**Frozen population binding (27 October 2026):** For a nonempty declared census,
+the guarded `audit_declared_holdout_release_once` wrapper now passes its
+frozen row SHA-256 values, decision timestamps, and declared market-feed key
+into the *same SQLite transaction* that claims the release. When population
+reservation tables exist, both exact reservation sets must match. This
+detects balanced row replacement, shifted decision timestamps and even a
+consistent replacement of the source key in both reservation tables that
+the earlier count and one-source checks could miss. A mismatch rejects the
+claim **before outcome loading** and leaves the attempt unconsumed. The
+claim response's `local_frozen_population_matched` is `true` only when
+the exact locked sets were compared; direct legacy calls without frozen
+population arguments and unreserved legacy registries report `false`.
+This does not establish external archive authenticity or prevent rewriting
+the caller's manifest and database together. The schema stores row hashes
+and decision times in separate sets, so it does **not** attest their original
+one-to-one pairing. Do not interpret this local comparison as independent
+holdout verification or permission to place orders.
