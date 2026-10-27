@@ -72,3 +72,38 @@ rights, timezone, executable costs, or holdout independence.
 
 The census is *capacity-admitted* (non-overlapping) signals only, not a
 claim about every market pattern during an already-open simulated trade.
+
+
+## Entered-position missing-exit loss stress (additive v3 diagnostic)
+
+The v3 report now includes `censored_entered_loss_stress_scenarios` for each
+chronological cohort. These **illustrative counterfactuals** address the
+selection risk of calculating mean returns only on observable exits. For
+each already-entered, censored hypothetical position, the scenario assumes
+a loss of **-1R, -3R, or -5R**, and deducts the same additional **0, 5, 10,
+or 20 basis-point** round-trip notional cost from *all* entered positions,
+including censored ones. The mean uses the complete **entered-position**
+denominator, not just the observed exits. The 12 scenarios do not change
+signals, entry/stop geometry, actual observed outcomes, capacity admission,
+the chronological split, or the existing observed-only statistics.
+
+The arithmetic is
+
+`stressed_mean_R(b,L) = [sum(observed_gross_R) - L * N_censored - (b/10000) * sum(all_entered_abs_entry/stop_distance)] / N_entered`
+
+where `L` is 1, 3 or 5, and `b` is the *additional hypothetical* round-trip
+cost in bps. All arithmetic uses Decimal and remains undefined (`null`)
+when there are no entered positions. The result explicitly labels itself
+`ILLUSTRATIVE_MISSING_EXIT_STRESS_NOT_A_LOWER_BOUND`.
+
+**These scenarios are not finite worst-case loss bounds.** A missing exit
+may be much worse than -5R, especially through a gap, and actual CFD
+financing, bid/ask spreads, commissions, FX and slippage are unverified.
+Signals lacking an observable entry and signals with invalid stop/target
+geometry are **excluded** from this entered-position stress because their
+entry price or admissible risk is not known; their separate census fields
+remain visible. A zero-censor cohort yields the same mean as the original
+observed-only cost scenario. These are research sensitivity calculations,
+not broker fills, position-sizing rules, a confidence interval, evidence
+of positive expectancy, or permission to trade. The already-inspected
+historical later periods remain development-only.
