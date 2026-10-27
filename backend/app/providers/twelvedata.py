@@ -64,6 +64,10 @@ class ProviderError(Exception):
         super().__init__(message);self.status=status
 
 def normalize(payload,instrument,now):
+    # This function is also used without retrieve(); never allow a malformed
+    # or unhashable instrument to escape as an unhandled KeyError/TypeError.
+    if type(instrument) is not str or instrument not in MAPPINGS:
+        raise ProviderError('Unknown provider mapping; no instrument substitution.', 422)
     # Direct normalization callers do not necessarily pass through retrieve().
     # NaN would make every completed-bar comparison false, while +Infinity
     # would silently admit future candles. Never trust a caller-supplied
@@ -115,7 +119,14 @@ def normalize(payload,instrument,now):
     return rows,json.dumps(archive,separators=(',',':')).encode()
 
 async def retrieve(key,instrument,limit,end,now,transport=None, *, include_wire_evidence=False):
-    if instrument not in MAPPINGS:raise ProviderError('Unknown provider mapping; no instrument substitution.',422)
+    # Fail before a potentially chargeable request if a direct caller passes a
+    # malformed credential. Never include its bytes in errors or diagnostics.
+    # The official API key is an opaque printable ASCII token, not a URL value.
+    if (type(key) is not str or not 1 <= len(key) <= 512
+            or any(not 33 <= ord(ch) <= 126 for ch in key)):
+        raise ProviderError('Invalid provider credential shape; no provider call.', 422)
+    if type(instrument) is not str or instrument not in MAPPINGS:
+        raise ProviderError('Unknown provider mapping; no instrument substitution.',422)
     if type(limit) is not int or not 1<=limit<=5000:
         raise ProviderError('Request requires an integer count of 1–5,000 candles.',422)
     if type(include_wire_evidence) is not bool:
