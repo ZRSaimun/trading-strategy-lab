@@ -254,6 +254,40 @@ def _issued_confidence_diagnostics(rows, seconds):
     }
 
 
+
+def _issued_probability_shift10(early, late):
+    """Label-free, fixed-bin probability distribution shift on ALL issued rows.
+
+    Jensen-Shannon divergence in bits is in [0, 1], but it is descriptive:
+    forecasts may be dependent and neither cohort is a verified holdout.
+    Missing outcomes do not remove forecasts from either denominator.
+    """
+    def counts(rows):
+        result = [0] * 10
+        for row in rows:
+            result[min(9, int(row["probability"] * 10))] += 1
+        return result
+
+    before, after = counts(early), counts(late)
+    divergence = None
+    if early and late:
+        divergence = 0.0
+        for a, b in zip(before, after):
+            p, q = a / len(early), b / len(late)
+            midpoint = (p + q) / 2
+            if p:
+                divergence += p * math.log2(p / midpoint) / 2
+            if q:
+                divergence += q * math.log2(q / midpoint) / 2
+    return {
+        "earlyIssuedProbabilityBins10": before,
+        "lateIssuedProbabilityBins10": after,
+        "issuedProbabilityJensenShannonBits10": divergence,
+        "issuedProbabilityShiftLowSupportUnder30":
+            min(len(early), len(late)) < 30 if early and late else None,
+    }
+
+
 def _outcome_availability_bins10(issued_census, eligible_settled):
     """Probability-stratified outcome availability on a PRESELECTED census.
 
@@ -411,6 +445,8 @@ def audit_temporal_forecast_calibration(snapshot, *, min_per_window=30,
             "lateCensusUnavailableAtDeclaredAsOfFraction": late_census_as_of_rate,
             "earlyNonoverlappingSettled": len(train),
             "lateNonoverlappingSettled": len(test),
+            # Label-free distribution drift on all issued forecasts, not settled-only.
+            **_issued_probability_shift10(early, late),
             # Issuance latency uses ALL late issued forecasts, including pending/void.
             # It is descriptive even when outcome-scoring gates withhold metrics.
             **_issuance_lag_diagnostics(late, seconds),
@@ -521,6 +557,8 @@ def audit_temporal_forecast_calibration(snapshot, *, min_per_window=30,
                        "issuance lag is caller-declared, not authenticated alert timeliness; "
                        "all-issued confidence is descriptive and cannot establish calibration; "
                        "probability-bin outcome availability is descriptive, sparse and "
+                       "issued probability divergence is descriptive, bin-dependent, "
+                       "not a statistical drift test or a calibrated probability; "
                        "cannot prove missingness is random or establish calibration; "
                        "unissued or missing completed candles are outside this census; "
                        "log-loss tail concentration and paired regret are descriptive "
