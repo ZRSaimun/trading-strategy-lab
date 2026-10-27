@@ -50,6 +50,27 @@ class FakeOpener:
         return self.reply
 
 
+class ChunkedReply(Reply):
+    """An HTTP response whose read(size) may return less than requested."""
+
+    def __init__(self, chunks, status=200, error_after=None):
+        super().__init__(b"", status=status)
+        self.chunks = list(chunks)
+        self.error_after = error_after
+        self.read_calls = 0
+
+    def read(self, size):
+        self.read_calls += 1
+        if self.error_after is not None and self.read_calls > self.error_after:
+            raise TimeoutError("secret after response prefix")
+        if not self.chunks:
+            return b""
+        chunk = self.chunks.pop(0)
+        if type(chunk) is bytes:
+            assert len(chunk) <= size
+        return chunk
+
+
 def accepted(chat=CHAT, mid=55, text=None):
     if text is None:
         text = review_text()
@@ -283,3 +304,59 @@ def test_official_dialog_id_boundaries_are_accepted_without_real_network(recipie
     assert result["recipientId"] == recipient
     assert result["deliveryVerified"] is False
     assert len(fake.calls) == 1
+
+
+def test_short_reads_reassemble_complete_ack_before_acceptance():
+    body = accepted()
+    reply = ChunkedReply([body[:3], body[3:27], body[27:]])
+    fake = FakeOpener(reply)
+    result = send_telegram_once(bot_token=TOKEN, chat_id=CHAT,
+                                text=review_text(), opener=fake)
+    assert result["providerAccepted"] is True
+    assert result["deliveryVerified"] is False
+    assert reply.read_calls == 4  # EOF is observed after the last short read.
+    assert len(fake.calls) == 1
+
+
+def test_valid_json_prefix_with_later_invalid_trailer_is_not_accepted():
+    # Previously one short read could return a valid JSON prefix and silently
+    # leave unconsumed bytes that invalidate the complete HTTP response.
+    reply = ChunkedReply([accepted(), b"malformed-trailing-response"])
+    fake = FakeOpener(reply)
+    with pytest.raises(DeliveryUncertain, match="manual reconciliation"):
+        send_telegram_once(bot_token=TOKEN, chat_id=CHAT,
+                           text=review_text(), opener=fake)
+    assert reply.read_calls == 3 and len(fake.calls) == 1
+
+
+@pytest.mark.parametrize("parts", [
+    [b" " * 16000, b" " * 385],
+    [b" " * 16384, b"X"],
+    [b" " * 16385],  # A malformed opener violates read(size).
+])
+def test_chunked_or_oversized_response_is_bounded(parts):
+    reply = ChunkedReply(parts)
+    fake = FakeOpener(reply)
+    with pytest.raises(DeliveryUncertain):
+        send_telegram_once(bot_token=TOKEN, chat_id=CHAT,
+                           text=review_text(), opener=fake)
+    assert len(fake.calls) == 1
+
+
+@pytest.mark.parametrize("invalid_part", [None, "unexpected string", bytearray(b"x")])
+def test_nonbytes_response_chunk_is_uncertain(invalid_part):
+    fake = FakeOpener(ChunkedReply([invalid_part]))
+    with pytest.raises(DeliveryUncertain, match="response read invalid"):
+        send_telegram_once(bot_token=TOKEN, chat_id=CHAT,
+                           text=review_text(), opener=fake)
+    assert len(fake.calls) == 1
+
+
+def test_timeout_after_valid_json_prefix_remains_uncertain():
+    reply = ChunkedReply([accepted()], error_after=1)
+    fake = FakeOpener(reply)
+    with pytest.raises(DeliveryUncertain, match="manual reconciliation") as err:
+        send_telegram_once(bot_token=TOKEN, chat_id=CHAT,
+                           text=review_text(), opener=fake)
+    assert "secret" not in str(err.value)
+    assert reply.read_calls == 2 and len(fake.calls) == 1
