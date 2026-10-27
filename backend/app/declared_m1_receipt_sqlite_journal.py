@@ -92,7 +92,7 @@ def _manifest(data):
         sessions_utc=data["sessions_utc"],
         exclusions_utc=data["exclusions_utc"],
     )
-    if (list(rebuilt.expected_minutes) != data["expected_minutes"]
+    if (tuple(rebuilt.expected_minutes) != tuple(data["expected_minutes"])
             or rebuilt.manifest_sha256 != data["manifest_sha256"]):
         raise ValueError("Stored manifest fingerprint or population changed")
     return rebuilt
