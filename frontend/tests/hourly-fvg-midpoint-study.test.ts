@@ -382,6 +382,7 @@ test('formation census preserves unknown outcomes and distinguishes paired from 
    INSUFFICIENT_DATA:{overlappingPairCombinations:0,maxConcurrentPairs:1},
   },
   pairedHoldingWindowCrossStrictCandidate:{passFail:0,passUnknown:0,failUnknown:0},
+  pairedMaximumDisjointWindows:{all:1,strictPass:0,strictFail:0,strictUnknown:1},
   pairedMarkouts:1,strictPairedMarkouts:0,nonStrictPairedMarkouts:1,
   pairedByStrictCandidate:{PASS:0,FAIL:0,INSUFFICIENT_DATA:1},
   unpairedByStrictCandidate:{PASS:0,FAIL:0,INSUFFICIENT_DATA:0},
@@ -547,7 +548,7 @@ test('research report source metadata excludes arbitrary caller properties',()=>
  assert.deepEqual(Object.keys(report.source).sort(),Object.keys(source).sort());
  assert.equal(JSON.stringify(report).includes('synthetic-private-marker'),false);
  assert.equal(JSON.stringify(report).includes('synthetic-account-marker'),false);
- assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v38');
+ assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v39');
 });
 test('ambiguous source labels and contradictory volume evidence fail closed',()=>{
  // These are declared metadata, not independent vendor authentication.
@@ -923,7 +924,7 @@ test('an overflowing next-open comparator suppresses both matched markouts',()=>
 });
 test('completed hourly timestamps are safe and numeric rule changes have a new version',()=>{
  const report=studyHourlyFvgMidpoint(fixture(),source);
- assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v38');
+ assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v39');
  const lastSafeAlignedOpen=Math.floor(Number.MAX_SAFE_INTEGER/H)*H;
  assert.equal(Number.isSafeInteger(lastSafeAlignedOpen),true);
  assert.equal(Number.isSafeInteger(lastSafeAlignedOpen+H),false);
@@ -1376,5 +1377,48 @@ test('cross-status matched FVG overlaps reconcile without treating missing volum
    assert.equal(touching.cohort.pairedMarkouts,2);
    assert.deepEqual(touching.cohort.pairedHoldingWindowCrossStrictCandidate,empty);
   }
+ }
+});
+
+test('maximum disjoint matured FVG windows is causal and never promotes unverified volume',()=>{
+ for(const bearish of [false,true]){
+  const base=Array.from({length:46},(_,i)=>candle(i,115,116,110,115));
+  const first=onePairedFvgFixture();
+  for(let i=0;i<first.length;i++)base[i]=first[i];
+  for(let i=26;i<=29;i++)base[i]=candle(i,106,110,103,106);
+  base[30]=candle(30,114,116,114,115);
+  base[31]=candle(31,114,116,109,115,200);
+  for(let i=32;i<46;i++)base[i]=candle(i,115,116,110,115);
+  const bars=bearish?base.map(b=>({...b,open:220-b.open,
+   high:220-b.low,low:220-b.high,close:220-b.close})):base;
+  const settings={markoutBars:14};
+  const full=studyHourlyFvgMidpoint(bars,source,settings);
+  assert.equal(full.cohort.pairedMarkouts,2);
+  assert.deepEqual(full.cohort.pairedMaximumDisjointWindows,{
+   all:1,strictPass:1,strictFail:0,strictUnknown:0,
+  },'overlapping windows contribute at most one disjoint matched outcome');
+  const unknown=studyHourlyFvgMidpoint(bars,{...source,volumeVerified:false},settings);
+  assert.deepEqual(unknown.cohort.pairedMaximumDisjointWindows,{
+   all:1,strictPass:0,strictFail:0,strictUnknown:1,
+  });
+  const mixed=[...bars];
+  mixed[31]={...mixed[31],volume:null};
+  assert.deepEqual(studyHourlyFvgMidpoint(mixed,source,settings)
+   .cohort.pairedMaximumDisjointWindows,{
+    all:1,strictPass:1,strictFail:0,strictUnknown:1,
+   },'independently optimized status maxima must not be summed');
+  const before=studyHourlyFvgMidpointAsOf(bars,source,BASE+37*H,settings);
+  assert.deepEqual(before.cohort.pairedMaximumDisjointWindows,{
+   all:0,strictPass:0,strictFail:0,strictUnknown:0,
+  });
+  const firstExit=studyHourlyFvgMidpointAsOf(bars,source,BASE+38*H,settings);
+  assert.deepEqual(firstExit.cohort.pairedMaximumDisjointWindows,{
+   all:1,strictPass:1,strictFail:0,strictUnknown:0,
+  });
+  const disjoint=studyHourlyFvgMidpoint(bars,source,{markoutBars:8});
+  assert.equal(disjoint.cohort.pairedMarkouts,2);
+  assert.deepEqual(disjoint.cohort.pairedMaximumDisjointWindows,{
+   all:2,strictPass:2,strictFail:0,strictUnknown:0,
+  },'half-open windows meeting at exit/entry can both be retained');
  }
 });
