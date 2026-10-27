@@ -7,7 +7,7 @@
  */
 import type {Bar} from './research.ts';
 
-export const HOURLY_FVG_VERSION='hourly-fvg-first-midpoint-touch-v42';
+export const HOURLY_FVG_VERSION='hourly-fvg-first-midpoint-touch-v43';
 export type Evidence='PASS'|'FAIL'|'INSUFFICIENT_DATA';
 // First-touch volume evidence is not independent broker/source authentication.
 export type VolumeEvidenceReason='NOT_EVALUATED'|'SOURCE_UNVERIFIED'|
@@ -54,6 +54,10 @@ export type FvgObservation={
   // A real midpoint intersection can have an unobserved fixed exit.
   // Do not confuse an interior source gap with an as-of/right-censored tail.
   markoutCensorReason:MarkoutCensorReason|null;
+  // An interior exit gap is identifiable only at the next completed bar;
+  // unrepresentable returns are known at the fixed exit close. A tail has
+  // no timestamped missing-hour receipt and stays null.
+  markoutCensorObservedAt:number|null;
   rejectionWickFraction:number|null;
  // The first completed touch fixes the volume reason, even when evidence is
  // insufficient. Null means no first-touch volume assessment has occurred.
@@ -616,6 +620,7 @@ export function studyHourlyFvgMidpoint(
   let censorReason:FirstTouchCensorReason|null=null;
   let censorObservedAt:number|null=null;
   let markoutCensorReason:MarkoutCensorReason|null=null;
+  let markoutCensorObservedAt:number|null=null;
   let openingGapThrough=false;
   let outcomeObservedAt:number|null=null;
   for(let wait=1;wait<=maxTouchWaitBars;wait++){
@@ -682,6 +687,7 @@ export function studyHourlyFvgMidpoint(
     if(bars[k].time-bars[k-1].time!==HOUR){
      contiguous=false;
      markoutCensorReason='MISSING_HOUR';
+     markoutCensorObservedAt=bars[k].time+HOUR;
      break;
     }
    }
@@ -708,6 +714,7 @@ export function studyHourlyFvgMidpoint(
      // Both matched returns are withheld if one cannot be represented.
      // This is not missing market history and must not be pooled with it.
      markoutCensorReason='UNREPRESENTABLE_RETURN';
+     markoutCensorObservedAt=exitAt;
     }
    }
    break; // FIRST midpoint touch only
@@ -733,7 +740,7 @@ export function studyHourlyFvgMidpoint(
    firstTouchOutcome:openingGapThrough?'OPEN_GAP_THROUGH':
     touch!==null?'TOUCH':windowComplete?'NO_TOUCH':'INCOMPLETE_WINDOW',
    firstTouchCensorReason:censorReason,firstTouchCensorObservedAt:censorObservedAt,
-   markoutCensorReason,
+   markoutCensorReason,markoutCensorObservedAt,
    rejectionWickFraction:wickFraction,volumeEvidenceObservedAt,
    volumeEvidenceReason,gates,
    blindMidpointTouch:blind,confirmedNextOpen:confirmed,

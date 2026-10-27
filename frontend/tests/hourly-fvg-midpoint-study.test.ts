@@ -553,7 +553,7 @@ test('research report source metadata excludes arbitrary caller properties',()=>
  assert.deepEqual(Object.keys(report.source).sort(),Object.keys(source).sort());
  assert.equal(JSON.stringify(report).includes('synthetic-private-marker'),false);
  assert.equal(JSON.stringify(report).includes('synthetic-account-marker'),false);
- assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v42');
+ assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v43');
 });
 test('ambiguous source labels and contradictory volume evidence fail closed',()=>{
  // These are declared metadata, not independent vendor authentication.
@@ -929,7 +929,7 @@ test('an overflowing next-open comparator suppresses both matched markouts',()=>
 });
 test('completed hourly timestamps are safe and numeric rule changes have a new version',()=>{
  const report=studyHourlyFvgMidpoint(fixture(),source);
- assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v42');
+ assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v43');
  const lastSafeAlignedOpen=Math.floor(Number.MAX_SAFE_INTEGER/H)*H;
  assert.equal(Number.isSafeInteger(lastSafeAlignedOpen),true);
  assert.equal(Number.isSafeInteger(lastSafeAlignedOpen+H),false);
@@ -1549,4 +1549,47 @@ test('missing first-touch hour has a causal gap-evidence clock, unlike a right-c
    assert.equal(valid.firstTouchCensorReason,null);
    assert.equal(valid.firstTouchCensorObservedAt,null);
   }
+});
+
+
+test('markout censor evidence clock is causal for missing exit hours and unrepresentable returns',()=>{
+ for(const bearish of [false,true]){
+  const flip=(series:Bar[])=>bearish?series.map(b=>({...b,
+   open:220-b.open,high:220-b.low,low:220-b.high,close:220-b.close})):series;
+  const observed=(series:Bar[],at:number)=>{
+   const result=studyHourlyFvgMidpointAsOf(series,source,at).observations
+    .find(o=>o.formationClosedAt===BASE+33*H);
+   assert.ok(result);
+   return result;
+  };
+  const missing=flip(fixture().filter(b=>b.time!==BASE+35*H));
+  const before=observed(missing,BASE+36*H);
+  assert.equal(before.firstTouchOutcome,'TOUCH');
+  assert.equal(before.markoutCensorReason,'RIGHT_CENSORED');
+  assert.equal(before.markoutCensorObservedAt,null,
+   'a future post-gap bar must not leak into an earlier replay');
+  const atReceipt=observed(missing,BASE+37*H);
+  assert.equal(atReceipt.markoutCensorReason,'MISSING_HOUR');
+  assert.equal(atReceipt.markoutCensorObservedAt,BASE+37*H);
+  assert.equal(atReceipt.markoutOutcomeObservedAt,null);
+  assert.equal(atReceipt.gates.markout,'INSUFFICIENT_DATA');
+  assert.equal(target(missing).markoutCensorObservedAt,BASE+37*H,
+   'later bars must not move the first observed exit-gap clock');
+  const tail=target(flip(fixture().slice(0,35)));
+  assert.equal(tail.markoutCensorReason,'RIGHT_CENSORED');
+  assert.equal(tail.markoutCensorObservedAt,null);
+  const overflow=flip(fixture());
+  overflow[36]={...overflow[36],high:Number.MAX_VALUE,close:Number.MAX_VALUE};
+  const beforeExit=observed(overflow,BASE+36*H);
+  assert.equal(beforeExit.markoutCensorReason,'RIGHT_CENSORED');
+  assert.equal(beforeExit.markoutCensorObservedAt,null);
+  const atExit=observed(overflow,BASE+37*H);
+  assert.equal(atExit.markoutCensorReason,'UNREPRESENTABLE_RETURN');
+  assert.equal(atExit.markoutCensorObservedAt,BASE+37*H);
+  assert.equal(atExit.markoutOutcomeObservedAt,null);
+  assert.equal(atExit.gates.markout,'INSUFFICIENT_DATA');
+  const valid=target(flip(fixture()));
+  assert.equal(valid.markoutCensorReason,null);
+  assert.equal(valid.markoutCensorObservedAt,null);
+ }
 });
