@@ -134,6 +134,10 @@ def audit_forecast_alert_health(records, expected_keys, *, as_of,
                     warning_keys.append(key)
         elif status == "IN_FLIGHT_UNCERTAIN":
             counts[status] += 1
+            # Every uncertain send requires reconciliation, even before its
+            # age-warning budget. Otherwise OPERATOR_REVIEW_REQUIRED could
+            # return no actionable identity for a freshly claimed alert.
+            warning_keys.append(key)
             age = as_of - state["claimedAt"]
             oldest_uncertain = max(oldest_uncertain, age)
             if age >= uncertain_warning_seconds:
