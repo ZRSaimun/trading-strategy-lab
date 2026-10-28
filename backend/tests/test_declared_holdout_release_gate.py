@@ -64,7 +64,9 @@ def test_small_sample_withheld_even_if_net_positive():
     assert result["status"] == "WITHHELD_INSUFFICIENT_HOLDOUT"
     assert result["outcome_metrics_withheld"] is True
     for key in ("net_cash", "worst_observation_net_cash",
-                "max_observation_end_drawdown_cash", "outcome_receipts_sha256"):
+                "max_observation_end_drawdown_cash",
+                "max_receipt_time_ordering_drawdown_cash_upper_bound",
+                "outcome_receipts_sha256"):
         assert result[key] is None
 
 
@@ -335,3 +337,63 @@ def test_receipt_batch_recovery_does_not_erase_prior_peak_drawdown():
     assert result["max_observation_end_drawdown_cash"] == "100.0000"
     assert result["worst_observation_net_cash"] == "-90.0000"
     assert result["broker_costs_verified"] is False
+
+
+def test_same_second_adverse_ordering_can_exceed_batched_drawdown():
+    # Earlier peak is real within the declared receipt chronology. A later
+    # same-second debit-first ordering could fall below the batched endpoint.
+    data = list(fixture(30))
+    for row in data[3]:
+        row.update(gross_cash="0", spread_cash="0", slippage_cash="0",
+                   commission_cash="0", financing_cash="0", fx_cash="0")
+    for i, (cash, second) in enumerate(
+            (("100", 7000), ("-100", 7100), ("20", 7200), ("-30", 7200))):
+        data[3][i]["gross_cash"] = cash
+        data[3][i]["observed_at_utc"] = second
+    result = audit(data)
+    assert result["net_cash"] == "-10.0000"
+    assert result["max_observation_end_drawdown_cash"] == "110.0000"
+    assert result["max_receipt_time_ordering_drawdown_cash_upper_bound"] == "130.0000"
+    assert result["broker_costs_verified"] is False
+
+
+@pytest.mark.parametrize("first,second", [
+    ((15, -8, 4), (-20, 7)),
+    ((-30, 10), (5, -2, 7)),
+    ((-4, -6), (20, -9, 1)),
+])
+def test_adverse_same_second_bound_matches_exhaustive_orderings(first, second):
+    # Independent brute-force oracle: every ordering of each UTC-second batch.
+    # All other 30-observation census receipts are zero and occur earlier.
+    from itertools import permutations, product
+    from decimal import Decimal
+
+    data = list(fixture(30))
+    for row in data[3]:
+        row.update(gross_cash="0", spread_cash="0", slippage_cash="0",
+                   commission_cash="0", financing_cash="0", fx_cash="0")
+    values = list(first) + list(second)
+    for i, value in enumerate(values):
+        data[3][i]["gross_cash"] = str(value)
+        data[3][i]["observed_at_utc"] = 8000 if i < len(first) else 8100
+
+    worst_possible = Decimal(0)
+    for ordered_first, ordered_second in product(
+            set(permutations(first)), set(permutations(second))):
+        cash = peak = drawdown = Decimal(0)
+        for value in ordered_first + ordered_second:
+            cash += Decimal(value)
+            peak = max(peak, cash)
+            drawdown = max(drawdown, peak - cash)
+        worst_possible = max(worst_possible, drawdown)
+
+    report = audit(data)
+    assert report["max_receipt_time_ordering_drawdown_cash_upper_bound"] == (
+        format(worst_possible, ".4f")
+    )
+    assert (Decimal(report["max_observation_end_drawdown_cash"]) <=
+            Decimal(report["max_receipt_time_ordering_drawdown_cash_upper_bound"]))
+    shuffled = copy.deepcopy(data)
+    random.Random(20261028).shuffle(shuffled[3])
+    assert audit(shuffled) == report
+    assert report["profitable_edge_verified"] is False
