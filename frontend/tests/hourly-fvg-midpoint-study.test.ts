@@ -2926,3 +2926,54 @@ test('as-of future timestamp getter cannot rewrite historical source or frozen s
  assert.equal(observed?.gates.markout,'INSUFFICIENT_DATA',
   'future exit candles remain right-censored as of the touch close');
 });
+
+test('v71 post-snapshot archive and cost schemas reject getter-injected broker metadata',()=>{
+ const rows=fixture();
+ const first=rows[0];
+ Object.defineProperty(rows,0,{configurable:true,enumerable:true,get(){
+  Object.defineProperty(rows,'brokerAskQuote',{value:101,configurable:true});
+  return first;
+ }});
+ assert.throws(()=>studyHourlyFvgMidpoint(rows,source),/archive array metadata/,
+  'a candle getter must not attach unreported array-level ASK evidence');
+
+ const rowMutation=fixture();
+ const firstRow=rowMutation[0],originalOpen=firstRow.open;
+ Object.defineProperty(firstRow,'open',{configurable:true,enumerable:true,get(){
+  Object.defineProperty(firstRow,'ask',{value:101,configurable:true});
+  return originalOpen;
+ }});
+ assert.throws(()=>studyHourlyFvgMidpoint(rowMutation,source),/candle schema changed/,
+  'a candle field getter must not add unreported broker-side fields');
+
+ const costs=[0,5,15];
+ Object.defineProperty(costs,0,{configurable:true,enumerable:true,get(){
+  Object.defineProperty(costs,'brokerCommission',{value:2,configurable:true});
+  return 0;
+ }});
+ assert.throws(()=>studyHourlyFvgMidpoint(fixture(),source,{
+  hypotheticalRoundTripCostsBps:costs,
+ }),/cost scenario field/,
+ 'a cost getter must not add broker commissions outside the bps-only protocol');
+});
+
+test('v71 post-snapshot as-of rechecks completed schemas without future OHLC reads',()=>{
+ for(const mutate of ['archive','completed'] as const){
+  const rows=fixture();
+  const future=rows[35],futureTime=future.time;
+  Object.defineProperty(future,'time',{configurable:true,enumerable:true,get(){
+   if(mutate==='archive')
+    Object.defineProperty(rows,'brokerSpread',{value:3,configurable:true});
+   else
+    Object.defineProperty(rows[0],'ask',{value:101,configurable:true});
+   return futureTime;
+  }});
+  for(const field of ['open','high','low','close','volume','observed_minutes'])
+   Object.defineProperty(future,field,{configurable:true,get(){
+    throw Error('future '+field+' must never be read');
+   }});
+  assert.throws(()=>studyHourlyFvgMidpointAsOf(rows,source,BASE+34*H),
+   mutate==='archive'?/archive array metadata/:/completed candle schema changed/,
+   'future timestamp side effects cannot silently alter already-revealed evidence schema');
+ }
+});
