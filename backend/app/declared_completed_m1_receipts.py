@@ -87,8 +87,11 @@ def audit_declared_completed_m1_receipts(
 
     seen_ids: set[str] = set()
     seen_minutes: set[int] = set()
+    # Keep only bounded first-observation OHLC text per minute for revision census.
+    first_minute_ohlc: dict[int, tuple[str, str, str, str]] = {}
     previous_minute = previous_receipt = None
     duplicate_minutes = backward_minutes = observed_gap_minutes = 0
+    changed_duplicate_ohlc_text_rows = changed_duplicate_numeric_ohlc_rows = 0
     lag_exceeded = finalization_lag_exceeded = 0
     digest = hashlib.sha256(b"DECLARED_COMPLETED_M1_RECEIPT_CENSUS_V1\n")
     digest.update(json.dumps(
@@ -121,8 +124,19 @@ def audit_declared_completed_m1_receipts(
         opening, high, low, closing = prices
         if low > min(opening, closing) or high < max(opening, closing):
             raise ValueError("Invalid OHLC ordering")
+        raw_ohlc = tuple(record[k] for k in ("open", "high", "low", "close"))
         if start in seen_minutes:
             duplicate_minutes += 1
+            original_ohlc = first_minute_ohlc[start]
+            if raw_ohlc != original_ohlc:
+                changed_duplicate_ohlc_text_rows += 1
+                # Distinguish a numerical price revision from text-only scale
+                # changes such as 100.0 versus 100.00. Both remain quarantined.
+                if any(value != Decimal(first)
+                       for value, first in zip(prices, original_ohlc)):
+                    changed_duplicate_numeric_ohlc_rows += 1
+        else:
+            first_minute_ohlc[start] = raw_ohlc
         seen_minutes.add(start)
         if previous_minute is not None:
             if start < previous_minute:
@@ -173,6 +187,8 @@ def audit_declared_completed_m1_receipts(
         "source_id": source_id, "price_side": price_side,
         "receipt_rows": len(receipts), "distinct_minutes": len(seen_minutes),
         "duplicate_minute_rows": duplicate_minutes,
+        "changed_duplicate_ohlc_text_rows": changed_duplicate_ohlc_text_rows,
+        "changed_duplicate_numeric_ohlc_rows": changed_duplicate_numeric_ohlc_rows,
         "backward_candle_events": backward_minutes,
         "observed_gap_minutes_not_proven_missing": observed_gap_minutes,
         "transport_lag_exceeded_rows": lag_exceeded,
