@@ -1,0 +1,20 @@
+# Declared completed-M1 receipt preflight (offline, fail-closed)
+
+This isolated Loop 1 audit checks **caller-declared** completed one-minute market-data receipts. It does not fetch market data, connect a broker, use credentials, charge provider credits, write prices, authorize alerts, or enable paper/live orders. It cannot authenticate the caller's timestamps, finality flags, source, venue, provider entitlements or exchange calendar.
+
+Run synthetic tests:
+
+```bash
+cd backend
+PYTHONPATH=. pytest -q tests/test_declared_completed_m1_receipts.py
+```
+
+Import `app.declared_completed_m1_receipts.audit_declared_completed_m1_receipts` and pass a nonempty list of at most 5,000 source-order receipts with **exactly** these fields: `event_id`, `provider`, `instrument`, `source_id`, `price_side` (`mid`, `bid`, or `ask`), `minute_start_utc`, `finalized_at_utc`, `received_at_utc`, `is_final`, and positive exact decimal-string `open/high/low/close`. All timestamps are UTC epoch seconds. The caller supplies a separate `as_of_utc` clock and fixed source identity. `finalized_at_utc` must be at least one minute after the start, `received_at_utc` cannot precede finalization, and neither can exceed `as_of_utc`. Source event IDs must be unique. Duplicate minutes, backward candles and observed timestamp gaps are counted; malformed identity, OHLC, timestamps or finality fail closed. The receipt stream must have nondecreasing received timestamps.
+
+Freshness is based on **both** age since the newest candle ended and age since its receipt, plus per-record transport lag. A newly received *old* candle cannot pass freshness. Defaults: 180-second age and 30-second transport lag; caller limits cannot exceed 3,600 seconds and 300 seconds respectively. These are diagnostic thresholds, not authorization to trade or evidence of actual vendor latency. An optional strictly increasing caller-declared expected UTC-minute inventory reports missing/extra minutes, but is **not** an independently verified holiday/session register. Observed gaps do not prove an outage. A SHA-256 over the ordered declared receipt identity/timestamp/price strings is a reproducibility checksum, not a signature, vendor authentication or license receipt. No raw prices appear in the returned report.
+
+**All outputs permanently set** `source_authenticity_verified`, `server_owned_receipt_clock_verified`, `licensing_verified`, `session_calendar_verified`, `market_data_live`, `research_ready`, and `may_execute_order` to `False`. `structurally_clean` and `declared_freshness_within_budget` are descriptive only. This utility must not be used to bypass existing data eligibility or order controls.
+
+## Activation blockers
+
+A future real feed integration needs an owner-authorized, entitled provider/instrument/price-side mapping; independent source authenticity and permitted-use evidence; a **server-owned immutable UTC receive clock**; a provider-specific completed-bar/finality contract; authenticated expected-session/holiday/DST inventories; retention/redistribution rights; and isolated staging and recovery/rollback acceptance. Never promote Twelve Data aggregated/mid XAU/USD candles into executable broker BID/ASK or invent spreads. Trading 212's official public API currently covers **Invest and Stocks ISA**, not CFDs ([official documentation](https://docs.trading212.com/api), checked 28 Oct 2026). Twelve Data precious-metal access and redistribution depend on subscription and licensing ([Forex API v2](https://support.twelvedata.com/en/articles/12520817-forex-api-v2)); its time-series requests may consume credits ([request guide](https://support.twelvedata.com/en/articles/5620512-how-to-create-a-request)). No authenticated provider request was made by this change.
