@@ -157,6 +157,27 @@ def _validate_rollback_journal(path):
         raise ValueError('Unsafe SQLite rollback journal; quarantine ledger')
 
 
+
+def _reject_nonempty_readonly_journal(path):
+    """Do not let a read-only audit implicitly consume pending recovery state.
+
+    An existing ledger can require rollback recovery after a process death.
+    Recovery belongs to a separately reviewed write-capable maintenance path,
+    never to a diagnostic claimed to be read-only. Preserve journal evidence.
+    """
+    journal = Path(str(path) + '-journal')
+    try:
+        info = journal.lstat()
+    except FileNotFoundError:
+        return
+    except OSError as exc:
+        raise ValueError('SQLite rollback journal cannot be inspected') from exc
+    # The caller first validates file type, owner, links, permissions and size.
+    if info.st_size:
+        raise ValueError('Nonempty rollback journal; read-only audit requires recovery')
+
+
+
 def _reject_orphan_rollback_journal(path):
     """A new ledger has no transaction to recover; never adopt an orphan journal.
 
@@ -182,6 +203,8 @@ def _connect(path, *, read_only=False):
     _private_file(before)
     _reject_wal_sidecars(p)
     _validate_rollback_journal(p)
+    if read_only:
+        _reject_nonempty_readonly_journal(p)
     if before.st_size > MAX_LEDGER_BYTES:
         raise ValueError('Ledger file exceeds reviewed byte capacity')
     # mode=ro/rw prevents sqlite3's default rwc mode from recreating a ledger
@@ -206,6 +229,8 @@ def _connect(path, *, read_only=False):
         _private_file(after)
         _reject_wal_sidecars(p)
         _validate_rollback_journal(p)
+        if read_only:
+            _reject_nonempty_readonly_journal(p)
         if after.st_size > MAX_LEDGER_BYTES:
             raise ValueError('Ledger file exceeds reviewed byte capacity')
         # Python 3.12/SQLite limits apply to values decoded from malicious rows,
@@ -532,8 +557,10 @@ def inspect_ledger(path):
         conn.execute('BEGIN')
         count, digest, last_time, state = _verify(conn)
         _require_storage_fingerprint(path, expected_storage)
+        _reject_nonempty_readonly_journal(path)
         conn.execute('COMMIT')
         _require_storage_fingerprint(path, expected_storage)
+        _reject_nonempty_readonly_journal(path)
         return {'schema': 'paper-submission-attempt-ledger-v1', 'event_count': count,
                 'order_count': len(state), 'audit_tip_sha256': digest,
                 'last_recorded_at_ms': last_time if count else None,
