@@ -271,3 +271,67 @@ def test_empty_and_oversized_populations_rejected():
         prepare_declared_holdout_census_sha256([{}])
     with pytest.raises(ValueError):
         prepare_declared_holdout_census_sha256([fixture(1)[1][0]] * 10001)
+
+def test_randomized_receipt_batch_drawdown_matches_independent_decimal_oracle():
+    """Synthetic property regression: observation-time batches, not decision order.
+
+    Deliberately place every receipt after all labels, then shuffle receipt
+    chronology and outcome-list order independently. This is a diagnostic cash
+    path, not an executable broker-equity or intraperiod drawdown.
+    """
+    from collections import defaultdict
+    from decimal import Decimal
+
+    rng = random.Random(20261028)
+    for _ in range(32):
+        data = list(fixture(35))
+        cash_by_second = defaultdict(lambda: Decimal(0))
+        expected_net = Decimal(0)
+        expected_worst = None
+        for row in data[3]:
+            row["observed_at_utc"] = rng.choice((7000, 7100, 7200, 7300, 7400))
+            row["gross_cash"] = str(rng.randint(-150, 150))
+            row["spread_cash"] = str(rng.randint(0, 9))
+            row["slippage_cash"] = str(rng.randint(0, 9))
+            row["commission_cash"] = str(rng.randint(0, 9))
+            row["financing_cash"] = str(rng.randint(-12, 12))
+            row["fx_cash"] = str(rng.randint(0, 9))
+            net = (Decimal(row["gross_cash"]) - Decimal(row["spread_cash"])
+                   - Decimal(row["slippage_cash"]) - Decimal(row["commission_cash"])
+                   - Decimal(row["financing_cash"]) - Decimal(row["fx_cash"]))
+            cash_by_second[row["observed_at_utc"]] += net
+            expected_net += net
+            expected_worst = net if expected_worst is None else min(expected_worst, net)
+        running = peak = expected_drawdown = Decimal(0)
+        for second in sorted(cash_by_second):
+            running += cash_by_second[second]
+            peak = max(peak, running)
+            expected_drawdown = max(expected_drawdown, peak - running)
+        expected = {
+            "net_cash": format(expected_net, ".4f"),
+            "worst_observation_net_cash": format(expected_worst, ".4f"),
+            "max_observation_end_drawdown_cash": format(expected_drawdown, ".4f"),
+        }
+        first = audit(data)
+        for key, value in expected.items():
+            assert first[key] == value
+        rng.shuffle(data[3])
+        shuffled = audit(data)
+        assert shuffled == first
+        assert shuffled["profitable_edge_verified"] is False
+        assert shuffled["may_execute_real_order"] is False
+
+
+def test_receipt_batch_recovery_does_not_erase_prior_peak_drawdown():
+    data = list(fixture(30))
+    for row in data[3]:
+        row.update(gross_cash="0", spread_cash="0", slippage_cash="0",
+                   commission_cash="0", financing_cash="0", fx_cash="0")
+    for i, gross in enumerate(("100", "-80", "70", "-90", "120")):
+        data[3][i]["gross_cash"] = gross
+        data[3][i]["observed_at_utc"] = 8000 + i * 100
+    result = audit(data)
+    assert result["net_cash"] == "120.0000"
+    assert result["max_observation_end_drawdown_cash"] == "90.0000"
+    assert result["worst_observation_net_cash"] == "-90.0000"
+    assert result["broker_costs_verified"] is False
