@@ -52,8 +52,8 @@ def _id(value, field):
 
 
 def _sha(value, field):
-    if not isinstance(value, str) or not DIGEST.fullmatch(value):
-        raise ValueError(f'{field}: expected lowercase SHA-256 hex')
+    if not isinstance(value, str) or not DIGEST.fullmatch(value) or value == ZERO:
+        raise ValueError(f'{field}: expected nonzero lowercase SHA-256 hex')
     return value
 
 
