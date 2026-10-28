@@ -98,3 +98,38 @@ def test_input_lists_are_not_modified():
 def test_inventory_size_is_bounded_before_iteration():
     with pytest.raises(ValueError):
         audit([], [T + 60 * i for i in range(100_001)])
+
+
+def test_declared_missing_runs_break_at_observed_and_undeclared_session_gaps():
+    # Missing T and T+120 are separated by an observed declared minute.
+    # A three-day jump in the declaration must not be joined into one run.
+    expected = [T, T + 60, T + 120, T + 3 * 86400, T + 3 * 86400 + 60]
+    result = audit([T + 60], expected, sample_limit=3)
+    assert result["unobserved_declared_minutes"] == 4
+    assert result["unobserved_declared_runs"] == 3
+    assert result["longest_unobserved_declared_run_minutes"] == 2
+    runs = result["unobserved_declared_run_samples_utc"]
+    assert [r["minutes"] for r in runs] == [1, 1, 2]
+    assert runs[0]["first_utc"] == runs[0]["last_utc"]
+    assert runs[-1]["first_utc"] != runs[-1]["last_utc"]
+    assert result["missing_market_data_proven"] is False
+
+
+def test_missing_run_samples_are_bounded_without_changing_full_counts():
+    expected = [T + i * 120 for i in range(30)]
+    result = audit([], expected, sample_limit=2)
+    assert result["unobserved_declared_minutes"] == 30
+    assert result["unobserved_declared_runs"] == 30
+    assert result["longest_unobserved_declared_run_minutes"] == 1
+    assert len(result["unobserved_declared_run_samples_utc"]) == 2
+    assert len(result["unobserved_declared_samples_utc"]) == 2
+    no_samples = audit([], expected, sample_limit=0)
+    assert no_samples["unobserved_declared_runs"] == 30
+    assert no_samples["unobserved_declared_run_samples_utc"] == []
+
+
+def test_no_missing_minutes_have_no_missing_runs():
+    result = audit([T, T + 60], [T, T + 60])
+    assert result["unobserved_declared_runs"] == 0
+    assert result["longest_unobserved_declared_run_minutes"] == 0
+    assert result["unobserved_declared_run_samples_utc"] == []
