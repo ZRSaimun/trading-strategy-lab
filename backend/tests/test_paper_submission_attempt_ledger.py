@@ -481,6 +481,87 @@ def test_ledger_rejects_hardlinked_storage(db, tmp_path):
     assert inspect_ledger(db)['event_count'] == 0
 
 
+def test_group_writable_ancestor_rejects_new_ledger(tmp_path):
+    shared = tmp_path / 'shared'
+    shared.mkdir(mode=0o700)
+    private = shared / 'private'
+    private.mkdir(mode=0o700)
+    db = private / 'ledger.sqlite'
+    shared.chmod(0o770)
+    try:
+        with pytest.raises(ValueError, match='ancestor directory permits unsafe renaming'):
+            initialize_ledger(db)
+        assert not db.exists()
+    finally:
+        shared.chmod(0o700)
+
+
+def test_group_writable_ancestor_quarantines_existing_ledger(tmp_path):
+    shared = tmp_path / 'shared'
+    shared.mkdir(mode=0o700)
+    private = shared / 'private'
+    private.mkdir(mode=0o700)
+    db = private / 'ledger.sqlite'
+    initialize_ledger(db)
+    original = db.read_bytes()
+    shared.chmod(0o770)
+    try:
+        with pytest.raises(ValueError, match='ancestor directory permits unsafe renaming'):
+            inspect_ledger(db)
+        with pytest.raises(ValueError, match='ancestor directory permits unsafe renaming'):
+            prepare_intent(db, recorded_at_ms=100, **KEY)
+        assert db.read_bytes() == original
+    finally:
+        shared.chmod(0o700)
+    assert inspect_ledger(db)['event_count'] == 0
+
+
+def test_trusted_sticky_ancestor_allows_private_ledger(tmp_path):
+    shared = tmp_path / 'sticky'
+    shared.mkdir(mode=0o700)
+    shared.chmod(0o1777)
+    try:
+        private = shared / 'private'
+        private.mkdir(mode=0o700)
+        db = private / 'ledger.sqlite'
+        initialize_ledger(db)
+        assert inspect_ledger(db)['event_count'] == 0
+    finally:
+        shared.chmod(0o700)
+
+
+def test_ancestor_inode_swap_during_sqlite_open_fails_closed(tmp_path, monkeypatch):
+    shared = tmp_path / 'shared'
+    shared.mkdir(mode=0o700)
+    private = shared / 'private'
+    private.mkdir(mode=0o700)
+    db = private / 'ledger.sqlite'
+    initialize_ledger(db)
+    replacement = tmp_path / 'replacement'
+    replacement.mkdir(mode=0o700)
+    saved = tmp_path / 'saved'
+    real_connect = ledger.sqlite3.connect
+    swapped = False
+
+    def swap_ancestor(*args, **kwargs):
+        nonlocal swapped
+        if not swapped:
+            swapped = True
+            shared.rename(saved)
+            replacement.rename(shared)
+            # Keep the immediate private parent inode identical; only its
+            # writable ancestor identity changes during SQLite opening.
+            (saved / 'private').rename(shared / 'private')
+        return real_connect(*args, **kwargs)
+
+    monkeypatch.setattr(ledger.sqlite3, 'connect', swap_ancestor)
+    with pytest.raises(ValueError, match='parent identity changed'):
+        inspect_ledger(db)
+    assert swapped
+    monkeypatch.setattr(ledger.sqlite3, 'connect', real_connect)
+    assert inspect_ledger(db)['event_count'] == 0
+
+
 def test_initialize_rejects_public_parent_before_creating_file(tmp_path):
     parent = tmp_path / 'public'
     parent.mkdir(mode=0o700)

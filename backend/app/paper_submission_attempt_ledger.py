@@ -110,7 +110,25 @@ def _private_parent(path):
             or stat.S_IMODE(info.st_mode) & 0o077
             or info.st_uid != os.geteuid()):
         raise ValueError('Ledger parent must be a service-owned private directory (0700)')
-    return (info.st_dev, info.st_ino)
+    # A private immediate parent is insufficient when an untrusted user can
+    # rename that entire directory through a writable ancestor. A root- or
+    # service-owned sticky ancestor (for example /tmp) protects its child
+    # entries; ordinary group/world-writable ancestors do not. Capture every
+    # ancestor inode so later storage checks detect parent-chain replacement.
+    ancestor_identities = []
+    for ancestor in parent.parents:
+        try:
+            ancestor_info = ancestor.lstat()
+        except OSError as exc:
+            raise ValueError('Ledger ancestor directory unavailable') from exc
+        if not stat.S_ISDIR(ancestor_info.st_mode):
+            raise ValueError('Ledger ancestor path must contain directories')
+        if stat.S_IMODE(ancestor_info.st_mode) & 0o022:
+            if not (ancestor_info.st_mode & stat.S_ISVTX
+                    and ancestor_info.st_uid in (0, os.geteuid())):
+                raise ValueError('Ledger ancestor directory permits unsafe renaming')
+        ancestor_identities.append((ancestor_info.st_dev, ancestor_info.st_ino))
+    return (info.st_dev, info.st_ino, tuple(ancestor_identities))
 
 
 def _private_file(info):

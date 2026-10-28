@@ -317,3 +317,10 @@ best-effort pathname observations and do not eliminate same-user or privileged
 filesystem races. A rejected journal is **not** proof of a broker fill or
 a failed order; independently authenticate and reconcile broker inventory
 before any future execution integration.
+
+
+## Writable ancestor and directory-chain quarantine (28 October 2026)
+
+A private immediate ledger directory does not prevent another user from renaming that directory if an ancestor grants group/other write access. Initialization, read-only inspection and transitions now reject such ancestor directories, except for root- or service-owned sticky directories (for example the normal root-owned `/tmp`) where the sticky bit protects service-owned child entries. Each ancestor device/inode is included in the storage fingerprint, so a parent-chain replacement detected during opening or an audit fails closed even when the immediate private directory inode remains unchanged. Four synthetic regressions cover new and existing ledgers, trusted sticky ancestors and ancestor-only inode replacement during SQLite opening.
+
+These are conservative POSIX pathname checks, **not atomic fd binding**: privileged/same-user attackers, mount changes, and swap-away/swap-back races remain outside the guarantee. No broker authentication, order submission, risk reservation integration, owner approval or deployment is added. Both execution flags remain false.
