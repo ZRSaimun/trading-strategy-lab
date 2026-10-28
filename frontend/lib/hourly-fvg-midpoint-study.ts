@@ -7,7 +7,7 @@
  */
 import type {Bar} from './research.ts';
 
-export const HOURLY_FVG_VERSION='hourly-fvg-first-midpoint-touch-v49';
+export const HOURLY_FVG_VERSION='hourly-fvg-first-midpoint-touch-v50';
 export type Evidence='PASS'|'FAIL'|'INSUFFICIENT_DATA';
 // First-touch volume evidence is not independent broker/source authentication.
 export type VolumeEvidenceReason='NOT_EVALUATED'|'SOURCE_UNVERIFIED'|
@@ -159,6 +159,18 @@ function validSourceLabel(value:unknown):value is string{
  return typeof value==='string'&&value.length>=1&&value.length<=128&&
   value.trim()===value&&
   !/[\u0000-\u001f\u007f-\u009f\u061c\u200b-\u200f\u2028-\u202e\u2060-\u206f\ufeff]/.test(value);
+}
+// A top-level archive array is only an ordered BID-candle population, not a
+// container for silently discarded ASK quotes, broker receipts or provenance.
+// Reject undeclared own metadata without reading its values. The iterator is
+// deliberately ignored because both research paths read bounded own indices.
+function validateBarArraySchema(bars:readonly Bar[],count:number){
+ for(const key of Reflect.ownKeys(bars)){
+  if(key==='length'||key===Symbol.iterator||
+   (typeof key==='string'&&/^(0|[1-9]\\d*)$/.test(key)&&Number(key)<count))
+   continue;
+  throw Error('Unexpected FVG archive array metadata outside frozen BID-only protocol');
+ }
 }
 function validateBars(bars:readonly Bar[]){
  if(!Array.isArray(bars)||bars.length>20000)
@@ -523,6 +535,7 @@ export function studyHourlyFvgMidpoint(
  // or remove elements while we read them; never let the loop expand to
  // include those late arrivals or silently accept a truncated population.
  const barCount=suppliedBars.length;
+ validateBarArraySchema(suppliedBars,barCount);
  // Do not invoke a caller-controlled Symbol.iterator: a short Array can
  // otherwise yield unbounded or substituted candles despite the length cap.
  // Indexed reads keep the snapshot bounded and preserve sparse-hole rejection.
@@ -828,6 +841,7 @@ export function studyHourlyFvgMidpointAsOf(
  if(!Array.isArray(suppliedBars)||suppliedBars.length>20000)
   throw Error('Invalid or oversized hourly research window');
  const barCount=suppliedBars.length;
+ validateBarArraySchema(suppliedBars,barCount);
  const prefix:Bar[]=[];
  let previousTime:number|null=null;
  for(let index=0;index<barCount;index++){

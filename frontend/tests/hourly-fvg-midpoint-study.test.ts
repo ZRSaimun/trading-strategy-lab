@@ -1836,3 +1836,40 @@ test('v49 cost scenario arrays reject unmodeled broker-cost evidence without rea
  }),studyHourlyFvgMidpointAsOf(bars,source,cutoff),
  'as-of replay retains the same valid bps-only scenarios');
 });
+
+test('v50 archive arrays reject undeclared BID/ASK or source metadata without evaluating it',()=>{
+ const baseline=studyHourlyFvgMidpoint(fixture(),source);
+ const cutoff=BASE+37*H;
+ const hidden=fixture();
+ Object.defineProperty(hidden,'askQuotes',{value:'unverified',enumerable:false});
+ const symbolic=fixture();
+ Object.defineProperty(symbolic,Symbol('broker-attestation'),{value:true});
+ const extra=fixture() as Bar[] & {brokerSpreadBps?:number};
+ extra.brokerSpreadBps=3;
+ for(const bars of [hidden,symbolic,extra]){
+  assert.throws(()=>studyHourlyFvgMidpoint(bars,source),
+   /Unexpected FVG archive array metadata/,
+   'archive-level broker claims cannot disappear from a BID-only report');
+  assert.throws(()=>studyHourlyFvgMidpointAsOf(bars,source,cutoff),
+   /Unexpected FVG archive array metadata/,
+   'completed-prefix research must reject the same unsupported archive metadata');
+ }
+ let unknownReads=0;
+ const hostile=fixture();
+ Object.defineProperty(hostile,'certifiedAskQuotes',{get(){
+  unknownReads++;
+  throw Error('unreviewed archive metadata getter must not execute');
+ }});
+ assert.throws(()=>studyHourlyFvgMidpoint(hostile,source),
+  /Unexpected FVG archive array metadata/);
+ assert.throws(()=>studyHourlyFvgMidpointAsOf(hostile,source,cutoff),
+  /Unexpected FVG archive array metadata/);
+ assert.equal(unknownReads,0,'unknown archive metadata must never be read');
+ const iteratorProtected=fixture();
+ Object.defineProperty(iteratorProtected,Symbol.iterator,{value(){
+  throw Error('untrusted archive iterator must never execute');
+ }});
+ assert.deepEqual(studyHourlyFvgMidpoint(iteratorProtected,source),baseline);
+ assert.deepEqual(studyHourlyFvgMidpointAsOf(iteratorProtected,source,cutoff),
+  studyHourlyFvgMidpointAsOf(fixture(),source,cutoff));
+});
