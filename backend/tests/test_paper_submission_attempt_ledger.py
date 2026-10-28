@@ -1017,15 +1017,15 @@ def test_unknown_submission_quarantines_new_same_account_intents(db):
 def test_prepared_second_order_cannot_attempt_during_first_unknown(db):
     """Preparing before the ambiguity must not bypass the account fence."""
     prep(db)
-    prep(db, client_order_id='order-2', intent_sha256=E)
+    prep(db, client_order_id='order-2', intent_sha256='c' * 64)
     attempt(db)
     with pytest.raises(ValueError, match='Unresolved broker submission'):
-        attempt(db, client_order_id='order-2', intent_sha256=E)
+        attempt(db, client_order_id='order-2', intent_sha256='c' * 64)
     assert inspect_ledger(db)['event_count'] == 3
     # Declared terminal reconciliation clears this *local* pending status,
     # but is NOT authenticated broker proof or permission to execute.
     reconcile(db)
-    assert mark_attempt_unknown(db, recorded_at_ms=103, **(KEY | {'client_order_id': 'order-2', 'intent_sha256': E}))['may_submit_real_order'] is False
+    assert mark_attempt_unknown(db, recorded_at_ms=103, **(KEY | {'client_order_id': 'order-2', 'intent_sha256': 'c' * 64}))['may_submit_real_order'] is False
 
 
 def test_unknown_quarantine_is_scoped_to_broker_and_account(db):
@@ -1144,7 +1144,7 @@ def test_reconciled_account_history_allows_new_local_evidence_but_not_execution(
     attempt(db)
     reconcile(db)
     result = prepare_intent(db, broker=KEY['broker'], account_alias=KEY['account_alias'],
-                            client_order_id='order-2', intent_sha256=E,
+                            client_order_id='order-2', intent_sha256='c' * 64,
                             recorded_at_ms=103)
     assert result['may_submit_paper_order'] is False
     assert result['may_submit_real_order'] is False
@@ -1274,3 +1274,74 @@ def test_reconciliation_receipt_scope_is_broker_account(db):
         **{k: v for k, v in other.items() if k != 'intent_sha256'})
     assert outcome['may_submit_paper_order'] is False
     assert outcome['may_submit_real_order'] is False
+
+def test_terminal_receipt_cannot_reuse_other_prepared_intent_digest(db):
+    """An unrelated PREPARED fingerprint is not broker settlement evidence."""
+    prep(db)
+    prep(db, client_order_id='order-2', intent_sha256=E)
+    attempt(db)
+    with pytest.raises(ValueError, match='reuses account intent fingerprint'):
+        reconcile(db)
+    snapshot = inspect_ledger(db)
+    assert snapshot['event_count'] == 3
+    assert snapshot['orders'][0]['status'] == 'ATTEMPT_UNKNOWN'
+    assert snapshot['may_submit_real_order'] is False
+
+
+def test_new_intent_cannot_reuse_prior_terminal_receipt_digest(db):
+    prep(db)
+    attempt(db)
+    reconcile(db)
+    with pytest.raises(ValueError, match='Reused terminal receipt as intent fingerprint'):
+        prep(db, client_order_id='order-2', intent_sha256=E)
+    assert inspect_ledger(db)['event_count'] == 3
+
+
+@pytest.mark.parametrize('operation', ['inspect', 'prepare'])
+def test_rehashed_terminal_event_reusing_other_intent_digest_is_quarantined(db, operation):
+    prep(db)
+    prep(db, client_order_id='order-2', intent_sha256=E)
+    attempt(db)
+    _inject_rehashed_event(
+        db, broker=KEY['broker'], account=KEY['account_alias'],
+        order=KEY['client_order_id'], event='RECONCILED_FILLED',
+        evidence=E, stamp=102)
+    with pytest.raises(ValueError, match='reuses account intent fingerprint'):
+        if operation == 'inspect':
+            inspect_ledger(db)
+        else:
+            prep(db, client_order_id='order-3', intent_sha256='c' * 64)
+    with sqlite3.connect(db) as conn:
+        assert conn.execute('SELECT count(*) FROM events').fetchone()[0] == 4
+
+
+@pytest.mark.parametrize('operation', ['inspect', 'prepare'])
+def test_rehashed_new_intent_reusing_terminal_receipt_is_quarantined(db, operation):
+    prep(db)
+    attempt(db)
+    reconcile(db)
+    _inject_rehashed_event(
+        db, broker=KEY['broker'], account=KEY['account_alias'],
+        order='order-2', event='PREPARED', evidence=E, stamp=103)
+    with pytest.raises(ValueError, match='Reused terminal receipt as intent fingerprint'):
+        if operation == 'inspect':
+            inspect_ledger(db)
+        else:
+            prep(db, client_order_id='order-3', intent_sha256='c' * 64)
+    with sqlite3.connect(db) as conn:
+        assert conn.execute('SELECT count(*) FROM events').fetchone()[0] == 4
+
+
+@pytest.mark.parametrize('scope', [
+    {'account_alias': 'independent-demo-account'},
+    {'broker': 'T212-STOCKSISA-DEMO'},
+])
+def test_terminal_receipt_can_be_intent_digest_in_independent_namespace(db, scope):
+    """The local evidence namespace is broker/account, not global."""
+    prep(db)
+    attempt(db)
+    reconcile(db)
+    result = prepare_intent(db, recorded_at_ms=103, **(KEY | scope | {
+        'client_order_id': 'order-2', 'intent_sha256': E}))
+    assert result['may_submit_paper_order'] is False
+    assert result['may_submit_real_order'] is False
