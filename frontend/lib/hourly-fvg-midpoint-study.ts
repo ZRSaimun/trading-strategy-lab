@@ -7,7 +7,7 @@
  */
 import type {Bar} from './research.ts';
 
-export const HOURLY_FVG_VERSION='hourly-fvg-first-midpoint-touch-v61';
+export const HOURLY_FVG_VERSION='hourly-fvg-first-midpoint-touch-v62';
 export type Evidence='PASS'|'FAIL'|'INSUFFICIENT_DATA';
 // First-touch volume evidence is not independent broker/source authentication.
 export type VolumeEvidenceReason='NOT_EVALUATED'|'SOURCE_UNVERIFIED'|
@@ -158,6 +158,10 @@ export type FvgCohort={
  pairedMaximumDisjointWindows:PairedMaximumDisjointCensus;
  // Count matched and right-censored candidates by strict evidence status.
  pairedByStrictCandidate:EvidenceCounts;unpairedByStrictCandidate:EvidenceCounts;
+ // Direction-specific paired versus missing/failed comparison populations.
+ // Each evidence status reconciles with the pooled matched/unmatched census.
+ pairedByDirectionAndStrictCandidate:Record<Side,EvidenceCounts>;
+ unpairedByDirectionAndStrictCandidate:Record<Side,EvidenceCounts>;
  blindOnlyMarkouts:number;
 };
 export type FvgCoverage={
@@ -456,11 +460,38 @@ function summarizeCohort(observations:readonly FvgObservation[],costs:readonly n
  if(Object.values(volumeEvidenceByReason).reduce((sum,n)=>sum+n,0)!==
   observations.length)
   throw Error('FVG volume evidence population does not reconcile');
- const pairedByStrictCandidate:EvidenceCounts={PASS:0,FAIL:0,INSUFFICIENT_DATA:0};
- const unpairedByStrictCandidate:EvidenceCounts={PASS:0,FAIL:0,INSUFFICIENT_DATA:0};
+ const emptyEvidenceCounts=():EvidenceCounts=>({PASS:0,FAIL:0,INSUFFICIENT_DATA:0});
+ const pairedByStrictCandidate=emptyEvidenceCounts();
+ const unpairedByStrictCandidate=emptyEvidenceCounts();
+ const pairedByDirectionAndStrictCandidate:Record<Side,EvidenceCounts>={
+  BULLISH:emptyEvidenceCounts(),BEARISH:emptyEvidenceCounts(),
+ };
+ const unpairedByDirectionAndStrictCandidate:Record<Side,EvidenceCounts>={
+  BULLISH:emptyEvidenceCounts(),BEARISH:emptyEvidenceCounts(),
+ };
  for(const observation of observations){
-  const counts=paired(observation)?pairedByStrictCandidate:unpairedByStrictCandidate;
-  counts[observation.gates.strictCandidate]++;
+  const matched=paired(observation);
+  const status=observation.gates.strictCandidate;
+  (matched?pairedByStrictCandidate:unpairedByStrictCandidate)[status]++;
+  (matched?pairedByDirectionAndStrictCandidate:
+   unpairedByDirectionAndStrictCandidate)[observation.direction][status]++;
+ }
+ for(const status of ['PASS','FAIL','INSUFFICIENT_DATA'] as const){
+  if(pairedByStrictCandidate[status]!==(
+   pairedByDirectionAndStrictCandidate.BULLISH[status]+
+   pairedByDirectionAndStrictCandidate.BEARISH[status])||
+   unpairedByStrictCandidate[status]!==(
+    unpairedByDirectionAndStrictCandidate.BULLISH[status]+
+    unpairedByDirectionAndStrictCandidate.BEARISH[status]))
+   throw Error('Directional FVG matched/unmatched evidence does not reconcile');
+ }
+ for(const side of ['BULLISH','BEARISH'] as const){
+  const counted=Object.values(pairedByDirectionAndStrictCandidate[side])
+   .reduce((sum,n)=>sum+n,0)+
+   Object.values(unpairedByDirectionAndStrictCandidate[side])
+    .reduce((sum,n)=>sum+n,0);
+  if(counted!==observations.filter(o=>o.direction===side).length)
+   throw Error('Directional FVG comparison attrition population does not reconcile');
  }
  // Compare the two fixed-exit gross BID markouts only after BOTH outcomes
  // mature. This ranking does not depend on an illustrative cost scenario
@@ -691,6 +722,7 @@ function summarizeCohort(observations:readonly FvgObservation[],costs:readonly n
   markout:count('markout'),
   pairedMarkouts:observations.filter(paired).length,
   pairedByStrictCandidate,unpairedByStrictCandidate,
+  pairedByDirectionAndStrictCandidate,unpairedByDirectionAndStrictCandidate,
   // A wick-only paired result is NOT a strict volume-qualified result.
   // The PASS label is based on caller-declared volume provenance; it is
   // not independent broker or exchange authentication.

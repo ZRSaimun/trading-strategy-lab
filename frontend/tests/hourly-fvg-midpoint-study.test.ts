@@ -438,6 +438,14 @@ test('formation census preserves unknown outcomes and distinguishes paired from 
   pairedMarkouts:1,strictPairedMarkouts:0,nonStrictPairedMarkouts:1,
   pairedByStrictCandidate:{PASS:0,FAIL:0,INSUFFICIENT_DATA:1},
   unpairedByStrictCandidate:{PASS:0,FAIL:0,INSUFFICIENT_DATA:0},
+  pairedByDirectionAndStrictCandidate:{
+   BULLISH:{PASS:0,FAIL:0,INSUFFICIENT_DATA:1},
+   BEARISH:{PASS:0,FAIL:0,INSUFFICIENT_DATA:0},
+  },
+  unpairedByDirectionAndStrictCandidate:{
+   BULLISH:{PASS:0,FAIL:0,INSUFFICIENT_DATA:0},
+   BEARISH:{PASS:0,FAIL:0,INSUFFICIENT_DATA:0},
+  },
   blindOnlyMarkouts:0,
  });
  const failedWick=[...bars];
@@ -608,7 +616,7 @@ test('research report rejects extra source fields without leaking caller private
  const report=studyHourlyFvgMidpoint(fixture(),source);
  assert.deepEqual(report.source,source);
  assert.deepEqual(Object.keys(report.source).sort(),Object.keys(source).sort());
- assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v61');
+ assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v62');
 });
 test('ambiguous source labels and contradictory volume evidence fail closed',()=>{
  // These are declared metadata, not independent vendor authentication.
@@ -683,7 +691,7 @@ test('v61 source labels reject lone surrogates and Unicode noncharacters in both
  assert.deepEqual(studyHourlyFvgMidpoint(bars,valid).source,valid);
  assert.deepEqual(studyHourlyFvgMidpointAsOf(bars,valid,cutoff).source,valid);
  assert.equal(studyHourlyFvgMidpoint(bars,valid).version,
-  'hourly-fvg-first-midpoint-touch-v61');
+  'hourly-fvg-first-midpoint-touch-v62');
 });
 test('first bullish midpoint touch has a hypothetical blind limit and later next-open rejection markout',()=>{
  const x=target(fixture());
@@ -1028,7 +1036,7 @@ test('an overflowing next-open comparator suppresses both matched markouts',()=>
 });
 test('completed hourly timestamps are safe and numeric rule changes have a new version',()=>{
  const report=studyHourlyFvgMidpoint(fixture(),source);
- assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v61');
+ assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v62');
  const lastSafeAlignedOpen=Math.floor(Number.MAX_SAFE_INTEGER/H)*H;
  assert.equal(Number.isSafeInteger(lastSafeAlignedOpen),true);
  assert.equal(Number.isSafeInteger(lastSafeAlignedOpen+H),false);
@@ -2367,4 +2375,70 @@ test('v60 directional prior-20 volume census preserves unknown and causal timing
     .NOT_EVALUATED>=1);
   }
  }
+});
+
+
+test('v62 directional matched-pair attrition retains strict FAIL/UNKNOWN and as-of censoring',()=>{
+ const mirror=(rows:Bar[])=>rows.map(b=>({...b,
+  open:220-b.open,high:220-b.low,low:220-b.high,close:220-b.close}));
+ const weak=fixture();weak[33]={...weak[33],close:104.5};
+ const cases=[
+  {name:'paired strict pass',bars:fixture(),src:source,config:{},
+   strict:'PASS',matched:true},
+  {name:'paired strict fail on volume',bars:fixture(),src:source,
+   config:{volumeMultiple:10},strict:'FAIL',matched:true},
+  {name:'paired unknown source volume',bars:fixture(),
+   src:{...source,volumeVerified:false},config:{},
+   strict:'INSUFFICIENT_DATA',matched:true},
+  {name:'unpaired failed wick',bars:weak,src:source,config:{},
+   strict:'FAIL',matched:false},
+  {name:'unpaired incomplete exit',bars:fixture().slice(0,35),
+   src:source,config:{},strict:'PASS',matched:false},
+  {name:'unpaired pre-touch prefix',bars:fixture(),src:source,
+   config:{},strict:'INSUFFICIENT_DATA',matched:false,asOf:BASE+33*H},
+ ] as const;
+ const statuses=['PASS','FAIL','INSUFFICIENT_DATA'] as const;
+ const sides=['BULLISH','BEARISH'] as const;
+ for(const sample of cases){
+  for(const side of sides){
+   const bars=side==='BULLISH'?sample.bars:mirror(sample.bars);
+   const at='asOf' in sample?sample.asOf:
+    bars[bars.length-1].time+H;
+   const report=studyHourlyFvgMidpointAsOf(bars,sample.src,at,sample.config);
+   const selected=report.observations.find(o=>o.formationClosedAt===BASE+33*H);
+   assert.ok(selected,sample.name+' '+side);
+   assert.equal(selected.direction,side);
+   assert.equal(selected.gates.strictCandidate,sample.strict,sample.name);
+   assert.equal(selected.confirmedNextOpen!==null,sample.matched,sample.name);
+   const cohort=report.cohort;
+   for(const direction of sides){
+    for(const status of statuses){
+     const observations=report.observations.filter(o=>
+      o.direction===direction&&o.gates.strictCandidate===status);
+     const matched=observations.filter(o=>
+      o.blindMidpointTouch!==null&&o.confirmedNextOpen!==null).length;
+     assert.equal(cohort.pairedByDirectionAndStrictCandidate[direction][status],
+      matched,sample.name+' paired '+direction+' '+status);
+     assert.equal(cohort.unpairedByDirectionAndStrictCandidate[direction][status],
+      observations.length-matched,sample.name+' unpaired '+direction+' '+status);
+     assert.equal(sides.reduce((sum,d)=>
+      sum+cohort.pairedByDirectionAndStrictCandidate[d][status],0),
+      cohort.pairedByStrictCandidate[status]);
+     assert.equal(sides.reduce((sum,d)=>
+      sum+cohort.unpairedByDirectionAndStrictCandidate[d][status],0),
+      cohort.unpairedByStrictCandidate[status]);
+    }
+   }
+   if(!('asOf' in sample))
+    assert.deepEqual(report,studyHourlyFvgMidpoint(bars,sample.src,sample.config));
+  }
+ }
+ // One archive can contain both directions; source gaps cannot be filled
+ // to make a misleading contiguous paired sample.
+ const shiftedBear=mirror(fixture()).map((bar,i)=>({...bar,time:BASE+(50+i)*H}));
+ const mixed=studyHourlyFvgMidpoint([...fixture(),...shiftedBear],source);
+ assert.ok(mixed.cohort.pairedByDirectionAndStrictCandidate.BULLISH.PASS>=1);
+ assert.ok(mixed.cohort.pairedByDirectionAndStrictCandidate.BEARISH.PASS>=1);
+ assert.deepEqual(studyHourlyFvgMidpointAsOf([...fixture(),...shiftedBear],
+  source,BASE+90*H),mixed);
 });
