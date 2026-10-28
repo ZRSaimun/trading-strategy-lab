@@ -157,6 +157,21 @@ def _causal_confirmation_window_coverage(bars, matched):
             "quarantine_clean_confirmation_windows": 0,
         } for name in ("development", "exploratory_later")
     }
+    # Mutually exclusive *causal* contamination phase combinations. The
+    # sweep and completed confirmation are distinct from the prior 16 bars.
+    # This is a structural denominator, never a signal-selection feature.
+    phase_names = {
+        1: "PRIOR_ONLY",
+        2: "SWEEP_ONLY",
+        3: "PRIOR_AND_SWEEP",
+        4: "CONFIRMATION_ONLY",
+        5: "PRIOR_AND_CONFIRMATION",
+        6: "SWEEP_AND_CONFIRMATION",
+        7: "PRIOR_SWEEP_AND_CONFIRMATION",
+    }
+    phase_counts = {
+        name: {label: 0 for label in phase_names.values()} for name in counts
+    }
     for i in range(16, n - 1):
         cohort = ("development" if i + 1 < split - 16 else
                   "exploratory_later" if i >= split + 16 else None)
@@ -171,9 +186,20 @@ def _causal_confirmation_window_coverage(bars, matched):
         cell["original_contiguous_confirmation_windows"] += 1
         if touched_prefix[end + 1] - touched_prefix[start]:
             cell["declared_duplicate_touched_confirmation_windows"] += 1
+            phase_mask = (
+                int(touched_prefix[i] > touched_prefix[i - 16]) |
+                (2 if bars[i].time in matched else 0) |
+                (4 if bars[i + 1].time in matched else 0)
+            )
+            if phase_mask == 0:
+                raise RuntimeError("Causal contamination phase census mismatch")
+            phase_counts[cohort][phase_names[phase_mask]] += 1
         else:
             cell["quarantine_clean_confirmation_windows"] += 1
-    for cell in counts.values():
+    for name, cell in counts.items():
+        if sum(phase_counts[name].values()) != cell[
+                "declared_duplicate_touched_confirmation_windows"]:
+            raise RuntimeError("Causal phase attribution reconciliation failed")
         if (cell["possible_sweep_indices"] !=
                 cell["confirmation_crosses_source_gap_or_segment"] +
                 cell["original_contiguous_confirmation_windows"] or
@@ -190,6 +216,12 @@ def _causal_confirmation_window_coverage(bars, matched):
         "does_not_measure_trade_or_signal_count": True,
         "does_not_prove_executable_or_profitable_outcomes": True,
         "cohorts": counts,
+        "contamination_phase_attribution": {
+            "scope": "COMPLETED_CONFIRMATION_PHASES_ONLY_NOT_SIGNAL_SELECTION",
+            "mutually_exclusive": True,
+            "future_entry_or_exit_bars_inspected": False,
+            "cohorts": phase_counts,
+        },
     }
 
 def _full_horizon_window_coverage(bars, matched):
