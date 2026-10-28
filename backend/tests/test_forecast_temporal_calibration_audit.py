@@ -1453,9 +1453,10 @@ def test_joint_census_integrates_with_existing_weekday_and_hour_marginals():
         days = row[phase + "CensusOutcomeAvailabilityUtcWeekday7"]
         assert len(joint) == 168
         for key in ("issued", "eligibleSettled", "unavailable"):
-            assert sum(c[key] for c in joint) == row[
-                phase + "NonoverlappingIssued"] if key == "issued" else sum(
-                    c[key] for c in hours)
+            assert sum(c[key] for c in joint) == sum(c[key] for c in hours)
+            if key == "issued":
+                assert sum(c[key] for c in joint) == row[
+                    phase + "NonoverlappingIssued"]
             assert [sum(joint[day * 24 + hour][key] for day in range(7))
                     for hour in range(24)] == [c[key] for c in hours]
             assert [sum(joint[day * 24 + hour][key] for hour in range(24))
