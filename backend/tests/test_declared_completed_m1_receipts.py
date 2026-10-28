@@ -513,3 +513,77 @@ def test_overdue_run_absent_vs_empty_and_pending_sample_bounded():
     assert len(report["pending_declared_expected_minute_sample_utc"]) == 12
     assert report["declared_overdue_missing_expected_gap_runs"] == 1
     assert report["largest_declared_overdue_missing_expected_gap_run_minutes"] == 1
+
+
+def test_declared_late_arrival_distinguishes_rows_and_minute_identities():
+    # Composite deadline = minute close + 60s finalization + 30s transport.
+    rows = [row(T, event="first", received=T + 90),
+            row(T + 60, event="late", received=T + 271)]
+    report = audit_declared_completed_m1_receipts(
+        rows, provider="synthetic", instrument="XAU/USD", source_id="test:feed",
+        price_side="mid", as_of_utc=T + 300,
+    )
+    assert report["declared_arrived_after_budget_rows"] == 1
+    assert report["declared_arrived_after_budget_distinct_minutes"] == 1
+    assert report["declared_arrived_after_budget_minute_sample_utc"] == [T + 60]
+    assert report["transport_lag_exceeded_rows"] == 1
+    assert report["structurally_clean"] is False
+    assert report["market_data_live"] is False
+    assert report["may_execute_order"] is False
+
+
+def test_declared_composite_arrival_deadline_is_strict_and_not_stage_override():
+    at_deadline = audit([row(received=T + 150)])
+    after_deadline = audit([row(received=T + 151)])
+    assert at_deadline["declared_arrived_after_budget_rows"] == 0
+    assert at_deadline["declared_arrived_after_budget_distinct_minutes"] == 0
+    assert at_deadline["declared_arrived_after_budget_minute_sample_utc"] == []
+    assert after_deadline["declared_arrived_after_budget_rows"] == 1
+    # Even at the composite deadline, a stage-specific transport breach holds.
+    assert at_deadline["transport_lag_exceeded_rows"] == 1
+    assert at_deadline["structurally_clean"] is False
+    assert at_deadline["may_execute_order"] is False
+
+
+def test_late_duplicate_rows_do_not_inflate_distinct_late_minute_population():
+    report = audit([row(event="first", received=T + 151),
+                    row(event="repeat", received=T + 152)])
+    assert report["declared_arrived_after_budget_rows"] == 2
+    assert report["declared_arrived_after_budget_distinct_minutes"] == 1
+    assert report["declared_arrived_after_budget_minute_sample_utc"] == [T]
+    assert report["duplicate_minute_rows"] == 1
+    assert report["out_of_order_first_seen_minutes"] == 0
+    assert report["structurally_clean"] is False
+
+
+def test_first_seen_backfills_use_prior_high_water_not_only_previous_row():
+    rows = [row(T + 180, event="high", received=T + 242),
+            row(T, event="old", received=T + 243),
+            row(T + 60, event="middle", received=T + 244),
+            row(T + 60, event="repeat", received=T + 245)]
+    report = audit_declared_completed_m1_receipts(
+        rows, provider="synthetic", instrument="XAU/USD", source_id="test:feed",
+        price_side="mid", as_of_utc=T + 500,
+    )
+    assert report["backward_candle_events"] == 1
+    assert report["out_of_order_first_seen_minutes"] == 2
+    assert report["out_of_order_first_seen_minute_sample_utc"] == [T, T + 60]
+    assert report["duplicate_minute_rows"] == 1
+    assert report["structurally_clean"] is False
+    assert report["source_authenticity_verified"] is False
+
+
+def test_backfill_identity_sample_is_sorted_and_bounded_without_prices():
+    rows = [row(T + 1200, event="high", received=T + 1262)]
+    rows.extend(row(T + i * 60, event=f"backfill-{i}",
+                    received=T + 1300 + i) for i in range(16))
+    report = audit_declared_completed_m1_receipts(
+        rows, provider="synthetic", instrument="XAU/USD", source_id="test:feed",
+        price_side="mid", as_of_utc=T + 1500,
+    )
+    assert report["out_of_order_first_seen_minutes"] == 16
+    assert report["out_of_order_first_seen_minute_sample_utc"] == [
+        T + i * 60 for i in range(12)
+    ]
+    assert len(report["out_of_order_first_seen_minute_sample_utc"]) == 12
+    assert report["may_execute_order"] is False
