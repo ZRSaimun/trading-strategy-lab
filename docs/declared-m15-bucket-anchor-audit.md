@@ -36,3 +36,12 @@ Synthetic test command (no network or provider credits):
     PYTHONPATH=. pytest -q tests/test_declared_m15_bucket_anchor_audit.py
 
 Provider constraints (reviewed 28 October 2026): [HistData specification](https://www.histdata.com/f-a-q/data-files-detailed-specification/) describes fixed EST without DST and BID-based M1 candles; it does not authenticate any uploaded ZIP. [Trading 212 public API](https://docs.trading212.com/api) is documented for Invest and Stocks ISA, not CFDs. Entitlements and live execution remain separate and disabled.
+
+
+## Original source-row M15 contiguity (additive diagnostic)
+
+Distinct-minute completeness can conceal shuffled or interleaved original M1 rows. The existing replay-free and anchor-matched M15 counts remain **distinct-minute structural counts** for compatibility; they do not prove original source-row contiguity.
+
+The audit now separately reports `source_order_contiguous_replay_free_complete_m15_buckets` and `source_wall_replay_free_complete_but_noncontiguous_m15_buckets`. For each declared offset, `anchor_matched_source_order_contiguous_clean_m15_buckets` counts buckets that are complete, globally untouched by repeated source-minute labels, occur as 15 consecutive ascending source rows aligned to a quarter hour, and have a matching anchor-complete UTC bucket. It also provides an outside-anchor count, a distinct domain-separated SHA-256 fingerprint (`DECLARED_ANCHOR_SOURCE_ORDER_CLEAN_M15_BUCKET_STARTS_V1` plus newline-separated ascending UTC starts) and up to eight exact UTC bucket-start samples.
+
+This is **per-bucket** row-order contiguity, not global chronological verification. Entire M15 blocks may be reordered and still count. Independently verify global backward jumps, source identity, original price parity, timestamp convention, UTC anchor custody, trading calendars, and rights before research. The new structural metric never selects an offset or enables research, live data, or orders. Seven synthetic regressions cover shuffled/interleaved rows, block reordering, repeated minutes, offset mapping, fingerprints, and sample limits.
