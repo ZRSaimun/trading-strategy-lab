@@ -95,6 +95,12 @@ def census_news_spike_persistence(candles, events, *, as_of_utc, source_id):
             continue
         pre_high = max(x[1] for x in pre)
         pre_low = min(x[2] for x in pre)
+        # Incomplete reaction windows are pending, not observed data outages.
+        if as_of < when + timedelta(minutes=5):
+            output.append({"event_id": name, "event_utc": when.isoformat(),
+                           "status": "pending_first_five_completion", "spike": None,
+                           "horizons": None})
+            continue
         first = [by_time.get(when + timedelta(minutes=i)) for i in range(5)]
         if any(v is None for v in first):
             output.append({"event_id": name, "event_utc": when.isoformat(),
