@@ -90,6 +90,9 @@ def audit_source_m1_population(
     repeats = backward = adjacent = 0
     first_repeat_ordinal = last_repeat_ordinal = None
     repeat_samples: list[dict] = []
+    repeated_run_count = longest_repeated_run = 0
+    repeated_run_samples: list[dict] = []
+    run_start = run_end = run_first_minute = run_last_minute = None
     previous = None
     for ordinal, minute in enumerate(source, 1):
         if previous is not None:
@@ -104,9 +107,35 @@ def audit_source_m1_population(
             last_repeat_ordinal = ordinal
             if len(repeat_samples) < sample_limit:
                 repeat_samples.append({"row_ordinal": ordinal, "minute_utc": _iso(minute)})
+            if run_start is None:
+                run_start, run_first_minute = ordinal, minute
+            run_end, run_last_minute = ordinal, minute
         else:
+            if run_start is not None:
+                repeated_run_count += 1
+                longest_repeated_run = max(longest_repeated_run, run_end - run_start + 1)
+                if len(repeated_run_samples) < sample_limit:
+                    repeated_run_samples.append({
+                        "first_row_ordinal": run_start,
+                        "last_row_ordinal": run_end,
+                        "repeated_rows": run_end - run_start + 1,
+                        "first_minute_utc": _iso(run_first_minute),
+                        "last_minute_utc": _iso(run_last_minute),
+                    })
+                run_start = None
             seen.add(minute)
         previous = minute
+    if run_start is not None:
+        repeated_run_count += 1
+        longest_repeated_run = max(longest_repeated_run, run_end - run_start + 1)
+        if len(repeated_run_samples) < sample_limit:
+            repeated_run_samples.append({
+                "first_row_ordinal": run_start,
+                "last_row_ordinal": run_end,
+                "repeated_rows": run_end - run_start + 1,
+                "first_minute_utc": _iso(run_first_minute),
+                "last_minute_utc": _iso(run_last_minute),
+            })
 
     stored_set = set(stored)
     missing = sorted(seen - stored_set)
@@ -129,6 +158,9 @@ def audit_source_m1_population(
         "first_repeat_row_ordinal": first_repeat_ordinal,
         "last_repeat_row_ordinal": last_repeat_ordinal,
         "source_repeated_row_samples": repeat_samples,
+        "source_repeated_row_run_count": repeated_run_count,
+        "source_longest_repeated_row_run": longest_repeated_run,
+        "source_repeated_row_run_samples": repeated_run_samples,
         "source_unique_missing_from_store": len(missing),
         "stored_minutes_absent_from_source": len(extra),
         "source_missing_from_store_samples_utc": [_iso(t) for t in missing[:sample_limit]],

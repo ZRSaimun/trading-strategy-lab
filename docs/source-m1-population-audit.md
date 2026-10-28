@@ -31,3 +31,7 @@ Run synthetic tests:
 cd backend
 PYTHONPATH=. pytest -q tests/test_source_m1_population_audit.py
 ```
+
+## Repeated-row run diagnostics
+
+The audit also counts **consecutive source-order rows whose UTC minute has already appeared earlier**. It reports `source_repeated_row_run_count`, `source_longest_repeated_row_run`, and up to `sample_limit` first/last ordinal and UTC-minute examples. A 60-row replayed block yields one 60-row run; separated duplicate clusters yield separate runs. A run is contiguous **in row order**, not necessarily continuous in market time, and cannot establish whether duplicated rows have matching OHLC or a legitimate exchange session. Counters remain available with samples disabled; these diagnostics never override quarantine or research/market-data permissions.

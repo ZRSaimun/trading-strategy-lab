@@ -108,3 +108,42 @@ def test_sample_limit_is_bounded(sample_limit):
 def test_over_budget_fails_before_population_analysis():
     with pytest.raises(ValueError):
         audit([T] * 1_000_001, [T])
+
+
+def test_contiguous_replayed_block_has_one_60_row_run():
+    original = [T + 60 * i for i in range(120)]
+    raw = original[:90] + original[15:75] + original[90:]
+    result = audit(raw, original, sample_limit=1)
+    assert result["source_repeated_row_run_count"] == 1
+    assert result["source_longest_repeated_row_run"] == 60
+    assert result["source_repeated_row_run_samples"][0]["first_row_ordinal"] == 91
+    assert result["source_repeated_row_run_samples"][0]["last_row_ordinal"] == 150
+    assert result["source_repeated_row_run_samples"][0]["repeated_rows"] == 60
+
+
+def test_separated_repeated_runs_are_counted_without_time_continuity_assumptions():
+    original = [T + 60 * i for i in range(15)]
+    raw = original[:10] + original[2:4] + original[10:] + [original[4]]
+    result = audit(raw, original, sample_limit=2)
+    assert result["source_repeated_rows"] == 3
+    assert result["source_repeated_row_run_count"] == 2
+    assert result["source_longest_repeated_row_run"] == 2
+    assert [s["repeated_rows"] for s in result["source_repeated_row_run_samples"]] == [2, 1]
+    assert [(s["first_row_ordinal"], s["last_row_ordinal"]) for s in result["source_repeated_row_run_samples"]] == [(11, 12), (18, 18)]
+    assert result["result"] == "QUARANTINE_REQUIRED"
+
+
+def test_run_census_kept_when_samples_disabled():
+    original = [T + 60 * i for i in range(15)]
+    result = audit(original + original, original, sample_limit=0)
+    assert result["source_repeated_row_run_count"] == 1
+    assert result["source_longest_repeated_row_run"] == 15
+    assert result["source_repeated_row_run_samples"] == []
+
+
+def test_clean_population_has_no_repeated_runs():
+    original = [T + 60 * i for i in range(15)]
+    result = audit(original, original)
+    assert result["source_repeated_row_run_count"] == 0
+    assert result["source_longest_repeated_row_run"] == 0
+    assert result["source_repeated_row_run_samples"] == []
