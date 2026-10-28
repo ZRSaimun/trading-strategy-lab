@@ -120,3 +120,30 @@ delivery guarantees, tradable quote freshness or trading returns*. The
 existing authentication, alert, paper, live-execution and deployment gates
 remain closed. Four synthetic regressions cover exact nearest-rank behavior,
 status exclusion, empty populations and late-receipt inclusion.
+
+
+## Opt-in pending target deadline census (28 October 2026)
+
+\`audit_pending_outcome_deadlines(snapshot, as_of=...)\` checks the **declared**
+pending outcome population against \`targetStart + candleSeconds + maxLagSeconds\`.
+The receipt deadline is inclusive: \`as_of == deadline\` is still within the
+declared window; only \`as_of > deadline\` counts as overdue. All issued
+forecasts remain in the denominator, including settled and void-gap outcomes,
+which are **not** counted as pending. The function reports overdue/within-window
+pending counts, the oldest overdue seconds, pending-only overdue fraction (null
+when no pending forecasts), and a reconciled frozen model/horizon breakdown.
+
+The as-of timestamp is caller-declared and **not a trusted server clock**.
+Events, issuances, and resolutions later than the cutoff are rejected to prevent
+future information being silently included in an as-of report. The validated
+event-store replay is still mandatory; the audit cannot prove source entitlement,
+completed-candle finality, session calendars, feed outage, missed forecast
+issuances, delivery receipts, paper fills or profitable trading. A missing target
+might reflect a session break or absent provider data, not a confirmed feed fault.
+
+No alert sender, scheduler, broker adapter, route, database mutation or trading
+permission is enabled. All authentication, notification, paper and live-order
+permission flags remain false. Synthetic regressions cover inclusive deadlines,
+1/3/12-horizon reconciliation, resolved/void exclusions, invalid or future
+cutoffs, empty journals and forged issuance linkage. Production release gates
+remain unchanged.
