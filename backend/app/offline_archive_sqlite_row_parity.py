@@ -54,7 +54,7 @@ def audit_original_ascii_sqlite(archive_zip, sqlite_path, dataset_id, expected_s
                   zero_volume_rows=0, vendor_status_report_present=False)
     source_rows = _records(archive, "ascii", counts, max_rows=_MAX_ROWS,
                            max_uncompressed_bytes=_MAX_UNCOMPRESSED)
-    accepted = rejected = float_precision_loss = 0
+    accepted = rejected = shortest_roundtrip_loss = exact_binary_loss = 0
     last_accepted = None
     last_epoch = None
     # A read-only connection and explicit transaction pin metadata and rows
@@ -104,8 +104,13 @@ def audit_original_ascii_sqlite(archive_zip, sqlite_path, dataset_id, expected_s
                             not math.isfinite(float(original)) or
                             float(original) != db_float):
                         raise ValueError("Source/SQLite OHLC FLOAT parity mismatch")
+                    # str(float) is a shortest-decimal round-trip representation;
+                    # it does NOT reveal whether the binary64 stored the exact
+                    # source Decimal. Report these as separate populations.
                     if original != Decimal(str(db_float)):
-                        float_precision_loss += 1
+                        shortest_roundtrip_loss += 1
+                    if original != Decimal.from_float(db_float):
+                        exact_binary_loss += 1
                 last_accepted = line_number
         finally:
             source_rows.close()
@@ -128,14 +133,18 @@ def audit_original_ascii_sqlite(archive_zip, sqlite_path, dataset_id, expected_s
         "source_quarantined_nonmonotonic": rejected,
         "source_backward_jumps": counts["backward_jumps"],
         "source_adjacent_duplicate_minutes": counts["adjacent_duplicate_minutes"],
-        "original_decimal_values_not_preserved_by_float": float_precision_loss,
+        # Legacy name retains its historical shortest-decimal meaning.
+        "original_decimal_values_not_preserved_by_float": shortest_roundtrip_loss,
+        "original_decimal_values_not_preserved_on_shortest_roundtrip": shortest_roundtrip_loss,
+        "original_decimal_values_not_preserved_by_binary_float": exact_binary_loss,
+        "shortest_decimal_roundtrip_verified": shortest_roundtrip_loss == 0,
         "declared_utc_offset_minutes": offset,
         "last_admitted_source_line": last_accepted,
         "zip_identity_verified": True,
         "source_clock_verified": False,
         "source_authenticity_verified": False,
         "usage_rights_verified": False,
-        "exact_original_decimal_storage_verified": float_precision_loss == 0,
+        "exact_original_decimal_storage_verified": exact_binary_loss == 0,
         "independent_holdout_verified": False,
         "executable_bid_ask_verified": False,
         "verified_profitability": False,
