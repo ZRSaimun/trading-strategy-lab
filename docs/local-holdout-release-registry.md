@@ -121,3 +121,14 @@ cannot consume the sole release attempt, while a corrected record
 can still be claimed once. This detects inconsistent local records
 only; it does not independently timestamp registration or protect
 against coordinated database restoration/tampering.
+
+**Partial population-schema legacy fence (28 October 2026):** A new
+`register_local_holdout` call now rejects a SQLite database containing
+**any** of the three population-reservation tables, not only the row table.
+A decisions-only, pairs-only, or other incomplete reservation schema must
+not silently admit an unreserved legacy study and obstruct later
+source-identity-aware registration. Five synthetic schema-presence
+regressions verify rejection and transaction rollback without creating a
+claim. This is a local integrity guard, not proof that an external source
+or preregistration is authentic. Existing unreserved legacy databases
+without any reservation tables retain their compatibility path.
