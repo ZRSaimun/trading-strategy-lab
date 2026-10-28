@@ -378,6 +378,14 @@ test('formation census preserves unknown outcomes and distinguishes paired from 
    BEARISH:{PASS:Array(12).fill(0),FAIL:Array(12).fill(0),
     INSUFFICIENT_DATA:Array(12).fill(0)},
   },
+  firstTouchPairedByWaitAndStrictCandidate:{
+   PASS:Array(12).fill(0),FAIL:Array(12).fill(0),
+   INSUFFICIENT_DATA:[1,...Array(11).fill(0)],
+  },
+  firstTouchUnpairedByWaitAndStrictCandidate:{
+   PASS:Array(12).fill(0),FAIL:Array(12).fill(0),
+   INSUFFICIENT_DATA:Array(12).fill(0),
+  },
   firstTouchObservedExposureByWait:[1,...Array(11).fill(0)],
   firstTouchObservedExposureByWaitByDirection:{
    BULLISH:[1,...Array(11).fill(0)],BEARISH:Array(12).fill(0),
@@ -659,7 +667,7 @@ test('research report rejects extra source fields without leaking caller private
  const report=studyHourlyFvgMidpoint(fixture(),source);
  assert.deepEqual(report.source,source);
  assert.deepEqual(Object.keys(report.source).sort(),Object.keys(source).sort());
- assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v68');
+ assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v69');
 });
 test('ambiguous source labels and contradictory volume evidence fail closed',()=>{
  // These are declared metadata, not independent vendor authentication.
@@ -734,7 +742,7 @@ test('v61 source labels reject lone surrogates and Unicode noncharacters in both
  assert.deepEqual(studyHourlyFvgMidpoint(bars,valid).source,valid);
  assert.deepEqual(studyHourlyFvgMidpointAsOf(bars,valid,cutoff).source,valid);
  assert.equal(studyHourlyFvgMidpoint(bars,valid).version,
-  'hourly-fvg-first-midpoint-touch-v68');
+  'hourly-fvg-first-midpoint-touch-v69');
 });
 test('v63 source labels reject Unicode space lookalikes without banning ASCII spaces',()=>{
  const bars=fixture(),cutoff=BASE+37*H;
@@ -751,7 +759,7 @@ test('v63 source labels reject Unicode space lookalikes without banning ASCII sp
  assert.deepEqual(studyHourlyFvgMidpoint(bars,legitimate).source,legitimate);
  assert.deepEqual(studyHourlyFvgMidpointAsOf(bars,legitimate,cutoff).source,legitimate);
  assert.equal(studyHourlyFvgMidpoint(bars,legitimate).version,
-  'hourly-fvg-first-midpoint-touch-v68');
+  'hourly-fvg-first-midpoint-touch-v69');
 });
 test('first bullish midpoint touch has a hypothetical blind limit and later next-open rejection markout',()=>{
  const x=target(fixture());
@@ -1096,7 +1104,7 @@ test('an overflowing next-open comparator suppresses both matched markouts',()=>
 });
 test('completed hourly timestamps are safe and numeric rule changes have a new version',()=>{
  const report=studyHourlyFvgMidpoint(fixture(),source);
- assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v68');
+ assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v69');
  const lastSafeAlignedOpen=Math.floor(Number.MAX_SAFE_INTEGER/H)*H;
  assert.equal(Number.isSafeInteger(lastSafeAlignedOpen),true);
  assert.equal(Number.isSafeInteger(lastSafeAlignedOpen+H),false);
@@ -2834,4 +2842,47 @@ test('v68 directional gross ordering independently reconciles strict evidence an
   assert.deepEqual(studyHourlyFvgMidpointAsOf(mixed,sample.src,
    mixed[mixed.length-1].time+H,sample.config),report);
  }
+});
+
+
+test('v69 matched first-touch wait attrition reconciles strict status and as-of exit maturity',()=>{
+ const failed=fixture();
+ failed[33]=candle(33,105,106,101,102.5,200);
+ const delayed=fixture();
+ delayed[33]=candle(33,105,106,103,105);
+ delayed[34]=candle(34,105,106,101,105.5,200);
+ delayed[35]=candle(35,105.5,107,105,106);
+ delayed[36]=candle(36,106,108,105,107);
+ delayed[37]=candle(37,107,111,106,110);
+ const samples=[
+  {bars:fixture(),src:source},
+  {bars:fixture().slice(0,35),src:source}, // touch with censored exit
+  {bars:failed,src:source}, // observed touch, failed wick
+  {bars:fixture(),src:{...source,volumeVerified:false}},
+  {bars:delayed,src:source}, // first touch in second completed hour
+ ];
+ const statuses=['PASS','FAIL','INSUFFICIENT_DATA'] as const;
+ for(const {bars,src} of samples){
+  const full=studyHourlyFvgMidpoint(bars,src);
+  for(const status of statuses)for(let wait=0;wait<12;wait++){
+   const touches=full.observations.filter(o=>o.firstTouchOutcome==='TOUCH'&&
+    o.gates.strictCandidate===status&&o.firstTouchObservedWaitBars===wait+1);
+   const paired=touches.filter(o=>o.blindMidpointTouch!==null&&
+    o.confirmedNextOpen!==null).length;
+   assert.equal(full.cohort.firstTouchPairedByWaitAndStrictCandidate[status][wait],paired);
+   assert.equal(full.cohort.firstTouchUnpairedByWaitAndStrictCandidate[status][wait],
+    touches.length-paired);
+   assert.equal(full.cohort.firstTouchStrictCandidateByWait[status][wait],touches.length);
+  }
+  const atEnd=bars[bars.length-1].time+H;
+  assert.deepEqual(studyHourlyFvgMidpointAsOf(bars,src,atEnd),full);
+ }
+ const beforeExit=studyHourlyFvgMidpointAsOf(fixture(),source,BASE+34*H);
+ const afterExit=studyHourlyFvgMidpointAsOf(fixture(),source,BASE+37*H);
+ assert.ok(beforeExit.cohort.firstTouchUnpairedByWaitAndStrictCandidate.PASS[0]>=1,
+  'first touch may be observed while the fixed exit is still censored');
+ assert.equal(beforeExit.cohort.firstTouchPairedByWaitAndStrictCandidate.PASS[0],0,
+  'a future fixed exit cannot be counted as a matched return');
+ assert.ok(afterExit.cohort.firstTouchPairedByWaitAndStrictCandidate.PASS[0]>=1,
+  'matched evidence appears only once the shared exit candle closes');
 });
