@@ -24,6 +24,7 @@ _EVENTS = _TERMINAL | {"PREPARED", "ATTEMPT_UNKNOWN"}
 _KEYS = {"seq", "broker", "account", "order_id", "event", "evidence_sha",
          "recorded_at_ms", "prev_hash", "event_hash"}
 _MAX_UNKNOWN_TO_ATTEMPT_MS = 60_000
+_MAX_PREPARED_TO_UNKNOWN_MS = 60_000
 _EXPECTED_KEYS = {"broker", "account_alias", "max_snapshot_age_ms",
                   "max_transport_lag_ms", "unresolved_orders"}
 _EXPECTED_ROW_KEYS = {"client_order_id", "intent_sha", "instrument", "side",
@@ -134,6 +135,8 @@ def inspect_declared_ledger_event_lineage(expected: dict, ledger_summary: dict,
     unresolved_accounts: dict[tuple[str, str], tuple[str, str, str]] = {}
     seen_intents: set[tuple[str, str, str]] = set()
     seen_receipts: set[tuple[str, str, str]] = set()
+    prepared_times: dict[tuple[str, str, str], int] = {}
+    stale_preparation = False
     previous = _ZERO
     last_time = -1
     for seq, row in enumerate(events, 1):
@@ -168,11 +171,16 @@ def inspect_declared_ledger_event_lineage(expected: dict, ledger_summary: dict,
             if evidence_key in seen_intents or evidence_key in seen_receipts:
                 raise ValueError("Reused intent or terminal receipt fingerprint")
             seen_intents.add(evidence_key)
+            prepared_times[key] = stamp
             state[key] = (evidence, "PREPARED", None)
         elif event == "ATTEMPT_UNKNOWN":
             if (old is None or old[1] != "PREPARED" or old[0] != evidence
                     or account_key in unresolved_accounts):
                 raise ValueError("Invalid or repeated UNKNOWN transition")
+            # A locally valid ledger may still contain a stale order intent.
+            # Never promote that declared history to a clean candidate.
+            if stamp - prepared_times[key] > _MAX_PREPARED_TO_UNKNOWN_MS:
+                stale_preparation = True
             state[key] = (evidence, "ATTEMPT_UNKNOWN", stamp)
             unresolved_accounts[account_key] = key
         else:
@@ -188,6 +196,8 @@ def inspect_declared_ledger_event_lineage(expected: dict, ledger_summary: dict,
         last_time = stamp
 
     failures: set[str] = set()
+    if stale_preparation:
+        failures.add("ledger_preparation_stale_at_attempt")
     if previous != prior_ledger_tip_sha256 or previous != ledger_summary.get("audit_tip_sha256"):
         failures.add("ledger_event_tip_mismatch")
     if last_time != ledger_summary.get("last_recorded_at_ms"):
