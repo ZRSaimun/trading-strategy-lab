@@ -125,6 +125,7 @@ def inspect_declared_inventory(expected: dict, observed: dict, now_ms: int) -> d
     seen_broker_ids = set()
     seen_fill_ids = set()
     total_fills = 0
+    total_orders = 0
     for index, raw_page in enumerate(pages):
         page = _object(raw_page, {"snapshot_id", "index", "total_pages",
                                   "complete", "orders"}, "page")
@@ -136,6 +137,9 @@ def inspect_declared_inventory(expected: dict, observed: dict, now_ms: int) -> d
         rows = page["orders"]
         if type(rows) is not list or len(rows) > MAX_ORDERS:
             raise ValueError("Invalid page orders")
+        total_orders += len(rows)
+        if total_orders > MAX_ORDERS:
+            raise ValueError("Observed order population exceeds bound")
         for raw_order in rows:
             row = _object(raw_order, {"client_order_id", "broker_order_id", "instrument",
                                       "side", "quantity", "status", "filled_quantity",
