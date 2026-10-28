@@ -80,6 +80,17 @@ def register_population_locked_holdout(db_path, manifest, census):
     with closing(_connect(path, create=True)) as conn:
         conn.execute("BEGIN IMMEDIATE")
         try:
+            # CREATE TABLE IF NOT EXISTS also accepts a same-named SQLite
+            # view. INSTEAD OF INSERT triggers on such views can silently
+            # absorb reservations and return a false registration success.
+            # Reject all reserved-name shadowing before creating any tables.
+            reserved_objects = conn.execute(
+                "SELECT name, type FROM sqlite_master WHERE name IN "
+                "('holdout_claims', 'holdout_locked_rows', "
+                "'holdout_locked_decisions', 'holdout_locked_pairs')"
+            ).fetchall()
+            if any(kind != "table" for _, kind in reserved_objects):
+                raise ValueError("Invalid population-lock schema object at registration")
             conn.execute(_SCHEMA)
             # Existing row-only registries cannot be upgraded safely without
             # their original committed censuses. Never infer or backfill them.
