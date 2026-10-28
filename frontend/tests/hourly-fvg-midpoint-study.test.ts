@@ -561,7 +561,7 @@ test('research report rejects extra source fields without leaking caller private
  const report=studyHourlyFvgMidpoint(fixture(),source);
  assert.deepEqual(report.source,source);
  assert.deepEqual(Object.keys(report.source).sort(),Object.keys(source).sort());
- assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v51');
+ assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v52');
 });
 test('ambiguous source labels and contradictory volume evidence fail closed',()=>{
  // These are declared metadata, not independent vendor authentication.
@@ -593,6 +593,31 @@ test('invisible and bidirectional Unicode source controls cannot spoof feed iden
  // Legitimate non-ASCII provider identities remain distinguishable.
  const legitimate={...source,provider:'Données marché',instrument:'Índice Oro'};
  assert.deepEqual(studyHourlyFvgMidpoint(fixture(),legitimate).source,legitimate);
+});
+test('v52 source identities reject noncanonical and default-ignorable Unicode aliases',()=>{
+ // Two visually identical labels must not silently form separate source IDs.
+ // Do not normalize a declaration on behalf of a source or claim authentication.
+ const bars=fixture(),cutoff=BASE+37*H;
+ const baseline=studyHourlyFvgMidpoint(bars,source);
+ const canonical={...source,provider:'Caf\u00e9 market',instrument:'\u00cdndice Oro'};
+ const valid=studyHourlyFvgMidpoint(bars,canonical);
+ assert.deepEqual(valid.source,canonical,'NFC non-ASCII identities remain exact');
+ assert.deepEqual(studyHourlyFvgMidpointAsOf(bars,canonical,cutoff).source,canonical);
+ for(const invalid of [
+  {...source,provider:'Cafe\u0301 market'},
+  {...source,instrument:'I\u0301ndice Oro'},
+  {...source,provider:'feed\u00adA'}, // soft hyphen, Unicode format
+  {...source,provider:'feed\u034fA'}, // combining grapheme joiner
+  {...source,instrument:'NSX\u115fUSD'}, // Hangul filler
+ ]){
+  assert.throws(()=>studyHourlyFvgMidpoint(bars,invalid),/Invalid source/,
+   'noncanonical or invisible source labels must fail closed');
+  assert.throws(()=>studyHourlyFvgMidpointAsOf(bars,invalid,cutoff),
+   /Invalid source/,'as-of replay enforces identical identity checks');
+ }
+ assert.deepEqual(studyHourlyFvgMidpoint(bars,source),baseline);
+ assert.equal(valid.eligibleForLiveTrading,undefined,
+  'read-only study has no study-level trading permission');
 });
 test('first bullish midpoint touch has a hypothetical blind limit and later next-open rejection markout',()=>{
  const x=target(fixture());
@@ -937,7 +962,7 @@ test('an overflowing next-open comparator suppresses both matched markouts',()=>
 });
 test('completed hourly timestamps are safe and numeric rule changes have a new version',()=>{
  const report=studyHourlyFvgMidpoint(fixture(),source);
- assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v51');
+ assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v52');
  const lastSafeAlignedOpen=Math.floor(Number.MAX_SAFE_INTEGER/H)*H;
  assert.equal(Number.isSafeInteger(lastSafeAlignedOpen),true);
  assert.equal(Number.isSafeInteger(lastSafeAlignedOpen+H),false);

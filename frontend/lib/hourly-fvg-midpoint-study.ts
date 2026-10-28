@@ -7,7 +7,7 @@
  */
 import type {Bar} from './research.ts';
 
-export const HOURLY_FVG_VERSION='hourly-fvg-first-midpoint-touch-v51';
+export const HOURLY_FVG_VERSION='hourly-fvg-first-midpoint-touch-v52';
 export type Evidence='PASS'|'FAIL'|'INSUFFICIENT_DATA';
 // First-touch volume evidence is not independent broker/source authentication.
 export type VolumeEvidenceReason='NOT_EVALUATED'|'SOURCE_UNVERIFIED'|
@@ -152,13 +152,13 @@ const CONFIG_FIELDS=['maxTouchWaitBars','markoutBars',
 const hasOwnField=(value:object,field:PropertyKey)=>
  Object.prototype.hasOwnProperty.call(value,field);
 // Preserve exact provider/instrument identities in exported research reports.
-// Whitespace aliases, control and Unicode formatting characters, and
-// unbounded labels can poison provenance comparisons or visually spoof a
-// feed identity; never silently normalize an identity.
+// Reject non-NFC aliases rather than silently normalizing their source bytes.
+// Control, format and default-ignorable Unicode code points can conceal or
+// spoof feed labels even when their strings look identical in a report.
 function validSourceLabel(value:unknown):value is string{
  return typeof value==='string'&&value.length>=1&&value.length<=128&&
-  value.trim()===value&&
-  !/[\u0000-\u001f\u007f-\u009f\u061c\u200b-\u200f\u2028-\u202e\u2060-\u206f\ufeff]/.test(value);
+  value.trim()===value&&value.normalize('NFC')===value&&
+  !/[\p{Cc}\p{Cf}\p{Default_Ignorable_Code_Point}]/u.test(value);
 }
 // A top-level archive array is only an ordered BID-candle population, not a
 // container for silently discarded ASK quotes, broker receipts or provenance.
