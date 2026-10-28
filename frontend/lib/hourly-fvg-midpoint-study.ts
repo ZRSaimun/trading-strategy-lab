@@ -7,7 +7,7 @@
  */
 import type {Bar} from './research.ts';
 
-export const HOURLY_FVG_VERSION='hourly-fvg-first-midpoint-touch-v59';
+export const HOURLY_FVG_VERSION='hourly-fvg-first-midpoint-touch-v60';
 export type Evidence='PASS'|'FAIL'|'INSUFFICIENT_DATA';
 // First-touch volume evidence is not independent broker/source authentication.
 export type VolumeEvidenceReason='NOT_EVALUATED'|'SOURCE_UNVERIFIED'|
@@ -140,6 +140,8 @@ export type FvgCohort={
    Record<Evidence,Record<MarkoutCensorReason,number>>>;
  midpointTouch:EvidenceCounts;strictCandidate:EvidenceCounts;markout:EvidenceCounts;
  volumeEvidenceByReason:Record<VolumeEvidenceReason,number>;
+ // Source-declared prior-20 volume eligibility by FVG side, not verified fills.
+ volumeEvidenceByReasonByDirection:Record<Side,Record<VolumeEvidenceReason,number>>;
  pairedMarkouts:number;strictPairedMarkouts:number;nonStrictPairedMarkouts:number;
  pairedNetSignByCost:readonly PairedNetSignCostCensus[];
  // Descriptive paired gross-BID markout ordering; not realized execution P&L.
@@ -427,13 +429,31 @@ function summarizeCohort(observations:readonly FvgObservation[],costs:readonly n
  if(withinStatusOverlaps+crossStatusOverlaps!==
     pairedHoldingWindowOverlap.overlappingPairCombinations)
   throw Error('Paired FVG overlap populations do not reconcile');
- const volumeEvidenceByReason:Record<VolumeEvidenceReason,number>={
+ const emptyVolumeEvidenceCounts=():Record<VolumeEvidenceReason,number>=>({
   NOT_EVALUATED:0,SOURCE_UNVERIFIED:0,PRIOR20_UNAVAILABLE:0,
   PRIOR20_GAP:0,MISSING_OR_NONPOSITIVE_VOLUME:0,
   THRESHOLD_NOT_MET:0,THRESHOLD_EXCEEDED:0,
- };
- for(const observation of observations)
+ });
+ const volumeEvidenceByReason=emptyVolumeEvidenceCounts();
+ const volumeEvidenceByReasonByDirection:Record<Side,
+  Record<VolumeEvidenceReason,number>>={
+   BULLISH:emptyVolumeEvidenceCounts(),BEARISH:emptyVolumeEvidenceCounts(),
+  };
+ for(const observation of observations){
   volumeEvidenceByReason[observation.volumeEvidenceReason]++;
+  volumeEvidenceByReasonByDirection[observation.direction]
+   [observation.volumeEvidenceReason]++;
+ }
+ // One-sided unknown/failed volume must not disappear in pooled reporting.
+ for(const reason of Object.keys(volumeEvidenceByReason) as VolumeEvidenceReason[]){
+  if(volumeEvidenceByReason[reason]!==(
+   volumeEvidenceByReasonByDirection.BULLISH[reason]+
+   volumeEvidenceByReasonByDirection.BEARISH[reason]))
+   throw Error('Directional FVG volume evidence population does not reconcile');
+ }
+ if(Object.values(volumeEvidenceByReason).reduce((sum,n)=>sum+n,0)!==
+  observations.length)
+  throw Error('FVG volume evidence population does not reconcile');
  const pairedByStrictCandidate:EvidenceCounts={PASS:0,FAIL:0,INSUFFICIENT_DATA:0};
  const unpairedByStrictCandidate:EvidenceCounts={PASS:0,FAIL:0,INSUFFICIENT_DATA:0};
  for(const observation of observations){
@@ -664,6 +684,7 @@ function summarizeCohort(observations:readonly FvgObservation[],costs:readonly n
   markoutCensoredByReason,markoutCensoredByReasonByStrictCandidate,
   markoutCensoredByReasonByDirectionAndStrictCandidate,
   midpointTouch:count('midpointTouch'),volumeEvidenceByReason,
+  volumeEvidenceByReasonByDirection,
   strictCandidate:count('strictCandidate'),
   markout:count('markout'),
   pairedMarkouts:observations.filter(paired).length,

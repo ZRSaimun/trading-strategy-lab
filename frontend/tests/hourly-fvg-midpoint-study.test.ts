@@ -427,6 +427,14 @@ test('formation census preserves unknown outcomes and distinguishes paired from 
    PRIOR20_GAP:0,MISSING_OR_NONPOSITIVE_VOLUME:0,
    THRESHOLD_NOT_MET:0,THRESHOLD_EXCEEDED:0,
   },
+  volumeEvidenceByReasonByDirection:{
+   BULLISH:{NOT_EVALUATED:0,SOURCE_UNVERIFIED:0,PRIOR20_UNAVAILABLE:1,
+    PRIOR20_GAP:0,MISSING_OR_NONPOSITIVE_VOLUME:0,
+    THRESHOLD_NOT_MET:0,THRESHOLD_EXCEEDED:0},
+   BEARISH:{NOT_EVALUATED:0,SOURCE_UNVERIFIED:0,PRIOR20_UNAVAILABLE:0,
+    PRIOR20_GAP:0,MISSING_OR_NONPOSITIVE_VOLUME:0,
+    THRESHOLD_NOT_MET:0,THRESHOLD_EXCEEDED:0},
+  },
   pairedMarkouts:1,strictPairedMarkouts:0,nonStrictPairedMarkouts:1,
   pairedByStrictCandidate:{PASS:0,FAIL:0,INSUFFICIENT_DATA:1},
   unpairedByStrictCandidate:{PASS:0,FAIL:0,INSUFFICIENT_DATA:0},
@@ -600,7 +608,7 @@ test('research report rejects extra source fields without leaking caller private
  const report=studyHourlyFvgMidpoint(fixture(),source);
  assert.deepEqual(report.source,source);
  assert.deepEqual(Object.keys(report.source).sort(),Object.keys(source).sort());
- assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v59');
+ assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v60');
 });
 test('ambiguous source labels and contradictory volume evidence fail closed',()=>{
  // These are declared metadata, not independent vendor authentication.
@@ -1001,7 +1009,7 @@ test('an overflowing next-open comparator suppresses both matched markouts',()=>
 });
 test('completed hourly timestamps are safe and numeric rule changes have a new version',()=>{
  const report=studyHourlyFvgMidpoint(fixture(),source);
- assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v59');
+ assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v60');
  const lastSafeAlignedOpen=Math.floor(Number.MAX_SAFE_INTEGER/H)*H;
  assert.equal(Number.isSafeInteger(lastSafeAlignedOpen),true);
  assert.equal(Number.isSafeInteger(lastSafeAlignedOpen+H),false);
@@ -2279,6 +2287,65 @@ test('v59 markout censor reasons reconcile by formation direction and strict evi
      [direction].PASS.RIGHT_CENSORED>=1,
      'future exit overflow must not appear before its completed bar close');
    }
+  }
+ }
+});
+
+test('v60 directional prior-20 volume census preserves unknown and causal timing',()=>{
+ const mirror=(rows:Bar[])=>rows.map(b=>({...b,
+  open:220-b.open,high:220-b.low,low:220-b.high,close:220-b.close}));
+ const early=[
+  candle(0,99,100,98,99),candle(1,100,102,99,101),
+  candle(2,105,106,104,105),candle(3,105,106,101,105.5,200),
+  candle(4,105.5,107,105,106),
+ ];
+ const missingVolume=fixture();missingVolume[20]={...missingVolume[20],volume:null};
+ const weakVolume=fixture();weakVolume[33]={...weakVolume[33],volume:100};
+ const cases=[
+  {bars:fixture(),src:{...source,volumeVerified:false},
+   reason:'SOURCE_UNVERIFIED',formation:33},
+  {bars:early,src:source,reason:'PRIOR20_UNAVAILABLE',formation:3},
+  {bars:fixture().filter(b=>b.time!==BASE+25*H),
+   src:source,reason:'PRIOR20_GAP',formation:33},
+  {bars:missingVolume,src:source,reason:'MISSING_OR_NONPOSITIVE_VOLUME',formation:33},
+  {bars:weakVolume,src:source,reason:'THRESHOLD_NOT_MET',formation:33},
+  {bars:fixture(),src:source,reason:'THRESHOLD_EXCEEDED',formation:33},
+ ] as const;
+ const reasons=['NOT_EVALUATED','SOURCE_UNVERIFIED','PRIOR20_UNAVAILABLE',
+  'PRIOR20_GAP','MISSING_OR_NONPOSITIVE_VOLUME','THRESHOLD_NOT_MET',
+  'THRESHOLD_EXCEEDED'] as const;
+ for(const sample of cases){
+  for(const side of ['BULLISH','BEARISH'] as const){
+   const bars=side==='BULLISH'?sample.bars:mirror(sample.bars);
+   const report=studyHourlyFvgMidpoint(bars,sample.src);
+   const target=report.observations.find(o=>
+    o.formationClosedAt===BASE+sample.formation*H);
+   assert.ok(target);
+   assert.equal(target.direction,side);
+   assert.equal(target.volumeEvidenceReason,sample.reason);
+   assert.ok(report.cohort.volumeEvidenceByReasonByDirection[side][sample.reason]>=1);
+   for(const reason of reasons){
+    const counted=(direction:'BULLISH'|'BEARISH')=>
+     report.observations.filter(o=>o.direction===direction&&
+      o.volumeEvidenceReason===reason).length;
+    assert.equal(report.cohort.volumeEvidenceByReasonByDirection.BULLISH[reason],
+     counted('BULLISH'));
+    assert.equal(report.cohort.volumeEvidenceByReasonByDirection.BEARISH[reason],
+     counted('BEARISH'));
+    assert.equal(report.cohort.volumeEvidenceByReason[reason],
+     counted('BULLISH')+counted('BEARISH'));
+   }
+   assert.deepEqual(studyHourlyFvgMidpointAsOf(bars,sample.src,
+    bars[bars.length-1].time+H),report);
+   const pending=studyHourlyFvgMidpointAsOf(bars,sample.src,
+    BASE+sample.formation*H);
+   const before=pending.observations.find(o=>
+    o.formationClosedAt===BASE+sample.formation*H);
+   assert.ok(before);
+   assert.equal(before.volumeEvidenceReason,'NOT_EVALUATED');
+   assert.equal(before.volumeEvidenceObservedAt,null);
+   assert.ok(pending.cohort.volumeEvidenceByReasonByDirection[side]
+    .NOT_EVALUATED>=1);
   }
  }
 });
