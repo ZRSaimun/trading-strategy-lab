@@ -196,3 +196,15 @@ def test_no_input_mutation():
     before = deepcopy(args)
     inspect(args)
     assert args == before
+
+
+def test_later_ledger_event_than_final_observation_holds():
+    args = evidence()
+    args[6]["last_recorded_at_ms"] = args[1][-1]["observed_at_ms"] + 1
+    assert inspect(args)["failed_checks"] == ["ledger_event_after_final_observation"]
+
+
+def test_ledger_event_exactly_at_final_observation_is_allowed():
+    args = evidence()
+    args[6]["last_recorded_at_ms"] = args[1][-1]["observed_at_ms"]
+    assert inspect(args)["failed_checks"] == []
