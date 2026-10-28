@@ -171,8 +171,26 @@ def audit_declared_completed_m1_receipts(
     ).encode("ascii") + b"\n")
 
     expected = set(expected_utc_minutes) if expected_utc_minutes is not None else None
-    missing = len(expected - seen_minutes) if expected is not None else None
-    extra = len(seen_minutes - expected) if expected is not None else None
+    missing_minutes = sorted(expected - seen_minutes) if expected is not None else None
+    extra_minutes = sorted(seen_minutes - expected) if expected is not None else None
+    missing = len(missing_minutes) if missing_minutes is not None else None
+    extra = len(extra_minutes) if extra_minutes is not None else None
+    # Only adjacent declared expected UTC minutes belong to the same missing
+    # run. Non-session intervals omitted by the caller break the run.
+    missing_runs = longest_missing_run = None
+    if missing_minutes is not None:
+        missing_runs = 0
+        longest_missing_run = 0
+        run_length = 0
+        previous_missing = None
+        for minute in missing_minutes:
+            if previous_missing is None or minute != previous_missing + 60:
+                missing_runs += 1
+                run_length = 1
+            else:
+                run_length += 1
+            longest_missing_run = max(longest_missing_run, run_length)
+            previous_missing = minute
     # A source-order forward jump is not a unique missing-minute census:
     # delayed backfills and replayed ranges can inflate that observation.
     # Count interior holes once across distinct UTC minute identities. These
@@ -217,6 +235,14 @@ def audit_declared_completed_m1_receipts(
         "expected_inventory_supplied": expected is not None,
         "missing_declared_expected_minutes": missing,
         "extra_minutes_outside_declared_expected": extra,
+        "declared_missing_expected_gap_runs": missing_runs,
+        "largest_declared_missing_expected_gap_run_minutes": longest_missing_run,
+        "missing_declared_expected_minute_sample_utc": (
+            missing_minutes[:12] if missing_minutes is not None else None
+        ),
+        "extra_declared_expected_minute_sample_utc": (
+            extra_minutes[:12] if extra_minutes is not None else None
+        ),
         "latest_candle_end_age_seconds": latest_candle_age,
         "latest_receipt_age_seconds": latest_receipt_age,
         "declared_freshness_within_budget": (
