@@ -176,3 +176,26 @@ remain **unauthenticated**. They do not prove missed issuance, forecast
 calibration, notification delivery, paper fills, trading returns or permission
 for live orders. All operational gates and production deployment remain
 unchanged.
+
+
+### Overdue pending identity reconciliation (28 October 2026)
+
+The disconnected `audit_pending_outcome_deadlines` also emits
+`overdueForecastIds`: sorted forecast IDs of still-`PENDING` records whose
+declared target close plus maximum receipt lag is **strictly earlier** than
+`as_of`. It is available in the aggregate report and each model/horizon
+breakdown, with length equal to the corresponding `overduePendingCount`.
+This makes overdue outcomes individually actionable for **manual source
+reconciliation** without relying solely on counts or percentiles.
+
+At the exact receipt deadline the ID is excluded. `SETTLED`, `VOID_GAP`
+and pending records within their declared windows are excluded. The inventory
+is deterministic under input reordering, bounded by the existing 5,000-event
+journal limit, and contains no candle prices or broker account details.
+
+The IDs, as-of clock and source evidence are **caller-declared, not
+independently authenticated**. An overdue ID is not proof that a trading
+session had a missing candle or that a provider failed. No alert sending,
+paper fill, real-money order, broker access, data mutation or deployment
+is enabled. Four synthetic regression tests cover boundaries, exclusions,
+model/horizon reconciliation, stable ordering and an empty population.
