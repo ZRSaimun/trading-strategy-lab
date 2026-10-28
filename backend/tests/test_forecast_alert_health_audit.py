@@ -334,3 +334,42 @@ def test_warning_reasons_are_stable_across_input_order_and_disjoint_from_timelin
     ]
     assert a["unverifiedAckKeys"] == [["s2", "f3"]]
     assert a["recipientDeliveryVerified"] is False
+
+
+def test_reused_claim_token_across_sessions_fails_closed():
+    records = [
+        {"sessionId": "s1", "state": state("IN_FLIGHT_UNCERTAIN")},
+        {"sessionId": "s2", "state": state("IN_FLIGHT_UNCERTAIN", forecastId="f2")},
+    ]
+    with pytest.raises(ValueError, match="Reused forecast alert claim ID"):
+        check(records=records, expected=[("s1", "f1"), ("s2", "f2")])
+
+
+def test_reused_claim_token_across_ack_and_uncertain_fails_closed():
+    records = [
+        {"sessionId": "s1", "state": state("ACK_RECORDED_UNVERIFIED")},
+        {"sessionId": "s1", "state": state("IN_FLIGHT_UNCERTAIN", forecastId="f2")},
+    ]
+    with pytest.raises(ValueError, match="Reused forecast alert claim ID"):
+        check(records=records, expected=[("s1", "f1"), ("s1", "f2")])
+
+
+def test_distinct_claim_tokens_and_unclaimed_rows_remain_valid_and_order_independent():
+    records = [
+        {"sessionId": "s2", "state": state("ACK_RECORDED_UNVERIFIED",
+                                          forecastId="f2", claimId="b" * 32)},
+        {"sessionId": "s1", "state": state("IN_FLIGHT_UNCERTAIN")},
+        {"sessionId": "s3", "state": state("CANCELLED", forecastId="f3")},
+        {"sessionId": "s4", "state": state("QUEUED", forecastId="f4")},
+    ]
+    expected = [("s1", "f1"), ("s2", "f2"), ("s3", "f3"), ("s4", "f4")]
+    result = check(records=records, expected=expected, now=150)
+    assert result == check(records=list(reversed(records)),
+                           expected=list(reversed(expected)), now=150)
+    assert result["counts"]["IN_FLIGHT_UNCERTAIN"] == 1
+    assert result["counts"]["ACK_RECORDED_UNVERIFIED"] == 1
+    assert result["counts"]["CANCELLED"] == 1
+    assert result["counts"]["QUEUED"] == 1
+    assert result["maySendNotification"] is False
+    assert result["mayExecutePaperOrder"] is False
+    assert result["mayExecuteLiveOrder"] is False
