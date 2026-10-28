@@ -77,3 +77,25 @@ journal's original replay is still mandatory for real stored records.
 Nine synthetic cases cover 1/3/12-candle horizons, inclusive and
 one-second-late boundaries, void exceptions, empty and malformed
 inputs. No notification or broker capability is activated.
+
+
+### Model/horizon settlement-lag breakdown (28 October 2026)
+
+The opt-in `audit_settled_receipt_lag(snapshot)` now also returns
+`byModelHorizon`, sorted by frozen `modelVersion` and `horizonCandles`.
+Each nonempty settled group reports `settledCount`,
+`lateBeyondDeclaredLagCount`, `lateFractionOfSettled`, and
+`largestExcessSeconds` (null if no violations). Counts reconcile exactly
+to the existing aggregate settled and late counters. This prevents an
+aggregate pass/fail count from concealing a late-receipt problem limited
+to one forecast model or to 1-, 3-, or 12-candle horizons. Groups without
+settled outcomes are absent rather than assigned a fabricated zero-rate
+observation. `PENDING` and `VOID_GAP` are excluded from the settled-only
+denominator, not treated as successful on-time receipts.
+
+These values describe **caller-declared unauthenticated journal times**.
+They are not independent provider receipts, feed-uptime evidence, proof
+of alert delivery, forward accuracy, or trade profitability. They do
+not authorize any notification, paper fill or live order. Three synthetic
+regressions cover cross-model/horizon reconciliation, empty/on-time
+groups, and fail-closed forged issuance linkage.
