@@ -91,11 +91,21 @@ def register_local_holdout(db_path, *, study_id, manifest_sha256,
     with closing(_connect(path, create=True)) as conn:
         conn.execute("BEGIN IMMEDIATE")
         try:
+            # SQLite resolves object names case-insensitively, while the
+            # sqlite_master.name comparison below is case-sensitive. A
+            # differently cased view must not shadow the claims table.
+            claims_objects = conn.execute(
+                "SELECT name, type FROM sqlite_master "
+                "WHERE lower(name)='holdout_claims'"
+            ).fetchall()
+            if any(name != "holdout_claims" or kind != "table"
+                   for name, kind in claims_objects):
+                raise ValueError("Invalid holdout claims schema object at registration")
             conn.execute(_SCHEMA)
             # Do not allow the legacy, row-unreserved path to bypass a
             # population-locked registry in this same SQLite database.
             if conn.execute(
-                "SELECT 1 FROM sqlite_master WHERE name IN ('holdout_locked_rows', "
+                "SELECT 1 FROM sqlite_master WHERE lower(name) IN ('holdout_locked_rows', "
                 "'holdout_locked_decisions', 'holdout_locked_pairs') LIMIT 1"
             ).fetchone() is not None:
                 # Any partial reservation schema is evidence that this DB
@@ -169,13 +179,27 @@ def claim_local_holdout_release(db_path, *, study_id, manifest_sha256,
     with closing(_connect(path, create=False)) as conn:
         conn.execute("BEGIN IMMEDIATE")
         try:
+            # SQLite object identifiers are case-insensitive, but
+            # sqlite_master.name comparisons are not. Reject mixed-case
+            # shadow objects before reading claims or treating a damaged
+            # reservation view as an unreserved legacy registry.
+            protected_objects = conn.execute(
+                "SELECT name, type FROM sqlite_master WHERE lower(name) IN "
+                "('holdout_claims', 'holdout_locked_rows', "
+                "'holdout_locked_decisions', 'holdout_locked_pairs')"
+            ).fetchall()
+            canonical_names = {'holdout_claims', 'holdout_locked_rows',
+                               'holdout_locked_decisions', 'holdout_locked_pairs'}
+            if any(kind != "table" or name not in canonical_names
+                   for name, kind in protected_objects):
+                raise ValueError("Invalid population-lock schema object at release")
             # An AFTER UPDATE trigger can silently clear a recorded release
             # claim while SQLite reports one row updated. Reject any trigger
             # attached to protected holdout tables before consuming the
             # one-attempt release, including triggers added after registration.
             # BEGIN IMMEDIATE keeps this check and the claim in one transaction.
             if conn.execute(
-                "SELECT 1 FROM sqlite_master WHERE type='trigger' AND tbl_name IN "
+                "SELECT 1 FROM sqlite_master WHERE type='trigger' AND lower(tbl_name) IN "
                 "('holdout_claims', 'holdout_locked_rows', "
                 "'holdout_locked_decisions', 'holdout_locked_pairs') LIMIT 1"
             ).fetchone() is not None:
