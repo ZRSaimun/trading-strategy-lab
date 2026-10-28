@@ -59,6 +59,13 @@ def _reject_nonstandard_response_constant(value):
     """NaN and Infinity are not valid JSON evidence."""
     raise ValueError('Nonstandard provider JSON constant')
 
+def _reject_nonfinite_response_float(value):
+    """JSON exponent overflow must not become Python infinity, even in ignored fields."""
+    number = float(value)
+    if not math.isfinite(number):
+        raise ValueError('Nonfinite provider JSON number')
+    return number
+
 class ProviderError(Exception):
     def __init__(self,message,status=502):
         super().__init__(message);self.status=status
@@ -236,7 +243,8 @@ async def retrieve(key,instrument,limit,end,now,transport=None, *, include_wire_
                 # json.loads(bytes) auto-detects UTF-16/32 and accepts a UTF-8 BOM.
                 # Require strict UTF-8 JSON text so media-type and body-byte evidence agree.
                 payload=json.loads(raw.decode('utf-8'),object_pairs_hook=_reject_duplicate_response_keys,
-                                   parse_constant=_reject_nonstandard_response_constant)
+                                   parse_constant=_reject_nonstandard_response_constant,
+                                   parse_float=_reject_nonfinite_response_float)
     except (httpx.HTTPError,ValueError,RecursionError):
         # Excessively nested but size-bounded JSON may raise RecursionError.
         # Fail closed with a sanitized provider error rather than a server 500.
