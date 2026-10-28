@@ -158,7 +158,7 @@ const hasOwnField=(value:object,field:PropertyKey)=>
 function validSourceLabel(value:unknown):value is string{
  return typeof value==='string'&&value.length>=1&&value.length<=128&&
   value.trim()===value&&value.normalize('NFC')===value&&
-  !/[\p{Cc}\p{Cf}\p{Default_Ignorable_Code_Point}]/u.test(value);
+  !/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}\p{Default_Ignorable_Code_Point}]/u.test(value);
 }
 // A top-level archive array is only an ordered BID-candle population, not a
 // container for silently discarded ASK quotes, broker receipts or provenance.
