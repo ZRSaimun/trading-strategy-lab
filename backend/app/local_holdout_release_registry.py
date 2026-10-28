@@ -101,6 +101,13 @@ def register_local_holdout(db_path, *, study_id, manifest_sha256,
             if any(name != "holdout_claims" or kind != "table"
                    for name, kind in claims_objects):
                 raise ValueError("Invalid holdout claims schema object at registration")
+            # Legacy claim inserts can also be erased by a trigger, even
+            # when the protected table itself has the expected name.
+            if conn.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='trigger' "
+                "AND lower(tbl_name)='holdout_claims' LIMIT 1"
+            ).fetchone() is not None:
+                raise ValueError("Invalid holdout claims trigger at registration")
             conn.execute(_SCHEMA)
             # Do not allow the legacy, row-unreserved path to bypass a
             # population-locked registry in this same SQLite database.
