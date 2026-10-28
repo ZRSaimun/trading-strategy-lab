@@ -7,6 +7,7 @@ outcomes automatically. No orders or broker API calls exist in this module.
 """
 from http.client import HTTPException
 import json
+import math
 import re
 import unicodedata
 import urllib.error
@@ -37,6 +38,17 @@ def _unique_pairs(pairs):
             raise ValueError("Duplicate JSON field")
         result[key] = value
     return result
+
+
+def _finite_json_float(raw):
+    value = float(raw)
+    if not math.isfinite(value):
+        raise ValueError("Nonfinite Telegram JSON number")
+    return value
+
+
+def _reject_nonfinite_json_constant(_raw):
+    raise ValueError("Nonstandard Telegram JSON numeric constant")
 
 
 def _safe_review_text(text):
@@ -90,7 +102,9 @@ def send_telegram_once(*, bot_token, chat_id, text, timeout=5, opener=None):
                 if len(part) > _MAX_RESPONSE - len(raw):
                     raise DeliveryUncertain("Telegram response exceeds bound")
                 raw.extend(part)
-        data = json.loads(raw.decode("utf-8"), object_pairs_hook=_unique_pairs)
+        data = json.loads(raw.decode("utf-8"), object_pairs_hook=_unique_pairs,
+                          parse_float=_finite_json_float,
+                          parse_constant=_reject_nonfinite_json_constant)
         if (type(data) is not dict or data.get("ok") is not True or
                 type(data.get("result")) is not dict or
                 type(data["result"].get("message_id")) is not int or
