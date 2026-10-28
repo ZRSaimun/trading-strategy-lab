@@ -6,7 +6,14 @@ It reuses the bounded inventory census and adjacent snapshot replay fence, then
 rejects snapshot-ID reuse anywhere in the chain, including nonadjacent reuse
 (e.g. `snapshot1 → snapshot2 → snapshot1`) that pairwise comparison misses.
 It also propagates gaps, regressions, changed fill receipts, account identity
-changes and other pairwise HOLD reasons. Intermediate `OPEN`/`PARTIAL` inventories
+changes and other pairwise HOLD reasons. **Individually fresh snapshots can
+still conceal a long unobserved interval:** consecutive trusted-caller check
+times and consecutive observation timestamps must each be no more than
+60,000 ms apart by default. The optional `max_checkpoint_gap_ms` policy can
+only tighten that ceiling (strict positive integer, maximum 60,000 ms).
+Violations are `trusted_checkpoint_gap` and `snapshot_observation_gap`
+HOLD reasons; the exact boundary is permitted. Legitimate slow polling or
+outages may produce HOLDs requiring separate investigation. Intermediate `OPEN`/`PARTIAL` inventories
 may have only the `unresolved_order_state` census warning; the final census must
 be terminal and clean. Invalid schemas or overlong chains raise `ValueError`.
 
