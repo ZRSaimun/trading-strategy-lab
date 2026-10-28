@@ -7,7 +7,7 @@
  */
 import type {Bar} from './research.ts';
 
-export const HOURLY_FVG_VERSION='hourly-fvg-first-midpoint-touch-v60';
+export const HOURLY_FVG_VERSION='hourly-fvg-first-midpoint-touch-v61';
 export type Evidence='PASS'|'FAIL'|'INSUFFICIENT_DATA';
 // First-touch volume evidence is not independent broker/source authentication.
 export type VolumeEvidenceReason='NOT_EVALUATED'|'SOURCE_UNVERIFIED'|
@@ -183,12 +183,14 @@ const hasOwnField=(value:object,field:PropertyKey)=>
  Object.prototype.hasOwnProperty.call(value,field);
 // Preserve exact provider/instrument identities in exported research reports.
 // Reject non-NFC aliases rather than silently normalizing their source bytes.
-// Control, format and default-ignorable Unicode code points can conceal or
-// spoof feed labels even when their strings look identical in a report.
+// Control, format, default-ignorable, unpaired UTF-16 surrogate and Unicode
+// noncharacter code points can conceal or spoof feed labels. In particular,
+// lone surrogates and noncharacters may render as replacement glyphs despite
+// being distinct underlying source identities.
 function validSourceLabel(value:unknown):value is string{
  return typeof value==='string'&&value.length>=1&&value.length<=128&&
   value.trim()===value&&value.normalize('NFC')===value&&
-  !/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}\p{Default_Ignorable_Code_Point}]/u.test(value);
+  !/[\p{Cc}\p{Cf}\p{Cs}\p{Zl}\p{Zp}\p{Default_Ignorable_Code_Point}\p{Noncharacter_Code_Point}]/u.test(value);
 }
 // A top-level archive array is only an ordered BID-candle population, not a
 // container for silently discarded ASK quotes, broker receipts or provenance.
