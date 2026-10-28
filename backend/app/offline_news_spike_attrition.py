@@ -54,7 +54,7 @@ def audit_news_spike_attrition(report):
     if not isinstance(events, list) or len(events) > 200:
         raise ValueError("Bounded event list required")
     populations = {s: 0 for s in (*_SPIKES, *_MISSING)}
-    rows = {s: {h: {"aligned": 0, "not_aligned": 0, "unknown": 0} for h in _HORIZONS}
+    rows = {s: {h: {"aligned": 0, "not_aligned": 0, "unknown": 0, "pending_unknown": 0, "missing_unknown": 0} for h in _HORIZONS}
             for s in (*_DIRECTIONS, "directional_total")}
     previous = None
     seen = set()
@@ -96,6 +96,8 @@ def audit_news_spike_attrition(report):
                     raise ValueError("Missing horizon has invented outcome")
                 prior_missing = True
                 outcome = "unknown"
+                cause = ("pending_unknown" if at + timedelta(minutes=int(h)) > as_of
+                         else "missing_unknown")
             elif hstatus == "observed":
                 if prior_missing or at + timedelta(minutes=int(h)) > as_of:
                     raise ValueError("Noncausal or inconsistent horizon completeness")
@@ -111,6 +113,9 @@ def audit_news_spike_attrition(report):
             if spike in _DIRECTIONS:
                 rows[spike][h][outcome] += 1
                 rows["directional_total"][h][outcome] += 1
+                if outcome == "unknown":
+                    rows[spike][h][cause] += 1
+                    rows["directional_total"][h][cause] += 1
     total = len(events)
     directional = populations["up"] + populations["down"]
     results = {}
@@ -120,7 +125,7 @@ def audit_news_spike_attrition(report):
         for h, counts in hrows.items():
             observed = counts["aligned"] + counts["not_aligned"]
             unknown = counts["unknown"]
-            if observed + unknown != denominator:
+            if observed + unknown != denominator or unknown != counts["pending_unknown"] + counts["missing_unknown"]:
                 raise ValueError("Directional population does not reconcile")
             results[direction][h] = {
                 **counts, "eligible": denominator, "observed": observed,
