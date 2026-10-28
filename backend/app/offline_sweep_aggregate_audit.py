@@ -41,6 +41,21 @@ def _reject_nonfinite_json_constant(value):
     raise ValueError(f"Nonstandard aggregate JSON numeric constant: {value}")
 
 
+def _reject_overflow_json_float(token):
+    """Reject JSON exponent overflow before an unused field can hide infinity.
+
+    The closed aggregate schema does not use JSON floats for research means;
+    those are five-place decimal strings. This protects the shared loader
+    independently of the later schema validation.
+    """
+    import math
+
+    value = float(token)
+    if not math.isfinite(value):
+        raise ValueError("Nonfinite aggregate JSON numeric exponent")
+    return value
+
+
 def load_declared_aggregate(path):
     """Bound input bytes and parse nested keys without last-write-wins ambiguity.
 
@@ -55,6 +70,7 @@ def load_declared_aggregate(path):
         raw.decode("utf-8"),
         object_pairs_hook=_reject_duplicate_json_keys,
         parse_constant=_reject_nonfinite_json_constant,
+        parse_float=_reject_overflow_json_float,
     )
 
 
