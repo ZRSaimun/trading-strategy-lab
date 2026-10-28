@@ -167,7 +167,7 @@ function validSourceLabel(value:unknown):value is string{
 function validateBarArraySchema(bars:readonly Bar[],count:number){
  for(const key of Reflect.ownKeys(bars)){
   if(key==='length'||key===Symbol.iterator||
-   (typeof key==='string'&&/^(0|[1-9]\\d*)$/.test(key)&&Number(key)<count))
+   (typeof key==='string'&&/^(0|[1-9][0-9]*)$/.test(key)&&Number(key)<count))
    continue;
   throw Error('Unexpected FVG archive array metadata outside frozen BID-only protocol');
  }
