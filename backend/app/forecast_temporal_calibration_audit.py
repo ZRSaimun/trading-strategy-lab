@@ -572,6 +572,34 @@ def _outcome_availability_utc_weekday_hour168(issued_census, eligible_settled):
     ]
 
 
+def _outcome_unavailability_runs(issued_census, eligible_settled):
+    """Clustering of unavailable labels in FIXED issued-census order.
+
+    This counts consecutive *selected issued forecasts*, not consecutive
+    market candles: an unissued candle cannot be observed in this journal.
+    No missing-at-random or authenticated session coverage claim is made.
+    """
+    eligible_ids = {row["id"] for row in eligible_settled}
+    runs = longest = current = unavailable = 0
+    for row in issued_census:
+        if row["id"] not in eligible_ids:
+            unavailable += 1
+            current += 1
+            if current == 1:
+                runs += 1
+            longest = max(longest, current)
+        else:
+            current = 0
+    total = len(issued_census)
+    return {
+        "issued": total,
+        "unavailable": unavailable,
+        "unavailableRunCount": runs,
+        "longestUnavailableRun": longest,
+        "longestUnavailableRunFractionOfIssued": longest / total if total else None,
+    }
+
+
 def audit_temporal_forecast_calibration(snapshot, *, min_per_window=30,
                                         brier_deterioration=0.05,
                                         max_unresolved_fraction=0.10,
@@ -731,6 +759,10 @@ def audit_temporal_forecast_calibration(snapshot, *, min_per_window=30,
                 _outcome_availability_utc_weekday_hour168(early_census, train),
             "lateCensusOutcomeAvailabilityUtcWeekdayHour168":
                 _outcome_availability_utc_weekday_hour168(late_census, test),
+            "earlyCensusOutcomeUnavailableRuns":
+                _outcome_unavailability_runs(early_census, train),
+            "lateCensusOutcomeUnavailableRuns":
+                _outcome_unavailability_runs(late_census, test),
             "earlyBrier": None, "lateBrier": None, "lateBrierDelta": None,
             "lateBrierBestCaseAllIssuedCensus": None,
             "lateBrierWorstCaseAllIssuedCensus": None,
@@ -850,6 +882,8 @@ def audit_temporal_forecast_calibration(snapshot, *, min_per_window=30,
                        "signed mean, median, tail and spread changes are descriptive and "
                        "not seasonal-adjusted, independent or significance-tested; "
                        "cannot prove missingness is random or establish calibration; "
+                       "unavailable run lengths count selected issued records, not " 
+                       "consecutive market candles or unissued forecast opportunities; "
                        "unissued or missing completed candles are outside this census; "
                        "log-loss tail concentration and paired regret are descriptive "
                        "observed-label statistics, not financial downside; "
