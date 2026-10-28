@@ -550,3 +550,93 @@ def test_view_named_as_population_reservation_blocks_direct_legacy_release(
         assert conn.execute(
             "SELECT release_claimed_at_utc FROM holdout_claims WHERE study_id='study-1'"
         ).fetchone() == (None,)
+
+
+@pytest.mark.parametrize("object_name", [
+    "holdout_locked_rows", "holdout_locked_decisions", "holdout_locked_pairs",
+])
+def test_case_variant_reservation_view_blocks_legacy_registration(
+        tmp_path, clock, object_name):
+    path = tmp_path / "mixed-case-legacy-registration.sqlite"
+    _register(path)
+    with sqlite3.connect(path) as conn:
+        conn.execute(f"CREATE VIEW {object_name.upper()} AS SELECT 1 AS dummy")
+    with pytest.raises(ValueError, match="rejects legacy registration"):
+        registry.register_local_holdout(
+            path, study_id="second", manifest_sha256="b" * 64,
+            holdout_start_at_utc=200, holdout_end_at_utc=300)
+    with sqlite3.connect(path) as conn:
+        assert conn.execute("SELECT count(*) FROM holdout_claims").fetchone() == (1,)
+
+
+@pytest.mark.parametrize("object_name", [
+    "holdout_locked_rows", "holdout_locked_decisions", "holdout_locked_pairs",
+])
+def test_case_variant_reservation_view_blocks_legacy_release(
+        tmp_path, clock, object_name):
+    path = tmp_path / "mixed-case-legacy-release.sqlite"
+    _register(path)
+    with sqlite3.connect(path) as conn:
+        conn.execute(f"CREATE VIEW {object_name.upper()} AS SELECT 1 AS dummy")
+    clock[0] = 350
+    with pytest.raises(ValueError, match="Invalid population-lock schema object"):
+        _claim(path)
+    with sqlite3.connect(path) as conn:
+        assert conn.execute(
+            "SELECT release_claimed_at_utc FROM holdout_claims"
+        ).fetchone() == (None,)
+
+
+def test_case_variant_claim_view_blocks_legacy_registration(tmp_path, clock):
+    path = tmp_path / "mixed-case-claims.sqlite"
+    with sqlite3.connect(path) as conn:
+        conn.execute(
+            "CREATE VIEW HOLDOUT_CLAIMS AS SELECT '' AS study_id, "
+            "'' AS manifest_sha256, 200 AS holdout_start_at_utc, "
+            "300 AS holdout_end_at_utc, 100 AS registered_at_utc, "
+            "NULL AS release_claimed_at_utc WHERE 0"
+        )
+        conn.execute(
+            "CREATE TRIGGER fake_claim INSTEAD OF INSERT ON HOLDOUT_CLAIMS "
+            "BEGIN SELECT 1; END"
+        )
+    with pytest.raises(ValueError, match="Invalid holdout claims schema object"):
+        _register(path)
+    with sqlite3.connect(path) as conn:
+        assert conn.execute(
+            "SELECT name, type FROM sqlite_master WHERE lower(name)='holdout_claims'"
+        ).fetchone() == ("HOLDOUT_CLAIMS", "view")
+
+
+def test_case_variant_trigger_target_blocks_legacy_registration(tmp_path, clock):
+    path = tmp_path / "mixed-case-legacy-trigger.sqlite"
+    _register(path)
+    with sqlite3.connect(path) as conn:
+        conn.execute(
+            "CREATE TRIGGER erase_claim AFTER INSERT ON HOLDOUT_CLAIMS "
+            "BEGIN DELETE FROM holdout_claims WHERE study_id=NEW.study_id; END"
+        )
+    with pytest.raises(ValueError, match="Invalid holdout claims trigger"):
+        registry.register_local_holdout(
+            path, study_id="second", manifest_sha256="b" * 64,
+            holdout_start_at_utc=200, holdout_end_at_utc=300)
+    with sqlite3.connect(path) as conn:
+        assert conn.execute("SELECT count(*) FROM holdout_claims").fetchone() == (1,)
+
+
+def test_case_variant_trigger_target_blocks_legacy_release(tmp_path, clock):
+    path = tmp_path / "mixed-case-release-trigger.sqlite"
+    _register(path)
+    with sqlite3.connect(path) as conn:
+        conn.execute(
+            "CREATE TRIGGER erase_claim AFTER UPDATE OF release_claimed_at_utc "
+            "ON HOLDOUT_CLAIMS BEGIN UPDATE holdout_claims "
+            "SET release_claimed_at_utc=NULL WHERE study_id=NEW.study_id; END"
+        )
+    clock[0] = 350
+    with pytest.raises(ValueError, match="Invalid holdout registry trigger"):
+        _claim(path)
+    with sqlite3.connect(path) as conn:
+        assert conn.execute(
+            "SELECT release_claimed_at_utc FROM holdout_claims"
+        ).fetchone() == (None,)
