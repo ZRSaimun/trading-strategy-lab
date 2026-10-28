@@ -43,6 +43,31 @@ def _bucket_sha256(starts: list[int]) -> str:
     return digest.hexdigest()
 
 
+def _source_order_complete_buckets(source: list[int]) -> set[int]:
+    """Return aligned 15-minute windows contiguous in original source row order.
+
+    This is per-bucket contiguity only; it does not establish global chronology.
+    """
+    starts: set[int] = set()
+    previous = None
+    streak = 0
+    for minute in source:
+        streak = streak + 1 if previous is not None and minute == previous + 60 else 1
+        if streak >= 15:
+            start = minute - 14 * 60
+            if start % 900 == 0:
+                starts.add(start)
+        previous = minute
+    return starts
+
+
+def _source_order_bucket_sha256(starts: list[int]) -> str:
+    digest = hashlib.sha256(b"DECLARED_ANCHOR_SOURCE_ORDER_CLEAN_M15_BUCKET_STARTS_V1\n")
+    for start in starts:
+        digest.update(f"{start}\n".encode("ascii"))
+    return digest.hexdigest()
+
+
 def audit_declared_m15_bucket_anchors(
     source_wall_minutes: list[int], anchor_utc_minutes: list[int], *,
     source_id: str, offset_candidates_minutes: list[int],
@@ -79,6 +104,9 @@ def audit_declared_m15_bucket_anchors(
     complete = {start for start, values in source_unique.items() if len(values) == 15}
     touched = {start for start, values in source_unique.items()
                if source_counts[start] > len(values)}
+    # Distinct-minute completeness does not establish source-row chronology.
+    # Preserve the original structural population and add a stricter census.
+    source_order_clean = clean & _source_order_complete_buckets(source)
     anchor_complete = _complete_buckets(set(anchor))
     candidates = []
     minimum, maximum = min(source), max(source)
@@ -88,6 +116,9 @@ def audit_declared_m15_bucket_anchors(
             raise ValueError("Offset shifts source outside supported UTC range")
         shifted_clean = {start - shift for start in clean}
         matched = sorted(shifted_clean & anchor_complete)
+        matched_source_order = sorted(
+            {start - shift for start in source_order_clean} & anchor_complete
+        )
         candidates.append({
             "declared_local_minus_utc_offset_minutes": offset,
             "anchor_matched_replay_free_complete_m15_buckets": len(matched),
@@ -95,6 +126,16 @@ def audit_declared_m15_bucket_anchors(
             "anchor_complete_m15_buckets_without_clean_source": len(anchor_complete) - len(matched),
             "anchor_matched_clean_m15_bucket_starts_sha256": _bucket_sha256(matched),
             "anchor_matched_clean_m15_bucket_starts_sample": matched[:8],
+            "anchor_matched_source_order_contiguous_clean_m15_buckets": len(matched_source_order),
+            "source_order_contiguous_clean_m15_buckets_outside_complete_anchor": (
+                len(source_order_clean) - len(matched_source_order)
+            ),
+            "anchor_matched_source_order_contiguous_clean_m15_bucket_starts_sha256": (
+                _source_order_bucket_sha256(matched_source_order)
+            ),
+            "anchor_matched_source_order_contiguous_clean_m15_bucket_starts_sample": (
+                matched_source_order[:8]
+            ),
         })
 
     highest = max(x["anchor_matched_replay_free_complete_m15_buckets"] for x in candidates)
@@ -106,6 +147,10 @@ def audit_declared_m15_bucket_anchors(
         "source_wall_m15_buckets": len(source_unique),
         "source_wall_complete_m15_buckets": len(complete),
         "source_wall_replay_free_complete_m15_buckets": len(clean),
+        "source_order_contiguous_replay_free_complete_m15_buckets": len(source_order_clean),
+        "source_wall_replay_free_complete_but_noncontiguous_m15_buckets": (
+            len(clean) - len(source_order_clean)
+        ),
         "source_wall_replay_touched_m15_buckets": len(touched),
         "source_wall_replay_touched_complete_m15_buckets": len(complete & touched),
         "source_wall_incomplete_m15_buckets": len(source_unique) - len(complete),
@@ -113,6 +158,9 @@ def audit_declared_m15_bucket_anchors(
         "anchor_complete_m15_buckets": len(anchor_complete),
         "candidate_results": candidates,
         "highest_matched_clean_m15_bucket_count": highest,
+        "highest_source_order_matched_clean_m15_bucket_count": max(
+            x["anchor_matched_source_order_contiguous_clean_m15_buckets"] for x in candidates
+        ),
         "highest_match_candidate_count": sum(
             x["anchor_matched_replay_free_complete_m15_buckets"] == highest
             for x in candidates
