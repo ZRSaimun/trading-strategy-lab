@@ -623,3 +623,35 @@ def test_registration_rejects_reserved_view_with_silent_insert_trigger(
             "AND name IN ('holdout_claims', 'holdout_locked_rows', "
             "'holdout_locked_decisions', 'holdout_locked_pairs')"
         ).fetchone() == (0,)
+
+
+@pytest.mark.parametrize("protected_table", [
+    "holdout_claims", "holdout_locked_rows",
+    "holdout_locked_decisions", "holdout_locked_pairs",
+])
+def test_registration_rejects_real_table_trigger_that_discards_inserts(
+        tmp_path, clock, protected_table):
+    """AFTER INSERT triggers can silently erase claims or reservations."""
+    from app.local_holdout_population_lock import _DECISION_SCHEMA, _PAIR_SCHEMA
+
+    path = tmp_path / "triggered-registration.sqlite"
+    with sqlite3.connect(path) as conn:
+        for schema in (registry._SCHEMA, _ROW_SCHEMA, _DECISION_SCHEMA, _PAIR_SCHEMA):
+            conn.execute(schema)
+        conn.execute(
+            f"CREATE TRIGGER discard_insert AFTER INSERT ON {protected_table} "
+            f"BEGIN DELETE FROM {protected_table}; END"
+        )
+    manifest, census = _study()
+    with pytest.raises(ValueError, match="Invalid population-lock trigger"):
+        register_population_locked_holdout(path, manifest, census)
+    with sqlite3.connect(path) as conn:
+        assert conn.execute(
+            "SELECT tbl_name FROM sqlite_master WHERE type='trigger' "
+            "AND name='discard_insert'"
+        ).fetchone() == (protected_table,)
+        for table in (
+            "holdout_claims", "holdout_locked_rows",
+            "holdout_locked_decisions", "holdout_locked_pairs",
+        ):
+            assert conn.execute(f"SELECT count(*) FROM {table}").fetchone() == (0,)
