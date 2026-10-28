@@ -119,6 +119,40 @@ def _paired_frozen_baseline_regret_bounds(issued_census, eligible_settled, prior
     }
 
 
+def _ece10_unavailable_binary_bounds(issued_census, eligible_settled):
+    """Sharp 10-bin ECE sensitivity to unavailable binary outcomes.
+
+    Preserve the preselected nonoverlapping issued census, including pending,
+    void and post-as-of outcomes. For each fixed probability bin, the unknown
+    number of UP labels is an integer between zero and the missing count.
+    Minimize/maximize the absolute calibration gap over that integer range,
+    then sum across independent bins. This is counterfactual, not observed
+    calibration; a VOID_GAP may have no observable binary target.
+    """
+    eligible_ids = {row["id"] for row in eligible_settled}
+    bins = [[0.0, 0, 0] for _ in range(10)]
+    for row in issued_census:
+        bucket = bins[min(9, int(row["probability"] * 10))]
+        bucket[0] += row["probability"]
+        if row["id"] in eligible_ids:
+            bucket[1] += int(row["outcomeUp"])
+        else:
+            bucket[2] += 1
+    best = worst = 0.0
+    for predicted, observed_up, missing in bins:
+        target = predicted - observed_up
+        floor_candidate = max(0, min(missing, math.floor(target)))
+        ceil_candidate = min(missing, floor_candidate + 1)
+        best += min(abs(target - floor_candidate),
+                    abs(target - ceil_candidate))
+        worst += max(abs(target), abs(target - missing))
+    n = len(issued_census)
+    return {
+        "lateEce10BestCaseAllIssuedCensus": best / n,
+        "lateEce10WorstCaseAllIssuedCensus": worst / n,
+    }
+
+
 def _calibration_ece10(rows):
     """Descriptive 10-bin ECE; do not interpret as statistical significance.
 
@@ -718,6 +752,8 @@ def audit_temporal_forecast_calibration(snapshot, *, min_per_window=30,
             "lateBrierSkillVsFrozenEarlyClimatology": None,
             "lateMeanProbability": None, "lateObservedUpRate": None,
             "lateAbsoluteCalibrationGap": None,
+            "lateEce10BestCaseAllIssuedCensus": None,
+            "lateEce10WorstCaseAllIssuedCensus": None,
             "lateExpectedCalibrationError10": None, "lateEceBins10": None,
             "lateEceOccupiedBinsUnder30": None,
             "lateEceMinOccupiedBinCount": None,
@@ -769,6 +805,7 @@ def audit_temporal_forecast_calibration(snapshot, *, min_per_window=30,
                 lateObservedUpRate=sum(r["outcomeUp"] for r in test) / len(test),
                 lateAbsoluteCalibrationGap=abs(
                     sum(r["probability"] - int(r["outcomeUp"]) for r in test) / len(test)),
+                **_ece10_unavailable_binary_bounds(late_census, test),
                 lateExpectedCalibrationError10=_calibration_ece10(test),
                 lateEceBins10=late_bins,
                 lateEceOccupiedBinsUnder30=sum(n < 30 for n in occupied),
@@ -820,6 +857,9 @@ def audit_temporal_forecast_calibration(snapshot, *, min_per_window=30,
                        "the fixed 90% threshold; empty tails have no error estimate; "
                        "10-bin Brier components are bin-dependent and their "
                        "explicit residual is not a forecast return; "
+                       "counterfactual ECE bounds assign hypothetical binary "
+                       "labels to unavailable fixed-census outcomes and are "
+                       "not observed calibration or statistical evidence; "
                        "10-bin ECE is bin-dependent "
                        "and noisy with sparse bins; binomial Wilson ranges assume "
                        "independence that is not established; heuristic drift is not a p-value. "
