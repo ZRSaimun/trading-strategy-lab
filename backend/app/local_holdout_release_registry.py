@@ -95,8 +95,7 @@ def register_local_holdout(db_path, *, study_id, manifest_sha256,
             # Do not allow the legacy, row-unreserved path to bypass a
             # population-locked registry in this same SQLite database.
             if conn.execute(
-                "SELECT 1 FROM sqlite_master WHERE type='table' "
-                "AND name IN ('holdout_locked_rows', "
+                "SELECT 1 FROM sqlite_master WHERE name IN ('holdout_locked_rows', "
                 "'holdout_locked_decisions', 'holdout_locked_pairs') LIMIT 1"
             ).fetchone() is not None:
                 # Any partial reservation schema is evidence that this DB
@@ -193,11 +192,17 @@ def claim_local_holdout_release(db_path, *, study_id, manifest_sha256,
             # at release time, not just when the study was registered. A
             # missing table, missing reservation, or orphaned reservation is
             # evidence of incomplete/tampered local state: never release.
-            tables = {r[0] for r in conn.execute(
-                "SELECT name FROM sqlite_master WHERE type='table' AND "
-                "name IN ('holdout_locked_rows', 'holdout_locked_decisions', " 
+            # A view or other named SQLite object masquerading as a
+            # reservation table must never turn a damaged population lock
+            # into an apparently unreserved legacy registry.
+            population_objects = dict(conn.execute(
+                "SELECT name, type FROM sqlite_master WHERE "
+                "name IN ('holdout_locked_rows', 'holdout_locked_decisions', "
                 "'holdout_locked_pairs')"
-            )}
+            ))
+            if any(kind != "table" for kind in population_objects.values()):
+                raise ValueError("Invalid population-lock schema object at release")
+            tables = set(population_objects)
             # A caller that supplies a frozen census is requesting exact
             # population verification. A legacy registry without reservation
             # tables cannot satisfy that request: do not silently release.
