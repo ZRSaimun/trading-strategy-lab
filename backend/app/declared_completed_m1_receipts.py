@@ -144,6 +144,18 @@ def audit_declared_completed_m1_receipts(
         if newest_start is None or start > newest_start:
             newest_start, newest_received = start, received
 
+    # A receipt-only checksum intentionally does not bind the as-of clock,
+    # freshness budgets or expected-session inventory. Keep a distinct,
+    # domain-separated policy fingerprint so two otherwise identical receipt
+    # populations cannot be mistaken for the same audit decision.
+    policy_digest = hashlib.sha256(b"DECLARED_COMPLETED_M1_AUDIT_POLICY_V1\\n")
+    policy_digest.update(json.dumps(
+        [provider, instrument, source_id, price_side, now, max_age_seconds,
+         max_transport_lag_seconds, max_finalization_lag_seconds,
+         expected_utc_minutes],
+        separators=(",", ":"), ensure_ascii=True,
+    ).encode("ascii") + b"\\n")
+
     expected = set(expected_utc_minutes) if expected_utc_minutes is not None else None
     missing = len(expected - seen_minutes) if expected is not None else None
     extra = len(seen_minutes - expected) if expected is not None else None
@@ -179,6 +191,7 @@ def audit_declared_completed_m1_receipts(
         ),
         "structurally_clean": structurally_clean,
         "receipt_inventory_sha256": digest.hexdigest(),
+        "declared_audit_policy_sha256": policy_digest.hexdigest(),
         "source_authenticity_verified": False,
         "server_owned_receipt_clock_verified": False,
         "licensing_verified": False,
