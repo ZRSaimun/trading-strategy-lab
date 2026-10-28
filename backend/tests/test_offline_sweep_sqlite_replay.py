@@ -1,7 +1,7 @@
 """Synthetic SQLite adapter regressions; no proprietary archive bytes or broker I/O."""
 import json
 import sqlite3
-from datetime import datetime, timedelta
+from datetime import datetime, timezone
 from decimal import Decimal as D
 
 import pytest
@@ -26,7 +26,7 @@ def build_db(tmp_path, *, gap=False, corrupt=False, accepted_delta=0):
             low FLOAT, close FLOAT, volume FLOAT, source_member TEXT,
             source_line INTEGER, PRIMARY KEY(dataset_id,time));
     """)
-    start = int(datetime(2025, 1, 1).timestamp())
+    start = int(datetime(2025, 1, 1, tzinfo=timezone.utc).timestamp())
     candles = []
     for bar in range(200):
         o, h, l, c = (100, 101, 99, 100)
@@ -76,7 +76,7 @@ def test_gap_discarded_not_synthetically_filled(tmp_path):
     result = replay_declared_sqlite(build_db(tmp_path, gap=True), DATASET, SOURCE)
     assert result["m1_accepted"] == 2999
     assert result["complete_m15"] == 199
-    assert result["partial_m15_discarded"] == 1
+    assert result["partial_m15_discarded"] == 2  # before and after the gap
     assert result["m1_discontinuities"] == 1
 
 
