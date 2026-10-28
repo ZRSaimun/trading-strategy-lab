@@ -430,6 +430,28 @@ def _outcome_availability_bins10(issued_census, eligible_settled):
     ]
 
 
+def _outcome_availability_utc_hour24(issued_census, eligible_settled):
+    """UTC-hour outcome availability on a preselected issued-forecast census.
+
+    Eligibility is determined by membership in the chronologically eligible
+    settled set, not by outcome direction. Empty hours have null fractions.
+    No session/DST/provider authenticity or statistical significance is claimed.
+    """
+    eligible_ids = {row["id"] for row in eligible_settled}
+    counts = [[0, 0] for _ in range(24)]
+    for row in issued_census:
+        hour = (row["baseStart"] // 3600) % 24
+        counts[hour][0] += 1
+        counts[hour][1] += int(row["id"] in eligible_ids)
+    return [
+        {"utcHour": hour, "issued": issued, "eligibleSettled": eligible,
+         "unavailable": issued - eligible,
+         "unavailableFraction": (issued - eligible) / issued if issued else None,
+         "lowSupportUnder30": issued < 30 if issued else None}
+        for hour, (issued, eligible) in enumerate(counts)
+    ]
+
+
 def audit_temporal_forecast_calibration(snapshot, *, min_per_window=30,
                                         brier_deterioration=0.05,
                                         max_unresolved_fraction=0.10,
@@ -577,6 +599,10 @@ def audit_temporal_forecast_calibration(snapshot, *, min_per_window=30,
             # Remains visible when scoring is withheld; no labels are imputed.
             "lateCensusOutcomeAvailabilityBins10":
                 _outcome_availability_bins10(late_census, test),
+            "earlyCensusOutcomeAvailabilityUtcHour24":
+                _outcome_availability_utc_hour24(early_census, train),
+            "lateCensusOutcomeAvailabilityUtcHour24":
+                _outcome_availability_utc_hour24(late_census, test),
             "earlyBrier": None, "lateBrier": None, "lateBrierDelta": None,
             "lateBrierBestCaseAllIssuedCensus": None,
             "lateBrierWorstCaseAllIssuedCensus": None,
@@ -678,6 +704,7 @@ def audit_temporal_forecast_calibration(snapshot, *, min_per_window=30,
                        "issuance lag is caller-declared, not authenticated alert timeliness; "
                        "all-issued confidence is descriptive and cannot establish calibration; "
                        "probability-bin outcome availability is descriptive, sparse and "
+                       "UTC-hour outcome availability is descriptive and not session-adjusted; "
                        "issued probability divergence is descriptive and bin-dependent; unbinned empirical CDF distances are descriptive, sample-dependent, "
                        "not a statistical drift test or a calibrated probability; "
                        "UTC-hour composition and common-hour shifts are descriptive, " 
