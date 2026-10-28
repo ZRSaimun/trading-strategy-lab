@@ -211,3 +211,55 @@ def audit_settled_receipt_lag(snapshot):
         "mayExecutePaperOrder": False,
         "mayExecuteLiveOrder": False,
     }
+
+
+def audit_pending_outcome_deadlines(snapshot, *, as_of):
+    """Read-only declared pending-target deadline census at a caller as-of time.
+
+    This is not independent feed or clock evidence. A pending target is overdue
+    only *after* target close plus the inclusive declared receipt-lag budget.
+    Missing forecast issuances and expected market-session bars are not counted.
+    """
+    summarize_forecast_snapshot(snapshot)
+    if type(as_of) is not int or not 0 <= as_of <= 2**53 - 1:
+        raise ValueError("Invalid pending audit as-of time")
+    for event in snapshot["events"]:
+        received = event.get("receivedAt")
+        if type(received) is not int or not 0 <= received <= as_of:
+            raise ValueError("Forecast event after pending audit cutoff")
+    for row in snapshot["forecasts"]:
+        if (row["issuedAt"] > as_of or
+                (row["resolvedAt"] is not None and row["resolvedAt"] > as_of)):
+            raise ValueError("Forecast resolution after pending audit cutoff")
+    seconds = snapshot["identity"]["seconds"]
+    lag = snapshot["maxLagSeconds"]
+    for row in snapshot["forecasts"]:
+        if row["targetStart"] + seconds + lag > 2**53 - 1:
+            raise ValueError("Pending audit deadline overflow")
+
+    def summarize(rows):
+        pending = [row for row in rows if row["status"] == "PENDING"]
+        overdue = [as_of - (row["targetStart"] + seconds + lag)
+                   for row in pending if as_of > row["targetStart"] + seconds + lag]
+        return {"issuedCount": len(rows),
+                "settledCount": sum(row["status"] == "SETTLED" for row in rows),
+                "voidGapCount": sum(row["status"] == "VOID_GAP" for row in rows),
+                "pendingCount": len(pending),
+                "pendingWithinDeclaredWindowCount": len(pending) - len(overdue),
+                "overduePendingCount": len(overdue),
+                "overdueFractionOfPending": len(overdue) / len(pending) if pending else None,
+                "longestOverdueSeconds": max(overdue) if overdue else None}
+
+    grouped = defaultdict(list)
+    for row in snapshot["forecasts"]:
+        grouped[(row["modelVersion"], row["horizon"])].append(row)
+    aggregate = summarize(snapshot["forecasts"])
+    return {"status": ("DECLARED_OVERDUE_PENDING" if aggregate["overduePendingCount"]
+                       else "NO_DECLARED_OVERDUE_PENDING"),
+            "evidence": _EVIDENCE, "asOf": as_of, **aggregate,
+            "byModelHorizon": [
+                {"modelVersion": model, "horizonCandles": horizon, **summarize(rows)}
+                for (model, horizon), rows in sorted(grouped.items())],
+            "sourceAuthenticated": False, "prospectiveReceiptVerified": False,
+            "sessionCalendarAuthenticated": False, "maySendNotification": False,
+            "mayExecutePaperOrder": False, "mayExecuteLiveOrder": False}
