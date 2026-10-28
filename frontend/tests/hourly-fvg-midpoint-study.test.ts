@@ -362,6 +362,12 @@ test('formation census preserves unknown outcomes and distinguishes paired from 
    OPEN_GAP_THROUGH:Array(12).fill(0),
    NO_TOUCH:Array(12).fill(0),
   },
+  firstDispositionWaitBarCountsByDirection:{
+   BULLISH:{TOUCH:[1,...Array(11).fill(0)],
+    OPEN_GAP_THROUGH:Array(12).fill(0),NO_TOUCH:Array(12).fill(0)},
+   BEARISH:{TOUCH:Array(12).fill(0),
+    OPEN_GAP_THROUGH:Array(12).fill(0),NO_TOUCH:Array(12).fill(0)},
+  },
   incompleteWindowByReason:{MISSING_HOUR:0,RIGHT_CENSORED:0},
   markoutCensoredByReason:{MISSING_HOUR:0,RIGHT_CENSORED:0,UNREPRESENTABLE_RETURN:0},
   pairedGrossOrdering:{
@@ -566,7 +572,7 @@ test('research report rejects extra source fields without leaking caller private
  const report=studyHourlyFvgMidpoint(fixture(),source);
  assert.deepEqual(report.source,source);
  assert.deepEqual(Object.keys(report.source).sort(),Object.keys(source).sort());
- assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v54');
+ assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v55');
 });
 test('ambiguous source labels and contradictory volume evidence fail closed',()=>{
  // These are declared metadata, not independent vendor authentication.
@@ -967,7 +973,7 @@ test('an overflowing next-open comparator suppresses both matched markouts',()=>
 });
 test('completed hourly timestamps are safe and numeric rule changes have a new version',()=>{
  const report=studyHourlyFvgMidpoint(fixture(),source);
- assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v54');
+ assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v55');
  const lastSafeAlignedOpen=Math.floor(Number.MAX_SAFE_INTEGER/H)*H;
  assert.equal(Number.isSafeInteger(lastSafeAlignedOpen),true);
  assert.equal(Number.isSafeInteger(lastSafeAlignedOpen+H),false);
@@ -1990,4 +1996,49 @@ test('v54 observed first-disposition wait census is causal and excludes censored
   'a known no-touch outcome is counted at its configured completed deadline');
  assert.deepEqual(read(untouched.slice(0,5)).cohort.firstDispositionWaitBarCounts,empty,
   'a right-censored tail cannot be reclassified as a late no-touch');
+});
+
+
+test('v55 directional first-disposition waits reconcile and remain causal for both sides',()=>{
+ const config={maxTouchWaitBars:3};
+ const bullish=[
+  candle(0,100,101,99,100),candle(1,102,104,101,103),
+  candle(2,106,107,105,106),candle(3,106,107,103.5,106),
+  candle(4,106,107,101,106),
+ ];
+ const mirror=(bars:Bar[])=>bars.map(b=>({...b,
+  open:220-b.open,high:220-b.low,low:220-b.high,close:220-b.close}));
+ const empty=()=>({TOUCH:[0,0,0],OPEN_GAP_THROUGH:[0,0,0],NO_TOUCH:[0,0,0]});
+ const cases=[
+  {name:'touch',bars:bullish,at:BASE+5*H,
+   expected:{TOUCH:[0,1,0],OPEN_GAP_THROUGH:[0,0,0],NO_TOUCH:[0,0,0]}},
+  {name:'gap-through',bars:[...bullish.slice(0,3),candle(3,102,107,101,105)],
+   at:BASE+4*H,expected:{TOUCH:[0,0,0],OPEN_GAP_THROUGH:[1,0,0],NO_TOUCH:[0,0,0]}},
+  {name:'no-touch',bars:[...bullish.slice(0,4),
+   candle(4,106,107,103.5,106),candle(5,106,107,103.5,106)],
+   at:BASE+6*H,expected:{TOUCH:[0,0,0],OPEN_GAP_THROUGH:[0,0,0],NO_TOUCH:[0,0,1]}},
+  {name:'censored',bars:bullish.slice(0,4),at:BASE+4*H,expected:empty()},
+ ];
+ for(const side of ['BULLISH','BEARISH'] as const){
+  for(const sample of cases){
+   const bars=side==='BULLISH'?sample.bars:mirror(sample.bars);
+   const report=studyHourlyFvgMidpointAsOf(bars,source,sample.at,config);
+   const other=side==='BULLISH'?'BEARISH':'BULLISH';
+   assert.equal(report.observations.length,1,sample.name+' '+side);
+   assert.equal(report.observations[0].direction,side);
+   assert.deepEqual(report.cohort.firstDispositionWaitBarCountsByDirection[side],
+    sample.expected,sample.name+' '+side);
+   assert.deepEqual(report.cohort.firstDispositionWaitBarCountsByDirection[other],
+    empty(),sample.name+' other side');
+   assert.deepEqual(report.cohort.firstDispositionWaitBarCounts,sample.expected);
+   assert.deepEqual(studyHourlyFvgMidpoint(bars,source,config).cohort
+    .firstDispositionWaitBarCountsByDirection,
+    report.cohort.firstDispositionWaitBarCountsByDirection);
+   if(sample.name==='censored')
+    assert.equal(report.cohort.firstTouchOutcome.INCOMPLETE_WINDOW,1);
+  }
+ }
+ const before=studyHourlyFvgMidpointAsOf(bullish,source,BASE+4*H,config);
+ assert.deepEqual(before.cohort.firstDispositionWaitBarCountsByDirection.BULLISH,empty(),
+  'a future second-hour touch cannot leak into the first-hour prefix');
 });

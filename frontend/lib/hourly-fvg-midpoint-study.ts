@@ -7,7 +7,7 @@
  */
 import type {Bar} from './research.ts';
 
-export const HOURLY_FVG_VERSION='hourly-fvg-first-midpoint-touch-v54';
+export const HOURLY_FVG_VERSION='hourly-fvg-first-midpoint-touch-v55';
 export type Evidence='PASS'|'FAIL'|'INSUFFICIENT_DATA';
 // First-touch volume evidence is not independent broker/source authentication.
 export type VolumeEvidenceReason='NOT_EVALUATED'|'SOURCE_UNVERIFIED'|
@@ -112,6 +112,10 @@ export type FvgCohort={
  // TOUCH, OPEN_GAP_THROUGH and completed NO_TOUCH outcomes are counted.
  // Missing-hour and right-censored windows cannot become observed negatives.
  firstDispositionWaitBarCounts:Record<'TOUCH'|'OPEN_GAP_THROUGH'|'NO_TOUCH',readonly number[]>;
+ // Split the same observed wait population by formation direction; a pooled
+ // histogram can hide asymmetric bullish/bearish first-touch attrition.
+ firstDispositionWaitBarCountsByDirection:Record<Side,
+  Record<'TOUCH'|'OPEN_GAP_THROUGH'|'NO_TOUCH',readonly number[]>>;
   incompleteWindowByReason:Record<FirstTouchCensorReason,number>;
   markoutCensoredByReason:Record<MarkoutCensorReason,number>;
  midpointTouch:EvidenceCounts;strictCandidate:EvidenceCounts;markout:EvidenceCounts;
@@ -484,11 +488,16 @@ function summarizeCohort(observations:readonly FvgObservation[],costs:readonly n
  const markoutCensoredByReason:Record<MarkoutCensorReason,number>={
   MISSING_HOUR:0,RIGHT_CENSORED:0,UNREPRESENTABLE_RETURN:0,
  };
- const firstDispositionWaitBarCounts:Record<'TOUCH'|'OPEN_GAP_THROUGH'|'NO_TOUCH',number[]>={
+ const emptyWaitCounts=():Record<'TOUCH'|'OPEN_GAP_THROUGH'|'NO_TOUCH',number[]>=>({
   TOUCH:Array(maxTouchWaitBars).fill(0),
   OPEN_GAP_THROUGH:Array(maxTouchWaitBars).fill(0),
   NO_TOUCH:Array(maxTouchWaitBars).fill(0),
- };
+ });
+ const firstDispositionWaitBarCounts=emptyWaitCounts();
+ const firstDispositionWaitBarCountsByDirection:Record<Side,
+  Record<'TOUCH'|'OPEN_GAP_THROUGH'|'NO_TOUCH',number[]>>={
+   BULLISH:emptyWaitCounts(),BEARISH:emptyWaitCounts(),
+  };
  for(const observation of observations){
   firstTouchOutcome[observation.firstTouchOutcome]++;
   if(observation.firstTouchOutcome!=='INCOMPLETE_WINDOW'){
@@ -498,6 +507,8 @@ function summarizeCohort(observations:readonly FvgObservation[],costs:readonly n
    if(!Number.isSafeInteger(wait)||wait<1||wait>maxTouchWaitBars)
     throw Error('Observed FVG first-disposition wait is inconsistent');
    firstDispositionWaitBarCounts[observation.firstTouchOutcome][wait-1]++;
+   firstDispositionWaitBarCountsByDirection[observation.direction]
+    [observation.firstTouchOutcome][wait-1]++;
   }
   if(observation.firstTouchCensorReason!==null)
    incompleteWindowByReason[observation.firstTouchCensorReason]++;
@@ -508,9 +519,15 @@ function summarizeCohort(observations:readonly FvgObservation[],costs:readonly n
   const accounted=firstDispositionWaitBarCounts[outcome].reduce((sum,n)=>sum+n,0);
   if(accounted!==firstTouchOutcome[outcome])
    throw Error('Observed FVG first-disposition wait census does not reconcile');
+  const directionalAccounted=(['BULLISH','BEARISH'] as const).reduce((sum,side)=>
+   sum+firstDispositionWaitBarCountsByDirection[side][outcome]
+    .reduce((total,n)=>total+n,0),0);
+  if(directionalAccounted!==accounted)
+   throw Error('Directional FVG first-disposition wait census does not reconcile');
  }
  return {
   formations:observations.length,firstTouchOutcome,firstDispositionWaitBarCounts,
+  firstDispositionWaitBarCountsByDirection,
   incompleteWindowByReason,
   pairedNetSignByCost,pairedGrossOrdering,pairedHoldingWindowOverlap,
   pairedHoldingWindowOverlapByStrictCandidate,
