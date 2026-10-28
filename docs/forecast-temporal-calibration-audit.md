@@ -639,3 +639,34 @@ Only legally entitled, independently authenticated prospective completed
 candles with server-owned timestamps and session-aware expected-bar
 inventories can support stronger operational claims. No order, alert,
 external request, production write, or broker permission is enabled.
+
+## Paired frozen-baseline regret sensitivity (28 October 2026)
+
+When the existing chronology, minimum-sample and dual missingness gates all
+pass, four additional **counterfactual**, fixed-census metrics compare each
+late forecast against the **same early-only frozen Jeffreys-smoothed
+climatology** under both possible binary labels for every unavailable outcome:
+
+- `lateBrierRegretBestCaseAllIssuedCensusVsFrozenEarlyClimatology`
+- `lateBrierRegretWorstCaseAllIssuedCensusVsFrozenEarlyClimatology`
+- `lateLogLossRegretBestCaseAllIssuedCensusVsFrozenEarlyClimatology`
+- `lateLogLossRegretWorstCaseAllIssuedCensusVsFrozenEarlyClimatology`
+
+Regret means **forecast score minus frozen-baseline score**; negative is
+better than the baseline, positive worse. For a settled, eligible record the
+observed outcome is used. For a pending, void, post-boundary or post-as-of
+record, compute the forecast-minus-baseline difference under both hypothetical
+UP and DOWN, then sum each row's minimum/maximum across the **original
+preselected nonoverlapping late issued census**. These are *paired* bounds,
+not the difference of independently optimized forecast and baseline scores.
+The denominator never changes when a selected outcome is missing. With no
+unavailable selected outcomes, both endpoints collapse to the observed
+fixed-census mean regret.
+
+These bounds are **null when any existing score gate fails**. A `VOID_GAP`
+may have no observable target, so even sharp mathematical bounds are NOT
+realized scores, verified forecast skill, market returns, downside P&L,
+statistical significance, or a proof of positive trading expectancy. The
+frozen baseline and cutoff remain caller-declared, not independently
+attested. No live feed, notification, paper fill, broker action, data write,
+or execution permission is enabled.
