@@ -239,16 +239,22 @@ def audit_pending_outcome_deadlines(snapshot, *, as_of):
 
     def summarize(rows):
         pending = [row for row in rows if row["status"] == "PENDING"]
-        overdue = [as_of - (row["targetStart"] + seconds + lag)
-                   for row in pending if as_of > row["targetStart"] + seconds + lag]
+        overdue = sorted(as_of - (row["targetStart"] + seconds + lag)
+                         for row in pending if as_of > row["targetStart"] + seconds + lag)
+        n_overdue = len(overdue)
+        # Nearest-rank tail ages are descriptive of caller-declared pending
+        # receipts, not evidence of provider downtime or market-session bars.
         return {"issuedCount": len(rows),
                 "settledCount": sum(row["status"] == "SETTLED" for row in rows),
                 "voidGapCount": sum(row["status"] == "VOID_GAP" for row in rows),
                 "pendingCount": len(pending),
                 "pendingWithinDeclaredWindowCount": len(pending) - len(overdue),
                 "overduePendingCount": len(overdue),
-                "overdueFractionOfPending": len(overdue) / len(pending) if pending else None,
-                "longestOverdueSeconds": max(overdue) if overdue else None}
+                "overdueFractionOfPending": n_overdue / len(pending) if pending else None,
+                "overdueFractionOfIssued": n_overdue / len(rows) if rows else None,
+                "longestOverdueSeconds": overdue[-1] if overdue else None,
+                "overdueSecondsP50": overdue[math.ceil(n_overdue * 0.50) - 1] if overdue else None,
+                "overdueSecondsP95": overdue[math.ceil(n_overdue * 0.95) - 1] if overdue else None}
 
     grouped = defaultdict(list)
     for row in snapshot["forecasts"]:
