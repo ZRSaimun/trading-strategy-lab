@@ -18,7 +18,10 @@ retained* matching tip, and exact agreement between the target account's
 `ATTEMPT_UNKNOWN` order IDs and the census expected IDs. It preserves
 all failures from the full census, replay, snapshot-anchor and context-anchor
 audits. An extra UNKNOWN order, missing UNKNOWN, mutated ledger tip, unsafe
-execution claim or invalid schema fails closed.
+execution claim or invalid schema fails closed. A ledger event timestamp later
+than the final declared broker observation also holds: that observation cannot
+cover subsequent ledger activity. The ledger timestamp is caller-declared,
+not an independently trusted clock.
 
 **Important limitations:** This check compares identifiers, **not intent
 fingerprints**. The current ledger summary omits intent SHA values; do not
