@@ -124,10 +124,10 @@ status exclusion, empty populations and late-receipt inclusion.
 
 ## Opt-in pending target deadline census (28 October 2026)
 
-\`audit_pending_outcome_deadlines(snapshot, as_of=...)\` checks the **declared**
-pending outcome population against \`targetStart + candleSeconds + maxLagSeconds\`.
-The receipt deadline is inclusive: \`as_of == deadline\` is still within the
-declared window; only \`as_of > deadline\` counts as overdue. All issued
+`audit_pending_outcome_deadlines(snapshot, as_of=...)` checks the **declared**
+pending outcome population against `targetStart + candleSeconds + maxLagSeconds`.
+The receipt deadline is inclusive: `as_of == deadline` is still within the
+declared window; only `as_of > deadline` counts as overdue. All issued
 forecasts remain in the denominator, including settled and void-gap outcomes,
 which are **not** counted as pending. The function reports overdue/within-window
 pending counts, the oldest overdue seconds, pending-only overdue fraction (null
