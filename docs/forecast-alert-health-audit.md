@@ -188,3 +188,21 @@ do not authenticate a server clock, prove complete registration, establish
 provider/device delivery, grant permission to send, retry uncertain attempts,
 execute paper/live orders or bypass entitlement/opt-in gates. The metric is not
 a delivery SLA or trading-performance measure.
+
+
+## Oldest unverified ACK identities (28 October 2026)
+
+The read-only health report now includes `oldestUnverifiedAckKeys`, a
+deterministically sorted list of all `[sessionId, forecastId]` identities tied
+for `oldestUnverifiedAckAgeSeconds`. This closes an operator triage gap: the
+previous oldest-age metric did not identify which acknowledgement(s) needed
+independent reconciliation. All ACKs remain in `unverifiedAckKeys`, including
+those younger than the oldest; the new list is not an independent delivery
+receipt. A zero-age ACK is still listed, while an empty ACK population returns
+an empty list and zero age. Ordering and ties do not depend on input order.
+
+The age is calculated only from caller-declared `ackAt` and `as_of`. It does
+not prove provider acceptance, device delivery, human reading, or a live
+market feed. No send/retry, paper fill, live order, worker, route or deployment
+is enabled. Synthetic regressions cover ties, mixed populations, empty
+populations and the exact zero-age boundary.
