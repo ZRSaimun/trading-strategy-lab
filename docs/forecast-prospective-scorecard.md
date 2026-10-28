@@ -99,3 +99,24 @@ of alert delivery, forward accuracy, or trade profitability. They do
 not authorize any notification, paper fill or live order. Three synthetic
 regressions cover cross-model/horizon reconciliation, empty/on-time
 groups, and fail-closed forged issuance linkage.
+
+
+### Declared target-close receipt-delay distribution (28 October 2026)
+
+The same disconnected audit additionally reports integer
+`receiptDelaySecondsP50` and `receiptDelaySecondsP95` both in aggregate and
+for each nonempty model/horizon group. Delays are measured from the *declared*
+target candle close to the *declared* `SETTLED.resolvedAt`, in seconds. They
+use the deterministic nearest-rank definition (sort all settled delays,
+select rank ceil(0.50*n) or ceil(0.95*n), one-based). A zero-settled
+population returns null values; `PENDING` and `VOID_GAP` are excluded.
+Late settled receipts remain included rather than being conveniently censored.
+This makes deteriorating declared timeliness visible even when the maximum
+receipt-lag violation count is still zero. Small groups have unstable
+percentiles, so no significance or service-level compliance is inferred.
+
+These are *not independently measured provider latency, live candle receipts,
+delivery guarantees, tradable quote freshness or trading returns*. The
+existing authentication, alert, paper, live-execution and deployment gates
+remain closed. Four synthetic regressions cover exact nearest-rank behavior,
+status exclusion, empty populations and late-receipt inclusion.
