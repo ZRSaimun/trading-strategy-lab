@@ -208,7 +208,7 @@ def test_gap_void_may_be_known_before_future_target_close():
 
 
 @pytest.mark.parametrize("horizon,lag", [
-    (1, 0), (1, 1), (1, 120), (3, 0), (3, 120), (12, 3600),
+    (1, 0), (1, 1), (1, 120), (3, 0), (3, 120), (12, 0), (12, 3600),
 ])
 def test_opt_in_settlement_lag_audit_respects_inclusive_deadline(horizon, lag):
     s = snapshot()
