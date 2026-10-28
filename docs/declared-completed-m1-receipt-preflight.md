@@ -27,3 +27,24 @@ A future real feed integration needs an owner-authorized, entitled provider/inst
 The read-only report separately classifies **missing caller-declared expected M1 starts** by the declared finalization and transport budgets. For an expected start `m`, its declared arrival deadline is `m + 60 + max_finalization_lag_seconds + max_transport_lag_seconds` (UTC epoch seconds). A missing expected minute is **overdue** only when `as_of_utc` is strictly later than that deadline; at the exact deadline it remains **pending**. The default combined allowance after candle close is 90 seconds (60 seconds finalization + 30 seconds transport). The three additive fields are `declared_overdue_missing_expected_minutes`, `declared_pending_missing_expected_minutes`, and `overdue_declared_expected_minute_sample_utc` (up to 12 sorted UTC minute starts, no prices). Absent expected inventory yields `null` for all three; explicitly empty expected inventory yields zero counts and an empty sample.
 
 These are **policy-relative, caller-declared missing-minute diagnostics**, not independently established provider outages, SLA violations, or a verified market-session calendar. An expected future minute can be pending. Changes to budgets alter the policy fingerprint but not the receipt fingerprint. The existing missing/extra totals, gap-run counts, structural-cleanliness and freshness gates, and permanently false source-authenticity, licensing, live, research-ready and execution flags are unchanged. No provider request or storage write is performed.
+
+
+### Overdue-run triage (declared evidence only)
+
+The additive `declared_overdue_missing_expected_gap_runs` and
+`largest_declared_overdue_missing_expected_gap_run_minutes` fields group
+**only overdue missing expected M1 starts** into contiguous UTC-minute runs.
+Omitted expected minutes split runs; a declared session break is not silently
+treated as uninterrupted trading. The sorted
+`pending_declared_expected_minute_sample_utc` contains at most 12 still-pending
+missing minute starts, complementing the existing overdue sample. Because the
+deadline is the expected minute start plus the same fixed allowances for every
+minute, overdue starts form a sorted prefix of the missing population. The
+report never invents a provider outage or assumes future expected minutes
+have been delivered. All three fields are `null` when no expected inventory
+was supplied, and 0/0/[] when an explicitly empty inventory was supplied.
+
+This is an offline diagnostic for coordinating delayed forecast issuance and
+data-quality investigations. The expected calendar, `as_of_utc`, finality and
+receipt times remain **caller-declared**. Neither these fields nor clean
+results authorize alerts, live market-data claims, paper fills or real orders.
