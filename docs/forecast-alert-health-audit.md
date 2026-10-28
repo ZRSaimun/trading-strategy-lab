@@ -146,3 +146,27 @@ unique claim issuance, provider acceptance, device delivery, feed authenticity
 or independent inventory completeness. The durable outbox and independent
 claim/receipt reconciliation remain necessary. No sender, automatic retry,
 paper fill, broker order or production route is enabled.
+
+
+## Aged self-attested ACK reconciliation warning (28 October 2026)
+
+A self-attested `ACK_RECORDED_UNVERIFIED` is **not** independent proof of
+provider acceptance, recipient delivery or reading. Previously it could remain
+in `unverifiedAckKeys` indefinitely without entering the actionable warning
+inventory unless the ACK itself was late relative to forecast expiry.
+
+The read-only census now accepts an optional `unverified_ack_warning_seconds`
+(default 300; integer 1–3,600). At `as_of - ackAt >= budget`, it adds
+`ACK_RECONCILIATION_OVERDUE_WARNING` to `counts`, `warningKeys` and
+`warningReasons`, and returns `OPERATOR_REVIEW_REQUIRED`. The report also
+includes `oldestUnverifiedAckAgeSeconds` (zero for an empty ACK population).
+A late ACK can carry both late-ACK and aged-reconciliation warnings, so these
+counters overlap and must not be added as disjoint populations. Timely ACKs
+within the budget remain in `unverifiedAckKeys` but do not trigger this warning.
+
+The age is computed from **caller-declared** `ackAt` and `as_of`; it is not
+an independently attested delivery latency. This is for human reconciliation
+only: no automatic resend, notification sender, broker adapter, paper fill,
+order execution, production route or deployment is enabled. Synthetic tests
+cover exact age boundaries, budget overrides, empty populations, deterministic
+mixed records, overlapping warnings and invalid budgets.
