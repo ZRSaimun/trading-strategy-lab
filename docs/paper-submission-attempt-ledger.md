@@ -1,0 +1,326 @@
+# Non-idempotent broker submission attempt ledger (offline safety research)
+
+The Python module at backend/app/paper_submission_attempt_ledger.py is an opt-in, standalone SQLite evidence ledger. It has **no API route, network access, broker credential handling, trading permission or execution capability**. It does not place even demo orders. Its purpose is to make ambiguous broker-submission outcomes visible and non-retryable across process restarts.
+
+## State machine
+
+PREPARED → ATTEMPT_UNKNOWN → one of RECONCILED_FILLED, RECONCILED_REJECTED, RECONCILED_CANCELLED.
+
+An attempt must be committed to ATTEMPT_UNKNOWN **before** any future adapter sends a non-idempotent request. A crash before sending will conservatively quarantine an unsubmitted intent. A crash during or after sending must never cause an automatic retry. Even a declared terminal reconciliation cannot reuse the order ID or the identical intent fingerprint on the same broker/account. There is no release/submit method. Every result explicitly sets both execution flags to false.
+
+An operator may explicitly create a local database with initialize_ledger(path), then call prepare_intent, mark_attempt_unknown, record_declared_reconciliation and inspect_ledger. These methods accept bounded identifiers, SHA-256 hashes and UTC epoch milliseconds; they must not receive API keys, raw order bodies, PII or trading account numbers. SQLite BEGIN IMMEDIATE serializes competing writers, synchronous=FULL and commit-before-send favor durable quarantine, and an append-only, locally hash-linked event log detects many accidental changes. An exact event replay must match the current intent table. Corruption and clock regression fail closed. The ledger never silently repairs or truncates a file.
+
+**Important limitations:** Hash chains without a separately trusted external anchor cannot detect a privileged attacker who rewrites all rows/hashes or restores an old complete backup. Local SQLite does not establish remote broker inventory, authenticated fills, quote freshness, protective-stop acceptance, owner approval, or safe live order submission. Declared RECONCILED_* states are **not broker verified**. Filesystem durability depends on the host and storage configuration; the ledger is not a distributed consensus store. This module has no integration with the existing risk reservation or signed-approval PRs, and should not be wired into an order sender without comprehensive adversarial tests and explicit human review.
+
+The official Trading 212 Public API documents **Invest and Stocks ISA only**, including demo. It does **not** document CFD API execution. Its beta order endpoints warn that identical POSTs may create duplicate orders. Reference: https://docs.trading212.com/api/orders/orders (checked 27 October 2026). Broker API support, credentials and live-order approval must be reverified separately for every future integration.
+
+## Tests
+
+Run from the repository root:
+
+    PYTHONPATH=backend python -m pytest -q backend/tests/test_paper_submission_attempt_ledger.py
+
+Synthetic cases cover durable restart quarantine, duplicate order/intent prevention, two-writer races, terminal state irreversibility, corrupt projection and audit events, schema mismatch, invalid inputs, symlinks and missing databases. No real or demo orders are submitted.
+
+## Integration handoff
+
+Before any paper broker integration: verify broker account and complete order/fill inventory from authenticated, authorized provider responses; atomically bind this ledger to persistent risk reservations, circuit breakers, quote/contract freshness, protective stops and human-specific signed approval. Reconcile unknown outcomes using authenticated order and fill history, not just the pending-order list. Use a server-owned append-only audit anchor and test crash points before/after every commit and broker request. Keep live execution disabled until individual per-order owner approval and independent release verification.
+
+## Reviewed schema integrity (27 October 2026)
+
+Every read and write verifies the exact reviewed SQLite `sqlite_master` DDL for both tables and the unique intent index, and rejects unexpected views, triggers or indexes. Merely recreating an index with the same name but weaker uniqueness no longer passes. Audit scans now fetch at most `MAX_EVENTS + 1` rows before rejecting oversized ledgers, avoiding unbounded `fetchall()` memory use. Regression cases cover added columns, views, indexes and a downgraded unique index. This is structural tamper detection, **not** cryptographic authentication: an attacker able to rewrite the database and recompute the unanchored hash chain can still forge history. Store externally anchored checkpoints and use authenticated broker reconciliation before any future execution integration.
+
+## Removed-file and oversized-projection hardening (27 October 2026)
+
+The existing-file check is not sufficient on its own: a database can disappear between the filesystem preflight and SQLite opening it. SQLite's default read/write/create mode could silently recreate a blank file. The ledger now opens existing files explicitly using SQLite URI `mode=rw` for transitions and `mode=ro` for inspection, so a missing file cannot be recreated by either operation. URI escaping is tested for reserved filename characters. This mitigates accidental removal races; it does **not** provide a portable defense against a privileged adversary replacing a file with a symlink after preflight.
+
+Audit events and the materialized intent projection are now **both** fetched with a strict `MAX_EVENTS + 1` bound. An oversized projection fails closed before unbounded Python dictionary allocation. No automatic repair, deletion, compaction or reset is attempted. Four new synthetic tests exercise removed-file preflight races, read-only inspection versus read/write mode, projection overflow and escaped filenames. These controls remain offline evidence checks and do not authenticate a broker or permit orders.
+
+
+## Bounded SQLite file and decoded values (27 October 2026)
+
+The connection preflight now refuses an existing ledger file larger than **32 MiB**, and each SQLite connection sets `SQLITE_LIMIT_LENGTH=4096` before reading untrusted audit rows. This complements the existing `MAX_EVENTS + 1` row bound and prevents a corrupted or hostile SQLite TEXT/BLOB cell from causing unbounded Python allocation during audit verification. The limits apply equally to read-only inspection and transactional writes. Oversized files or values are quarantined by an exception; there is no automatic truncation or repair. The size cap is an engineering limit for the current 10,000-event research ledger, not a production capacity plan.
+
+The file-size check is a preflight, **not a guarantee against concurrent file growth or filesystem path replacement**. A same-user adversary able to replace the SQLite path during opening may still exploit a time-of-check/time-of-use race; use an access-controlled, service-owned directory with no untrusted writers, external audit anchoring, and authenticated broker reconciliation. Do not deploy this ledger as a live-order gate until a platform-specific file-identity/open strategy and crash-recovery tests have been reviewed.
+
+
+## SQLite path-identity race detection (27 October 2026)
+
+Before SQLite opens an existing ledger, the connector records the regular file's device and inode using `Path.lstat()`. Immediately after SQLite opens it, and **before any SQL statement or transaction**, the connector checks the path again. A changed device/inode, newly introduced symlink, disappearance, or newly oversized file raises an exception and closes the connection. Four synthetic tests replace the path with a different regular database or symlink between preflight and SQLite opening, on both inspection and write entry points. All such attempts must fail without writing to either ledger.
+
+**Residual risk:** These are two pathname observations, not an atomic binding of SQLite's underlying open file descriptor. A same-user adversary who can swap the file away and back between observations, or replace it later during a transaction, can still defeat the check. SQLite does not expose a portable fd-based `openat(O_NOFOLLOW)` connection through Python's standard `sqlite3` API. Initialization also remains subject to a path replacement after exclusive creation. This mitigation must **not** be described as eliminating the TOCTOU race or as production-grade authorization. Restrict directory ownership and write access, use trusted external audit anchors, and evaluate a reviewed platform-specific secure-open strategy before any broker integration.
+
+
+## Private and existing-only initialization (27 October 2026)
+
+One-time `initialize_ledger(path)` now creates the SQLite file using exclusive `os.open(O_CREAT | O_EXCL | O_WRONLY)` with requested mode **0600** (and `O_NOFOLLOW` when the platform provides it). This prevents a permissive process umask from accidentally creating a world-readable order-intent evidence file. The initial file's device/inode is captured with `fstat`. SQLite then opens that existing path through the same `mode=rw` connection guard used by subsequent writes; it must not silently recreate a file removed between exclusive creation and SQLite opening. Initialization checks the original file identity before schema creation, before commit, and immediately after commit. It refuses an unexpected replacement, symlink, or disappearance and never automatically removes or repairs the partial original.
+
+Synthetic tests cover permissive umask, removal after exclusive creation, and regular-file or symlink replacement before SQLite opens. These checks do **not** make filesystem initialization atomic: a privileged or same-user actor who can mutate the containing directory can still replace the path between observations or after the final check. The storage directory must be service-owned and inaccessible to untrusted writers; independently anchored checkpoints, authenticated broker reconciliation, verified crash recovery, and per-order owner approval remain mandatory before any real-order integration. No broker API, execution path, credentials, or deployment is introduced.
+
+
+## POSIX storage boundary and process-death quarantine (27 October 2026)
+
+Ledger creation, inspection and transitions now **fail closed** unless the immediate containing directory is owned by the effective service user and private to that user (no group/other permissions; typically mode `0700`). Symlinks in the directory path are rejected. The ledger itself must be a regular file owned by the effective service user, with exactly mode `0600` and one hardlink. A file chmod, extra hardlink or relaxed parent permissions must block **both reads and writes**, without silently fixing ownership or modes. Initialization verifies these conditions before and after the SQLite connection, and connection opening compares the parent directory's device/inode before and after SQLite opens. Platforms without POSIX owner/mode enforcement are deliberately unsupported by this local evidence implementation.
+
+This protects against accidentally world-readable intent evidence, hostile SQLite sidecar placement and some pathname redirections. It does **not** defend against a malicious process running as the same service user, all filesystem swaps after opening, mount manipulation, an attacker with root privileges, untrusted ancestors with mutable directory entries, or rollback of an unanchored database. Use an isolated, service-owned private directory on durable storage, independently trusted audit checkpoints, and authenticated broker reconciliation. These checks are not a substitute for order-specific owner approval or an actual execution safety gate.
+
+Additional synthetic tests reject nonprivate file modes, hardlinked files, public or symlinked parent directories, parent replacement during SQLite opening and unexpected permission relaxation. An actual subprocess is terminated immediately after the `ATTEMPT_UNKNOWN` commit to verify the irreversible quarantine survives process death. These tests remain offline and submit no orders.
+
+The `inspect_ledger` diagnostic now includes `last_recorded_at_ms` (an audited integer for populated ledgers, `null` for an empty ledger). The external checkpoint fence uses it to reject an event timestamp later than its independently trusted checkpoint time. Ledger event timestamps are still caller declarations; they do not independently authenticate a clock or broker event.
+
+
+## WAL/SHM evidence quarantine (27 October 2026)
+
+The offline submission-attempt ledger is deliberately restricted to SQLite's
+**DELETE rollback-journal mode**. Opening a database with an unexpected journal
+mode now fails closed rather than silently changing its mode. Existing
+`-wal` and `-shm` sidecars (including dangling symlinks) are rejected
+before and immediately after SQLite opens the ledger; one-time initialization
+also refuses orphaned sidecars. The connection sets
+`PRAGMA trusted_schema=OFF` before auditing the reviewed DDL. No sidecar is
+deleted, checkpointed, migrated, repaired or treated as authenticated broker
+evidence. Synthetic tests cover unreviewed sidecars, symlink sidecars, orphaned
+initialization and persisted WAL-mode headers on read and write paths.
+
+**Why:** SQLite WAL files may contain committed transactions not yet
+checkpointed into the main database file. Accepting an unexpected WAL/SHM
+state would complicate audit recovery and allow a different durability model
+than the reviewed rollback-journal path. This restriction is an intentional
+availability trade-off, not a claim that WAL itself is unsafe. An ordinary
+rollback `-journal` may still be needed for crash recovery and is not
+automatically removed. These pathname checks remain vulnerable to privileged
+or same-user replacement races, and do not authenticate broker inventory,
+owner approval, or externally trusted audit anchors. Do not enable broker
+execution based on this ledger.
+
+
+## Rollback-journal path quarantine (27 October 2026)
+
+SQLite DELETE-mode rollback journals can be necessary for **recovering an interrupted transaction**. The ledger therefore does not delete, truncate or automatically reject an ordinary regular `-journal` file. However, an attacker-controlled symlink, hardlink, directory, special file, foreign-owned file or oversized journal could redirect SQLite reads/writes or cause unexpected resource consumption. Before opening a ledger, immediately after SQLite opens it, and before one-time initialization, the connector now inspects the `-journal` pathname with `lstat`. If present, it must be a regular file owned by the service user, have exactly one hardlink and be no larger than twice the reviewed ledger byte limit. Unsafe paths fail closed without cleanup or automatic repair. A rollback journal with group/other **write** bits is now also rejected (e.g. `0666` or `0620`); ordinary SQLite `0644` journals are permitted because the service-owned parent directory is private (`0700`). This is defense in depth against unsafe sidecar permissions, not an atomic defense against same-user or privileged path replacement. The parent directory remains required to be service-owned and private.
+
+Synthetic tests exercise symlink, hardlink, directory and oversized journal rejection for read and write entry points, orphaned journal initialization, a journal swapped in during SQLite opening, and ordinary empty-journal inspection. The existing abrupt-process-death rollback regression is retained to verify real crash recovery. A same-user or privileged attacker with directory write access can still swap journal paths between checks; these are **not** atomic openat/O_NOFOLLOW protections. Journal bytes are not authenticated broker evidence. Keep the ledger offline, draft and undeployed pending independently verified production restore/rollback/health gates and broker-specific reconciliation.
+
+
+## Mid-operation storage identity fence (27 October 2026)
+
+Opening a verified SQLite file does not guarantee that its pathname, private
+permissions, parent directory or journal remain unchanged during a potentially
+long audit or transaction. Both read-only inspection and transitions now
+capture a fresh storage fingerprint (parent device/inode and ledger device/inode)
+after opening, and recheck the private parent, 0600 ledger permissions, file
+size, WAL/SHM absence and rollback-journal safety after audit replay. Writes
+also recheck before and immediately after commit; reads recheck after their
+transaction ends. A mismatch or unsafe sidecar **fails closed**. Six synthetic
+regressions inject mid-audit regular-file replacement, permission relaxation,
+or an unsafe journal symlink for both read and write paths.
+
+These are **best-effort pathname observations**, not an atomic fd-to-path
+binding, a cryptographically anchored audit, or a defense against same-user or
+privileged actors swapping files between checks. If an attacker replaces a
+journal during a write or after the final check, this guard cannot guarantee
+safe SQLite rollback or commit. A post-commit mismatch cannot undo a commit
+that already occurred, so the caller must quarantine the outcome and reconcile
+independently. Do not integrate an order sender until storage ownership,
+authenticated broker inventory, crash-point recovery and independent audit
+anchors are verified. No execution permission is introduced.
+
+
+## Parent traversal quarantine (27 October 2026)
+
+Ledger paths containing an explicit `..` component are now rejected before
+initialization, read-only inspection or write transactions. A path such as
+`alias/../ledger.sqlite` is **not** safe to validate by checking only
+`Path.absolute().parent` and its ancestors: on POSIX the kernel traverses
+`alias` before resolving `..`, and `alias` may be a symlink that the
+parent-only scan never sees. The ledger therefore requires paths without
+parent traversal components instead of silently canonicalizing them. Six
+synthetic regression cases cover ordinary-directory and symlink intermediate
+components for read, write and initialization. Existing canonical private
+paths remain supported.
+
+This is a defense-in-depth pathname preflight, not atomic binding of SQLite's
+open file descriptors, a complete defense against privileged filesystem races,
+or permission to submit broker orders. The ledger still requires an isolated
+service-owned private directory, independent audit anchoring and broker
+reconciliation before any future integration.
+
+
+## SQLite recovery-sidecar filename alias quarantine (27 October 2026)
+
+Ledger paths ending in SQLite's reserved `-journal`, `-wal` or `-shm` sidecar suffixes are rejected before one-time creation, read-only inspection or any evidence transition. For example, treating `orders.sqlite-journal` as a separate ledger in the same directory as `orders.sqlite` risks consuming or overwriting another database's rollback evidence. This defense-in-depth validation prevents an ambiguous pathname from being handed to SQLite. Six parameterized regression cases cover each suffix and mixed-case spellings across creation, inspection and preparation, including verifying that the rejected file remains unchanged. Matching is case-insensitive to account for POSIX hosts using case-insensitive filesystems.
+
+The rule does not resolve general SQLite pathname TOCTOU races, defend against a privileged same-user filesystem attacker or authenticate broker evidence. Use a dedicated private directory, independent audit checkpoints and broker-side reconciliation. No order sender or execution permission is introduced.
+
+## SQLite super-journal filename alias quarantine (27 October 2026)
+
+SQLite can create a **super-journal** when a transaction modifies multiple attached databases. Its filename uses a randomized suffix in the main database directory (see [SQLite temporary files](https://www.sqlite.org/tempfiles.html#superjournals)). The ledger now conservatively rejects filenames ending in `-mj` followed by alphanumeric characters (case-insensitively), in addition to `-journal`, `-wal` and `-shm`. This avoids accidentally treating another database's multi-database recovery evidence as a separate ledger. Four synthetic cases exercise creation, read-only inspection and preparation for these aliases, while preserving existing file bytes. This is defense in depth; it does not prove that every SQLite VFS uses these filenames, eliminate pathname races or authenticate broker records. No order sender or trading permission is introduced.
+
+
+## Initialization-sidecar revalidation (27 October 2026)
+
+One-time ledger creation now rechecks WAL/SHM and rollback-journal path safety,
+as well as the 32 MiB database byte ceiling, at every existing file-identity
+checkpoint: after SQLite opens, before schema DDL commit, and after commit.
+This closes a gap where a sidecar appearing after the initial SQLite-open
+preflight could otherwise go unnoticed by initialization's identity-only
+checks. Four synthetic regression cases inject symlinked `-wal`, `-shm`,
+and `-journal` sidecars or an oversized database immediately after SQLite
+opens, before schema DDL. The operation fails closed and preserves the
+quarantined file/evidence for manual inspection. This is not an atomic
+file-descriptor-based defense against a privileged attacker swapping paths
+between checks; a post-commit rejection cannot undo an already committed
+SQLite transaction. It grants no broker order permission.
+
+
+## Strict SQLite internal-schema inventory (27 October 2026)
+
+Ledger verification now examines **all** SQLite schema objects, including
+`sqlite_%` auxiliary objects, rather than filtering them out. In particular,
+`ANALYZE` can create the persistent `sqlite_stat1` statistics table even
+when the three reviewed ledger objects are unchanged. That unreviewed object
+must quarantine inspection and evidence transitions instead of being silently
+accepted. Schema enumeration is capped at one more than the three expected
+objects before materialization, and the row count must match the reviewed
+inventory to prevent duplicate/collapsed object rows from escaping comparison.
+
+Two synthetic regression cases cover read-only inspection and an attempted
+evidence transition after `ANALYZE`, preserving the original event count.
+No schema repair, journal deletion, broker connectivity, execution permission
+or production migration is introduced. Existing ledgers containing SQLite
+statistics tables now require independent review rather than auto-repair.
+
+
+## Same-account unresolved-submission quarantine (27 October 2026)
+
+The ledger now refuses a new `PREPARED` event or transition to
+`ATTEMPT_UNKNOWN` when **another** order for the same broker label and
+account alias is already `ATTEMPT_UNKNOWN`. This prevents a new client order
+ID from sidestepping an ambiguous non-idempotent submission and prevents
+previously prepared orders from becoming attempted while the first outcome is
+unresolved. A transactional `BEGIN IMMEDIATE` plus full audit replay
+serializes concurrent writers. Separate broker/account namespaces remain
+independent. Four synthetic regressions cover new preparation, previously
+prepared orders, independent namespaces and competing writers.
+
+A declared `RECONCILED_*` event removes that order's local UNKNOWN state,
+but **does not authenticate a broker fill, rejection or cancellation**. A
+caller can provide false reconciliation evidence, and the ledger does not
+validate broker account ownership, inventory, quote freshness, stop orders,
+margin, leverage or human approval. This quarantine is an additional offline
+safety constraint, **not** authorization to resume submissions. All returned
+paper/live execution flags remain false. Any future adapter must independently
+verify broker order/fill history and persist atomic risk reservations before
+allowing even paper execution. Never automatically retry an ambiguous broker
+POST or use this module as a live-order gate.
+
+
+## Fresh-ledger orphan rollback-journal quarantine (27 October 2026)
+
+A fresh SQLite ledger has **no earlier transaction to recover**. An existing
+regular `-journal` file can be a recovery artifact of a different database
+that previously occupied the pathname. Initialization now refuses **any**
+pre-existing rollback journal, even a regular owner-owned `0644` file, before
+exclusive database creation. It checks again after opening the new database
+and before beginning schema DDL to catch a journal injected between those
+steps. It never removes or rewrites the orphan; any newly created partial
+ledger is retained for manual quarantine. Existing initialized ledgers still
+allow validated rollback journals for legitimate crash recovery.
+
+Synthetic regression cases cover empty and nonempty ordinary orphan journals
+and an ordinary journal introduced immediately after SQLite opens. These
+pathname checks are best-effort against same-user replacement races; they do
+not authenticate broker reconciliation or permit paper/live order execution.
+
+
+## Historical unresolved-account quarantine replay (27 October 2026)
+
+The transactional writer already blocks new preparations and attempted submissions
+while a different order for the same broker/account remains `ATTEMPT_UNKNOWN`.
+The read-only audit now **also replays this invariant at every historical event**:
+no `PREPARED` or second `ATTEMPT_UNKNOWN` may occur in that account until
+its outstanding attempt has a declared terminal reconciliation. A local
+reconciliation is still **not authenticated broker proof** and never grants
+paper/live execution permission. This protects against internally inconsistent
+histories that have matching projections and recomputed, unanchored SHA-256
+chains; it does not defend against full database rollback, compromised owners,
+or fabricated external broker receipts. Four synthetic fail-closed regressions
+cover both invalid historical transitions on inspection and attempted writes;
+a fifth verifies that a declared terminal event only allows later *local
+recordkeeping*, with both execution flags remaining false.
+
+
+## Non-placeholder evidence digests (28 October 2026)
+
+The ledger now rejects the all-zero 64-character digest as an intent or
+reconciliation evidence SHA-256 value, both at the write boundary and when
+replaying persisted audit history. This value is reserved as the hash-chain's
+initial previous-hash sentinel; treating it as external evidence could hide a
+missing fingerprint behind a syntactically valid placeholder. Three synthetic
+regression cases cover initial intent preparation, declared reconciliation
+(which leaves the unresolved submission quarantined), and a locally rehashed
+historical event with matching projection. The change does **not** prove that
+any nonzero digest authenticates a broker receipt, and does not enable broker
+requests, paper/live execution or automatic quarantine release.
+
+
+## Independent reconciliation-digest check (28 October 2026)
+
+A declared terminal reconciliation must supply a syntactically valid, nonzero SHA-256 digest **different from the original prepared intent fingerprint**. Reusing the intent digest as supposed fill/rejection/cancellation evidence now fails closed in both the transactional writer and historical event replay, including a locally rehashed event chain with a matching projection. Three synthetic cases cover a refused write and both inspection/write refusal of a forged historical terminal transition. The unresolved attempt remains quarantined after a rejected write.
+
+**This is only a minimum evidence-distinctness check.** A different digest is not proof of an authenticated broker response, fill, cancellation, accepted protective stop, or human approval. The caller still declares terminal status and may provide a fabricated digest; the module grants no order execution. Do not use declared reconciliation to release any live-order gate. Authenticated provider inventory and externally anchored evidence are required before a future execution adapter can trust terminal outcomes.
+
+
+## Terminal receipt digest anti-replay (28 October 2026)
+
+A locally declared terminal reconciliation cannot reuse an earlier terminal
+reconciliation evidence SHA-256 for a **different order in the same broker/account**.
+The transactional writer checks the existing event history under its serialized
+SQLite write transaction. The independent audit replay also rejects a locally
+rehashed historical chain with repeated terminal receipt evidence, even if the
+current intent projection matches. Four synthetic regression cases exercise
+writer rejection, both audit/read and attempted-write rejection, and account
+isolation. Rejection leaves an unresolved second order in quarantine.
+
+This is a **minimal local anti-replay invariant**, not broker authentication.
+Different SHA-256 values can still be fabricated; the same external broker
+inventory snapshot may legitimately cover multiple orders, so a future adapter
+must instead bind verified, immutable **per-order** provider evidence to the
+broker/account/order identity before recording any terminal claim. This ledger
+cannot authorize order placement, even after a terminal reconciliation. Both
+paper and real execution permission flags remain false. No external broker
+connection, order placement, paid service, production migration or automatic
+quarantine release is introduced.
+
+## Broker/account cross-purpose evidence anti-replay (28 October 2026)
+
+Within the same broker/account, a terminal reconciliation digest must not match **any** prepared intent digest, including a different order prepared earlier. Conversely, a later intent digest must not reuse any earlier terminal reconciliation digest. Both transactional writes and full historical replay enforce these constraints. Rehashed, internally consistent but invalid histories fail closed, and a rejected terminal claim leaves the ambiguous order quarantined. Other broker/account namespaces remain independent.
+
+These are conservative local fingerprint-hygiene checks, not broker authentication: the evidence hashes are caller-declared, no provider receipt is validated, and a privileged attacker can still rewrite an unanchored local history. The changes do not enable any paper or live submission. The original no-retry, credential isolation, independently authenticated broker reconciliation, persistent risk reservation, protective-stop verification and positive owner confirmation requirements remain in force.
+
+
+## Read-only recovery-evidence quarantine (28 October 2026)
+
+A read-only SQLite connection may encounter an existing rollback journal after a
+crash. Such a journal can represent pending transaction recovery and must not
+be silently consumed or modified by a diagnostic described as read-only.
+`inspect_ledger` now refuses a **nonempty** regular `-journal` before
+opening SQLite, immediately after SQLite opens it, and before and after the
+read-only audit transaction commits. It preserves the journal for separate,
+explicitly reviewed recovery; it never deletes, truncates or repairs it.
+An ordinary **empty** rollback journal remains acceptable, and write-capable
+transitions retain their existing validated crash-recovery behavior.
+
+Three synthetic regression cases inject nonempty journal evidence before open,
+after open and after the audit, and verify fail-closed behavior without
+altering the original database or journal bytes. These checks remain
+best-effort pathname observations and do not eliminate same-user or privileged
+filesystem races. A rejected journal is **not** proof of a broker fill or
+a failed order; independently authenticate and reconcile broker inventory
+before any future execution integration.
+
+
+## Writable ancestor and directory-chain quarantine (28 October 2026)
+
+A private immediate ledger directory does not prevent another user from renaming that directory if an ancestor grants group/other write access. Initialization, read-only inspection and transitions now reject such ancestor directories, except for root- or service-owned sticky directories (for example the normal root-owned `/tmp`) where the sticky bit protects service-owned child entries. Each ancestor device/inode is included in the storage fingerprint, so a parent-chain replacement detected during opening or an audit fails closed even when the immediate private directory inode remains unchanged. Four synthetic regressions cover new and existing ledgers, trusted sticky ancestors and ancestor-only inode replacement during SQLite opening.
+
+These are conservative POSIX pathname checks, **not atomic fd binding**: privileged/same-user attackers, mount changes, and swap-away/swap-back races remain outside the guarantee. No broker authentication, order submission, risk reservation integration, owner approval or deployment is added. Both execution flags remain false.
