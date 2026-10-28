@@ -52,25 +52,28 @@ invalidation. No production alert, paper fill, broker or trading permission
 is enabled.
 
 
-## Settled target receipt-lag ceiling (28 October 2026)
+## Opt-in settled target receipt-lag audit (28 October 2026)
 
-The disconnected scorecard now additionally rejects a caller-declared
-`SETTLED` outcome whose `resolvedAt` is **later than**
-`targetStart + candleSeconds + maxLagSeconds`. A target candle can only
-settle in `ForecastEventStore._replay` when its completed-candle receipt
-arrives by that same deadline; accepting later scorecard-only timestamps
-would misrepresent replay eligibility. The deadline is inclusive. This
-is a defensive cross-check of an already loaded snapshot, **not** proof
-of the source clock, candle finality, or real-time market observation.
+`audit_settled_receipt_lag(snapshot)` is a disconnected, read-only
+**consistency diagnostic**, not a new mandatory scorecard gate. It validates
+the input with the existing scorecard and then counts declared `SETTLED`
+receipts later than `targetStart + candleSeconds + maxLagSeconds`.
+The deadline is inclusive. It reports the number of late receipts and
+largest declared excess, while all source-authentication, notification,
+paper and live-execution permissions remain false.
 
-A `VOID_GAP` outcome is intentionally **not** subject to the target
-receipt-lag ceiling: a later completed candle can reveal that the target
-was skipped, and this scorecard cannot independently infer exchange
-sessions, holidays or source completeness. The original
-`ForecastEventStore.load` replay remains mandatory.
+A real `ForecastEventStore._replay` can only settle from a completed
+target candle received by that deadline. However, the separate
+**synthetic temporal-calibration sensitivity tests** deliberately move
+settlement timestamps past cutoffs to study missingness; enforcing this
+as a mandatory scorecard rejection would invalidate those existing
+analytical cohorts. The audit therefore makes the discrepancy visible
+without silently changing their denominator or performance results.
 
-Seven additional synthetic parameterized regressions cover 1-, 3- and
-12-candle horizons, zero and maximum declared lag, inclusive deadline,
-one-second-late rejection, and a late gap-void exception. No notification,
-paper execution, broker order, feed entitlement, or production setting
-changes. Keep release gates in place.
+`VOID_GAP` receipts are excluded: a later observed candle can reveal
+a missing target after the expected close, and this audit cannot
+authenticate market sessions, holidays or feed completeness. The
+journal's original replay is still mandatory for real stored records.
+Nine synthetic cases cover 1/3/12-candle horizons, inclusive and
+one-second-late boundaries, void exceptions, empty and malformed
+inputs. No notification or broker capability is activated.
