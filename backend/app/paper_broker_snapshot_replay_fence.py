@@ -79,8 +79,15 @@ def inspect_declared_snapshot_transition(expected: dict, previous: dict,
         # indicates a retroactive correction or incomplete prior inventory.
         # Neither case is evidence that an UNKNOWN order may be retried.
         for fid, fill in new_fills.items():
-            if fid not in old_fills and fill["filled_at_ms"] <= previous["observed_at_ms"]:
-                failures.add("retroactive_fill_appearance")
+            if fid not in old_fills:
+                if fill["filled_at_ms"] <= previous["observed_at_ms"]:
+                    failures.add("retroactive_fill_appearance")
+                # A fill first disclosed after the trusted prior census but
+                # timestamped at/before that check means the prior checkpoint
+                # was already incomplete when accepted. Hold even if the fill
+                # occurred after the previous broker observation.
+                if fill["filled_at_ms"] <= previous_now_ms:
+                    failures.add("fill_predates_prior_trusted_check")
     if set(old) != set(new):
         failures.add("snapshot_order_population_changed")
     return {
