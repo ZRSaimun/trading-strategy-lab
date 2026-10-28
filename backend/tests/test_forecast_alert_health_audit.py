@@ -50,6 +50,7 @@ def test_uncertain_claim_never_safe_to_retry():
     assert result["counts"]["IN_FLIGHT_UNCERTAIN"] == 1
     assert result["status"] == "OPERATOR_REVIEW_REQUIRED"
     assert result["counts"]["UNCERTAIN_DELAY_WARNING"] == 0
+    assert result["warningKeys"] == [["s1", "f1"]]
     assert result["maySendNotification"] is False
 
 
