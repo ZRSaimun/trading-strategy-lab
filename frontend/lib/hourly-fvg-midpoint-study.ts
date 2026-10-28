@@ -7,7 +7,7 @@
  */
 import type {Bar} from './research.ts';
 
-export const HOURLY_FVG_VERSION='hourly-fvg-first-midpoint-touch-v58';
+export const HOURLY_FVG_VERSION='hourly-fvg-first-midpoint-touch-v59';
 export type Evidence='PASS'|'FAIL'|'INSUFFICIENT_DATA';
 // First-touch volume evidence is not independent broker/source authentication.
 export type VolumeEvidenceReason='NOT_EVALUATED'|'SOURCE_UNVERIFIED'|
@@ -134,6 +134,10 @@ export type FvgCohort={
   // known strict PASS, known FAIL and unknown eligibility populations.
   markoutCensoredByReasonByStrictCandidate:Record<Evidence,
    Record<MarkoutCensorReason,number>>;
+  // Keep formation direction and strict evidence jointly visible, so one-sided
+  // missing exits cannot disappear into a pooled attrition count.
+  markoutCensoredByReasonByDirectionAndStrictCandidate:Record<Side,
+   Record<Evidence,Record<MarkoutCensorReason,number>>>;
  midpointTouch:EvidenceCounts;strictCandidate:EvidenceCounts;markout:EvidenceCounts;
  volumeEvidenceByReason:Record<VolumeEvidenceReason,number>;
  pairedMarkouts:number;strictPairedMarkouts:number;nonStrictPairedMarkouts:number;
@@ -510,6 +514,15 @@ function summarizeCohort(observations:readonly FvgObservation[],costs:readonly n
    PASS:emptyMarkoutCensorCounts(),FAIL:emptyMarkoutCensorCounts(),
    INSUFFICIENT_DATA:emptyMarkoutCensorCounts(),
   };
+ const emptyStrictMarkoutCensorCounts=():Record<Evidence,
+  Record<MarkoutCensorReason,number>>=>({
+   PASS:emptyMarkoutCensorCounts(),FAIL:emptyMarkoutCensorCounts(),
+   INSUFFICIENT_DATA:emptyMarkoutCensorCounts(),
+  });
+ const markoutCensoredByReasonByDirectionAndStrictCandidate:Record<Side,
+  Record<Evidence,Record<MarkoutCensorReason,number>>>={
+   BULLISH:emptyStrictMarkoutCensorCounts(),BEARISH:emptyStrictMarkoutCensorCounts(),
+  };
  const emptyWaitCounts=():Record<'TOUCH'|'OPEN_GAP_THROUGH'|'NO_TOUCH',number[]>=>({
   TOUCH:Array(maxTouchWaitBars).fill(0),
   OPEN_GAP_THROUGH:Array(maxTouchWaitBars).fill(0),
@@ -566,6 +579,8 @@ function summarizeCohort(observations:readonly FvgObservation[],costs:readonly n
    markoutCensoredByReason[observation.markoutCensorReason]++;
    markoutCensoredByReasonByStrictCandidate[observation.gates.strictCandidate]
     [observation.markoutCensorReason]++;
+   markoutCensoredByReasonByDirectionAndStrictCandidate[observation.direction]
+    [observation.gates.strictCandidate][observation.markoutCensorReason]++;
   }
  }
  for(const outcome of ['TOUCH','OPEN_GAP_THROUGH','NO_TOUCH'] as const){
@@ -597,6 +612,12 @@ function summarizeCohort(observations:readonly FvgObservation[],costs:readonly n
    .reduce((sum,gate)=>sum+markoutCensoredByReasonByStrictCandidate[gate][reason],0);
   if(classified!==markoutCensoredByReason[reason])
    throw Error('FVG markout censor evidence populations do not reconcile');
+  for(const gate of ['PASS','FAIL','INSUFFICIENT_DATA'] as const){
+   const directional=(['BULLISH','BEARISH'] as const).reduce((sum,side)=>
+    sum+markoutCensoredByReasonByDirectionAndStrictCandidate[side][gate][reason],0);
+   if(directional!==markoutCensoredByReasonByStrictCandidate[gate][reason])
+    throw Error('Directional strict FVG markout censor evidence does not reconcile');
+  }
  }
  for(let wait=0;wait<maxTouchWaitBars;wait++){
   const exposure=firstTouchObservedExposureByWait[wait];
@@ -641,6 +662,7 @@ function summarizeCohort(observations:readonly FvgObservation[],costs:readonly n
   pairedHoldingWindowOverlapByStrictCandidate,
   pairedHoldingWindowCrossStrictCandidate,pairedMaximumDisjointWindows,
   markoutCensoredByReason,markoutCensoredByReasonByStrictCandidate,
+  markoutCensoredByReasonByDirectionAndStrictCandidate,
   midpointTouch:count('midpointTouch'),volumeEvidenceByReason,
   strictCandidate:count('strictCandidate'),
   markout:count('markout'),

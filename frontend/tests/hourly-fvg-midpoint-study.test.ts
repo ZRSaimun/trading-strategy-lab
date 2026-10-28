@@ -2212,3 +2212,61 @@ test('v58 markout censor attrition remains partitioned by strict evidence state'
   'future unrepresentable exit cannot leak into an earlier prefix');
  assert.ok(beforeExit.cohort.markoutCensoredByReasonByStrictCandidate.PASS.RIGHT_CENSORED>=1);
 });
+
+
+test('v59 markout censor reasons reconcile by formation direction and strict evidence',()=>{
+ const weak=fixture().filter(b=>b.time!==BASE+35*H);
+ weak.find(b=>b.time===BASE+33*H)!.close=104.5;
+ const missing=fixture().filter(b=>b.time!==BASE+35*H);
+ const tail=fixture().slice(0,35);
+ const cases=[
+  {name:'verified strict pass with missing exit',bars:missing,src:source,
+   gate:'PASS',reason:'MISSING_HOUR'},
+  {name:'known wick failure with missing exit',bars:weak,src:source,
+   gate:'FAIL',reason:'MISSING_HOUR'},
+  {name:'unverified volume with missing exit',bars:missing,
+   src:{...source,volumeVerified:false},gate:'INSUFFICIENT_DATA',reason:'MISSING_HOUR'},
+  {name:'strict pass with censored tail',bars:tail,src:source,
+   gate:'PASS',reason:'RIGHT_CENSORED'},
+  {name:'strict pass with unrepresentable exit',bars:fixture(),src:source,
+   gate:'PASS',reason:'UNREPRESENTABLE_RETURN'},
+ ] as const;
+ const mirror=(bars:Bar[])=>bars.map(b=>({...b,
+  open:220-b.open,high:220-b.low,low:220-b.high,close:220-b.close}));
+ for(const sample of cases){
+  for(const direction of ['BULLISH','BEARISH'] as const){
+   const bars=direction==='BULLISH'?sample.bars.map(b=>({...b})):mirror(sample.bars);
+   if(sample.reason==='UNREPRESENTABLE_RETURN'){
+    bars[36]={...bars[36],high:Number.MAX_VALUE,close:Number.MAX_VALUE};
+   }
+   const report=studyHourlyFvgMidpoint(bars,sample.src);
+   const formation=report.observations.find(o=>o.formationClosedAt===BASE+33*H);
+   assert.ok(formation,sample.name);
+   assert.equal(formation.direction,direction,sample.name);
+   assert.equal(formation.gates.strictCandidate,sample.gate,sample.name);
+   assert.equal(formation.markoutCensorReason,sample.reason,sample.name);
+   const cohort=report.cohort;
+   assert.ok(cohort.markoutCensoredByReasonByDirectionAndStrictCandidate[direction]
+    [sample.gate][sample.reason]>=1,sample.name);
+   for(const reason of ['MISSING_HOUR','RIGHT_CENSORED','UNREPRESENTABLE_RETURN'] as const){
+    for(const gate of ['PASS','FAIL','INSUFFICIENT_DATA'] as const){
+     assert.equal((['BULLISH','BEARISH'] as const).reduce((sum,side)=>
+      sum+cohort.markoutCensoredByReasonByDirectionAndStrictCandidate[side][gate][reason],0),
+      cohort.markoutCensoredByReasonByStrictCandidate[gate][reason],
+      'directional strict evidence must conserve each pooled censor population');
+    }
+   }
+   assert.deepEqual(studyHourlyFvgMidpointAsOf(bars,sample.src,
+    bars[bars.length-1].time+H),report,
+    'complete as-of replay must preserve directional censor attribution');
+   if(sample.reason==='UNREPRESENTABLE_RETURN'){
+    const before=studyHourlyFvgMidpointAsOf(bars,sample.src,BASE+36*H);
+    const prior=before.observations.find(o=>o.formationClosedAt===BASE+33*H);
+    assert.equal(prior?.markoutCensorReason,'RIGHT_CENSORED');
+    assert.ok(before.cohort.markoutCensoredByReasonByDirectionAndStrictCandidate
+     [direction].PASS.RIGHT_CENSORED>=1,
+     'future exit overflow must not appear before its completed bar close');
+   }
+  }
+ }
+});
