@@ -150,6 +150,19 @@ def summarize_forecast_snapshot(snapshot, *, min_settled=30, calibration_bins=10
                            "costs, fill reconciliation, forward returns or trading edge."}
 
 
+def _declared_receipt_delay_percentiles(rows, seconds):
+    """Nearest-rank delays after target close, including late declared receipts.
+
+    These are unverified caller-declared timestamps, never provider latency SLAs.
+    """
+    if not rows:
+        return {"receiptDelaySecondsP50": None, "receiptDelaySecondsP95": None}
+    delays = sorted(row["resolvedAt"] - row["targetStart"] - seconds for row in rows)
+    n = len(delays)
+    return {"receiptDelaySecondsP50": delays[math.ceil(n * 0.50) - 1],
+            "receiptDelaySecondsP95": delays[math.ceil(n * 0.95) - 1]}
+
+
 def audit_settled_receipt_lag(snapshot):
     """Opt-in, read-only consistency census of declared settled-candle receipts.
 
@@ -180,6 +193,7 @@ def audit_settled_receipt_lag(snapshot):
             "settledCount": len(rows), "lateBeyondDeclaredLagCount": len(late),
             "lateFractionOfSettled": len(late) / len(rows),
             "largestExcessSeconds": max(late) if late else None,
+            **_declared_receipt_delay_percentiles(rows, seconds),
         })
     return {
         "status": ("DECLARED_SETTLEMENT_LAG_VIOLATIONS" if excess else
@@ -189,6 +203,7 @@ def audit_settled_receipt_lag(snapshot):
         "settledCount": len(settled),
         "lateBeyondDeclaredLagCount": len(excess),
         "largestExcessSeconds": max(excess) if excess else None,
+        **_declared_receipt_delay_percentiles(settled, seconds),
         "byModelHorizon": by_model_horizon,
         "sourceAuthenticated": False,
         "prospectiveReceiptVerified": False,
