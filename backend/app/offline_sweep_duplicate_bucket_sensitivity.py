@@ -119,6 +119,7 @@ def audit_declared_duplicate_minutes(bars, duplicate_m1_times, *, dataset_id, ar
         "declared_buckets_not_in_complete_m15_population": len(touched - present),
         "original": _summary(original),
         "quarantined_sensitivity": _summary(quarantine),
+        "full_horizon_window_coverage": _full_horizon_window_coverage(bars, matched),
         "cohort_split_index_preserved": True,
         "matched_trade_population_preserved": False,
         "duplicate_source_rows_authenticated": False,
@@ -126,6 +127,74 @@ def audit_declared_duplicate_minutes(bars, duplicate_m1_times, *, dataset_id, ar
         "executable_bid_ask_costs_verified": False,
         "verified_profitability": False,
         "may_execute_order": False,
+    }
+
+
+def _full_horizon_window_coverage(bars, matched):
+    """Post-outcome observability envelope, NEVER a pre-entry signal filter.
+
+    For each index that *could* be a sweep under the frozen split/embargo,
+    count whether 16 prior bars + sweep + confirmation + 16 entry/horizon
+    bars are fully contiguous and whether any declared duplicate-touched
+    bucket intersects that entire window. No price, signal or exit is read.
+    """
+    n = len(bars)
+    split = n * 7 // 10
+    broken_prefix = [0] * (n + 1)
+    touched_prefix = [0] * (n + 1)
+    for j, bar in enumerate(bars):
+        broken = (j > 0 and (
+            bar.segment != bars[j - 1].segment or
+            bar.time - bars[j - 1].time != _STEP))
+        broken_prefix[j + 1] = broken_prefix[j] + int(broken)
+        touched_prefix[j + 1] = touched_prefix[j] + int(bar.time in matched)
+    counts = {
+        name: {
+            "possible_sweep_indices": 0,
+            "full_horizon_outside_cohort_or_archive": 0,
+            "full_horizon_crosses_source_gap_or_segment": 0,
+            "original_contiguous_full_horizon_windows": 0,
+            "declared_duplicate_touched_full_horizon_windows": 0,
+            "quarantine_clean_full_horizon_windows": 0,
+        } for name in ("development", "exploratory_later")
+    }
+    for i in range(16, n - 1):
+        cohort = ("development" if i + 1 < split - 16 else
+                  "exploratory_later" if i >= split + 16 else None)
+        if cohort is None:
+            continue
+        cell = counts[cohort]
+        cell["possible_sweep_indices"] += 1
+        start, end = i - 16, i + 17  # 16 prior + sweep + confirm + 16 horizon
+        if end >= n or (cohort == "development" and end >= split - 16):
+            cell["full_horizon_outside_cohort_or_archive"] += 1
+            continue
+        if broken_prefix[end + 1] - broken_prefix[start + 1]:
+            cell["full_horizon_crosses_source_gap_or_segment"] += 1
+            continue
+        cell["original_contiguous_full_horizon_windows"] += 1
+        if touched_prefix[end + 1] - touched_prefix[start]:
+            cell["declared_duplicate_touched_full_horizon_windows"] += 1
+        else:
+            cell["quarantine_clean_full_horizon_windows"] += 1
+    for cell in counts.values():
+        if (cell["possible_sweep_indices"] !=
+                cell["full_horizon_outside_cohort_or_archive"] +
+                cell["full_horizon_crosses_source_gap_or_segment"] +
+                cell["original_contiguous_full_horizon_windows"] or
+                cell["original_contiguous_full_horizon_windows"] !=
+                cell["declared_duplicate_touched_full_horizon_windows"] +
+                cell["quarantine_clean_full_horizon_windows"]):
+            raise RuntimeError("Full-horizon window population reconciliation failed")
+    return {
+        "scope": "POST_OUTCOME_OBSERVABILITY_ENVELOPE_NOT_SIGNAL_SELECTION",
+        "frozen_prior_m15_bars": 16,
+        "frozen_horizon_m15_bars": 16,
+        "frozen_split_fraction": "70/30_BY_BAR_INDEX",
+        "frozen_embargo_m15_bars": 16,
+        "does_not_measure_trade_or_signal_count": True,
+        "does_not_prove_executable_or_profitable_outcomes": True,
+        "cohorts": counts,
     }
 
 
