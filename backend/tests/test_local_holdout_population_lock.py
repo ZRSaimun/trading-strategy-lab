@@ -655,3 +655,48 @@ def test_registration_rejects_real_table_trigger_that_discards_inserts(
             "holdout_locked_decisions", "holdout_locked_pairs",
         ):
             assert conn.execute(f"SELECT count(*) FROM {table}").fetchone() == (0,)
+
+
+@pytest.mark.parametrize("protected_table", [
+    "holdout_claims", "holdout_locked_rows",
+    "holdout_locked_decisions", "holdout_locked_pairs",
+])
+def test_release_rejects_triggers_added_after_population_registration(
+        tmp_path, clock, protected_table):
+    """A trigger added after registration must not bypass the release fence."""
+    path = tmp_path / "triggered-release.sqlite"
+    manifest, census = _study()
+    registration = register_population_locked_holdout(path, manifest, census)
+    with sqlite3.connect(path) as conn:
+        if protected_table == "holdout_claims":
+            # SQLite reports UPDATE rowcount=1 even if this trigger clears
+            # the claimed timestamp; without a guard, a second claim works.
+            conn.execute(
+                "CREATE TRIGGER clear_release AFTER UPDATE OF "
+                "release_claimed_at_utc ON holdout_claims "
+                "BEGIN UPDATE holdout_claims SET release_claimed_at_utc=NULL "
+                "WHERE study_id=NEW.study_id; END"
+            )
+        else:
+            conn.execute(
+                f"CREATE TRIGGER unexpected_release_trigger AFTER DELETE "
+                f"ON {protected_table} BEGIN SELECT 1; END"
+            )
+    clock[0] = manifest["holdout_end_at_utc"] + 1
+    with pytest.raises(ValueError, match="Invalid holdout registry trigger at release"):
+        registry.claim_local_holdout_release(
+            path, study_id=manifest["study_id"],
+            manifest_sha256=registration["manifest_sha256"],
+            expected_population_rows=[
+                (row["row_sha256"], row["decision_at_utc"]) for row in census
+            ],
+            expected_source_key_sha256=_source_key(manifest["source"]),
+        )
+    with sqlite3.connect(path) as conn:
+        assert conn.execute(
+            "SELECT release_claimed_at_utc FROM holdout_claims WHERE study_id=?",
+            (manifest["study_id"],)
+        ).fetchone() == (None,)
+        assert conn.execute(
+            "SELECT count(*) FROM holdout_locked_pairs"
+        ).fetchone() == (len(census),)
