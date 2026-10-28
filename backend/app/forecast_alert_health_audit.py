@@ -115,6 +115,7 @@ def audit_forecast_alert_health(records, expected_keys, *, as_of,
     warning_keys = []
     warning_reason_map = {}
     unverified_ack_keys = []
+    unverified_ack_ages = {}
 
     def warn(key, reason):
         warning_keys.append(key)
@@ -181,6 +182,7 @@ def audit_forecast_alert_health(records, expected_keys, *, as_of,
             unverified_ack_keys.append(key)
             max_ack_lag = max(max_ack_lag, state["ackAt"] - state["claimedAt"])
             ack_age = as_of - state["ackAt"]
+            unverified_ack_ages[key] = ack_age
             oldest_unverified_ack = max(oldest_unverified_ack, ack_age)
             # An unverified ACK can linger indefinitely without independent
             # provider/recipient evidence. Escalate aged entries for review,
@@ -214,6 +216,9 @@ def audit_forecast_alert_health(records, expected_keys, *, as_of,
             "oldestUncertainSeconds": oldest_uncertain,
             "maxSelfAttestedAckLagSeconds": max_ack_lag,
             "oldestUnverifiedAckAgeSeconds": oldest_unverified_ack,
+            "oldestUnverifiedAckKeys": [list(key) for key in sorted(
+                key for key, age in unverified_ack_ages.items()
+                if age == oldest_unverified_ack)],
             "warningKeys": [list(key) for key in sorted(set(warning_keys))],
             "warningReasons": [{"key": list(key), "reasons": sorted(reasons)}
                                for key, reasons in sorted(warning_reason_map.items())],
