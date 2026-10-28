@@ -43,3 +43,20 @@ Synthetic regression command (from `backend/`):
 `PYTHONPATH=. python -m pytest -q tests/test_offline_sweep_aggregate_closed_schema.py`.
 No original archives are read, no trading decisions are changed and no
 production or broker path imports this offline auditor.
+
+## Exponent-overflow quarantine (28 October 2026)
+
+The shared bounded JSON loader also rejects numeric tokens such as `1e400`
+and `-1e400` that Python's standard `json.loads` would otherwise turn
+into floating-point infinity, even if those tokens appear in unused nested
+metadata. Nonstandard literal `Infinity`/`NaN` remain rejected separately.
+Finite JSON exponent syntax can still parse, but the fixed closed schema
+rejects unexpected numeric fields; all actual observed means must remain
+finite five-place **decimal strings**. This is a parser-integrity safeguard,
+not a proof of source authenticity or any profitable strategy.
+
+Synthetic regressions (from `backend/`):
+`PYTHONPATH=. python -m pytest -q tests/test_offline_sweep_aggregate_json_overflow.py`.
+The three aggregate CLI tools remain disconnected, read-only, non-executable,
+and do not contact providers or brokers. No archive, original report,
+trade outcome or production path is modified.
