@@ -173,3 +173,48 @@ def test_bounds_include_unknown_without_imputation():
     assert (row["yes"], row["no"], row["pending"], row["missing"]) == (0,0,1,0)
     assert row["all_eligible_lower_bound"] == "0.000000"
     assert row["all_eligible_upper_bound"] == "1.000000"
+
+
+def test_known_completed_gap_taints_immature_later_horizons():
+    report = run(bars(missing=(10,), end=20), as_of=20)
+    hs = report["events"][0]["horizons"]
+    assert hs["5"]["status"] == "observed"
+    assert hs["15"]["status"] == "missing_horizon_minutes"
+    assert hs["30"]["status"] == "missing_horizon_minutes"
+    assert hs["60"]["status"] == "missing_horizon_minutes"
+    for horizon in ("30", "60"):
+        row = report["horizons"][horizon]["return_to_range"]
+        assert (row["yes"], row["no"], row["pending"], row["missing"]) == (0, 0, 0, 1)
+        assert row["all_eligible_upper_bound"] == "1.000000"
+
+
+def test_no_known_gap_keeps_unfinished_horizons_pending():
+    report = run(bars(end=20), as_of=20)
+    hs = report["events"][0]["horizons"]
+    assert hs["15"]["status"] == "observed"
+    assert hs["30"]["status"] == "pending_horizon"
+    assert hs["60"]["status"] == "pending_horizon"
+
+
+def test_missing_minute_is_not_missing_before_its_close():
+    before = run(bars(end=20), as_of=20)
+    assert before["events"][0]["horizons"]["30"]["status"] == "pending_horizon"
+    after = run(bars(missing=(20,), end=21), as_of=21)
+    assert after["events"][0]["horizons"]["30"]["status"] == "missing_horizon_minutes"
+    assert after["events"][0]["horizons"]["60"]["status"] == "missing_horizon_minutes"
+
+
+def test_downward_spike_known_gap_has_same_censoring():
+    report = run(bars(direction="down", missing=(9,), end=16), as_of=16)
+    assert report["events"][0]["initial_spike"] == "down"
+    for horizon in ("15", "30", "60"):
+        assert report["events"][0]["horizons"][horizon]["status"] == "missing_horizon_minutes"
+
+
+def test_gap_censoring_is_deterministic_and_read_only():
+    source = bars(missing=(8,), end=20)
+    original = copy.deepcopy(source)
+    a = run(source, as_of=20)
+    b = run(source, as_of=20)
+    assert a == b
+    assert source == original
