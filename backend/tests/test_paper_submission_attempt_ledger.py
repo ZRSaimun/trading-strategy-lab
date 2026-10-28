@@ -1216,3 +1216,61 @@ def test_rehashed_reconciliation_with_reused_intent_digest_is_rejected(db, opera
                 client_order_id='order-2', intent_sha256=E, recorded_at_ms=103)
     with sqlite3.connect(db) as conn:
         assert conn.execute('SELECT count(*) FROM events').fetchone()[0] == 3
+
+
+def test_reused_terminal_receipt_cannot_clear_second_order(db):
+    """A claimed broker receipt cannot settle two distinct orders in one account."""
+    prep(db)
+    attempt(db)
+    reconcile(db)
+    second = KEY | {'client_order_id': 'order-2', 'intent_sha256': 'c' * 64}
+    prepare_intent(db, recorded_at_ms=103, **second)
+    mark_attempt_unknown(db, recorded_at_ms=104, **second)
+    with pytest.raises(ValueError, match='Reused reconciliation evidence'):
+        record_declared_reconciliation(
+            db, recorded_at_ms=105, evidence_sha256=E, outcome='FILLED',
+            **{k: v for k, v in second.items() if k != 'intent_sha256'})
+    snapshot = inspect_ledger(db)
+    assert snapshot['event_count'] == 5
+    assert [o['status'] for o in snapshot['orders']] == [
+        'RECONCILED_FILLED', 'ATTEMPT_UNKNOWN']
+    assert snapshot['may_submit_real_order'] is False
+
+
+@pytest.mark.parametrize('operation', ['inspect', 'prepare'])
+def test_rehashed_history_with_reused_terminal_receipt_is_quarantined(db, operation):
+    """Local hashes and matching projections cannot legalize receipt replay."""
+    prep(db)
+    attempt(db)
+    reconcile(db)
+    second = KEY | {'client_order_id': 'order-2', 'intent_sha256': 'c' * 64}
+    prepare_intent(db, recorded_at_ms=103, **second)
+    mark_attempt_unknown(db, recorded_at_ms=104, **second)
+    _inject_rehashed_event(
+        db, broker=KEY['broker'], account=KEY['account_alias'],
+        order='order-2', event='RECONCILED_FILLED', evidence=E, stamp=105)
+    with pytest.raises(ValueError, match='Reused reconciliation evidence'):
+        if operation == 'inspect':
+            inspect_ledger(db)
+        else:
+            prepare_intent(
+                db, broker=KEY['broker'], account_alias=KEY['account_alias'],
+                client_order_id='order-3', intent_sha256='d' * 64,
+                recorded_at_ms=106)
+    with sqlite3.connect(db) as conn:
+        assert conn.execute('SELECT count(*) FROM events').fetchone()[0] == 6
+
+
+def test_reconciliation_receipt_scope_is_broker_account(db):
+    """Independent account evidence does not share the local anti-replay namespace."""
+    prep(db)
+    attempt(db)
+    reconcile(db)
+    other = KEY | {'account_alias': 'independent-demo-account'}
+    prepare_intent(db, recorded_at_ms=103, **other)
+    mark_attempt_unknown(db, recorded_at_ms=104, **other)
+    outcome = record_declared_reconciliation(
+        db, recorded_at_ms=105, evidence_sha256=E, outcome='REJECTED',
+        **{k: v for k, v in other.items() if k != 'intent_sha256'})
+    assert outcome['may_submit_paper_order'] is False
+    assert outcome['may_submit_real_order'] is False
