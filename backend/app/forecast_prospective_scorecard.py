@@ -242,6 +242,10 @@ def audit_pending_outcome_deadlines(snapshot, *, as_of):
         overdue = sorted(as_of - (row["targetStart"] + seconds + lag)
                          for row in pending if as_of > row["targetStart"] + seconds + lag)
         n_overdue = len(overdue)
+        # Stable identities let an operator reconcile each overdue forecast;
+        # the list is declared-only, not evidence of a missing market candle.
+        overdue_ids = sorted(row["id"] for row in pending
+                             if as_of > row["targetStart"] + seconds + lag)
         # Nearest-rank tail ages are descriptive of caller-declared pending
         # receipts, not evidence of provider downtime or market-session bars.
         return {"issuedCount": len(rows),
@@ -250,6 +254,7 @@ def audit_pending_outcome_deadlines(snapshot, *, as_of):
                 "pendingCount": len(pending),
                 "pendingWithinDeclaredWindowCount": len(pending) - len(overdue),
                 "overduePendingCount": len(overdue),
+                "overdueForecastIds": overdue_ids,
                 "overdueFractionOfPending": n_overdue / len(pending) if pending else None,
                 "overdueFractionOfIssued": n_overdue / len(rows) if rows else None,
                 "longestOverdueSeconds": overdue[-1] if overdue else None,
