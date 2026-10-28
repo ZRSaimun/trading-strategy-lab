@@ -100,6 +100,10 @@ def audit_forecast_alert_health(records, expected_keys, *, as_of,
             raise ValueError("Duplicate expected alert identity")
         expected.add(key)
     seen = set()
+    # A claim token is a one-attempt correlation identity, not merely a
+    # per-forecast field. Reuse across alerts makes receipt attribution
+    # ambiguous even when the alert keys themselves are distinct.
+    claimed_ids = set()
     counts = Counter()
     oldest_queued = 0
     oldest_uncertain = 0
@@ -121,6 +125,11 @@ def audit_forecast_alert_health(records, expected_keys, *, as_of,
         if key in seen or key not in expected:
             raise ValueError("Duplicate or undeclared alert health record")
         seen.add(key)
+        claim_id = state["claimId"]
+        if claim_id is not None:
+            if claim_id in claimed_ids:
+                raise ValueError("Reused forecast alert claim ID")
+            claimed_ids.add(claim_id)
         status = state["status"]
         if status == "QUEUED":
             if as_of >= state["expiresAt"]:
