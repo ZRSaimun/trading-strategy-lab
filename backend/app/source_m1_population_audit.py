@@ -34,7 +34,7 @@ def _fingerprint(minutes: list[int], *, scope: str) -> str:
     return digest.hexdigest()
 
 
-def _m15_windows(minutes: list[int]) -> tuple[int, int, int, list[int]]:
+def _m15_windows(minutes: list[int]) -> tuple[int, int, int, list[int], set[int]]:
     """Count source-order contiguous 15-row UTC-quarter-hour windows.
 
     This is a *structural* window census, not an OHLC aggregation or proof of
