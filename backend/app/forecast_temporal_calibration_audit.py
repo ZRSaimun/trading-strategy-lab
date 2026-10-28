@@ -474,6 +474,32 @@ def _outcome_availability_utc_weekday7(issued_census, eligible_settled):
     ]
 
 
+
+def _outcome_availability_utc_weekday_hour168(issued_census, eligible_settled):
+    """Joint UTC weekday/hour missingness on a FIXED nonoverlapping issued census.
+
+    The 168 cells can reveal interaction patterns hidden by weekday and hour
+    marginals. Empty cells have null fractions; low-support cells are not
+    significance tests. No inferred session/DST calendar or authenticated feed.
+    """
+    eligible_ids = {row["id"] for row in eligible_settled}
+    counts = [[0, 0] for _ in range(168)]
+    for row in issued_census:
+        day = (row["baseStart"] // 86400 + 3) % 7
+        hour = (row["baseStart"] // 3600) % 24
+        bucket = counts[day * 24 + hour]
+        bucket[0] += 1
+        bucket[1] += int(row["id"] in eligible_ids)
+    return [
+        {"utcWeekdayMonday0": index // 24, "utcHour": index % 24,
+         "issued": issued, "eligibleSettled": eligible,
+         "unavailable": issued - eligible,
+         "unavailableFraction": (issued - eligible) / issued if issued else None,
+         "lowSupportUnder30": issued < 30 if issued else None}
+        for index, (issued, eligible) in enumerate(counts)
+    ]
+
+
 def audit_temporal_forecast_calibration(snapshot, *, min_per_window=30,
                                         brier_deterioration=0.05,
                                         max_unresolved_fraction=0.10,
@@ -629,6 +655,10 @@ def audit_temporal_forecast_calibration(snapshot, *, min_per_window=30,
                 _outcome_availability_utc_weekday7(early_census, train),
             "lateCensusOutcomeAvailabilityUtcWeekday7":
                 _outcome_availability_utc_weekday7(late_census, test),
+            "earlyCensusOutcomeAvailabilityUtcWeekdayHour168":
+                _outcome_availability_utc_weekday_hour168(early_census, train),
+            "lateCensusOutcomeAvailabilityUtcWeekdayHour168":
+                _outcome_availability_utc_weekday_hour168(late_census, test),
             "earlyBrier": None, "lateBrier": None, "lateBrierDelta": None,
             "lateBrierBestCaseAllIssuedCensus": None,
             "lateBrierWorstCaseAllIssuedCensus": None,
@@ -731,6 +761,8 @@ def audit_temporal_forecast_calibration(snapshot, *, min_per_window=30,
                        "all-issued confidence is descriptive and cannot establish calibration; "
                        "probability-bin outcome availability is descriptive, sparse and "
                        "UTC-hour outcome availability is descriptive and not session-adjusted; "
+                       "joint UTC weekday/hour missingness is sparse, descriptive, and "
+                       "does not verify market sessions or missing-at-random; "
                        "issued probability divergence is descriptive and bin-dependent; unbinned empirical CDF distances are descriptive, sample-dependent, "
                        "not a statistical drift test or a calibrated probability; "
                        "UTC-hour composition and common-hour shifts are descriptive, " 
