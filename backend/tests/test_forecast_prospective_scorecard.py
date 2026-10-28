@@ -478,3 +478,51 @@ def test_pending_deadline_audit_tail_reconciles_by_model_horizon():
     assert groups[("challenger", 1)]["overdueSecondsP95"] == 80
     assert groups[("baseline", 1)]["overdueSecondsP50"] == 20
     assert sum(g["overduePendingCount"] for g in groups.values()) == 3
+
+
+def test_pending_overdue_identity_inventory_exact_deadline_and_exclusions():
+    s = snapshot(4, status="PENDING")
+    s["forecasts"][1].update(status="SETTLED", outcomeUp=True,
+                             resolvedAt=s["forecasts"][1]["targetStart"] + 60)
+    s["forecasts"][2].update(status="VOID_GAP", outcomeUp=None,
+                             resolvedAt=s["forecasts"][2]["issuedAt"])
+    boundary = audit_pending_outcome_deadlines(s, as_of=300)
+    assert boundary["overdueForecastIds"] == []
+    after = audit_pending_outcome_deadlines(s, as_of=500)
+    assert after["overdueForecastIds"] == ["f0", "f3"]
+    assert after["overduePendingCount"] == len(after["overdueForecastIds"])
+    assert after["maySendNotification"] is False
+    assert after["mayExecuteLiveOrder"] is False
+
+
+def test_pending_overdue_identity_inventory_reconciles_by_model_horizon():
+    s = snapshot(4, status="PENDING")
+    for index, horizon in ((0, 12), (1, 3)):
+        row, event = s["forecasts"][index], s["events"][index]
+        row["horizon"] = event["horizon"] = horizon
+        row["targetStart"] = row["baseStart"] + horizon * IDENTITY["seconds"]
+    s["forecasts"][2]["modelVersion"] = s["events"][2]["modelVersion"] = "challenger"
+    result = audit_pending_outcome_deadlines(s, as_of=500)
+    assert result["overdueForecastIds"] == ["f1", "f2", "f3"]
+    groups = {(g["modelVersion"], g["horizonCandles"]): g
+              for g in result["byModelHorizon"]}
+    assert groups[("baseline", 12)]["overdueForecastIds"] == []
+    assert groups[("baseline", 3)]["overdueForecastIds"] == ["f1"]
+    assert groups[("baseline", 1)]["overdueForecastIds"] == ["f3"]
+    assert groups[("challenger", 1)]["overdueForecastIds"] == ["f2"]
+    assert sum(len(g["overdueForecastIds"]) for g in groups.values()) == result["overduePendingCount"]
+
+
+def test_pending_overdue_identity_inventory_is_order_independent():
+    s = snapshot(5, status="PENDING")
+    first = audit_pending_outcome_deadlines(s, as_of=1000)
+    s["forecasts"].reverse()
+    s["events"].reverse()
+    assert audit_pending_outcome_deadlines(s, as_of=1000) == first
+    assert first["overdueForecastIds"] == ["f0", "f1", "f2", "f3", "f4"]
+
+
+def test_pending_overdue_identity_inventory_empty_population():
+    result = audit_pending_outcome_deadlines(snapshot(0), as_of=0)
+    assert result["overdueForecastIds"] == []
+    assert result["byModelHorizon"] == []
