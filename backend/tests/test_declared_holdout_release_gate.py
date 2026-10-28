@@ -461,3 +461,47 @@ def test_seeded_fractional_execution_costs_and_same_second_adverse_bound_oracle(
         assert report["profitable_edge_verified"] is False
         assert report["may_execute_demo_order"] is False
         assert report["may_execute_real_order"] is False
+
+
+def test_maximum_declared_population_same_second_fractional_cost_boundary():
+    """10,000 invented receipts at the accepted census cap, with one UTC-second
+    ordering ambiguity and exact four-place signed-financing arithmetic.
+
+    This stresses the cardinality boundary, not real execution throughput,
+    market liquidity, broker-equity risk or actual multi-year returns.
+    """
+    from decimal import Decimal
+
+    data = list(fixture(10000))
+    receipt_time = data[4]
+    positive = Decimal("0.7463")
+    negative = Decimal("-1.2237")
+    for index, row in enumerate(data[3]):
+        row["observed_at_utc"] = receipt_time
+        row["gross_cash"] = "1.0000" if index % 2 == 0 else "-1.0000"
+        row["spread_cash"] = "0.1250"
+        row["slippage_cash"] = "0.0625"
+        row["commission_cash"] = "0.0312"
+        row["financing_cash"] = "0.0200" if index % 2 == 0 else "-0.0100"
+        row["fx_cash"] = "0.0150"
+
+    expected_net = 5000 * (positive + negative)
+    expected_adverse_drawdown = -5000 * negative
+    report = audit(data)
+    assert report["observation_count"] == 10000
+    assert report["net_cash"] == format(expected_net, ".4f")
+    assert report["worst_observation_net_cash"] == format(negative, ".4f")
+    assert report["max_observation_end_drawdown_cash"] == format(-expected_net, ".4f")
+    assert report["max_receipt_time_ordering_drawdown_cash_upper_bound"] == (
+        format(expected_adverse_drawdown, ".4f")
+    )
+    assert report["outcome_metrics_withheld"] is False
+    assert report["anchor_independently_authenticated"] is False
+    assert report["broker_costs_verified"] is False
+    assert report["profitable_edge_verified"] is False
+    assert report["may_execute_demo_order"] is False
+    assert report["may_execute_real_order"] is False
+
+    # A caller-supplied list order is not an executable fill sequence.
+    data[3].reverse()
+    assert audit(data) == report
