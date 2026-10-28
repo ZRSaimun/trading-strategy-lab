@@ -132,3 +132,17 @@ regressions verify rejection and transaction rollback without creating a
 claim. This is a local integrity guard, not proof that an external source
 or preregistration is authentic. Existing unreserved legacy databases
 without any reservation tables retain their compatibility path.
+
+
+**Reservation-object shadowing fence (28 October 2026):** Legacy
+registration and direct release now inspect *all* SQLite schema objects
+with the three reserved population-lock names, rather than only objects
+whose type is `table`. A view named `holdout_locked_rows`,
+`holdout_locked_decisions` or `holdout_locked_pairs` is not evidence
+of an empty legacy registry: registration rejects it, and release rejects
+non-table objects before consuming the one-attempt claim. Six synthetic
+regressions cover both operations for each reserved name and assert
+preservation of the original claim. Legitimate unreserved legacy databases
+without any such objects retain their compatibility path. This detects
+local schema inconsistency, not malicious SQLite file replacement,
+externally authenticated historical data or independent holdout integrity.
