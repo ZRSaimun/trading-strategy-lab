@@ -555,3 +555,30 @@ forecasts. Neither output authenticates source candles or establishes
 calibration, executable BID/ASK, alert delivery, forward P&L, or trading
 permission. Loop 1 still needs independent entitled source receipts,
 server-owned timestamps and session-aware expected-bar inventories.
+
+
+## Fixed-census UTC-hour outcome availability (28 October 2026)
+
+Two additional 24-element arrays, `earlyCensusOutcomeAvailabilityUtcHour24`
+and `lateCensusOutcomeAvailabilityUtcHour24`, expose **selection risk by UTC
+base-candle hour**, including empty hours. Each element reports `utcHour`
+(0–23), `issued`, `eligibleSettled`, `unavailable`,
+`unavailableFraction`, and `lowSupportUnder30` (null for empty hours).
+The denominators are the **preselected nonoverlapping issued-forecast
+censuses**, not only successfully settled forecasts. An unavailable selected
+forecast cannot be replaced by a conveniently settled overlapping neighbour.
+
+Early eligibility excludes outcomes not known strictly before the late
+cohort's first issuance; late eligibility excludes pending/void labels and
+settlements later than the optional caller-declared `evaluation_as_of`.
+The arrays remain visible when the existing score gate withholds Brier/log
+loss. They can expose time-of-day-concentrated missing labels that a global
+missingness percentage or probability-bin census conceals. They do not change
+the existing gates, infer missing labels, or prove that missingness is random.
+
+These are **UTC hour buckets**, not a validated exchange session calendar,
+DST adjustment, independently verified data receipt, or significance test.
+Sparse hours are flagged, and no hourly performance, live feed, notification,
+paper fill, broker action, or trading authorization is inferred. Loop 1 must
+independently attest completed-candle receipt times, provider/venue/side
+provenance and expected market-session inventories before prospective use.
