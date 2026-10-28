@@ -1,7 +1,9 @@
-# Hourly FVG first-touch midpoint rejection versus blind limit (research v62)
+# Hourly FVG first-touch midpoint rejection versus blind limit (research v63)
 
 **Status: proposed, deterministic, read-only hypothesis.** This standalone TypeScript library is not yet wired to the terminal UI, production broker, archive query or cloud service. No actual BID/ASK executions, licensed news data, verified performance, live trades or profitability claims are included. It deliberately does **not** duplicate PR #24's sweep/MSS/FVG confluence risk-path experiment or PR #33's 4H CRT/15m confirmation screen.
 
+
+**Version 63: reject confusable Unicode spacing in declared feed labels.** The read-only FVG source boundary now permits ordinary internal ASCII spaces while rejecting Unicode space separators (including nonbreaking, figure, narrow no-break, en and ideographic spaces) that can make different provider/instrument strings look identical. Both historical and completed-prefix replay fail closed; a synthetic regression checks five spacing variants in both fields and preserves legitimate ASCII-spaced names. This improves caller-declared source identity hygiene only; it does **not** independently authenticate a broker, historical BID/ASK, volume, spreads, news, fills or profitability. Frozen rule: `hourly-fvg-first-midpoint-touch-v63`.
 
 **Version 62: direction-specific matched-comparator attrition.** The read-only 1H BID FVG cohort now reports `pairedByDirectionAndStrictCandidate` and `unpairedByDirectionAndStrictCandidate`, separating bullish/bearish matched hypothetical midpoint-versus-next-open comparisons from unpaired first-touch outcomes across strict PASS, FAIL and INSUFFICIENT_DATA. Every directional cell reconciles with the existing pooled populations; missing exits, rejected wicks and unknown source volume cannot silently vanish from the denominator. Synthetic regressions cover both directions, verified and unverified volume, failed wick, incomplete exit, pre-touch causal replay and a mixed-direction archive. This is a descriptive selection-bias audit, not broker-executable fill evidence, independently verified volume, measured CFD costs, statistical significance or profitability. Frozen rule: `hourly-fvg-first-midpoint-touch-v62`.
 
@@ -145,6 +147,6 @@ The research still lacks an authenticated broker's timestamped BID/ASK observati
 
 ## Verification
 
-77 synthetic Node tests cover bullish and bearish gap geometry, first-touch freeze, strict volume gating, incomplete and missing candles, gap-through uncertainty, causal next-open timing, common-horizon cost arithmetic and source validation. Run `cd frontend && npm test && npm run typecheck && npm run build`; repository CI also exercises backend and container smoke. Synthetic passing tests do not establish a statistical edge.
+Synthetic Node tests cover bullish and bearish gap geometry, first-touch freeze, strict volume gating, incomplete and missing candles, gap-through uncertainty, causal next-open timing, common-horizon cost arithmetic and source validation. Run `cd frontend && npm test && npm run typecheck && npm run build`; repository CI also exercises backend and container smoke. Synthetic passing tests do not establish a statistical edge.
 
 **Deployment safety:** isolated draft PR; no secrets, private datasets, paid APIs, orders, production database changes, merge or Render deployment.

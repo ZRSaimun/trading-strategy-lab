@@ -616,7 +616,7 @@ test('research report rejects extra source fields without leaking caller private
  const report=studyHourlyFvgMidpoint(fixture(),source);
  assert.deepEqual(report.source,source);
  assert.deepEqual(Object.keys(report.source).sort(),Object.keys(source).sort());
- assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v62');
+ assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v63');
 });
 test('ambiguous source labels and contradictory volume evidence fail closed',()=>{
  // These are declared metadata, not independent vendor authentication.
@@ -691,7 +691,24 @@ test('v61 source labels reject lone surrogates and Unicode noncharacters in both
  assert.deepEqual(studyHourlyFvgMidpoint(bars,valid).source,valid);
  assert.deepEqual(studyHourlyFvgMidpointAsOf(bars,valid,cutoff).source,valid);
  assert.equal(studyHourlyFvgMidpoint(bars,valid).version,
-  'hourly-fvg-first-midpoint-touch-v62');
+  'hourly-fvg-first-midpoint-touch-v63');
+});
+test('v63 source labels reject Unicode space lookalikes without banning ASCII spaces',()=>{
+ const bars=fixture(),cutoff=BASE+37*H;
+ // Nonbreaking, figure, narrow, en and ideographic spaces can make different
+ // source identities render almost identically to an ordinary ASCII space.
+ for(const character of ['\u00a0','\u2002','\u2007','\u202f','\u3000']){
+  for(const field of ['provider','instrument'] as const){
+   const invalid={...source,[field]:'Research'+character+'Feed'};
+   assert.throws(()=>studyHourlyFvgMidpoint(bars,invalid),/Invalid source/);
+   assert.throws(()=>studyHourlyFvgMidpointAsOf(bars,invalid,cutoff),/Invalid source/);
+  }
+ }
+ const legitimate={...source,provider:'Research Feed A',instrument:'Gold Spot BID'};
+ assert.deepEqual(studyHourlyFvgMidpoint(bars,legitimate).source,legitimate);
+ assert.deepEqual(studyHourlyFvgMidpointAsOf(bars,legitimate,cutoff).source,legitimate);
+ assert.equal(studyHourlyFvgMidpoint(bars,legitimate).version,
+  'hourly-fvg-first-midpoint-touch-v63');
 });
 test('first bullish midpoint touch has a hypothetical blind limit and later next-open rejection markout',()=>{
  const x=target(fixture());
@@ -1036,7 +1053,7 @@ test('an overflowing next-open comparator suppresses both matched markouts',()=>
 });
 test('completed hourly timestamps are safe and numeric rule changes have a new version',()=>{
  const report=studyHourlyFvgMidpoint(fixture(),source);
- assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v62');
+ assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v63');
  const lastSafeAlignedOpen=Math.floor(Number.MAX_SAFE_INTEGER/H)*H;
  assert.equal(Number.isSafeInteger(lastSafeAlignedOpen),true);
  assert.equal(Number.isSafeInteger(lastSafeAlignedOpen+H),false);

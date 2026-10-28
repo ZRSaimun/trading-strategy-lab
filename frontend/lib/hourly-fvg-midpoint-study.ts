@@ -7,7 +7,7 @@
  */
 import type {Bar} from './research.ts';
 
-export const HOURLY_FVG_VERSION='hourly-fvg-first-midpoint-touch-v62';
+export const HOURLY_FVG_VERSION='hourly-fvg-first-midpoint-touch-v63';
 export type Evidence='PASS'|'FAIL'|'INSUFFICIENT_DATA';
 // First-touch volume evidence is not independent broker/source authentication.
 export type VolumeEvidenceReason='NOT_EVALUATED'|'SOURCE_UNVERIFIED'|
@@ -194,6 +194,9 @@ const hasOwnField=(value:object,field:PropertyKey)=>
 function validSourceLabel(value:unknown):value is string{
  return typeof value==='string'&&value.length>=1&&value.length<=128&&
   value.trim()===value&&value.normalize('NFC')===value&&
+  // Ordinary ASCII spaces are allowed, but Unicode space separators such as
+  // NBSP, figure and narrow spaces can spoof visually identical feed labels.
+  !/\p{Zs}/u.test(value.replaceAll(' ',''))&&
   !/[\p{Cc}\p{Cf}\p{Cs}\p{Zl}\p{Zp}\p{Default_Ignorable_Code_Point}\p{Noncharacter_Code_Point}]/u.test(value);
 }
 // A top-level archive array is only an ordered BID-candle population, not a
