@@ -107,8 +107,8 @@ def test_duplicate_event_id_rejected():
 
 def test_receipt_clock_regression_rejected():
     with pytest.raises(ValueError, match="ingestion timestamps"):
-        audit([row(event="e1", received=T + 100),
-               row(T + 60, event="e2", received=T + 99)])
+        audit([row(event="e1", received=T + 200),
+               row(T + 60, event="e2", received=T + 123)])
 
 
 @pytest.mark.parametrize("expected", [[T, T], [T + 1], [T + 60, T], [True]])
