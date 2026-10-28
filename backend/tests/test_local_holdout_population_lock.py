@@ -576,3 +576,50 @@ def test_pre_pair_registry_not_silently_upgraded(tmp_path, clock):
         assert conn.execute(
             "SELECT release_claimed_at_utc FROM holdout_claims WHERE study_id='one'"
         ).fetchone() == (None,)
+
+
+@pytest.mark.parametrize("shadow_name", [
+    "holdout_claims", "holdout_locked_rows",
+    "holdout_locked_decisions", "holdout_locked_pairs",
+])
+def test_registration_rejects_reserved_view_with_silent_insert_trigger(
+        tmp_path, clock, shadow_name):
+    """A view/INSTEAD OF trigger must never swallow a frozen reservation."""
+    path = tmp_path / "shadowed-registration.sqlite"
+    columns = {
+        "holdout_claims": (
+            "'' AS study_id, '' AS manifest_sha256, "
+            "0 AS holdout_start_at_utc, 0 AS holdout_end_at_utc, "
+            "0 AS registered_at_utc, NULL AS release_claimed_at_utc"
+        ),
+        "holdout_locked_rows": (
+            "'' AS source_sha256, '' AS row_sha256, '' AS study_id"
+        ),
+        "holdout_locked_decisions": (
+            "'' AS source_sha256, 0 AS decision_at_utc, '' AS study_id"
+        ),
+        "holdout_locked_pairs": (
+            "'' AS source_sha256, '' AS row_sha256, "
+            "0 AS decision_at_utc, '' AS study_id"
+        ),
+    }
+    with sqlite3.connect(path) as conn:
+        conn.execute(
+            f"CREATE VIEW {shadow_name} AS SELECT {columns[shadow_name]} WHERE 0"
+        )
+        conn.execute(
+            f"CREATE TRIGGER shadow_insert INSTEAD OF INSERT ON {shadow_name} "
+            "BEGIN SELECT 1; END"
+        )
+    manifest, census = _study()
+    with pytest.raises(ValueError, match="Invalid population-lock schema object"):
+        register_population_locked_holdout(path, manifest, census)
+    with sqlite3.connect(path) as conn:
+        assert conn.execute(
+            "SELECT type FROM sqlite_master WHERE name=?", (shadow_name,)
+        ).fetchone() == ("view",)
+        assert conn.execute(
+            "SELECT count(*) FROM sqlite_master WHERE type='table' "
+            "AND name IN ('holdout_claims', 'holdout_locked_rows', "
+            "'holdout_locked_decisions', 'holdout_locked_pairs')"
+        ).fetchone() == (0,)
