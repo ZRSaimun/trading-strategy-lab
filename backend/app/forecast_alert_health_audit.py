@@ -105,7 +105,12 @@ def audit_forecast_alert_health(records, expected_keys, *, as_of,
     oldest_uncertain = 0
     max_ack_lag = 0
     warning_keys = []
+    warning_reason_map = {}
     unverified_ack_keys = []
+
+    def warn(key, reason):
+        warning_keys.append(key)
+        warning_reason_map.setdefault(key, set()).add(reason)
     for record in records:
         if type(record) is not dict or set(record) != {"sessionId", "state"}:
             raise ValueError("Malformed alert health record")
@@ -120,33 +125,33 @@ def audit_forecast_alert_health(records, expected_keys, *, as_of,
         if status == "QUEUED":
             if as_of >= state["expiresAt"]:
                 counts["EXPIRED_UNCLAIMED"] += 1
-                warning_keys.append(key)
+                warn(key, "EXPIRED_UNCLAIMED")
             else:
                 counts["QUEUED"] += 1
                 age = as_of - state["issuedAt"]
                 oldest_queued = max(oldest_queued, age)
                 if age >= queue_warning_seconds:
                     counts["QUEUE_DELAY_WARNING"] += 1
-                    warning_keys.append(key)
+                    warn(key, "QUEUE_DELAY_WARNING")
                 # Short-lived alerts may approach expiry before the normal
                 # queue-age threshold. Surface them for operator review early.
                 if state["expiresAt"] - as_of <= expiry_warning_seconds:
                     counts["EXPIRING_SOON_WARNING"] += 1
-                    warning_keys.append(key)
+                    warn(key, "EXPIRING_SOON_WARNING")
         elif status == "IN_FLIGHT_UNCERTAIN":
             counts[status] += 1
             # Every uncertain send requires reconciliation, even before its
             # age-warning budget. Otherwise OPERATOR_REVIEW_REQUIRED could
             # return no actionable identity for a freshly claimed alert.
-            warning_keys.append(key)
+            warn(key, "IN_FLIGHT_UNCERTAIN")
             age = as_of - state["claimedAt"]
             oldest_uncertain = max(oldest_uncertain, age)
             if age >= uncertain_warning_seconds:
                 counts["UNCERTAIN_DELAY_WARNING"] += 1
-                warning_keys.append(key)
+                warn(key, "UNCERTAIN_DELAY_WARNING")
             if as_of >= state["expiresAt"]:
                 counts["EXPIRED_IN_FLIGHT_UNCERTAIN"] += 1
-                warning_keys.append(key)
+                warn(key, "EXPIRED_IN_FLIGHT_UNCERTAIN")
         elif status == "ACK_RECORDED_UNVERIFIED":
             counts[status] += 1
             # A timely self-attested ACK is not independent provider/device
@@ -156,7 +161,7 @@ def audit_forecast_alert_health(records, expected_keys, *, as_of,
             max_ack_lag = max(max_ack_lag, state["ackAt"] - state["claimedAt"])
             if state["ackAt"] >= state["expiresAt"]:
                 counts["ACK_AT_OR_AFTER_EXPIRY_WARNING"] += 1
-                warning_keys.append(key)
+                warn(key, "ACK_AT_OR_AFTER_EXPIRY_WARNING")
         else:
             counts["CANCELLED"] += 1
     if seen != expected:
@@ -177,6 +182,8 @@ def audit_forecast_alert_health(records, expected_keys, *, as_of,
             "oldestUncertainSeconds": oldest_uncertain,
             "maxSelfAttestedAckLagSeconds": max_ack_lag,
             "warningKeys": [list(key) for key in sorted(set(warning_keys))],
+            "warningReasons": [{"key": list(key), "reasons": sorted(reasons)}
+                               for key, reasons in sorted(warning_reason_map.items())],
             "unverifiedAckKeys": [list(key) for key in sorted(unverified_ack_keys)],
             "providerDeliveryVerified": False, "recipientDeliveryVerified": False,
             "maySendNotification": False, "mayExecutePaperOrder": False,
