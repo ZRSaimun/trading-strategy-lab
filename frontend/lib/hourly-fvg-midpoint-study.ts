@@ -7,7 +7,7 @@
  */
 import type {Bar} from './research.ts';
 
-export const HOURLY_FVG_VERSION='hourly-fvg-first-midpoint-touch-v56';
+export const HOURLY_FVG_VERSION='hourly-fvg-first-midpoint-touch-v57';
 export type Evidence='PASS'|'FAIL'|'INSUFFICIENT_DATA';
 // First-touch volume evidence is not independent broker/source authentication.
 export type VolumeEvidenceReason='NOT_EVALUATED'|'SOURCE_UNVERIFIED'|
@@ -123,6 +123,11 @@ export type FvgCohort={
  // actually present. Censored/missing hours contribute no invented exposure.
  firstTouchObservedExposureByWait:readonly number[];
  firstTouchObservedExposureByWaitByDirection:Record<Side,readonly number[]>;
+ // Index zero means no completed waiting hour before censoring. A missing
+ // interior hour and an unobserved archive tail remain distinct reasons.
+ firstTouchCensoredAfterWaitByReason:Record<FirstTouchCensorReason,readonly number[]>;
+ firstTouchCensoredAfterWaitByReasonByDirection:Record<Side,
+  Record<FirstTouchCensorReason,readonly number[]>>;
   incompleteWindowByReason:Record<FirstTouchCensorReason,number>;
   markoutCensoredByReason:Record<MarkoutCensorReason,number>;
  midpointTouch:EvidenceCounts;strictCandidate:EvidenceCounts;markout:EvidenceCounts;
@@ -501,6 +506,15 @@ function summarizeCohort(observations:readonly FvgObservation[],costs:readonly n
   NO_TOUCH:Array(maxTouchWaitBars).fill(0),
  });
  const firstDispositionWaitBarCounts=emptyWaitCounts();
+ const emptyCensorCounts=():Record<FirstTouchCensorReason,number[]>=>({
+  MISSING_HOUR:Array(maxTouchWaitBars).fill(0),
+  RIGHT_CENSORED:Array(maxTouchWaitBars).fill(0),
+ });
+ const firstTouchCensoredAfterWaitByReason=emptyCensorCounts();
+ const firstTouchCensoredAfterWaitByReasonByDirection:Record<Side,
+  Record<FirstTouchCensorReason,number[]>>={
+   BULLISH:emptyCensorCounts(),BEARISH:emptyCensorCounts(),
+  };
  const firstTouchObservedExposureByWait:number[]=Array(maxTouchWaitBars).fill(0);
  const firstTouchObservedExposureByWaitByDirection:Record<Side,number[]>={
   BULLISH:Array(maxTouchWaitBars).fill(0),BEARISH:Array(maxTouchWaitBars).fill(0),
@@ -528,10 +542,16 @@ function summarizeCohort(observations:readonly FvgObservation[],costs:readonly n
    firstDispositionWaitBarCountsByDirection[observation.direction]
     [observation.firstTouchOutcome][wait-1]++;
   }
-  if(observation.firstTouchOutcome==='INCOMPLETE_WINDOW'&&observed===maxTouchWaitBars)
-   throw Error('Censored FVG waiting exposure cannot be complete');
-  if(observation.firstTouchCensorReason!==null)
-   incompleteWindowByReason[observation.firstTouchCensorReason]++;
+  if(observation.firstTouchOutcome==='INCOMPLETE_WINDOW'){
+   const reason=observation.firstTouchCensorReason;
+   if(reason===null||observed===maxTouchWaitBars)
+    throw Error('Censored FVG waiting exposure cannot be complete');
+   incompleteWindowByReason[reason]++;
+   firstTouchCensoredAfterWaitByReason[reason][observed]++;
+   firstTouchCensoredAfterWaitByReasonByDirection[observation.direction][reason][observed]++;
+  }else if(observation.firstTouchCensorReason!==null){
+   throw Error('Observed FVG disposition cannot carry a censor reason');
+  }
   if(observation.markoutCensorReason!==null)
    markoutCensoredByReason[observation.markoutCensorReason]++;
  }
@@ -545,6 +565,18 @@ function summarizeCohort(observations:readonly FvgObservation[],costs:readonly n
   if(directionalAccounted!==accounted)
    throw Error('Directional FVG first-disposition wait census does not reconcile');
  }
+ for(const reason of ['MISSING_HOUR','RIGHT_CENSORED'] as const){
+  const pooled=firstTouchCensoredAfterWaitByReason[reason];
+  const total=pooled.reduce((sum,n)=>sum+n,0);
+  if(total!==incompleteWindowByReason[reason])
+   throw Error('Observed FVG censor population does not reconcile');
+  for(let wait=0;wait<maxTouchWaitBars;wait++){
+   if(pooled[wait]!==
+    firstTouchCensoredAfterWaitByReasonByDirection.BULLISH[reason][wait]+
+    firstTouchCensoredAfterWaitByReasonByDirection.BEARISH[reason][wait])
+    throw Error('Directional FVG censor population does not reconcile');
+  }
+ }
  for(let wait=0;wait<maxTouchWaitBars;wait++){
   const exposure=firstTouchObservedExposureByWait[wait];
   const directional=firstTouchObservedExposureByWaitByDirection.BULLISH[wait]+
@@ -552,14 +584,37 @@ function summarizeCohort(observations:readonly FvgObservation[],costs:readonly n
   const dispositions=firstDispositionWaitBarCounts.TOUCH[wait]+
    firstDispositionWaitBarCounts.OPEN_GAP_THROUGH[wait]+
    firstDispositionWaitBarCounts.NO_TOUCH[wait];
+  const censored=firstTouchCensoredAfterWaitByReason.MISSING_HOUR[wait]+
+   firstTouchCensoredAfterWaitByReason.RIGHT_CENSORED[wait];
+  const priorDispositions=wait===0?0:
+   firstDispositionWaitBarCounts.TOUCH[wait-1]+
+   firstDispositionWaitBarCounts.OPEN_GAP_THROUGH[wait-1]+
+   firstDispositionWaitBarCounts.NO_TOUCH[wait-1];
+  const unresolved=wait===0?observations.length:
+   firstTouchObservedExposureByWait[wait-1]-priorDispositions;
   if(exposure!==directional||dispositions>exposure||
-   (wait>0&&exposure>firstTouchObservedExposureByWait[wait-1]))
-   throw Error('Observed FVG waiting exposure does not reconcile');
+   unresolved-censored!==exposure)
+   throw Error('Observed FVG waiting exposure and censor attrition do not reconcile');
+  for(const side of ['BULLISH','BEARISH'] as const){
+   const sideExposure=firstTouchObservedExposureByWaitByDirection[side][wait];
+   const sideCensored=firstTouchCensoredAfterWaitByReasonByDirection[side].MISSING_HOUR[wait]+
+    firstTouchCensoredAfterWaitByReasonByDirection[side].RIGHT_CENSORED[wait];
+   const sidePriorDispositions=wait===0?0:
+    firstDispositionWaitBarCountsByDirection[side].TOUCH[wait-1]+
+    firstDispositionWaitBarCountsByDirection[side].OPEN_GAP_THROUGH[wait-1]+
+    firstDispositionWaitBarCountsByDirection[side].NO_TOUCH[wait-1];
+   const sideUnresolved=wait===0?
+    observations.filter(o=>o.direction===side).length:
+    firstTouchObservedExposureByWaitByDirection[side][wait-1]-sidePriorDispositions;
+   if(sideUnresolved-sideCensored!==sideExposure)
+    throw Error('Directional FVG waiting exposure and censor attrition do not reconcile');
+  }
  }
  return {
   formations:observations.length,firstTouchOutcome,firstDispositionWaitBarCounts,
   firstDispositionWaitBarCountsByDirection,
   firstTouchObservedExposureByWait,firstTouchObservedExposureByWaitByDirection,
+  firstTouchCensoredAfterWaitByReason,firstTouchCensoredAfterWaitByReasonByDirection,
   incompleteWindowByReason,
   pairedNetSignByCost,pairedGrossOrdering,pairedHoldingWindowOverlap,
   pairedHoldingWindowOverlapByStrictCandidate,

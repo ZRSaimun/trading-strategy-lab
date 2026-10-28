@@ -372,6 +372,13 @@ test('formation census preserves unknown outcomes and distinguishes paired from 
   firstTouchObservedExposureByWaitByDirection:{
    BULLISH:[1,...Array(11).fill(0)],BEARISH:Array(12).fill(0),
   },
+  firstTouchCensoredAfterWaitByReason:{
+   MISSING_HOUR:Array(12).fill(0),RIGHT_CENSORED:Array(12).fill(0),
+  },
+  firstTouchCensoredAfterWaitByReasonByDirection:{
+   BULLISH:{MISSING_HOUR:Array(12).fill(0),RIGHT_CENSORED:Array(12).fill(0)},
+   BEARISH:{MISSING_HOUR:Array(12).fill(0),RIGHT_CENSORED:Array(12).fill(0)},
+  },
   incompleteWindowByReason:{MISSING_HOUR:0,RIGHT_CENSORED:0},
   markoutCensoredByReason:{MISSING_HOUR:0,RIGHT_CENSORED:0,UNREPRESENTABLE_RETURN:0},
   pairedGrossOrdering:{
@@ -576,7 +583,7 @@ test('research report rejects extra source fields without leaking caller private
  const report=studyHourlyFvgMidpoint(fixture(),source);
  assert.deepEqual(report.source,source);
  assert.deepEqual(Object.keys(report.source).sort(),Object.keys(source).sort());
- assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v56');
+ assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v57');
 });
 test('ambiguous source labels and contradictory volume evidence fail closed',()=>{
  // These are declared metadata, not independent vendor authentication.
@@ -977,7 +984,7 @@ test('an overflowing next-open comparator suppresses both matched markouts',()=>
 });
 test('completed hourly timestamps are safe and numeric rule changes have a new version',()=>{
  const report=studyHourlyFvgMidpoint(fixture(),source);
- assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v56');
+ assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v57');
  const lastSafeAlignedOpen=Math.floor(Number.MAX_SAFE_INTEGER/H)*H;
  assert.equal(Number.isSafeInteger(lastSafeAlignedOpen),true);
  assert.equal(Number.isSafeInteger(lastSafeAlignedOpen+H),false);
@@ -2091,4 +2098,66 @@ test('v56 observed waiting exposure counts only completed, uncensored hours',()=
  const early=studyHourlyFvgMidpointAsOf(bullish,source,BASE+4*H,config);
  assert.deepEqual(early.cohort.firstTouchObservedExposureByWait,[1,0,0]);
  assert.deepEqual(early.cohort.firstDispositionWaitBarCounts.TOUCH,[0,0,0]);
+});
+
+
+test('v57 censor attrition is indexed by completed wait and conserves each risk set',()=>{
+ const config={maxTouchWaitBars:3};
+ const formation=[
+  candle(0,100,101,99,100),candle(1,102,104,101,103),
+  candle(2,106,107,105,106),
+ ];
+ const noTouch=candle(3,106,107,103.5,106);
+ const laterNoTouch=candle(4,106,107,103.5,106);
+ const touch=candle(4,106,107,101,106);
+ const mirror=(bars:Bar[])=>bars.map(b=>({...b,
+  open:220-b.open,high:220-b.low,low:220-b.high,close:220-b.close}));
+ const zero=[0,0,0];
+ const cases=[
+  {name:'formation-only tail',bars:formation,reason:'RIGHT_CENSORED',index:0,exposure:zero},
+  {name:'one-hour tail',bars:[...formation,noTouch],reason:'RIGHT_CENSORED',
+   index:1,exposure:[1,0,0]},
+  {name:'two-hour tail',bars:[...formation,noTouch,laterNoTouch],
+   reason:'RIGHT_CENSORED',index:2,exposure:[1,1,0]},
+  {name:'missing second hour',bars:[...formation,noTouch,candle(5,106,107,103.5,106)],
+   reason:'MISSING_HOUR',index:1,exposure:[1,0,0]},
+  {name:'observed second-hour touch',bars:[...formation,noTouch,touch],
+   reason:null,index:-1,exposure:[1,1,0]},
+  {name:'completed no-touch',bars:[...formation,noTouch,laterNoTouch,
+   candle(5,106,107,103.5,106)],reason:null,index:-1,exposure:[1,1,1]},
+  {name:'opening gap-through',bars:[...formation,candle(3,102,107,101,105)],
+   reason:null,index:-1,exposure:[1,0,0]},
+ ] as const;
+ for(const side of ['BULLISH','BEARISH'] as const){
+  for(const sample of cases){
+   const bars=side==='BULLISH'?sample.bars:mirror([...sample.bars]);
+   const other=side==='BULLISH'?'BEARISH':'BULLISH';
+   const report=studyHourlyFvgMidpoint(bars,source,config);
+   const census=report.cohort;
+   assert.equal(report.observations.length,1,sample.name+' '+side);
+   assert.deepEqual(census.firstTouchObservedExposureByWait,sample.exposure);
+   const expected={MISSING_HOUR:[0,0,0],RIGHT_CENSORED:[0,0,0]};
+   if(sample.reason!==null)expected[sample.reason][sample.index]=1;
+   assert.deepEqual(census.firstTouchCensoredAfterWaitByReason,expected,
+    sample.name+' pooled');
+   assert.deepEqual(census.firstTouchCensoredAfterWaitByReasonByDirection[side],expected,
+    sample.name+' '+side);
+   assert.deepEqual(census.firstTouchCensoredAfterWaitByReasonByDirection[other],{
+    MISSING_HOUR:[0,0,0],RIGHT_CENSORED:[0,0,0],
+   });
+   assert.equal(census.incompleteWindowByReason.MISSING_HOUR+
+    census.incompleteWindowByReason.RIGHT_CENSORED,sample.reason===null?0:1);
+   assert.deepEqual(studyHourlyFvgMidpointAsOf(bars,source,
+    bars[bars.length-1].time+H,config).cohort.firstTouchCensoredAfterWaitByReason,
+    expected,'full completed as-of prefix must match offline cohort');
+  }
+ }
+ const future=[...formation,noTouch,touch];
+ const earlier=studyHourlyFvgMidpointAsOf(future,source,BASE+4*H,config);
+ assert.deepEqual(earlier.cohort.firstTouchCensoredAfterWaitByReason,
+  {MISSING_HOUR:[0,0,0],RIGHT_CENSORED:[0,1,0]},
+  'future midpoint touch cannot erase an earlier right-censored as-of prefix');
+ const matured=studyHourlyFvgMidpointAsOf(future,source,BASE+5*H,config);
+ assert.deepEqual(matured.cohort.firstTouchCensoredAfterWaitByReason,
+  {MISSING_HOUR:[0,0,0],RIGHT_CENSORED:[0,0,0]});
 });
