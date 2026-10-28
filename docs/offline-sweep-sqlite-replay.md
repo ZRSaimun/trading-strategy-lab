@@ -9,12 +9,11 @@ locally held research SQLite database. It uses the existing frozen
 cd backend
 python -m app.offline_sweep_sqlite_replay /private/path/research.sqlite \
   --dataset-id <64-character-dataset-id> \
-  --expected-archive-sha256 <64-character-original-archive-sha256>
+  --expected-archive-sha256 <64-character-original-archive-sha256> \
+  --archive-zip /private/path/original.zip
 ```
 
-Both hashes are **caller-declared identity checks** against SQLite metadata.
-They do not verify the original ZIP bytes or its license, source timestamp
-convention, provider, venue, or broker quote side. Do not put private paths,
+The dataset ID and expected SHA are **caller-declared identity checks** against SQLite metadata. By default the original ZIP is not checked and output reports `original_archive_bytes_sha256_verified=false`. The optional `--archive-zip` hashes the original **compressed bytes** in bounded streaming passes before and after the SQLite replay, requires the digest to equal both the metadata and caller declaration, and fails closed if the bytes change during the scan. It never extracts archive members. The compressed archive cap is 512 MiB. A matching digest does **not** prove the stored candles were imported from that archive, the provider authenticated it, or its license, timestamp convention, venue or broker quote side. Do not use a public path or upload the ZIP. Do not put private paths,
 archive names, candle prices or source hashes in public PR comments.
 
 The adapter uses a SQLite read-only connection with `query_only=ON`. An
@@ -40,7 +39,7 @@ for checking the committed Decimal engine on the existing imported dataset
 and finding population differences, but it is **not** exact raw-archive
 Decimal parity. The recorded `utc_offset_minutes` is a declared importer
 interpretation, not authenticated source timezone evidence. Session/DST
-validation, original ZIP SHA verification, provider entitlement, BID/ASK,
+validation, original ASCII-to-Decimal row parity, provider entitlement, BID/ASK,
 financing, spread and executable fills remain outstanding.
 
 Output is bounded to dataset identity, population/quality counts, fixed
@@ -56,5 +55,5 @@ The new synthetic tests cover source isolation, exact stored-row accounting,
 gap-induced partial bars, corrupt geometry, explicit source identity,
 read-only behavior and machine-readable output. A successful test does not
 substitute for a replay on the owner's private dataset, independent original
-archive verification, prospective protected holdout, or real executable costs.
+archive-to-SQLite content parity, prospective protected holdout, or real executable costs.
 No production database should be replaced with the research SQLite export.
