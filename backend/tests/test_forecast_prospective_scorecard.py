@@ -3,7 +3,7 @@ from copy import deepcopy
 import math
 import pytest
 
-from app.forecast_prospective_scorecard import summarize_forecast_snapshot
+from app.forecast_prospective_scorecard import summarize_forecast_snapshot, audit_settled_receipt_lag
 
 IDENTITY = {"instrument": "XAUUSD-SYNTH", "provider": "SYNTHETIC", "venue": "TEST",
             "sourceId": "scorecard", "priceSide": "bid", "seconds": 60}
@@ -210,10 +210,7 @@ def test_gap_void_may_be_known_before_future_target_close():
 @pytest.mark.parametrize("horizon,lag", [
     (1, 0), (1, 1), (1, 120), (3, 0), (3, 120), (12, 3600),
 ])
-def test_settled_receipt_respects_declared_completed_candle_lag(horizon, lag):
-    # Event-store replay only SETTLES from a completed target candle whose
-    # receipt must fall within target close + maxLagSeconds. A caller-forged
-    # scorecard must not accept a much later timestamp as a valid settlement.
+def test_opt_in_settlement_lag_audit_respects_inclusive_deadline(horizon, lag):
     s = snapshot()
     s["maxLagSeconds"] = lag
     row, event = s["forecasts"][0], s["events"][0]
@@ -221,17 +218,31 @@ def test_settled_receipt_respects_declared_completed_candle_lag(horizon, lag):
     row["targetStart"] = row["baseStart"] + horizon * IDENTITY["seconds"]
     deadline = row["targetStart"] + IDENTITY["seconds"] + lag
     row["resolvedAt"] = deadline
-    assert sum(g["settled"] for g in summarize_forecast_snapshot(s)["groups"]) == 30
+    assert audit_settled_receipt_lag(s)["lateBeyondDeclaredLagCount"] == 0
     row["resolvedAt"] = deadline + 1
-    with pytest.raises(ValueError, match="resolution"):
-        summarize_forecast_snapshot(s)
+    result = audit_settled_receipt_lag(s)
+    assert result["status"] == "DECLARED_SETTLEMENT_LAG_VIOLATIONS"
+    assert result["settledCount"] == 30
+    assert result["lateBeyondDeclaredLagCount"] == 1
+    assert result["largestExcessSeconds"] == 1
+    assert result["sourceAuthenticated"] is False
+    assert result["mayExecuteLiveOrder"] is False
 
 
-def test_void_gap_receipt_is_not_mistaken_for_settled_target_receipt():
-    # A later observed candle may reveal a missing target long after its
-    # expected close (market closures are not inferred by this scorecard).
+def test_opt_in_receipt_lag_audit_excludes_gap_voids():
     s = snapshot()
     row = s["forecasts"][0]
     row.update(status="VOID_GAP", outcomeUp=None,
                resolvedAt=row["targetStart"] + IDENTITY["seconds"] + 3601)
-    assert group(s)["voidGap"] == 1
+    result = audit_settled_receipt_lag(s)
+    assert result["settledCount"] == 29
+    assert result["lateBeyondDeclaredLagCount"] == 0
+    assert result["largestExcessSeconds"] is None
+
+
+def test_opt_in_receipt_lag_audit_empty_and_invalid_journals():
+    assert audit_settled_receipt_lag(snapshot(0))["status"] == "NO_SETTLED_OUTCOMES"
+    s = snapshot()
+    s["forecasts"][0]["resolvedAt"] = -1
+    with pytest.raises(ValueError, match="resolution"):
+        audit_settled_receipt_lag(s)
