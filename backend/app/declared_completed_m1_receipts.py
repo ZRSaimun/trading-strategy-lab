@@ -12,8 +12,8 @@ import re
 
 _MAX_ROWS = 5_000
 _MAX_SECOND = 253402300799
-_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}\\Z")
-_PRICE = re.compile(r"(?:0|[1-9][0-9]{0,11})(?:\\.[0-9]{1,12})?\\Z")
+_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}\Z")
+_PRICE = re.compile(r"(?:0|[1-9][0-9]{0,11})(?:\.[0-9]{1,12})?\Z")
 _FIELDS = frozenset({
     "event_id", "provider", "instrument", "source_id", "price_side",
     "minute_start_utc", "finalized_at_utc", "received_at_utc",
@@ -87,7 +87,7 @@ def audit_declared_completed_m1_receipts(
     previous_minute = previous_receipt = None
     duplicate_minutes = backward_minutes = observed_gap_minutes = 0
     lag_exceeded = 0
-    digest = hashlib.sha256(b"DECLARED_COMPLETED_M1_RECEIPT_CENSUS_V1\\n")
+    digest = hashlib.sha256(b"DECLARED_COMPLETED_M1_RECEIPT_CENSUS_V1\n")
     newest_start = newest_received = None
     for index, record in enumerate(receipts):
         if type(record) is not dict or set(record) != _FIELDS:
@@ -128,7 +128,7 @@ def audit_declared_completed_m1_receipts(
             [event_id, start, finalized, received, record["open"],
              record["high"], record["low"], record["close"]],
             separators=(",", ":"), ensure_ascii=True
-        ).encode("ascii") + b"\\n")
+        ).encode("ascii") + b"\n")
         previous_minute, previous_receipt = start, received
         if newest_start is None or start > newest_start:
             newest_start, newest_received = start, received
