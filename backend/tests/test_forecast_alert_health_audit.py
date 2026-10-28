@@ -472,3 +472,45 @@ def test_earliest_queue_expiry_empty_and_cancelled_population():
         assert report["earliestQueuedExpiryKeys"] == []
         assert report["mayExecutePaperOrder"] is False
         assert report["mayExecuteLiveOrder"] is False
+
+
+def test_oldest_unverified_ack_keys_are_tied_and_order_independent():
+    records = [
+        {"sessionId": "s3", "state": state("ACK_RECORDED_UNVERIFIED",
+            forecastId="f3", claimId="c" * 32, ackAt=180)},
+        {"sessionId": "s2", "state": state("ACK_RECORDED_UNVERIFIED",
+            forecastId="f2", claimId="b" * 32)},
+        {"sessionId": "s1", "state": state("QUEUED", forecastId="f4")},
+        {"sessionId": "s1", "state": state("ACK_RECORDED_UNVERIFIED")},
+    ]
+    expected = [("s1", "f1"), ("s1", "f4"), ("s2", "f2"), ("s3", "f3")]
+    first = check(records=records, expected=expected, now=440)
+    reversed_result = check(records=list(reversed(records)),
+                            expected=list(reversed(expected)), now=440)
+    assert first == reversed_result
+    assert first["oldestUnverifiedAckAgeSeconds"] == 300
+    assert first["oldestUnverifiedAckKeys"] == [["s1", "f1"], ["s2", "f2"]]
+    assert first["unverifiedAckKeys"] == [["s1", "f1"], ["s2", "f2"], ["s3", "f3"]]
+    assert first["maySendNotification"] is False
+    assert first["mayExecuteLiveOrder"] is False
+
+
+def test_oldest_unverified_ack_keys_empty_without_ack_population():
+    for records, expected in (
+        ([], []),
+        ([{"sessionId": "s1", "state": state("IN_FLIGHT_UNCERTAIN")}],
+         [("s1", "f1")]),
+        ([{"sessionId": "s1", "state": state("CANCELLED")}],
+         [("s1", "f1")]),
+    ):
+        result = check(records=records, expected=expected, now=150)
+        assert result["oldestUnverifiedAckAgeSeconds"] == 0
+        assert result["oldestUnverifiedAckKeys"] == []
+
+
+def test_zero_age_ack_is_still_identified_for_reconciliation():
+    result = check(state("ACK_RECORDED_UNVERIFIED"), now=140)
+    assert result["oldestUnverifiedAckAgeSeconds"] == 0
+    assert result["oldestUnverifiedAckKeys"] == [["s1", "f1"]]
+    assert result["counts"]["ACK_RECONCILIATION_OVERDUE_WARNING"] == 0
+    assert result["recipientDeliveryVerified"] is False
