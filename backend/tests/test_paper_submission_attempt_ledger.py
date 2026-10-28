@@ -1149,3 +1149,34 @@ def test_reconciled_account_history_allows_new_local_evidence_but_not_execution(
     assert result['may_submit_paper_order'] is False
     assert result['may_submit_real_order'] is False
     assert inspect_ledger(db)['event_count'] == 4
+
+
+def test_zero_digest_is_not_valid_intent_evidence(db):
+    """A zero-filled placeholder is not a verified intent fingerprint."""
+    with pytest.raises(ValueError, match='nonzero lowercase SHA-256'):
+        prep(db, intent_sha256='0' * 64)
+    assert inspect_ledger(db)['event_count'] == 0
+
+
+def test_zero_digest_is_not_valid_declared_reconciliation_evidence(db):
+    """Even local terminal claims require a non-placeholder evidence digest."""
+    prep(db)
+    attempt(db)
+    with pytest.raises(ValueError, match='nonzero lowercase SHA-256'):
+        reconcile(db, evidence_sha256='0' * 64)
+    assert inspect_ledger(db)['orders'][0]['status'] == 'ATTEMPT_UNKNOWN'
+    assert inspect_ledger(db)['event_count'] == 2
+
+
+def test_rehashed_history_with_zero_evidence_fails_closed(db):
+    """Recomputed local hashes cannot make an all-zero evidence digest valid."""
+    prep(db)
+    _inject_rehashed_event(
+        db, broker=KEY['broker'], account='other-account',
+        order='order-2', event='PREPARED', evidence='0' * 64, stamp=101)
+    with pytest.raises(ValueError, match='nonzero lowercase SHA-256'):
+        inspect_ledger(db)
+    with pytest.raises(ValueError, match='nonzero lowercase SHA-256'):
+        prepare_intent(db, broker=KEY['broker'], account_alias='other-account',
+                       client_order_id='order-3', intent_sha256=E,
+                       recorded_at_ms=102)
