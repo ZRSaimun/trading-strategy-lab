@@ -296,3 +296,24 @@ quarantine release is introduced.
 Within the same broker/account, a terminal reconciliation digest must not match **any** prepared intent digest, including a different order prepared earlier. Conversely, a later intent digest must not reuse any earlier terminal reconciliation digest. Both transactional writes and full historical replay enforce these constraints. Rehashed, internally consistent but invalid histories fail closed, and a rejected terminal claim leaves the ambiguous order quarantined. Other broker/account namespaces remain independent.
 
 These are conservative local fingerprint-hygiene checks, not broker authentication: the evidence hashes are caller-declared, no provider receipt is validated, and a privileged attacker can still rewrite an unanchored local history. The changes do not enable any paper or live submission. The original no-retry, credential isolation, independently authenticated broker reconciliation, persistent risk reservation, protective-stop verification and positive owner confirmation requirements remain in force.
+
+
+## Read-only recovery-evidence quarantine (28 October 2026)
+
+A read-only SQLite connection may encounter an existing rollback journal after a
+crash. Such a journal can represent pending transaction recovery and must not
+be silently consumed or modified by a diagnostic described as read-only.
+`inspect_ledger` now refuses a **nonempty** regular `-journal` before
+opening SQLite, immediately after SQLite opens it, and before and after the
+read-only audit transaction commits. It preserves the journal for separate,
+explicitly reviewed recovery; it never deletes, truncates or repairs it.
+An ordinary **empty** rollback journal remains acceptable, and write-capable
+transitions retain their existing validated crash-recovery behavior.
+
+Three synthetic regression cases inject nonempty journal evidence before open,
+after open and after the audit, and verify fail-closed behavior without
+altering the original database or journal bytes. These checks remain
+best-effort pathname observations and do not eliminate same-user or privileged
+filesystem races. A rejected journal is **not** proof of a broker fill or
+a failed order; independently authenticate and reconcile broker inventory
+before any future execution integration.
