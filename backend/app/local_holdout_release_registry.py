@@ -169,6 +169,17 @@ def claim_local_holdout_release(db_path, *, study_id, manifest_sha256,
     with closing(_connect(path, create=False)) as conn:
         conn.execute("BEGIN IMMEDIATE")
         try:
+            # An AFTER UPDATE trigger can silently clear a recorded release
+            # claim while SQLite reports one row updated. Reject any trigger
+            # attached to protected holdout tables before consuming the
+            # one-attempt release, including triggers added after registration.
+            # BEGIN IMMEDIATE keeps this check and the claim in one transaction.
+            if conn.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='trigger' AND tbl_name IN "
+                "('holdout_claims', 'holdout_locked_rows', "
+                "'holdout_locked_decisions', 'holdout_locked_pairs') LIMIT 1"
+            ).fetchone() is not None:
+                raise ValueError("Invalid holdout registry trigger at release")
             row = conn.execute(
                 "SELECT manifest_sha256, holdout_start_at_utc, "
                 "holdout_end_at_utc, registered_at_utc, "
