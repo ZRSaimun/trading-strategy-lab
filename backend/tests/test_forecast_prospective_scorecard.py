@@ -3,7 +3,7 @@ from copy import deepcopy
 import math
 import pytest
 
-from app.forecast_prospective_scorecard import summarize_forecast_snapshot, audit_settled_receipt_lag
+from app.forecast_prospective_scorecard import summarize_forecast_snapshot, audit_settled_receipt_lag, audit_pending_outcome_deadlines
 
 IDENTITY = {"instrument": "XAUUSD-SYNTH", "provider": "SYNTHETIC", "venue": "TEST",
             "sourceId": "scorecard", "priceSide": "bid", "seconds": 60}
@@ -344,3 +344,79 @@ def test_settlement_lag_declared_delay_percentiles_include_late_receipts():
     assert result["receiptDelaySecondsP50"] == 0
     assert result["receiptDelaySecondsP95"] == 121
     assert result["byModelHorizon"][0]["receiptDelaySecondsP95"] == 121
+
+
+def test_pending_deadline_audit_exact_inclusive_boundary():
+    s = snapshot(1, status="PENDING")
+    # base 60, target 120, target closes 180, lag 120: deadline 300.
+    boundary = audit_pending_outcome_deadlines(s, as_of=300)
+    assert boundary["pendingWithinDeclaredWindowCount"] == 1
+    assert boundary["overduePendingCount"] == 0
+    assert boundary["longestOverdueSeconds"] is None
+    after = audit_pending_outcome_deadlines(s, as_of=301)
+    assert after["status"] == "DECLARED_OVERDUE_PENDING"
+    assert after["overduePendingCount"] == 1
+    assert after["longestOverdueSeconds"] == 1
+    assert after["overdueFractionOfPending"] == 1.0
+    assert after["maySendNotification"] is False
+    assert after["mayExecutePaperOrder"] is False
+    assert after["mayExecuteLiveOrder"] is False
+
+
+def test_pending_deadline_audit_horizon_groups_reconcile():
+    s = snapshot(4, status="PENDING")
+    for index, horizon in ((0, 3), (1, 12)):
+        row, event = s["forecasts"][index], s["events"][index]
+        row["horizon"] = event["horizon"] = horizon
+        row["targetStart"] = row["baseStart"] + horizon * IDENTITY["seconds"]
+    result = audit_pending_outcome_deadlines(s, as_of=500)
+    assert (result["issuedCount"], result["pendingCount"],
+            result["overduePendingCount"], result["pendingWithinDeclaredWindowCount"]) == (4, 4, 3, 1)
+    assert [g["horizonCandles"] for g in result["byModelHorizon"]] == [1, 3, 12]
+    assert sum(g["overduePendingCount"] for g in result["byModelHorizon"]) == 3
+    assert sum(g["pendingCount"] for g in result["byModelHorizon"]) == 4
+    assert result["longestOverdueSeconds"] == 80
+
+
+def test_pending_deadline_audit_never_counts_settled_or_void_as_pending():
+    s = snapshot(3, status="PENDING")
+    s["forecasts"][1].update(status="SETTLED", outcomeUp=True,
+                             resolvedAt=s["forecasts"][1]["targetStart"] + 60)
+    s["forecasts"][2].update(status="VOID_GAP", outcomeUp=None,
+                             resolvedAt=s["forecasts"][2]["issuedAt"])
+    result = audit_pending_outcome_deadlines(s, as_of=1000)
+    assert (result["settledCount"], result["voidGapCount"],
+            result["pendingCount"], result["overduePendingCount"]) == (1, 1, 1, 1)
+    assert result["sourceAuthenticated"] is False
+
+
+@pytest.mark.parametrize("invalid_as_of", [-1, True, 1.5, 2**53, "300", None])
+def test_pending_deadline_audit_rejects_invalid_as_of(invalid_as_of):
+    with pytest.raises(ValueError, match="as-of time"):
+        audit_pending_outcome_deadlines(snapshot(1, status="PENDING"), as_of=invalid_as_of)
+
+
+def test_pending_deadline_audit_rejects_future_issuance_and_receipts():
+    s = snapshot(1, status="PENDING")
+    with pytest.raises(ValueError, match="after pending audit cutoff"):
+        audit_pending_outcome_deadlines(s, as_of=119)
+    s = snapshot(1)
+    with pytest.raises(ValueError, match="resolution after pending audit cutoff"):
+        audit_pending_outcome_deadlines(s, as_of=150)
+
+
+def test_pending_deadline_audit_empty_and_all_resolved():
+    empty = audit_pending_outcome_deadlines(snapshot(0), as_of=0)
+    assert empty["issuedCount"] == 0 and empty["byModelHorizon"] == []
+    assert empty["overdueFractionOfPending"] is None
+    resolved = audit_pending_outcome_deadlines(snapshot(1), as_of=500)
+    assert resolved["pendingCount"] == 0
+    assert resolved["overduePendingCount"] == 0
+    assert resolved["longestOverdueSeconds"] is None
+
+
+def test_pending_deadline_audit_rejects_forged_snapshot():
+    s = snapshot(1, status="PENDING")
+    s["forecasts"][0]["modelVersion"] = "forged"
+    with pytest.raises(ValueError, match="issuance/outcome mismatch"):
+        audit_pending_outcome_deadlines(s, as_of=500)
