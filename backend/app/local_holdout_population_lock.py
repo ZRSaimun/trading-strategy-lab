@@ -91,6 +91,16 @@ def register_population_locked_holdout(db_path, manifest, census):
             ).fetchall()
             if any(kind != "table" for _, kind in reserved_objects):
                 raise ValueError("Invalid population-lock schema object at registration")
+            # Real tables can also have AFTER INSERT triggers that silently
+            # delete or rewrite reservations while INSERT reports success.
+            # Reject triggers attached to any protected table before writes.
+            # BEGIN IMMEDIATE keeps this schema preflight and inserts atomic.
+            if conn.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='trigger' AND tbl_name IN "
+                "('holdout_claims', 'holdout_locked_rows', "
+                "'holdout_locked_decisions', 'holdout_locked_pairs') LIMIT 1"
+            ).fetchone() is not None:
+                raise ValueError("Invalid population-lock trigger at registration")
             conn.execute(_SCHEMA)
             # Existing row-only registries cannot be upgraded safely without
             # their original committed censuses. Never infer or backfill them.
