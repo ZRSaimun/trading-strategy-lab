@@ -480,3 +480,30 @@ def test_corrupted_persisted_chronology_never_consumes_release(
             (restored_time,))
     # A corrected record still has its original, unused one-attempt claim.
     assert _claim(path)["release_claimed_at_utc"] == 350
+
+@pytest.mark.parametrize("present_tables", [
+    ("holdout_locked_rows",),
+    ("holdout_locked_decisions",),
+    ("holdout_locked_pairs",),
+    ("holdout_locked_decisions", "holdout_locked_pairs"),
+    ("holdout_locked_rows", "holdout_locked_pairs"),
+])
+def test_legacy_registration_rejects_partial_population_schema(
+        tmp_path, clock, present_tables):
+    # A partially present population lock is not a safe legacy registry.
+    # In particular, a decisions-only or pairs-only database must not be
+    # allowed to register an unreserved study and poison future locking.
+    path = tmp_path / "partial-population.sqlite"
+    with sqlite3.connect(path) as conn:
+        for table in present_tables:
+            conn.execute(f"CREATE TABLE {table} (marker INTEGER)")
+    with pytest.raises(ValueError, match="rejects legacy registration"):
+        _register(path)
+    with sqlite3.connect(path) as conn:
+        assert conn.execute(
+            "SELECT count(*) FROM sqlite_master "
+            "WHERE type='table' AND name='holdout_claims'"
+        ).fetchone() == (0,)
+        assert set(row[0] for row in conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table'"
+        )) == set(present_tables)
