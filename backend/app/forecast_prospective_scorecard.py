@@ -94,11 +94,13 @@ def summarize_forecast_snapshot(snapshot, *, min_settled=30, calibration_bins=10
                 or target + seconds > 2**53 - 1
                 or type(row["baseClose"]) not in (int, float)
                 or not math.isfinite(row["baseClose"]) or row["baseClose"] <= 0
+                # A settled target label cannot be observed before its candle closes.
+                # A gap may invalidate a later target before that target closes.
                 or (status == "SETTLED" and (type(outcome) is not bool or type(resolved) is not int
-                                                  or resolved < row["issuedAt"]))
+                                                  or resolved < target + seconds or resolved > 2**53 - 1))
                 or (status == "PENDING" and (outcome is not None or resolved is not None))
                 or (status == "VOID_GAP" and (outcome is not None or type(resolved) is not int
-                                                   or resolved < row["issuedAt"]))):
+                                                   or resolved < row["issuedAt"] or resolved > 2**53 - 1))):
             raise ValueError("Inconsistent forecast resolution")
         grouped[(model, horizon)].append(row)
     if seen != set(forecast_events):
