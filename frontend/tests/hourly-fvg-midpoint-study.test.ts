@@ -620,7 +620,7 @@ test('research report rejects extra source fields without leaking caller private
  const report=studyHourlyFvgMidpoint(fixture(),source);
  assert.deepEqual(report.source,source);
  assert.deepEqual(Object.keys(report.source).sort(),Object.keys(source).sort());
- assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v64');
+ assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v65');
 });
 test('ambiguous source labels and contradictory volume evidence fail closed',()=>{
  // These are declared metadata, not independent vendor authentication.
@@ -695,7 +695,7 @@ test('v61 source labels reject lone surrogates and Unicode noncharacters in both
  assert.deepEqual(studyHourlyFvgMidpoint(bars,valid).source,valid);
  assert.deepEqual(studyHourlyFvgMidpointAsOf(bars,valid,cutoff).source,valid);
  assert.equal(studyHourlyFvgMidpoint(bars,valid).version,
-  'hourly-fvg-first-midpoint-touch-v64');
+  'hourly-fvg-first-midpoint-touch-v65');
 });
 test('v63 source labels reject Unicode space lookalikes without banning ASCII spaces',()=>{
  const bars=fixture(),cutoff=BASE+37*H;
@@ -712,7 +712,7 @@ test('v63 source labels reject Unicode space lookalikes without banning ASCII sp
  assert.deepEqual(studyHourlyFvgMidpoint(bars,legitimate).source,legitimate);
  assert.deepEqual(studyHourlyFvgMidpointAsOf(bars,legitimate,cutoff).source,legitimate);
  assert.equal(studyHourlyFvgMidpoint(bars,legitimate).version,
-  'hourly-fvg-first-midpoint-touch-v64');
+  'hourly-fvg-first-midpoint-touch-v65');
 });
 test('first bullish midpoint touch has a hypothetical blind limit and later next-open rejection markout',()=>{
  const x=target(fixture());
@@ -1057,7 +1057,7 @@ test('an overflowing next-open comparator suppresses both matched markouts',()=>
 });
 test('completed hourly timestamps are safe and numeric rule changes have a new version',()=>{
  const report=studyHourlyFvgMidpoint(fixture(),source);
- assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v64');
+ assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v65');
  const lastSafeAlignedOpen=Math.floor(Number.MAX_SAFE_INTEGER/H)*H;
  assert.equal(Number.isSafeInteger(lastSafeAlignedOpen),true);
  assert.equal(Number.isSafeInteger(lastSafeAlignedOpen+H),false);
@@ -2533,5 +2533,94 @@ test('v64 strict first-touch evidence is classified by causal waiting hour',()=>
   assert.equal(cohort.firstDispositionWaitBarCounts.TOUCH.reduce((a,b)=>a+b,0),0);
   for(const status of statuses)
    assert.deepEqual(cohort.firstTouchStrictCandidateByWait[status],[0,0,0]);
+ }
+});
+
+
+test('v65 directional strict first-touch waits reconcile without promoting unknown evidence',()=>{
+ const mirror=(rows:Bar[])=>rows.map(b=>({...b,
+  open:220-b.open,high:220-b.low,low:220-b.high,close:220-b.close}));
+ const delayed=fixture();
+ delayed[33]=candle(33,105.5,107,105,106,100);
+ delayed[34]=candle(34,105.5,107,101,106,200);
+ const cases=[
+  {bars:fixture(),src:source,config:{},wait:1,status:'PASS'},
+  {bars:fixture(),src:source,config:{volumeMultiple:10},wait:1,status:'FAIL'},
+  {bars:fixture(),src:{...source,volumeVerified:false},config:{},
+   wait:1,status:'INSUFFICIENT_DATA'},
+  {bars:delayed,src:source,config:{},wait:2,status:'PASS'},
+  {bars:delayed,src:source,config:{volumeMultiple:10},wait:2,status:'FAIL'},
+  {bars:delayed,src:{...source,volumeVerified:false},config:{},
+   wait:2,status:'INSUFFICIENT_DATA'},
+ ] as const;
+ const sides=['BULLISH','BEARISH'] as const;
+ const statuses=['PASS','FAIL','INSUFFICIENT_DATA'] as const;
+ const check=(report:ReturnType<typeof studyHourlyFvgMidpoint>)=>{
+  for(const side of sides){
+   for(const status of statuses){
+    const expected=Array(12).fill(0);
+    for(const o of report.observations){
+     if(o.direction!==side||o.firstTouchOutcome!=='TOUCH'||
+      o.gates.strictCandidate!==status)continue;
+     assert.ok(o.firstTouchOutcomeObservedAt!==null);
+     const wait=(o.firstTouchOutcomeObservedAt-o.formationClosedAt)/H-1;
+     expected[wait]++;
+    }
+    assert.deepEqual(report.cohort.firstTouchStrictCandidateByWaitByDirection
+     [side][status],expected);
+    for(let wait=0;wait<12;wait++){
+     assert.equal(sides.reduce((sum,d)=>sum+
+      report.cohort.firstTouchStrictCandidateByWaitByDirection[d][status][wait],0),
+      report.cohort.firstTouchStrictCandidateByWait[status][wait]);
+     assert.equal(statuses.reduce((sum,st)=>sum+
+      report.cohort.firstTouchStrictCandidateByWaitByDirection[side][st][wait],0),
+      report.cohort.firstDispositionWaitBarCountsByDirection[side].TOUCH[wait]);
+    }
+   }
+  }
+ };
+ for(const sample of cases){
+  for(const side of sides){
+   const bars=side==='BULLISH'?sample.bars:mirror(sample.bars);
+   const report=studyHourlyFvgMidpoint(bars,sample.src,sample.config);
+   const selected=report.observations.find(o=>o.formationClosedAt===BASE+33*H);
+   assert.ok(selected);
+   assert.equal(selected.direction,side);
+   assert.equal(selected.gates.strictCandidate,sample.status);
+   assert.equal((selected.firstTouchOutcomeObservedAt!-selected.formationClosedAt)/H,
+    sample.wait);
+   check(report);
+   assert.deepEqual(studyHourlyFvgMidpointAsOf(bars,sample.src,
+    bars[bars.length-1].time+H,sample.config),report);
+   const before=studyHourlyFvgMidpointAsOf(bars,sample.src,
+    BASE+(33+sample.wait-1)*H,sample.config);
+   const pending=before.observations.find(o=>o.formationClosedAt===BASE+33*H);
+   assert.ok(pending);
+   assert.equal(pending.firstTouchOutcome,'INCOMPLETE_WINDOW');
+   check(before);
+  }
+ }
+ // Both directions in one source; a missing interval must never be filled.
+ const shiftedBear=mirror(fixture()).map((bar,i)=>({...bar,time:BASE+(50+i)*H}));
+ const mixedBars=[...fixture(),...shiftedBear];
+ const mixed=studyHourlyFvgMidpoint(mixedBars,source);
+ check(mixed);
+ assert.ok(mixed.cohort.firstTouchStrictCandidateByWaitByDirection.BULLISH.PASS[0]>=1);
+ assert.ok(mixed.cohort.firstTouchStrictCandidateByWaitByDirection.BEARISH.PASS[0]>=1);
+ assert.deepEqual(studyHourlyFvgMidpointAsOf(mixedBars,source,
+  mixedBars[mixedBars.length-1].time+H),mixed);
+ // A gap-through, completed no-touch, and censored tail have no strict touch.
+ const base=[candle(0,100,101,99,100),candle(1,102,104,101,103),
+  candle(2,106,107,105,106)];
+ for(const bars of [
+  [...base,candle(3,102,107,101,105)],
+  [...base,candle(3,106,107,104,106),candle(4,106,107,104,106),
+   candle(5,106,107,104,106)],
+  [...base,candle(3,106,107,104,106)],
+ ]){
+  const cohort=studyHourlyFvgMidpoint(bars,source,{maxTouchWaitBars:3}).cohort;
+  for(const side of sides)for(const status of statuses)
+   assert.deepEqual(cohort.firstTouchStrictCandidateByWaitByDirection[side][status],
+    [0,0,0]);
  }
 });
