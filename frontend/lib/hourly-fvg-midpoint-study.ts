@@ -7,7 +7,7 @@
  */
 import type {Bar} from './research.ts';
 
-export const HOURLY_FVG_VERSION='hourly-fvg-first-midpoint-touch-v64';
+export const HOURLY_FVG_VERSION='hourly-fvg-first-midpoint-touch-v65';
 export type Evidence='PASS'|'FAIL'|'INSUFFICIENT_DATA';
 // First-touch volume evidence is not independent broker/source authentication.
 export type VolumeEvidenceReason='NOT_EVALUATED'|'SOURCE_UNVERIFIED'|
@@ -122,6 +122,9 @@ export type FvgCohort={
  // First midpoint-touch strict evidence at each completed waiting hour.
  // Gap-through, no-touch and censored windows never enter this population.
  firstTouchStrictCandidateByWait:Record<Evidence,readonly number[]>;
+ // Keep bullish and bearish evidence populations separate at each observed
+ // first-touch wait; a pooled PASS rate can conceal one-sided unknowns.
+ firstTouchStrictCandidateByWaitByDirection:Record<Side,Record<Evidence,readonly number[]>>;
  // Per-wait observed risk set: unresolved at hour start AND completed hour
  // actually present. Censored/missing hours contribute no invented exposure.
  firstTouchObservedExposureByWait:readonly number[];
@@ -588,10 +591,15 @@ function summarizeCohort(observations:readonly FvgObservation[],costs:readonly n
   NO_TOUCH:Array(maxTouchWaitBars).fill(0),
  });
  const firstDispositionWaitBarCounts=emptyWaitCounts();
- const firstTouchStrictCandidateByWait:Record<Evidence,number[]>={
+ const emptyStrictWaitCounts=():Record<Evidence,number[]>=>({
   PASS:Array(maxTouchWaitBars).fill(0),FAIL:Array(maxTouchWaitBars).fill(0),
   INSUFFICIENT_DATA:Array(maxTouchWaitBars).fill(0),
- };
+ });
+ const firstTouchStrictCandidateByWait=emptyStrictWaitCounts();
+ const firstTouchStrictCandidateByWaitByDirection:Record<Side,
+  Record<Evidence,number[]>>={
+   BULLISH:emptyStrictWaitCounts(),BEARISH:emptyStrictWaitCounts(),
+  };
  const emptyCensorCounts=():Record<FirstTouchCensorReason,number[]>=>({
   MISSING_HOUR:Array(maxTouchWaitBars).fill(0),
   RIGHT_CENSORED:Array(maxTouchWaitBars).fill(0),
@@ -627,8 +635,11 @@ function summarizeCohort(observations:readonly FvgObservation[],costs:readonly n
    firstDispositionWaitBarCounts[observation.firstTouchOutcome][wait-1]++;
    firstDispositionWaitBarCountsByDirection[observation.direction]
     [observation.firstTouchOutcome][wait-1]++;
-   if(observation.firstTouchOutcome==='TOUCH')
+   if(observation.firstTouchOutcome==='TOUCH'){
     firstTouchStrictCandidateByWait[observation.gates.strictCandidate][wait-1]++;
+    firstTouchStrictCandidateByWaitByDirection[observation.direction]
+     [observation.gates.strictCandidate][wait-1]++;
+   }
   }
   if(observation.firstTouchOutcome==='INCOMPLETE_WINDOW'){
    const reason=observation.firstTouchCensorReason;
@@ -690,6 +701,19 @@ function summarizeCohort(observations:readonly FvgObservation[],costs:readonly n
    firstTouchStrictCandidateByWait.INSUFFICIENT_DATA[wait];
   if(classifiedTouch!==firstDispositionWaitBarCounts.TOUCH[wait])
    throw Error('FVG first-touch strict evidence by wait does not reconcile');
+  for(const status of ['PASS','FAIL','INSUFFICIENT_DATA'] as const){
+   const directional=firstTouchStrictCandidateByWaitByDirection.BULLISH[status][wait]+
+    firstTouchStrictCandidateByWaitByDirection.BEARISH[status][wait];
+   if(directional!==firstTouchStrictCandidateByWait[status][wait])
+    throw Error('Directional FVG first-touch strict evidence does not reconcile');
+  }
+  for(const side of ['BULLISH','BEARISH'] as const){
+   const classified=(['PASS','FAIL','INSUFFICIENT_DATA'] as const)
+    .reduce((sum,status)=>sum+firstTouchStrictCandidateByWaitByDirection[side]
+     [status][wait],0);
+   if(classified!==firstDispositionWaitBarCountsByDirection[side].TOUCH[wait])
+    throw Error('Directional FVG first-touch wait population does not reconcile');
+  }
   const exposure=firstTouchObservedExposureByWait[wait];
   const directional=firstTouchObservedExposureByWaitByDirection.BULLISH[wait]+
    firstTouchObservedExposureByWaitByDirection.BEARISH[wait];
@@ -725,6 +749,7 @@ function summarizeCohort(observations:readonly FvgObservation[],costs:readonly n
  return {
   formations:observations.length,firstTouchOutcome,firstDispositionWaitBarCounts,
   firstDispositionWaitBarCountsByDirection,firstTouchStrictCandidateByWait,
+  firstTouchStrictCandidateByWaitByDirection,
   firstTouchObservedExposureByWait,firstTouchObservedExposureByWaitByDirection,
   firstTouchCensoredAfterWaitByReason,firstTouchCensoredAfterWaitByReasonByDirection,
   incompleteWindowByReason,
