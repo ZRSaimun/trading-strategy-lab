@@ -247,3 +247,17 @@ or fabricated external broker receipts. Four synthetic fail-closed regressions
 cover both invalid historical transitions on inspection and attempted writes;
 a fifth verifies that a declared terminal event only allows later *local
 recordkeeping*, with both execution flags remaining false.
+
+
+## Non-placeholder evidence digests (28 October 2026)
+
+The ledger now rejects the all-zero 64-character digest as an intent or
+reconciliation evidence SHA-256 value, both at the write boundary and when
+replaying persisted audit history. This value is reserved as the hash-chain's
+initial previous-hash sentinel; treating it as external evidence could hide a
+missing fingerprint behind a syntactically valid placeholder. Three synthetic
+regression cases cover initial intent preparation, declared reconciliation
+(which leaves the unresolved submission quarantined), and a locally rehashed
+historical event with matching projection. The change does **not** prove that
+any nonzero digest authenticates a broker receipt, and does not enable broker
+requests, paper/live execution or automatic quarantine release.
