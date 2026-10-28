@@ -173,3 +173,53 @@ def test_finalization_lag_is_checked_for_old_rows_not_only_newest():
 def test_finalization_budget_must_be_bounded_integer(bad_budget):
     with pytest.raises(ValueError, match="Bounded freshness"):
         audit([row()], max_finalization_lag_seconds=bad_budget)
+
+
+def test_audit_policy_fingerprint_is_deterministic_and_separate_from_receipts():
+    rows = [row()]
+    before = deepcopy(rows)
+    first = audit(rows, expected_utc_minutes=[T])
+    second = audit(rows, expected_utc_minutes=[T])
+    assert first["declared_audit_policy_sha256"] == second["declared_audit_policy_sha256"]
+    assert len(first["declared_audit_policy_sha256"]) == 64
+    assert rows == before
+    assert first["source_authenticity_verified"] is False
+    assert first["may_execute_order"] is False
+
+
+def test_expected_inventory_changes_policy_not_receipt_fingerprint():
+    rows = [row()]
+    one = audit(rows, expected_utc_minutes=[T])
+    two = audit(rows, expected_utc_minutes=[T, T + 60])
+    assert one["receipt_inventory_sha256"] == two["receipt_inventory_sha256"]
+    assert one["declared_audit_policy_sha256"] != two["declared_audit_policy_sha256"]
+    assert one["structurally_clean"] is True
+    assert two["structurally_clean"] is False
+
+
+def test_absent_and_explicitly_empty_expected_inventory_are_distinct():
+    rows = [row()]
+    absent = audit(rows)
+    empty = audit(rows, expected_utc_minutes=[])
+    assert absent["receipt_inventory_sha256"] == empty["receipt_inventory_sha256"]
+    assert absent["declared_audit_policy_sha256"] != empty["declared_audit_policy_sha256"]
+    assert absent["expected_inventory_supplied"] is False
+    assert empty["expected_inventory_supplied"] is True
+
+
+def test_freshness_budgets_and_asof_change_policy_not_receipt_fingerprint():
+    rows = [row()]
+    baseline = audit(rows)
+    strict = audit(rows, max_age_seconds=179)
+    later = audit_declared_completed_m1_receipts(
+        rows, provider="synthetic", instrument="XAU/USD",
+        source_id="test:feed", price_side="mid", as_of_utc=T + 241,
+    )
+    assert len({baseline["declared_audit_policy_sha256"],
+                strict["declared_audit_policy_sha256"],
+                later["declared_audit_policy_sha256"]}) == 3
+    assert len({baseline["receipt_inventory_sha256"],
+                strict["receipt_inventory_sha256"],
+                later["receipt_inventory_sha256"]}) == 1
+    assert baseline["declared_freshness_within_budget"] is True
+    assert strict["declared_freshness_within_budget"] is False
