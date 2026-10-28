@@ -7,7 +7,7 @@
  */
 import type {Bar} from './research.ts';
 
-export const HOURLY_FVG_VERSION='hourly-fvg-first-midpoint-touch-v66';
+export const HOURLY_FVG_VERSION='hourly-fvg-first-midpoint-touch-v67';
 export type Evidence='PASS'|'FAIL'|'INSUFFICIENT_DATA';
 // First-touch volume evidence is not independent broker/source authentication.
 export type VolumeEvidenceReason='NOT_EVALUATED'|'SOURCE_UNVERIFIED'|
@@ -89,12 +89,19 @@ export type PairedGrossOrderingCensus={
  all:PairedGrossOrderingCells;strict:PairedGrossOrderingCells;
  strictFail:PairedGrossOrderingCells;strictUnknown:PairedGrossOrderingCells;
 };
+export type PairedNetSignByDirectionCensus=Record<Side,{
+ all:PairedNetSignCells;strict:PairedNetSignCells;
+ strictFail:PairedNetSignCells;strictUnknown:PairedNetSignCells;
+}>;
 export type PairedNetSignCostCensus={
  scenarioIndex:number;costBps:number;
  // Partition all matched outcomes by the declared strict evidence state.
  // Unknown volume evidence must not be pooled with a known failed gate.
  all:PairedNetSignCells;strict:PairedNetSignCells;
  strictFail:PairedNetSignCells;strictUnknown:PairedNetSignCells;
+ // Each net-sign cell is also stratified by formation direction; this is
+ // the same matched population, not additional independent observations.
+ byDirection:PairedNetSignByDirectionCensus;
 };
 // Overlap is measured only between matured hypothetical confirmed-entry-to-exit
 // windows. It is a dependence warning, not an effective sample-size estimate.
@@ -552,6 +559,10 @@ function summarizeCohort(observations:readonly FvgObservation[],costs:readonly n
    bothPositive:0,blindOnlyPositive:0,confirmedOnlyPositive:0,neitherPositive:0,
   });
   const all=empty(),strict=empty(),strictFail=empty(),strictUnknown=empty();
+  const byDirection:PairedNetSignByDirectionCensus={
+   BULLISH:{all:empty(),strict:empty(),strictFail:empty(),strictUnknown:empty()},
+   BEARISH:{all:empty(),strict:empty(),strictFail:empty(),strictUnknown:empty()},
+  };
   for(const observation of observations){
    if(!paired(observation))continue;
    const blind=observation.blindMidpointTouch!.netBpsByCost[scenarioIndex];
@@ -570,11 +581,27 @@ function summarizeCohort(observations:readonly FvgObservation[],costs:readonly n
     confirmedPositive?'bothPositive':'blindOnlyPositive':
     confirmedPositive?'confirmedOnlyPositive':'neitherPositive';
    all[cell]++;
-   if(observation.gates.strictCandidate==='PASS')strict[cell]++;
-   else if(observation.gates.strictCandidate==='FAIL')strictFail[cell]++;
-   else strictUnknown[cell]++;
+   const directional=byDirection[observation.direction];
+   directional.all[cell]++;
+   if(observation.gates.strictCandidate==='PASS'){
+    strict[cell]++;directional.strict[cell]++;
+   }else if(observation.gates.strictCandidate==='FAIL'){
+    strictFail[cell]++;directional.strictFail[cell]++;
+   }else{
+    strictUnknown[cell]++;directional.strictUnknown[cell]++;
+   }
   }
-  return {scenarioIndex,costBps,all,strict,strictFail,strictUnknown};
+  // Preserve the full directional and strict-evidence denominator for each
+  // illustrative cost. Pooled positive outcomes cannot mask one-sided losses.
+  for(const status of ['all','strict','strictFail','strictUnknown'] as const){
+   for(const cell of ['bothPositive','blindOnlyPositive',
+    'confirmedOnlyPositive','neitherPositive'] as const){
+    const pooled={all,strict,strictFail,strictUnknown}[status][cell];
+    if(pooled!==byDirection.BULLISH[status][cell]+byDirection.BEARISH[status][cell])
+     throw Error('Directional FVG paired net-sign population does not reconcile');
+   }
+  }
+  return {scenarioIndex,costBps,all,strict,strictFail,strictUnknown,byDirection};
  });
  const firstTouchOutcome:Record<FirstTouchOutcome,number>={
   TOUCH:0,NO_TOUCH:0,OPEN_GAP_THROUGH:0,INCOMPLETE_WINDOW:0,

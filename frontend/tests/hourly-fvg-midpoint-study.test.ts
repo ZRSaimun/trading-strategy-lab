@@ -420,6 +420,20 @@ test('formation census preserves unknown outcomes and distinguishes paired from 
    strict:{bothPositive:0,blindOnlyPositive:0,confirmedOnlyPositive:0,neitherPositive:0},
    strictFail:{bothPositive:0,blindOnlyPositive:0,confirmedOnlyPositive:0,neitherPositive:0},
    strictUnknown:{bothPositive:1,blindOnlyPositive:0,confirmedOnlyPositive:0,neitherPositive:0},
+   byDirection:{
+    BULLISH:{
+     all:{bothPositive:1,blindOnlyPositive:0,confirmedOnlyPositive:0,neitherPositive:0},
+     strict:{bothPositive:0,blindOnlyPositive:0,confirmedOnlyPositive:0,neitherPositive:0},
+     strictFail:{bothPositive:0,blindOnlyPositive:0,confirmedOnlyPositive:0,neitherPositive:0},
+     strictUnknown:{bothPositive:1,blindOnlyPositive:0,confirmedOnlyPositive:0,neitherPositive:0},
+    },
+    BEARISH:{
+     all:{bothPositive:0,blindOnlyPositive:0,confirmedOnlyPositive:0,neitherPositive:0},
+     strict:{bothPositive:0,blindOnlyPositive:0,confirmedOnlyPositive:0,neitherPositive:0},
+     strictFail:{bothPositive:0,blindOnlyPositive:0,confirmedOnlyPositive:0,neitherPositive:0},
+     strictUnknown:{bothPositive:0,blindOnlyPositive:0,confirmedOnlyPositive:0,neitherPositive:0},
+    },
+   },
   })),
   midpointTouch:{PASS:1,FAIL:0,INSUFFICIENT_DATA:0},
   strictCandidate:{PASS:0,FAIL:0,INSUFFICIENT_DATA:1},
@@ -631,7 +645,7 @@ test('research report rejects extra source fields without leaking caller private
  const report=studyHourlyFvgMidpoint(fixture(),source);
  assert.deepEqual(report.source,source);
  assert.deepEqual(Object.keys(report.source).sort(),Object.keys(source).sort());
- assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v66');
+ assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v67');
 });
 test('ambiguous source labels and contradictory volume evidence fail closed',()=>{
  // These are declared metadata, not independent vendor authentication.
@@ -706,7 +720,7 @@ test('v61 source labels reject lone surrogates and Unicode noncharacters in both
  assert.deepEqual(studyHourlyFvgMidpoint(bars,valid).source,valid);
  assert.deepEqual(studyHourlyFvgMidpointAsOf(bars,valid,cutoff).source,valid);
  assert.equal(studyHourlyFvgMidpoint(bars,valid).version,
-  'hourly-fvg-first-midpoint-touch-v66');
+  'hourly-fvg-first-midpoint-touch-v67');
 });
 test('v63 source labels reject Unicode space lookalikes without banning ASCII spaces',()=>{
  const bars=fixture(),cutoff=BASE+37*H;
@@ -723,7 +737,7 @@ test('v63 source labels reject Unicode space lookalikes without banning ASCII sp
  assert.deepEqual(studyHourlyFvgMidpoint(bars,legitimate).source,legitimate);
  assert.deepEqual(studyHourlyFvgMidpointAsOf(bars,legitimate,cutoff).source,legitimate);
  assert.equal(studyHourlyFvgMidpoint(bars,legitimate).version,
-  'hourly-fvg-first-midpoint-touch-v66');
+  'hourly-fvg-first-midpoint-touch-v67');
 });
 test('first bullish midpoint touch has a hypothetical blind limit and later next-open rejection markout',()=>{
  const x=target(fixture());
@@ -1068,7 +1082,7 @@ test('an overflowing next-open comparator suppresses both matched markouts',()=>
 });
 test('completed hourly timestamps are safe and numeric rule changes have a new version',()=>{
  const report=studyHourlyFvgMidpoint(fixture(),source);
- assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v66');
+ assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v67');
  const lastSafeAlignedOpen=Math.floor(Number.MAX_SAFE_INTEGER/H)*H;
  assert.equal(Number.isSafeInteger(lastSafeAlignedOpen),true);
  assert.equal(Number.isSafeInteger(lastSafeAlignedOpen+H),false);
@@ -2675,5 +2689,74 @@ test('v65 directional strict first-touch waits reconcile without promoting unkno
   for(const side of sides)for(const status of statuses)
    assert.deepEqual(cohort.firstTouchStrictCandidateByWaitByDirection[side][status],
     [0,0,0]);
+ }
+});
+
+test('v67 matched net-sign outcomes conserve direction and strict evidence after exit close',()=>{
+ const mirror=(rows:Bar[])=>rows.map(b=>({...b,
+  open:220-b.open,high:220-b.low,low:220-b.high,close:220-b.close}));
+ const shiftedBear=mirror(fixture()).map((bar,i)=>({...bar,time:BASE+(50+i)*H}));
+ const mixed=[...fixture(),...shiftedBear];
+ const sides=['BULLISH','BEARISH'] as const;
+ const statuses=['all','strict','strictFail','strictUnknown'] as const;
+ const cells=['bothPositive','blindOnlyPositive','confirmedOnlyPositive','neitherPositive'] as const;
+ const sum=(counts:Record<(typeof cells)[number],number>)=>
+  cells.reduce((total,cell)=>total+counts[cell],0);
+ for(const sample of [
+  {src:source,config:{},status:'PASS'},
+  {src:source,config:{volumeMultiple:10},status:'FAIL'},
+  {src:{...source,volumeVerified:false},config:{},status:'INSUFFICIENT_DATA'},
+ ] as const){
+  const report=studyHourlyFvgMidpoint(mixed,sample.src,sample.config);
+  for(const [formationAt,side] of [
+   [BASE+33*H,'BULLISH'],[BASE+83*H,'BEARISH'],
+  ] as const){
+   const o=report.observations.find(o=>o.formationClosedAt===formationAt);
+   assert.ok(o);
+   assert.equal(o.direction,side);
+   assert.equal(o.gates.strictCandidate,sample.status);
+   assert.ok(o.blindMidpointTouch&&o.confirmedNextOpen);
+  }
+  for(const [index,scenario] of report.cohort.pairedNetSignByCost.entries()){
+   for(const status of statuses){
+    for(const cell of cells){
+     assert.equal(scenario[status][cell],
+      sides.reduce((total,side)=>total+scenario.byDirection[side][status][cell],0));
+    }
+   }
+   for(const side of sides){
+    const matched=report.observations.filter(o=>o.direction===side&&
+     o.blindMidpointTouch!==null&&o.confirmedNextOpen!==null);
+    assert.equal(sum(scenario.byDirection[side].all),matched.length);
+    for(const status of ['strict','strictFail','strictUnknown'] as const){
+     const gate=status==='strict'?'PASS':status==='strictFail'?'FAIL':'INSUFFICIENT_DATA';
+     assert.equal(sum(scenario.byDirection[side][status]),
+      matched.filter(o=>o.gates.strictCandidate===gate).length);
+    }
+    // Reconstruct cell counts from the actual completed BID markouts in
+    // this moderate synthetic fixture, independently of cohort counters.
+    for(const cell of cells){
+     let expected=0;
+     for(const o of matched){
+      const blind=o.blindMidpointTouch!.netBpsByCost[index].netBps>0;
+      const confirmed=o.confirmedNextOpen!.netBpsByCost[index].netBps>0;
+      const observed=blind?(confirmed?'bothPositive':'blindOnlyPositive'):
+       (confirmed?'confirmedOnlyPositive':'neitherPositive');
+      if(observed===cell)expected++;
+     }
+     assert.equal(scenario.byDirection[side].all[cell],expected);
+    }
+   }
+  }
+  const before=studyHourlyFvgMidpointAsOf(mixed,sample.src,BASE+36*H,sample.config);
+  assert.equal(before.cohort.pairedMarkouts,0,
+   'future exit cannot populate directional paired net-sign cells');
+  for(const scenario of before.cohort.pairedNetSignByCost)
+   for(const side of sides)assert.equal(sum(scenario.byDirection[side].all),0);
+  const bullMatured=studyHourlyFvgMidpointAsOf(mixed,sample.src,BASE+38*H,sample.config);
+  assert.ok(bullMatured.cohort.pairedNetSignByCost.every(s=>
+   sum(s.byDirection.BULLISH.all)>=1&&sum(s.byDirection.BEARISH.all)===0));
+  assert.deepEqual(studyHourlyFvgMidpointAsOf(mixed,sample.src,
+   mixed[mixed.length-1].time+H,sample.config),report);
  }
 });

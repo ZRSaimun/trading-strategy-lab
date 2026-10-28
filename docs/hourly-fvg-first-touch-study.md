@@ -1,7 +1,9 @@
-# Hourly FVG first-touch midpoint rejection versus blind limit (research v66)
+# Hourly FVG first-touch midpoint rejection versus blind limit (research v67)
 
 **Status: proposed, deterministic, read-only hypothesis.** This standalone TypeScript library is not yet wired to the terminal UI, production broker, archive query or cloud service. No actual BID/ASK executions, licensed news data, verified performance, live trades or profitability claims are included. It deliberately does **not** duplicate PR #24's sweep/MSS/FVG confluence risk-path experiment or PR #33's 4H CRT/15m confirmation screen.
 
+
+**Version 67: direction-stratified paired net-sign outcomes after illustrative costs.** Each matured matched midpoint-versus-next-open comparison now retains BULLISH/BEARISH counts for every net-positive sign cell and every PASS/FAIL/INSUFFICIENT_DATA strict-evidence state, with exact pooled reconciliation. Synthetic mixed-direction regressions verify completed-exit as-of timing, strict-evidence attrition and directional cell reconstruction under all declared cost scenarios. This prevents an attractive pooled cost-sign result from concealing one-sided behavior. Costs remain hypothetical BID-only stresses, not verified broker BID/ASK spreads, commissions, financing, fills, source volume or evidence of profitability. Frozen rule: `hourly-fvg-first-midpoint-touch-v67`.
 
 **Version 66: cross-direction hypothetical holding-window dependence.** The paired 1H FVG cohort now separates same-direction overlap (`pairedHoldingWindowOverlapByDirection`) from simultaneous opposite-direction windows (`pairedHoldingWindowCrossDirection`), with exact pooled-pair reconciliation. A synthetic bullish-then-bearish overlap test verifies that both exits must close before cross-direction overlap appears; half-open windows meeting exactly at exit/entry are not overlaps. These are **hypothetical BID-only** matched holding intervals, not executable broker hedges, independently authenticated quotes, real CFD costs, portfolio exposure or profitable expectancy. Frozen rule: `hourly-fvg-first-midpoint-touch-v66`.
 
