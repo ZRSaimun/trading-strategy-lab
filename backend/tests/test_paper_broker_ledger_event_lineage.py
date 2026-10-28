@@ -310,3 +310,42 @@ def test_standalone_rejects_reused_expected_intent_across_orders():
     args[0]["unresolved_orders"].append(row)
     with pytest.raises(ValueError, match="Duplicate expected intent"):
         inspect(args)
+
+
+def fixture_with_preparation_age(age_ms):
+    """Rehash the full declared chain so only preparation age is under test."""
+    args = fixture()
+    unknown = args[2][1]
+    prepared = event(1, "PREPARED", INTENT,
+                     unknown["recorded_at_ms"] - age_ms, ZERO)
+    unknown = event(2, "ATTEMPT_UNKNOWN", INTENT,
+                    unknown["recorded_at_ms"], prepared["event_hash"])
+    args[2] = [prepared, unknown]
+    args[1]["audit_tip_sha256"] = unknown["event_hash"]
+    args[3] = unknown["event_hash"]
+    return args
+
+
+@pytest.mark.parametrize("age_ms", [0, 60_000])
+def test_fresh_preparation_window_preserves_unverified_candidate(age_ms):
+    result = inspect(fixture_with_preparation_age(age_ms))
+    assert result["failed_checks"] == []
+    assert result["status"] == "DECLARED_EVENT_LINEAGE_CANDIDATE_UNVERIFIED"
+    assert result["may_submit_real_order"] is False
+
+
+@pytest.mark.parametrize("age_ms", [60_001, 120_000])
+def test_stale_preparation_holds_even_with_rehashed_consistent_ledger(age_ms):
+    result = inspect(fixture_with_preparation_age(age_ms))
+    assert result["status"] == "HOLD_RECONCILIATION"
+    assert result["failed_checks"] == ["ledger_preparation_stale_at_attempt"]
+    assert result["may_clear_unknown"] is False
+    assert result["may_submit_paper_order"] is False
+    assert result["may_submit_real_order"] is False
+
+
+def test_stale_preparation_check_does_not_mutate_input():
+    args = fixture_with_preparation_age(60_001)
+    original = deepcopy(args)
+    inspect(args)
+    assert args == original
