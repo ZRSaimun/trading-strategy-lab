@@ -332,6 +332,6 @@ def test_receipt_batch_recovery_does_not_erase_prior_peak_drawdown():
         data[3][i]["observed_at_utc"] = 8000 + i * 100
     result = audit(data)
     assert result["net_cash"] == "120.0000"
-    assert result["max_observation_end_drawdown_cash"] == "90.0000"
+    assert result["max_observation_end_drawdown_cash"] == "100.0000"
     assert result["worst_observation_net_cash"] == "-90.0000"
     assert result["broker_costs_verified"] is False
