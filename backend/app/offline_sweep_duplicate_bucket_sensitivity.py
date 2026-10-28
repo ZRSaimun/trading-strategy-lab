@@ -15,7 +15,7 @@ from pathlib import Path
 
 from .offline_sweep_probe import Bar, research
 
-_SHA = re.compile(r"[0-9a-f]{64}\\Z")
+_SHA = re.compile(r"[0-9a-f]{64}\Z")
 _MAX_BARS = 500_000
 _MAX_DUPLICATES = 100_000
 _MAX_INPUT_BYTES = 128 * 1024 * 1024
@@ -27,7 +27,7 @@ def _quarter_hour(stamp):
 
 
 def _parse_clock(value, *, quarter=False):
-    if not isinstance(value, str) or not re.fullmatch(r"\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:00", value):
+    if not isinstance(value, str) or not re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:00", value):
         raise ValueError("Expected source-local ISO minute timestamp without timezone")
     stamp = datetime.strptime(value, "%Y-%m-%dT%H:%M:%S")
     if quarter and stamp.minute % 15:
