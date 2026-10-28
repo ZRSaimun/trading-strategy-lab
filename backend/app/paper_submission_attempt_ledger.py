@@ -345,6 +345,10 @@ def _verify(conn):
     # A locally rehashed history is not trusted merely because its final
     # projection matches; every intermediate transition must be legal.
     unresolved_accounts = {}
+    # A terminal receipt digest must not be reused for a different order on
+    # the same broker/account. This is only local anti-replay, not proof that
+    # the receipt originated from the broker.
+    reconciliation_receipts = set()
     previous = ZERO
     last_time = -1
     for n, row in enumerate(rows, 1):
@@ -381,6 +385,10 @@ def _verify(conn):
                 raise ValueError('Reconciliation evidence reuses intent fingerprint')
             if unresolved_accounts.get(account_key) != key:
                 raise ValueError('Unresolved broker submission for account in audit history')
+            receipt_key = (broker, account, evidence)
+            if receipt_key in reconciliation_receipts:
+                raise ValueError('Reused reconciliation evidence in audit history')
+            reconciliation_receipts.add(receipt_key)
             state[key] = (old[0], event)
             del unresolved_accounts[account_key]
         previous = digest
@@ -445,6 +453,15 @@ def _write(path, key, event, evidence, stamp):
                 raise ValueError('Reconciliation requires one unresolved attempt')
             if evidence == old[0]:
                 raise ValueError('Reconciliation evidence reuses intent fingerprint')
+            # Reject a previously claimed receipt for another order in this
+            # broker/account, even when the first attempt is now terminal.
+            # The transaction serializes competing writers; no auto-retry.
+            if conn.execute(
+                    "SELECT 1 FROM events WHERE broker=? AND account=? "
+                    "AND evidence_sha=? AND event IN "
+                    "('RECONCILED_FILLED','RECONCILED_REJECTED','RECONCILED_CANCELLED') "
+                    "LIMIT 1", (key[0], key[1], evidence)).fetchone():
+                raise ValueError('Reused reconciliation evidence for broker account')
             conn.execute('UPDATE intents SET status=? WHERE broker=? AND account=? AND order_id=?',
                          (event, *key))
         digest = _append(conn, key, event, evidence, stamp, count, previous)
