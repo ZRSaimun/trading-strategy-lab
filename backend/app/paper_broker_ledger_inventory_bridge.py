@@ -95,6 +95,10 @@ def inspect_declared_ledger_inventory_bridge(
     failures: set[str] = set(audit["failed_checks"])
     if tip != prior_ledger_tip_sha256:
         failures.add("ledger_audit_tip_mismatch")
+    # A ledger event recorded after the final declared broker observation
+    # cannot be covered by that snapshot, even if the later check time is fresh.
+    if stamp > snapshots[-1]["observed_at_ms"]:
+        failures.add("ledger_event_after_final_observation")
     target = (expected["broker"], expected["account_alias"])
     expected_ids = {row["client_order_id"] for row in expected["unresolved_orders"]}
     if not 1 <= len(expected_ids) <= MAX_ORDERS:
