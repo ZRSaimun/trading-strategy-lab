@@ -112,3 +112,17 @@ The inventory is caller-declared and neither proves acceptance nor delivery;
 there is no automatic retry, notification authority, paper fill, broker order,
 route, or production activation. Synthetic tests cover mixed and reordered
 populations, timely ACKs, expired ACKs and empty ACK inventories.
+
+## Deterministic warning-reason inventory (28 October 2026)
+
+The read-only census now includes `warningReasons`, a sorted list of objects
+`{"key": [sessionId, forecastId], "reasons": [reason, ...]}` for exactly the
+identities in `warningKeys`. Reasons are sorted, deduplicated status/warning
+codes from the existing classification logic. A queued alert can carry both
+`QUEUE_DELAY_WARNING` and `EXPIRING_SOON_WARNING`; an uncertain claim always
+carries `IN_FLIGHT_UNCERTAIN` and may also carry delay/expiry reasons. This
+allows operators to triage each alert without reverse-mapping overlapping
+aggregate counters. `unverifiedAckKeys` remains separate for timely ACKs;
+a late self-attested ACK appears in both inventories. No underlying status,
+warning threshold, retry, notification, or order authority changes. Both
+inventories remain caller-declared and require independent reconciliation.
