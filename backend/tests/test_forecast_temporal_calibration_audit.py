@@ -1648,3 +1648,64 @@ def test_fixed_census_ece_bins_do_not_cancel_opposite_calibration_gaps():
     assert bounds["lateEce10WorstCaseAllIssuedCensus"] == pytest.approx(.9)
     # Opposite bin errors cannot cancel in ECE as they can in global mean gap.
     assert all(math.isfinite(v) for v in bounds.values())
+
+
+def test_unavailability_runs_helper_empty_and_complete():
+    from app.forecast_temporal_calibration_audit import _outcome_unavailability_runs
+
+    empty = _outcome_unavailability_runs([], [])
+    assert empty == {"issued": 0, "unavailable": 0, "unavailableRunCount": 0,
+                     "longestUnavailableRun": 0,
+                     "longestUnavailableRunFractionOfIssued": None}
+    rows = [{"id": str(i)} for i in range(6)]
+    complete = _outcome_unavailability_runs(rows, rows)
+    assert complete["unavailableRunCount"] == 0
+    assert complete["longestUnavailableRun"] == 0
+    assert complete["longestUnavailableRunFractionOfIssued"] == 0
+
+
+def test_unavailability_runs_count_contiguous_issued_census_records_only():
+    from app.forecast_temporal_calibration_audit import _outcome_unavailability_runs
+
+    rows = [{"id": str(i)} for i in range(9)]
+    eligible = [rows[i] for i in (0, 3, 4, 7)]
+    report = _outcome_unavailability_runs(rows, eligible)
+    assert report == {"issued": 9, "unavailable": 5,
+                      "unavailableRunCount": 3, "longestUnavailableRun": 2,
+                      "longestUnavailableRunFractionOfIssued": pytest.approx(2 / 9)}
+
+
+def test_unavailability_runs_expose_cluster_even_when_scores_withheld():
+    s = fixture()
+    for i in (80, 82, 84, 88):
+        s["forecasts"][i].update(status="PENDING", outcomeUp=None, resolvedAt=None)
+    row = audit_temporal_forecast_calibration(
+        s, max_unresolved_fraction=.05)["groups"][0]
+    assert row["status"] == "UNRESOLVED_SELECTION_RISK"
+    assert row["lateBrier"] is None
+    assert row["earlyCensusOutcomeUnavailableRuns"]["unavailable"] == 0
+    assert row["lateCensusOutcomeUnavailableRuns"] == {
+        "issued": 40, "unavailable": 4, "unavailableRunCount": 2,
+        "longestUnavailableRun": 3,
+        "longestUnavailableRunFractionOfIssued": pytest.approx(3 / 40),
+    }
+
+
+def test_unavailability_runs_do_not_shift_for_unselected_missing_outcome():
+    s = fixture()
+    full = audit_temporal_forecast_calibration(s)["groups"][0]
+    s["forecasts"][81].update(status="PENDING", outcomeUp=None, resolvedAt=None)
+    changed = audit_temporal_forecast_calibration(s)["groups"][0]
+    assert changed["lateCensusOutcomeUnavailableRuns"] == (
+        full["lateCensusOutcomeUnavailableRuns"])
+
+
+def test_unavailability_runs_respect_declared_as_of_cutoff():
+    s = fixture()
+    cutoff = max(r["issuedAt"] for r in s["forecasts"])
+    s["forecasts"][80]["resolvedAt"] = cutoff + 1
+    row = audit_temporal_forecast_calibration(
+        s, evaluation_as_of=cutoff)["groups"][0]
+    assert row["lateCensusOutcomeUnavailableRuns"]["unavailable"] == 1
+    assert row["lateCensusOutcomeUnavailableRuns"]["longestUnavailableRun"] == 1
+    assert row["lateCensusOutcomeUnavailableRuns"]["unavailableRunCount"] == 1
