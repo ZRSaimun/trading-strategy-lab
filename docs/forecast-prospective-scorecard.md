@@ -32,3 +32,21 @@ declarations, pre-close, stale, misaligned and overflowed timestamps,
 and an allowed late-within-window issuance. The guard does not infer
 unissued forecasts, provider gaps or broker fills. Do not use its passing
 status to enable alerts or live trading. All release gates above remain.
+
+
+## Settlement chronology cross-check (28 October 2026)
+
+The disconnected scorecard additionally rejects caller-declared **SETTLED**
+outcomes timestamped before the end of their own target candle, including
+multi-candle horizons. Settled and gap-void receipt timestamps must be
+non-boolean integers within the bounded 2^53−1 epoch representation.
+A `VOID_GAP` may legitimately be recorded before a later target closes
+when an intervening source gap invalidates it; that state is not subject to
+the settled-target-close lower bound.
+
+These checks do **not** prove the target close price, independently authenticate
+the journal, or establish the event-store receipt-lag ceiling; the original
+`ForecastEventStore.load` replay remains mandatory. Synthetic tests cover
+early and boundary settlement, longer horizons, overflow, and early gap
+invalidation. No production alert, paper fill, broker or trading permission
+is enabled.
