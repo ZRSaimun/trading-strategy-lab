@@ -157,7 +157,8 @@ def claim_local_holdout_release(db_path, *, study_id, manifest_sha256,
                                 expected_holdout_start_at_utc=None,
                                 expected_holdout_end_at_utc=None,
                                 expected_population_rows=None,
-                                expected_source_key_sha256=None):
+                                expected_source_key_sha256=None,
+                                expected_anchor_at_utc=None):
     """Atomically consume the single local release attempt BEFORE reading outcomes.
 
     A crash or failed subsequent evaluation intentionally burns the attempt.
@@ -196,6 +197,13 @@ def claim_local_holdout_release(db_path, *, study_id, manifest_sha256,
                 raise ValueError("Invalid frozen population row")
             seen_rows.add(pair[0])
             seen_times.add(pair[1])
+    # The guarded wrapper supplies the declared anchor clock. A local
+    # registration recorded after that anchor is chronologically impossible,
+    # even when both self-declared manifest/anchor digests match.
+    if expected_anchor_at_utc is not None and (
+            type(expected_anchor_at_utc) is not int or
+            not 0 <= expected_anchor_at_utc <= _MAX_TIME):
+        raise ValueError("Invalid expected anchor timestamp")
     now = _clock()
     path = _path(db_path)
     with closing(_connect(path, create=False)) as conn:
@@ -251,6 +259,9 @@ def claim_local_holdout_release(db_path, *, study_id, manifest_sha256,
             if (any(type(value) is not int for value in (start, end, registered))
                     or not 0 <= registered < start < end <= _MAX_TIME):
                 raise ValueError("Invalid stored holdout chronology")
+            if (expected_anchor_at_utc is not None and
+                    not registered <= expected_anchor_at_utc < start):
+                raise ValueError("Declared anchor predates local registration or reaches holdout start")
             if (expected_holdout_start_at_utc is not None and
                     (row[1] != expected_holdout_start_at_utc or
                      row[2] != expected_holdout_end_at_utc)):
@@ -423,7 +434,8 @@ def audit_declared_holdout_release_once(db_path, manifest, census, anchor, outco
         expected_holdout_start_at_utc=manifest["holdout_start_at_utc"],
         expected_holdout_end_at_utc=manifest["holdout_end_at_utc"],
         expected_population_rows=expected_rows,
-        expected_source_key_sha256=expected_source_key)
+        expected_source_key_sha256=expected_source_key,
+        expected_anchor_at_utc=anchor.get("anchored_at_utc"))
     outcomes = outcome_loader()  # Only cooperating callers defer access until after claim.
     result = audit_declared_holdout_release(
         manifest, census, anchor, outcomes, claim["release_claimed_at_utc"])
