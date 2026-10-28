@@ -30,8 +30,11 @@ def fixture():
     e1 = event(1, "PREPARED", INTENT, NOW - 5100, ZERO)
     e2 = event(2, "ATTEMPT_UNKNOWN", INTENT, NOW - 5001, e1["event_hash"])
     expected = {"broker": BROKER, "account_alias": ACCOUNT,
+                "max_snapshot_age_ms": 3000, "max_transport_lag_ms": 1000,
                 "unresolved_orders": [{"client_order_id": "client1",
                                        "intent_sha": INTENT,
+                                       "instrument": "XAUUSD", "side": "BUY",
+                                       "quantity": "1.00",
                                        "attempted_at_ms": NOW - 5000}]}
     summary = {"schema": "paper-submission-attempt-ledger-v1", "event_count": 2,
                "order_count": 1, "audit_tip_sha256": e2["event_hash"],
@@ -256,4 +259,54 @@ def test_standalone_lineage_rejects_boolean_event_count():
     args = fixture()
     args[1]["event_count"] = True
     with pytest.raises(ValueError, match="event count"):
+        inspect(args)
+
+
+@pytest.mark.parametrize("field,value", [
+    ("max_snapshot_age_ms", True), ("max_snapshot_age_ms", 0),
+    ("max_snapshot_age_ms", 60_001), ("max_transport_lag_ms", False),
+    ("max_transport_lag_ms", -1), ("max_transport_lag_ms", 60_001),
+])
+def test_standalone_rejects_invalid_expected_quote_policy(field, value):
+    args = fixture()
+    args[0][field] = value
+    with pytest.raises(ValueError):
+        inspect(args)
+
+
+@pytest.mark.parametrize("field,value", [
+    ("instrument", ""), ("instrument", "bad instrument"),
+    ("side", "HOLD"), ("side", True), ("quantity", "0"),
+    ("quantity", "-1"), ("quantity", "NaN"), ("quantity", 1),
+    ("quantity", "1.000000000"),
+])
+def test_standalone_rejects_invalid_expected_order_contract(field, value):
+    args = fixture()
+    args[0]["unresolved_orders"][0][field] = value
+    with pytest.raises(ValueError):
+        inspect(args)
+
+
+@pytest.mark.parametrize("change", ["extra_expected", "missing_expected",
+                                    "extra_row", "missing_row"])
+def test_standalone_rejects_partial_or_extended_expected_schema(change):
+    args = fixture()
+    if change == "extra_expected":
+        args[0]["allow_live"] = True
+    elif change == "missing_expected":
+        del args[0]["max_snapshot_age_ms"]
+    elif change == "extra_row":
+        args[0]["unresolved_orders"][0]["approved"] = True
+    else:
+        del args[0]["unresolved_orders"][0]["instrument"]
+    with pytest.raises(ValueError):
+        inspect(args)
+
+
+def test_standalone_rejects_reused_expected_intent_across_orders():
+    args = fixture()
+    row = deepcopy(args[0]["unresolved_orders"][0])
+    row["client_order_id"] = "client2"
+    args[0]["unresolved_orders"].append(row)
+    with pytest.raises(ValueError, match="Duplicate expected intent"):
         inspect(args)
