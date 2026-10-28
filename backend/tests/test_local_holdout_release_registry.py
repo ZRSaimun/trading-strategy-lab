@@ -664,3 +664,31 @@ def test_release_rejects_weakened_claim_primary_key_without_consuming(tmp_path, 
         _claim(path)
     with sqlite3.connect(path) as conn:
         assert conn.execute("SELECT release_claimed_at_utc FROM holdout_claims").fetchone() == (None,)
+
+
+def test_external_anchor_may_precede_local_registry_registration(tmp_path, clock):
+    """A genuine external freeze need not wait for the optional local lock.
+
+    The declared manifest must precede the holdout; the independent anchor
+    can be recorded before this *local* defense-in-depth SQLite registration.
+    Rejecting that order would invalidate legitimate preregistration.
+    """
+    from app.local_holdout_population_lock import register_population_locked_holdout
+    from test_declared_holdout_release_gate import fixture as holdout_fixture
+
+    manifest, census, anchor, outcomes, release_at = holdout_fixture()
+    path = tmp_path / "anchor-before-local-registration.sqlite"
+    clock[0] = anchor["anchored_at_utc"] + 1
+    assert clock[0] < manifest["holdout_start_at_utc"]
+    registered = register_population_locked_holdout(path, manifest, census)
+    assert anchor["anchored_at_utc"] < registered["registered_at_utc"]
+
+    clock[0] = release_at
+    result = registry.audit_declared_holdout_release_once(
+        path, manifest, census, anchor, lambda: outcomes)
+    assert result["local_release_claim"]["local_frozen_population_matched"] is True
+    assert result["declared_audit"]["status"] == "DECLARED_EVALUATION_ONLY"
+    assert result["declared_audit"]["profitable_edge_verified"] is False
+    with pytest.raises(ValueError, match="already claimed"):
+        registry.audit_declared_holdout_release_once(
+            path, manifest, census, anchor, lambda: outcomes)
