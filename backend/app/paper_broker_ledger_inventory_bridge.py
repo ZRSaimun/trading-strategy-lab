@@ -16,8 +16,8 @@ from app.paper_broker_reconciliation_context_anchor import (
 )
 from app.paper_broker_snapshot_chain_audit import MAX_CHECKPOINT_GAP_MS
 
-_SHA256 = re.compile(r"[0-9a-f]{64}\\Z")
-_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:/+-]{0,79}\\Z")
+_SHA256 = re.compile(r"[0-9a-f]{64}\Z")
+_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:/+-]{0,79}\Z")
 _TERMINAL = frozenset({
     "RECONCILED_FILLED", "RECONCILED_REJECTED", "RECONCILED_CANCELLED",
 })
@@ -62,6 +62,11 @@ def inspect_declared_ledger_inventory_bridge(
     immutable custody, bind intent SHA values, or permit clearing UNKNOWN.
     """
     _sha(prior_ledger_tip_sha256, "prior ledger tip")
+    audit = inspect_declared_reconciliation_context_anchors(
+        expected, snapshots, check_times_ms, prior_snapshot_digests,
+        prior_chain_digest, prior_context_digest,
+        max_checkpoint_gap_ms=max_checkpoint_gap_ms,
+    )
     if type(ledger_summary) is not dict or set(ledger_summary) != _LEDGER_KEYS:
         raise ValueError("Invalid ledger summary schema")
     if ledger_summary["schema"] != "paper-submission-attempt-ledger-v1":
@@ -87,7 +92,7 @@ def inspect_declared_ledger_inventory_bridge(
             or count < len(rows)):
         raise ValueError("Ledger order/event counts are inconsistent")
 
-    failures: set[str] = set()
+    failures: set[str] = set(audit["failed_checks"])
     if tip != prior_ledger_tip_sha256:
         failures.add("ledger_audit_tip_mismatch")
     target = (expected["broker"], expected["account_alias"])
@@ -116,12 +121,6 @@ def inspect_declared_ledger_inventory_bridge(
     if count < 2 * len(expected_ids):
         failures.add("ledger_event_population_insufficient")
 
-    audit = inspect_declared_reconciliation_context_anchors(
-        expected, snapshots, check_times_ms, prior_snapshot_digests,
-        prior_chain_digest, prior_context_digest,
-        max_checkpoint_gap_ms=max_checkpoint_gap_ms,
-    )
-    failures.update(audit["failed_checks"])
     return {
         "status": ("HOLD_RECONCILIATION" if failures
                    else "DECLARED_LEDGER_INVENTORY_CANDIDATE_UNVERIFIED"),
