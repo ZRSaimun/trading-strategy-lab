@@ -42,6 +42,10 @@ def inspect_declared_snapshot_transition(expected: dict, previous: dict,
     if (current["observed_at_ms"] <= previous["observed_at_ms"]
             or current["received_at_ms"] <= previous["received_at_ms"]):
         failures.add("snapshot_time_regression")
+    # An observation taken before the previous snapshot was received leaves
+    # an ambiguous overlap. Preserve quarantine rather than trusting ordering.
+    if current["observed_at_ms"] <= previous["received_at_ms"]:
+        failures.add("snapshot_observation_overlap")
     if set(earlier["failed_checks"]) - _ALLOWED_PREVIOUS_FAILURES:
         failures.add("previous_census_invalid")
     if later["failed_checks"]:
@@ -65,6 +69,12 @@ def inspect_declared_snapshot_transition(expected: dict, previous: dict,
             elif (fill["filled_at_ms"] != new_fills[fid]["filled_at_ms"]
                   or Decimal(fill["quantity"]) != Decimal(new_fills[fid]["quantity"])):
                 failures.add("previous_fill_mutated")
+        # A newly disclosed fill dated at/before the earlier observation
+        # indicates a retroactive correction or incomplete prior inventory.
+        # Neither case is evidence that an UNKNOWN order may be retried.
+        for fid, fill in new_fills.items():
+            if fid not in old_fills and fill["filled_at_ms"] <= previous["observed_at_ms"]:
+                failures.add("retroactive_fill_appearance")
     if set(old) != set(new):
         failures.add("snapshot_order_population_changed")
     return {
