@@ -108,3 +108,54 @@ def test_cli_is_machine_readable_and_non_executing(tmp_path, capsys):
     assert result["audit"] == "SQLITE_FLOAT_STAGING_FROZEN_DECIMAL_ENGINE_REPLAY"
     assert result["broker_execution_costs_verified"] is False
     assert result["independent_holdout_verified"] is False
+
+
+def test_replay_pins_metadata_and_candles_to_one_wal_snapshot(tmp_path, monkeypatch):
+    """A concurrent READY import cannot splice two SQLite revisions together."""
+    path = build_db(tmp_path)
+    real_connect = sqlite3.connect
+    with real_connect(path) as writer:
+        assert writer.execute("PRAGMA journal_mode=WAL").fetchone()[0] == "wal"
+    changed = []
+
+    class InterceptConnection:
+        def __init__(self, connection):
+            self.connection = connection
+
+        def execute(self, sql, params=()):
+            if "FROM historical_candles" in sql and not changed:
+                # This executes after the adapter has read dataset metadata.
+                # In WAL mode the concurrent writer can commit while a reader
+                # retains its previous snapshot. Without explicit BEGIN, the
+                # following candle SELECT would see the new revision instead.
+                with real_connect(path) as writer:
+                    writer.execute(
+                        "UPDATE historical_datasets SET accepted=accepted+1 WHERE id=?",
+                        (DATASET,))
+                    writer.execute(
+                        "INSERT INTO historical_candles VALUES (?,?,?,?,?,?,?,?,?)",
+                        (DATASET,
+                         int(datetime(2025, 1, 1, tzinfo=timezone.utc).timestamp())
+                         + 3000 * 60,
+                         100, 101, 99, 100, 0,
+                         "DAT_ASCII_TEST_M1_2025.csv", 3001))
+                changed.append(True)
+            return self.connection.execute(sql, params)
+
+        def close(self):
+            self.connection.close()
+
+    monkeypatch.setattr(
+        "app.offline_sweep_sqlite_replay.sqlite3.connect",
+        lambda *args, **kwargs: InterceptConnection(real_connect(*args, **kwargs)))
+    report = replay_declared_sqlite(path, DATASET, SOURCE)
+    assert changed == [True]
+    assert report["m1_accepted"] == 3000
+    assert report["complete_m15"] == 200
+    with real_connect(path) as writer:
+        assert writer.execute(
+            "SELECT accepted FROM historical_datasets WHERE id=?",
+            (DATASET,)).fetchone()[0] == 3001
+        assert writer.execute(
+            "SELECT count(*) FROM historical_candles WHERE dataset_id=?",
+            (DATASET,)).fetchone()[0] == 3001
