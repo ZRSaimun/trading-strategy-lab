@@ -85,7 +85,8 @@ def test_price_changes_do_not_affect_structural_fingerprints():
 
 def test_existing_segment_break_is_classified_as_gap():
     candles = bars()
-    candles[30] = replace(candles[30], segment=1)
+    candles = [replace(bar, segment=1) if i >= 30 else bar
+               for i, bar in enumerate(candles)]
     result = audit(candles)
     assert count(result, "development", "gap_or_segment") == 17
     assert count(result, "development", "declared_duplicate_touched") == 0
