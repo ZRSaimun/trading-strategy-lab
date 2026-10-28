@@ -137,3 +137,18 @@ remain `DeliveryUncertain` and **must never be automatically retried**.
 This is local protocol-integrity validation, not evidence of Telegram delivery,
 source authentication, a live signal, or financial performance. The sender
 remains disconnected pending the existing independent activation/release gates.
+
+
+## No implicit proxy for credential-bearing Bot API URLs (28 October 2026)
+
+The disconnected sender now installs an explicit empty urllib ProxyHandler
+alongside the no-redirect handler for its default HTTPS opener. This prevents
+host environment/system proxy settings from silently routing the token-bearing
+Bot API request URL through a proxy. Explicitly injected test openers remain
+unchanged. Three offline, parameterized regressions inspect the actual urllib
+handler chain under HTTPS_PROXY, https_proxy and ALL_PROXY without making a
+network call. This is transport credential-routing hardening, not a claim of
+end-to-end TLS attestation, Telegram delivery, source authentication or live
+alert authorization. If a future deployment requires a proxy, review its
+trust and credential-handling policy separately; do not silently re-enable
+environment proxy discovery. All existing activation and release gates apply.
