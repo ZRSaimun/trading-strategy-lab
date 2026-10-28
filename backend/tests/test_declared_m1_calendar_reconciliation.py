@@ -8,7 +8,7 @@ T = 1_790_000_040  # aligned UTC minute
 
 def audit(observed, expected, **kwargs):
     return audit_declared_m1_coverage(
-        observed, expected, declaration_id="offline-calendar:v1", **kwargs
+        observed, expected, declaration_id=kwargs.pop("declaration_id", "offline-calendar:v1"), **kwargs
     )
 
 
