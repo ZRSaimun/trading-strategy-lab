@@ -97,9 +97,7 @@ def summarize_forecast_snapshot(snapshot, *, min_settled=30, calibration_bins=10
                 # A settled target label cannot be observed before its candle closes.
                 # A gap may invalidate a later target before that target closes.
                 or (status == "SETTLED" and (type(outcome) is not bool or type(resolved) is not int
-                                                  or resolved < target + seconds
-                                                  or resolved > target + seconds + lag
-                                                  or resolved > 2**53 - 1))
+                                                  or resolved < target + seconds or resolved > 2**53 - 1))
                 or (status == "PENDING" and (outcome is not None or resolved is not None))
                 or (status == "VOID_GAP" and (outcome is not None or type(resolved) is not int
                                                    or resolved < row["issuedAt"] or resolved > 2**53 - 1))):
@@ -150,3 +148,34 @@ def summarize_forecast_snapshot(snapshot, *, min_settled=30, calibration_bins=10
             "limitations": "Unverified journal inputs; conditional settled-only scores, overlapping outcomes, "
                            "selection/missingness and non-independent samples. No executable bid/ask, "
                            "costs, fill reconciliation, forward returns or trading edge."}
+
+
+def audit_settled_receipt_lag(snapshot):
+    """Opt-in, read-only consistency census of declared settled-candle receipts.
+
+    This does not change historical scorecard/temporal-audit populations:
+    those may contain synthetic post-cutoff labels for sensitivity analysis.
+    A real ForecastEventStore replay settles only when its target candle
+    arrives no later than target close + the declared maximum receipt lag.
+    """
+    summarize_forecast_snapshot(snapshot)
+    seconds = snapshot["identity"]["seconds"]
+    lag = snapshot["maxLagSeconds"]
+    settled = [row for row in snapshot["forecasts"] if row["status"] == "SETTLED"]
+    excess = [row["resolvedAt"] - (row["targetStart"] + seconds + lag)
+              for row in settled
+              if row["resolvedAt"] > row["targetStart"] + seconds + lag]
+    return {
+        "status": ("DECLARED_SETTLEMENT_LAG_VIOLATIONS" if excess else
+                   "NO_SETTLED_OUTCOMES" if not settled else
+                   "NO_DECLARED_SETTLEMENT_LAG_VIOLATIONS"),
+        "evidence": _EVIDENCE,
+        "settledCount": len(settled),
+        "lateBeyondDeclaredLagCount": len(excess),
+        "largestExcessSeconds": max(excess) if excess else None,
+        "sourceAuthenticated": False,
+        "prospectiveReceiptVerified": False,
+        "maySendNotification": False,
+        "mayExecutePaperOrder": False,
+        "mayExecuteLiveOrder": False,
+    }
