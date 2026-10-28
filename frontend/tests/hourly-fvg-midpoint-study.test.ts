@@ -670,7 +670,7 @@ test('v61 source labels reject lone surrogates and Unicode noncharacters in both
  const bars=fixture(),cutoff=BASE+37*H;
  // These strings can display as the same replacement glyph while encoding
  // different source identities. Neither may be silently exported as verified.
- const invalidCharacters=['\\uD800','\\uDC00','\\uFDD0','\\uFFFE','\\u{1FFFF}','\\u{10FFFF}'];
+ const invalidCharacters=['\uD800','\uDC00','\uFDD0','\uFFFE','\u{1FFFF}','\u{10FFFF}'];
  for(const character of invalidCharacters){
   for(const field of ['provider','instrument'] as const){
    const invalid={...source,[field]:'feed'+character+'A'};
