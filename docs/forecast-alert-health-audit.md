@@ -20,7 +20,12 @@ The report distinguishes queued, expired-unclaimed, in-flight-uncertain,
 self-attested ACK and cancelled records. It flags aged forecasts still queued (measured from issuance, not actual queue insertion,
 which the existing outbox does not record) and uncertain claims requiring operator reconciliation. A self-attested ACK is **not** proof
 of Telegram API acceptance, device delivery or human reading. Uncertain claims
-are **never** automatically retried. The report always sets notification and
+are **never** automatically retried. Every `IN_FLIGHT_UNCERTAIN` record is
+included in `warningKeys` immediately upon claim, even before the
+`UNCERTAIN_DELAY_WARNING` threshold; otherwise the operator-review status
+could lack the identities needing reconciliation. The delay counter still
+fires only at its configured age boundary. `warningKeys` are deduplicated
+and are not proof of a Telegram delivery failure. The report always sets notification and
 trading permissions false and cannot establish a live source, executable quote,
 profit, calibrated forecast, or paper fill.
 
