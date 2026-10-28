@@ -773,3 +773,39 @@ def test_case_variant_trigger_target_blocks_population_registration(
     with sqlite3.connect(path) as conn:
         assert conn.execute("SELECT count(*) FROM holdout_claims").fetchone() == (0,)
         assert conn.execute("SELECT count(*) FROM holdout_locked_pairs").fetchone() == (0,)
+
+
+
+def test_population_registration_rejects_weakened_row_uniqueness(tmp_path, clock):
+    from app.local_holdout_population_lock import _ROW_SCHEMA
+    path = tmp_path / "weak-row-uniqueness.sqlite"
+    with sqlite3.connect(path) as conn:
+        conn.execute(_ROW_SCHEMA.replace(
+            "PRIMARY KEY (source_sha256, row_sha256)", "UNIQUE (row_sha256)"))
+    manifest, census = _study()
+    with pytest.raises(ValueError, match="Invalid population-lock table definition"):
+        register_population_locked_holdout(path, manifest, census)
+    with sqlite3.connect(path) as conn:
+        assert conn.execute("SELECT count(*) FROM holdout_locked_rows").fetchone() == (0,)
+        assert conn.execute("SELECT count(*) FROM sqlite_master WHERE name='holdout_claims'").fetchone() == (0,)
+
+
+def test_population_release_rejects_weakened_pair_uniqueness(tmp_path, clock):
+    from app.local_holdout_population_lock import _PAIR_SCHEMA
+    path = tmp_path / "weak-pair-uniqueness.sqlite"
+    manifest, census = _study()
+    result = register_population_locked_holdout(path, manifest, census)
+    with sqlite3.connect(path) as conn:
+        conn.execute("DROP TABLE holdout_locked_pairs")
+        conn.execute(_PAIR_SCHEMA.replace(
+            "UNIQUE (source_sha256, decision_at_utc)",
+            "UNIQUE (decision_at_utc)"))
+    clock[0] = 20001
+    with pytest.raises(ValueError, match="Invalid population-lock table definition"):
+        registry.claim_local_holdout_release(
+            path, study_id="one", manifest_sha256=result["manifest_sha256"],
+            expected_population_rows=[(r["row_sha256"], r["decision_at_utc"])
+                                      for r in census],
+            expected_source_key_sha256=_source_key(manifest["source"]))
+    with sqlite3.connect(path) as conn:
+        assert conn.execute("SELECT release_claimed_at_utc FROM holdout_claims").fetchone() == (None,)
