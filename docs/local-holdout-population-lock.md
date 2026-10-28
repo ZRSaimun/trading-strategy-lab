@@ -43,3 +43,18 @@ Registration now rejects any non-table SQLite schema object shadowing the four r
 
 
 **SQLite case-insensitive identifier hardening (28 October 2026):** SQLite resolves table and view names without regard to ASCII letter case, but plain `sqlite_master.name IN (...)` and `sqlite_master.tbl_name IN (...)` comparisons are case-sensitive. A view named `HOLDOUT_LOCKED_ROWS` could therefore evade the canonical-name preflight while shadowing `holdout_locked_rows`; an `INSTEAD OF INSERT` trigger could accept reservations without storing them. Likewise, a trigger declared `ON HOLDOUT_CLAIMS` can preserve the uppercase target name in `sqlite_master.tbl_name`, evading the earlier exact-case trigger fence. Registration, legacy registration and release now use case-insensitive schema discovery and reject noncanonical object names, non-table shadows and protected-table triggers before any claim is written or consumed. Synthetic tests cover four case-variant reservation/claim views, four case-variant registration trigger targets, three legacy reservation shadows at registration, three at release, and mixed-case claim view/trigger behavior. This is **local fail-closed consistency**, not independent registry authentication; a file owner can still edit or replace SQLite and raw outcome access is outside this API.
+
+
+### Existing SQLite table definitions (fail-closed)
+
+Registration and release reject protected tables whose stored SQLite CREATE TABLE
+statement differs from the module's canonical definition (SQLite normalizes
+away `IF NOT EXISTS`). This closes the case where an existing table with the
+correct name but missing source/row or source/decision uniqueness silently
+bypasses `CREATE TABLE IF NOT EXISTS`. The check also covers the claims
+primary key and its chronology constraints. It is intentionally strict: an
+independently created or migrated table with equivalent constraints but
+noncanonical SQL is rejected for manual review, not automatically rewritten.
+No database schema, reservations, or market archives are migrated or deleted.
+This is local corruption detection, not authentication of the SQLite file or
+protection against a database owner replacing the entire registry.
