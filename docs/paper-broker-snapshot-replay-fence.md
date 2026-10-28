@@ -13,7 +13,14 @@ broker-order ID changes, decreasing cumulative filled quantity, disappearance
 or mutation of prior fill receipts, and terminal status changes. Legitimate
 broker corrections, cancellations after partial fills, split/merged accounts,
 provider clock behavior or pagination races may trigger a HOLD requiring
-provider-specific human reconciliation. Neither sequence nor snapshots are
+provider-specific human reconciliation. Additionally, the fence holds when the
+new snapshot's observation timestamp is at or before the previous snapshot's
+receipt timestamp (ambiguous overlapping acquisition), or a newly disclosed
+fill is timestamped at or before the previous snapshot's observation time
+(retroactive fill / previously incomplete inventory). These can be legitimate
+provider reporting delays, but are **not** sufficient evidence to release a
+quarantined order. Boundaries are inclusive; neither clock nor fill receipt is
+broker-authenticated. Neither sequence nor snapshots are
 provider-authenticated; the caller must independently persist and authenticate
 the prior checkpoint. The function does not persist a checkpoint or call a
 broker. `DECLARED_TRANSITION_CANDIDATE_UNVERIFIED` is **not** permission to
