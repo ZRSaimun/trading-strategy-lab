@@ -87,6 +87,7 @@ def audit_news_spike_attrition(report):
         if not isinstance(horizons, dict) or set(horizons) != set(_HORIZONS):
             raise ValueError("Incomplete horizon census")
         prior_missing = False
+        matured_missing_seen = False
         for h in _HORIZONS:
             row = horizons[h]
             _exact(row, ("status", "position", "aligned"))
@@ -95,9 +96,12 @@ def audit_news_spike_attrition(report):
                 if position is not None or aligned is not None:
                     raise ValueError("Missing horizon has invented outcome")
                 prior_missing = True
+                if at + timedelta(minutes=int(h)) <= as_of:
+                    matured_missing_seen = True
                 outcome = "unknown"
-                cause = ("pending_unknown" if at + timedelta(minutes=int(h)) > as_of
-                         else "missing_unknown")
+                # A known matured gap taints every cumulative later horizon,
+                # even when that later horizon has not yet completed.
+                cause = "missing_unknown" if matured_missing_seen else "pending_unknown"
             elif hstatus == "observed":
                 if prior_missing or at + timedelta(minutes=int(h)) > as_of:
                     raise ValueError("Noncausal or inconsistent horizon completeness")
