@@ -7,7 +7,7 @@
  */
 import type {Bar} from './research.ts';
 
-export const HOURLY_FVG_VERSION='hourly-fvg-first-midpoint-touch-v65';
+export const HOURLY_FVG_VERSION='hourly-fvg-first-midpoint-touch-v66';
 export type Evidence='PASS'|'FAIL'|'INSUFFICIENT_DATA';
 // First-touch volume evidence is not independent broker/source authentication.
 export type VolumeEvidenceReason='NOT_EVALUATED'|'SOURCE_UNVERIFIED'|
@@ -153,6 +153,10 @@ export type FvgCohort={
  // Descriptive paired gross-BID markout ordering; not realized execution P&L.
  pairedGrossOrdering:PairedGrossOrderingCensus;
  pairedHoldingWindowOverlap:PairedWindowOverlapCensus;
+ // Separate same-direction and opposite-direction hypothetical holding
+ // overlap. Cross-direction pairs are not authenticated broker hedges.
+ pairedHoldingWindowOverlapByDirection:Record<Side,PairedWindowOverlapCensus>;
+ pairedHoldingWindowCrossDirection:number;
  // Overlap within each declared strict evidence population; cross-status
  // overlapping pairs are intentionally not assigned to either subgroup.
  pairedHoldingWindowOverlapByStrictCandidate:Record<Evidence,PairedWindowOverlapCensus>;
@@ -394,6 +398,17 @@ function summarizeCohort(observations:readonly FvgObservation[],costs:readonly n
    o.gates.strictCandidate==='INSUFFICIENT_DATA')),
  };
  const pairedHoldingWindowOverlap=countOverlaps(matured);
+ const pairedHoldingWindowOverlapByDirection:Record<Side,PairedWindowOverlapCensus>={
+  BULLISH:countOverlaps(matured.filter(o=>o.direction==='BULLISH')),
+  BEARISH:countOverlaps(matured.filter(o=>o.direction==='BEARISH')),
+ };
+ // Each pooled overlapping pair is either same-direction or cross-direction.
+ const pairedHoldingWindowCrossDirection=
+  pairedHoldingWindowOverlap.overlappingPairCombinations-
+  pairedHoldingWindowOverlapByDirection.BULLISH.overlappingPairCombinations-
+  pairedHoldingWindowOverlapByDirection.BEARISH.overlappingPairCombinations;
+ if(pairedHoldingWindowCrossDirection<0)
+  throw Error('Directional FVG holding overlap does not reconcile');
  const pairedHoldingWindowOverlapByStrictCandidate:Record<Evidence,PairedWindowOverlapCensus>={
   PASS:countOverlaps(matured.filter(o=>o.gates.strictCandidate==='PASS')),
   FAIL:countOverlaps(matured.filter(o=>o.gates.strictCandidate==='FAIL')),
@@ -754,6 +769,7 @@ function summarizeCohort(observations:readonly FvgObservation[],costs:readonly n
   firstTouchCensoredAfterWaitByReason,firstTouchCensoredAfterWaitByReasonByDirection,
   incompleteWindowByReason,
   pairedNetSignByCost,pairedGrossOrdering,pairedHoldingWindowOverlap,
+  pairedHoldingWindowOverlapByDirection,pairedHoldingWindowCrossDirection,
   pairedHoldingWindowOverlapByStrictCandidate,
   pairedHoldingWindowCrossStrictCandidate,pairedMaximumDisjointWindows,
   markoutCensoredByReason,markoutCensoredByReasonByStrictCandidate,

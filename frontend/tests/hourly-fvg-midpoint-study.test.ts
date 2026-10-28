@@ -425,6 +425,11 @@ test('formation census preserves unknown outcomes and distinguishes paired from 
   strictCandidate:{PASS:0,FAIL:0,INSUFFICIENT_DATA:1},
   markout:{PASS:1,FAIL:0,INSUFFICIENT_DATA:0},
   pairedHoldingWindowOverlap:{overlappingPairCombinations:0,maxConcurrentPairs:1},
+  pairedHoldingWindowOverlapByDirection:{
+   BULLISH:{overlappingPairCombinations:0,maxConcurrentPairs:1},
+   BEARISH:{overlappingPairCombinations:0,maxConcurrentPairs:0},
+  },
+  pairedHoldingWindowCrossDirection:0,
   pairedHoldingWindowOverlapByStrictCandidate:{
    PASS:{overlappingPairCombinations:0,maxConcurrentPairs:0},
    FAIL:{overlappingPairCombinations:0,maxConcurrentPairs:0},
@@ -626,7 +631,7 @@ test('research report rejects extra source fields without leaking caller private
  const report=studyHourlyFvgMidpoint(fixture(),source);
  assert.deepEqual(report.source,source);
  assert.deepEqual(Object.keys(report.source).sort(),Object.keys(source).sort());
- assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v65');
+ assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v66');
 });
 test('ambiguous source labels and contradictory volume evidence fail closed',()=>{
  // These are declared metadata, not independent vendor authentication.
@@ -701,7 +706,7 @@ test('v61 source labels reject lone surrogates and Unicode noncharacters in both
  assert.deepEqual(studyHourlyFvgMidpoint(bars,valid).source,valid);
  assert.deepEqual(studyHourlyFvgMidpointAsOf(bars,valid,cutoff).source,valid);
  assert.equal(studyHourlyFvgMidpoint(bars,valid).version,
-  'hourly-fvg-first-midpoint-touch-v65');
+  'hourly-fvg-first-midpoint-touch-v66');
 });
 test('v63 source labels reject Unicode space lookalikes without banning ASCII spaces',()=>{
  const bars=fixture(),cutoff=BASE+37*H;
@@ -718,7 +723,7 @@ test('v63 source labels reject Unicode space lookalikes without banning ASCII sp
  assert.deepEqual(studyHourlyFvgMidpoint(bars,legitimate).source,legitimate);
  assert.deepEqual(studyHourlyFvgMidpointAsOf(bars,legitimate,cutoff).source,legitimate);
  assert.equal(studyHourlyFvgMidpoint(bars,legitimate).version,
-  'hourly-fvg-first-midpoint-touch-v65');
+  'hourly-fvg-first-midpoint-touch-v66');
 });
 test('first bullish midpoint touch has a hypothetical blind limit and later next-open rejection markout',()=>{
  const x=target(fixture());
@@ -1063,7 +1068,7 @@ test('an overflowing next-open comparator suppresses both matched markouts',()=>
 });
 test('completed hourly timestamps are safe and numeric rule changes have a new version',()=>{
  const report=studyHourlyFvgMidpoint(fixture(),source);
- assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v65');
+ assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v66');
  const lastSafeAlignedOpen=Math.floor(Number.MAX_SAFE_INTEGER/H)*H;
  assert.equal(Number.isSafeInteger(lastSafeAlignedOpen),true);
  assert.equal(Number.isSafeInteger(lastSafeAlignedOpen+H),false);
@@ -1388,6 +1393,48 @@ test('matched cost-sign census uses exact price-vs-cost threshold despite rounde
  }
 });
 
+
+test('v66 cross-direction overlapping hypothetical FVG windows remain visible and causal',()=>{
+ const base=Array.from({length:46},(_,i)=>candle(i,115,116,110,115));
+ const first=onePairedFvgFixture();
+ for(let i=0;i<first.length;i++)base[i]=first[i];
+ for(let i=26;i<=29;i++)base[i]=candle(i,106,110,103,106);
+ base[30]=candle(30,114,116,114,115);
+ base[31]=candle(31,114,116,109,115,200);
+ for(let i=32;i<46;i++)base[i]=candle(i,115,116,110,115);
+ // Retain the earlier bullish setup and mirror the later setup into bearish.
+ const mixed=base.map((bar,i)=>i<28?bar:{...bar,
+  open:220-bar.open,high:220-bar.low,low:220-bar.high,close:220-bar.close});
+ const settings={markoutBars:14};
+ const empty={overlappingPairCombinations:0,maxConcurrentPairs:0};
+ const single={overlappingPairCombinations:0,maxConcurrentPairs:1};
+ const full=studyHourlyFvgMidpoint(mixed,source,settings);
+ assert.equal(full.cohort.pairedMarkouts,2);
+ assert.deepEqual(full.observations.filter(o=>o.confirmedNextOpen!==null)
+  .map(o=>o.direction),['BULLISH','BEARISH']);
+ assert.deepEqual(full.cohort.pairedHoldingWindowOverlapByDirection,{
+  BULLISH:single,BEARISH:single,
+ });
+ assert.equal(full.cohort.pairedHoldingWindowCrossDirection,1);
+ assert.equal(full.cohort.pairedHoldingWindowOverlap.overlappingPairCombinations,1);
+ const before=studyHourlyFvgMidpointAsOf(mixed,source,BASE+37*H,settings);
+ assert.deepEqual(before.cohort.pairedHoldingWindowOverlapByDirection,{
+  BULLISH:empty,BEARISH:empty,
+ });
+ assert.equal(before.cohort.pairedHoldingWindowCrossDirection,0);
+ const firstExit=studyHourlyFvgMidpointAsOf(mixed,source,BASE+38*H,settings);
+ assert.deepEqual(firstExit.cohort.pairedHoldingWindowOverlapByDirection,{
+  BULLISH:single,BEARISH:empty,
+ });
+ assert.equal(firstExit.cohort.pairedHoldingWindowCrossDirection,0);
+ const both=studyHourlyFvgMidpointAsOf(mixed,source,BASE+46*H,settings);
+ assert.deepEqual(both.cohort.pairedHoldingWindowOverlapByDirection,
+  full.cohort.pairedHoldingWindowOverlapByDirection);
+ assert.equal(both.cohort.pairedHoldingWindowCrossDirection,1);
+ const disjoint=studyHourlyFvgMidpoint(mixed,source,{markoutBars:8});
+ assert.equal(disjoint.cohort.pairedHoldingWindowCrossDirection,0,
+  'a holding window ending exactly at another entry is not overlapping');
+});
 
 test('paired FVG holding windows disclose overlap without leaking immature exits',()=>{
  for(const bearish of [false,true]){
