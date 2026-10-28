@@ -122,7 +122,14 @@ def census_news_spike_reversal(candles, events, *, as_of_utc, source_id):
         for h in _HORIZONS:
             key = str(h)
             if as_of < when + timedelta(minutes=h):
-                horizons[key] = {"status": "pending_horizon", "first_return_minute": None,
+                # A missing *already completed* minute cannot become available
+                # merely by waiting for this later cumulative horizon to mature.
+                # Future uncompleted minutes are not counted as missing.
+                completed = int((as_of - when).total_seconds() // 60)
+                known_gap = any(by_time.get(when + timedelta(minutes=i)) is None
+                                for i in range(completed))
+                horizons[key] = {"status": "missing_horizon_minutes" if known_gap else "pending_horizon",
+                                 "first_return_minute": None,
                                  "first_opposite_sweep_minute": None}
                 continue
             window = [by_time.get(when + timedelta(minutes=i)) for i in range(h)]
