@@ -1331,3 +1331,73 @@ def test_utc_hour_availability_uses_utc_day_rollover_and_no_outcome_direction():
     assert bins[1]["eligibleSettled"] == 1
     assert bins[2]["unavailableFraction"] is None
     assert sum(b["issued"] for b in bins) == 3
+
+
+# Invented UTC weekdays, not an exchange session calendar or authenticated feed.
+def test_utc_weekday_availability_uses_unix_thursday_and_monday_zero():
+    from app.forecast_temporal_calibration_audit import _outcome_availability_utc_weekday7
+    rows = [{"id": str(day), "baseStart": day * 86400 + 23 * 3600}
+            for day in range(8)]
+    bins = _outcome_availability_utc_weekday7(rows, [rows[0], rows[4], rows[7]])
+    assert [b["issued"] for b in bins] == [1, 1, 1, 2, 1, 1, 1]
+    assert bins[3]["eligibleSettled"] == 2  # 1970-01-01 and 1970-01-08
+    assert bins[0]["eligibleSettled"] == 1  # Monday
+    assert bins[1]["unavailableFraction"] == pytest.approx(1)
+    assert sum(b["unavailable"] for b in bins) == 5
+    assert bins[3]["lowSupportUnder30"] is True
+
+
+def test_utc_weekday_availability_empty_population_has_null_rates():
+    from app.forecast_temporal_calibration_audit import _outcome_availability_utc_weekday7
+    bins = _outcome_availability_utc_weekday7([], [])
+    assert len(bins) == 7
+    assert all(b["issued"] == 0 and b["eligibleSettled"] == 0
+               and b["unavailableFraction"] is None
+               and b["lowSupportUnder30"] is None for b in bins)
+
+
+def test_utc_weekday_availability_matches_fixed_census_not_all_issued():
+    row = audit_temporal_forecast_calibration(fixture())["groups"][0]
+    early = row["earlyCensusOutcomeAvailabilityUtcWeekday7"]
+    late = row["lateCensusOutcomeAvailabilityUtcWeekday7"]
+    assert len(early) == len(late) == 7
+    assert sum(b["issued"] for b in early) == row["earlyNonoverlappingIssued"] == 40
+    assert sum(b["issued"] for b in late) == row["lateNonoverlappingIssued"] == 40
+    assert early[3]["eligibleSettled"] == late[3]["eligibleSettled"] == 40
+    assert all(b["unavailableFraction"] is None for i, b in enumerate(late) if i != 3)
+
+
+def test_utc_weekday_missing_selected_outcome_not_replaced_by_neighbor():
+    s = fixture()
+    s["forecasts"][80].update(status="PENDING", outcomeUp=None, resolvedAt=None)
+    original = deepcopy(s)
+    before = audit_temporal_forecast_calibration(s)["groups"][0]
+    assert before["lateCensusOutcomeAvailabilityUtcWeekday7"][3]["unavailable"] == 1
+    s["forecasts"][81]["outcomeUp"] = False  # unselected overlap
+    after = audit_temporal_forecast_calibration(s)["groups"][0]
+    assert (before["lateCensusOutcomeAvailabilityUtcWeekday7"] ==
+            after["lateCensusOutcomeAvailabilityUtcWeekday7"])
+    assert original["forecasts"][80]["status"] == "PENDING"
+
+
+def test_utc_weekday_availability_respects_as_of_and_boundary():
+    s = fixture()
+    boundary = s["forecasts"][80]["issuedAt"]
+    s["forecasts"][78]["resolvedAt"] = boundary
+    cutoff = max(r["issuedAt"] for r in s["forecasts"])
+    s["forecasts"][80]["resolvedAt"] = cutoff + 120
+    row = audit_temporal_forecast_calibration(s, evaluation_as_of=cutoff)["groups"][0]
+    assert row["earlyCensusOutcomeAvailabilityUtcWeekday7"][3]["unavailable"] == 1
+    assert row["lateCensusOutcomeAvailabilityUtcWeekday7"][3]["unavailable"] == 1
+    assert row["earlyCensusUnavailableAtBoundary"] == 1
+    assert row["lateCensusSettledAfterDeclaredAsOf"] == 1
+
+
+def test_utc_weekday_availability_visible_with_scores_withheld_and_no_trade_permission():
+    row = audit_temporal_forecast_calibration(fixture(horizon=12))
+    group = row["groups"][0]
+    assert group["lateBrier"] is None
+    assert sum(b["issued"] for b in group["lateCensusOutcomeAvailabilityUtcWeekday7"]) == group["lateNonoverlappingIssued"]
+    assert row["maySendNotification"] is False
+    assert row["mayExecutePaperOrder"] is False
+    assert row["mayExecuteLiveOrder"] is False

@@ -452,6 +452,28 @@ def _outcome_availability_utc_hour24(issued_census, eligible_settled):
     ]
 
 
+def _outcome_availability_utc_weekday7(issued_census, eligible_settled):
+    """UTC weekday missingness on the fixed issued census, Monday=0.
+
+    Unix day zero is Thursday. No local timezone, DST, holiday, trading-session
+    or provider completeness assumptions are made. Eligibility uses only IDs,
+    never outcome direction; empty weekdays have null rates.
+    """
+    eligible_ids = {row["id"] for row in eligible_settled}
+    counts = [[0, 0] for _ in range(7)]
+    for row in issued_census:
+        weekday = (row["baseStart"] // 86400 + 3) % 7
+        counts[weekday][0] += 1
+        counts[weekday][1] += int(row["id"] in eligible_ids)
+    return [
+        {"utcWeekdayMonday0": day, "issued": issued, "eligibleSettled": eligible,
+         "unavailable": issued - eligible,
+         "unavailableFraction": (issued - eligible) / issued if issued else None,
+         "lowSupportUnder30": issued < 30 if issued else None}
+        for day, (issued, eligible) in enumerate(counts)
+    ]
+
+
 def audit_temporal_forecast_calibration(snapshot, *, min_per_window=30,
                                         brier_deterioration=0.05,
                                         max_unresolved_fraction=0.10,
@@ -603,6 +625,10 @@ def audit_temporal_forecast_calibration(snapshot, *, min_per_window=30,
                 _outcome_availability_utc_hour24(early_census, train),
             "lateCensusOutcomeAvailabilityUtcHour24":
                 _outcome_availability_utc_hour24(late_census, test),
+            "earlyCensusOutcomeAvailabilityUtcWeekday7":
+                _outcome_availability_utc_weekday7(early_census, train),
+            "lateCensusOutcomeAvailabilityUtcWeekday7":
+                _outcome_availability_utc_weekday7(late_census, test),
             "earlyBrier": None, "lateBrier": None, "lateBrierDelta": None,
             "lateBrierBestCaseAllIssuedCensus": None,
             "lateBrierWorstCaseAllIssuedCensus": None,

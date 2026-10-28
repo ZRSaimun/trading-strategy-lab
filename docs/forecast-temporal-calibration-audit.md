@@ -582,3 +582,27 @@ Sparse hours are flagged, and no hourly performance, live feed, notification,
 paper fill, broker action, or trading authorization is inferred. Loop 1 must
 independently attest completed-candle receipt times, provider/venue/side
 provenance and expected market-session inventories before prospective use.
+
+## UTC weekday outcome-availability census (28 October 2026)
+
+The disconnected calibration audit now exposes
+`earlyCensusOutcomeAvailabilityUtcWeekday7` and
+`lateCensusOutcomeAvailabilityUtcWeekday7`. Each has seven ordered UTC
+weekday buckets (`utcWeekdayMonday0`: Monday 0 through Sunday 6) with
+`issued`, `eligibleSettled`, `unavailable`,
+`unavailableFraction` and `lowSupportUnder30`. Empty weekdays retain
+null rates. The buckets use the **same preselected nonoverlapping issued
+census** as the existing calibration audit; a pending, void, boundary-purged
+or as-of-excluded label stays unavailable and is never replaced by a
+convenient neighbouring settled forecast. These counts remain visible even
+when the scoring gates withhold Brier/log loss.
+
+This complements UTC-hour missingness: a concentration of unavailable
+outcomes on particular weekdays could be hidden in pooled hours. The
+weekday comes solely from the caller-declared UTC base timestamp (Unix
+epoch Thursday), **not** an independently authenticated exchange calendar.
+It cannot distinguish closures, holidays, DST-related sessions, outages,
+or deliberately omitted candle/forecast opportunities. PR #86 and Loop 1
+still require an independent expected-bar register and authenticated
+completed-candle receipts. All source, delivery, paper and live-trading
+permissions remain false. No actual market, notification or order was used.
