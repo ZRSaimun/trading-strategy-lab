@@ -96,8 +96,11 @@ def register_local_holdout(db_path, *, study_id, manifest_sha256,
             # population-locked registry in this same SQLite database.
             if conn.execute(
                 "SELECT 1 FROM sqlite_master WHERE type='table' "
-                "AND name='holdout_locked_rows'"
+                "AND name IN ('holdout_locked_rows', "
+                "'holdout_locked_decisions', 'holdout_locked_pairs') LIMIT 1"
             ).fetchone() is not None:
+                # Any partial reservation schema is evidence that this DB
+                # cannot safely accept a new unreserved legacy study.
                 raise ValueError("Population-locked registry rejects legacy registration")
             conn.execute("INSERT INTO holdout_claims VALUES (?, ?, ?, ?, ?, NULL)",
                          (study_id, manifest_sha256, holdout_start_at_utc,
