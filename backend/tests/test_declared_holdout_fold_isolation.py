@@ -305,3 +305,41 @@ def test_randomized_late_label_one_second_past_embargo_rejected(seed):
     )
     with pytest.raises(ValueError, match="labels not mature"):
         audit_declared_holdout_fold_isolation(folds)
+
+
+
+@pytest.mark.parametrize("first_slack,second_slack,expected_later_index", [
+    (3, 9, 1),
+    (9, 3, 2),
+    (3, 3, 1),  # Stable tie: first transition wins.
+])
+def test_tightest_declared_embargo_transition_is_traceable_and_stable(
+    first_slack, second_slack, expected_later_index
+):
+    """Identify the weakest declared transition without accessing outcomes."""
+    folds = _valid()
+    for previous, later, slack in zip(
+        folds, folds[1:], (first_slack, second_slack)
+    ):
+        # Earliest decision has the longest-maturing label, so the
+        # diagnostic must use the maximum of all prior fold labels.
+        previous["census"][0]["label_available_at_utc"] = (
+            later["manifest"]["selected_at_utc"]
+            - later["manifest"]["embargo_seconds"] - slack
+        )
+        previous["manifest"]["holdout_census_sha256"] = (
+            prepare_declared_holdout_census_sha256(previous["census"])
+        )
+    before = copy.deepcopy(folds)
+    result = audit_declared_holdout_fold_isolation(folds)
+    assert result["min_declared_label_embargo_slack_seconds"] == min(
+        first_slack, second_slack
+    )
+    assert result["tightest_declared_label_embargo_later_fold_index"] == (
+        expected_later_index
+    )
+    assert result["may_execute_demo_order"] is False
+    assert result["may_execute_real_order"] is False
+    assert result["holdout_untouched_independently_verified"] is False
+    assert "net_cash" not in result
+    assert folds == before
