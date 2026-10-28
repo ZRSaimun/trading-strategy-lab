@@ -269,13 +269,16 @@ def test_settlement_lag_audit_model_horizon_breakdown_is_reconciled():
     assert result["byModelHorizon"] == [
         {"modelVersion": "alt", "horizonCandles": 1, "settledCount": 1,
          "lateBeyondDeclaredLagCount": 1, "lateFractionOfSettled": 1.0,
-         "largestExcessSeconds": 1},
+         "largestExcessSeconds": 1, "receiptDelaySecondsP50": 121,
+         "receiptDelaySecondsP95": 121},
         {"modelVersion": "baseline", "horizonCandles": 3, "settledCount": 1,
          "lateBeyondDeclaredLagCount": 1, "lateFractionOfSettled": 1.0,
-         "largestExcessSeconds": 4},
+         "largestExcessSeconds": 4, "receiptDelaySecondsP50": 124,
+         "receiptDelaySecondsP95": 124},
         {"modelVersion": "baseline", "horizonCandles": 12, "settledCount": 1,
          "lateBeyondDeclaredLagCount": 0, "lateFractionOfSettled": 0.0,
-         "largestExcessSeconds": None},
+         "largestExcessSeconds": None, "receiptDelaySecondsP50": 120,
+         "receiptDelaySecondsP95": 120},
     ]
     assert sum(g["settledCount"] for g in result["byModelHorizon"]) == result["settledCount"]
     assert (sum(g["lateBeyondDeclaredLagCount"] for g in result["byModelHorizon"])
@@ -288,7 +291,8 @@ def test_settlement_lag_audit_breakdown_empty_or_all_on_time():
     assert result["byModelHorizon"] == [
         {"modelVersion": "baseline", "horizonCandles": 1, "settledCount": 30,
          "lateBeyondDeclaredLagCount": 0, "lateFractionOfSettled": 0.0,
-         "largestExcessSeconds": None},
+         "largestExcessSeconds": None, "receiptDelaySecondsP50": 0,
+         "receiptDelaySecondsP95": 0},
     ]
 
 
@@ -297,3 +301,46 @@ def test_settlement_lag_audit_breakdown_preserves_fail_closed_validation():
     s["forecasts"][0]["modelVersion"] = "forged"
     with pytest.raises(ValueError, match="issuance/outcome mismatch"):
         audit_settled_receipt_lag(s)
+
+
+def test_settlement_lag_declared_delay_percentiles_nearest_rank():
+    s = snapshot(20)
+    for index, row in enumerate(s["forecasts"]):
+        row["resolvedAt"] = row["targetStart"] + IDENTITY["seconds"] + index
+    result = audit_settled_receipt_lag(s)
+    assert (result["receiptDelaySecondsP50"], result["receiptDelaySecondsP95"]) == (9, 18)
+    assert result["byModelHorizon"][0]["receiptDelaySecondsP50"] == 9
+    assert result["byModelHorizon"][0]["receiptDelaySecondsP95"] == 18
+    assert result["lateBeyondDeclaredLagCount"] == 0
+    assert result["sourceAuthenticated"] is False
+    assert result["maySendNotification"] is False
+
+
+def test_settlement_lag_declared_delay_percentiles_exclude_pending_and_void():
+    s = snapshot(4)
+    s["forecasts"][0]["resolvedAt"] += 20
+    s["forecasts"][1]["resolvedAt"] += 100
+    s["forecasts"][2].update(status="PENDING", outcomeUp=None, resolvedAt=None)
+    s["forecasts"][3].update(status="VOID_GAP", outcomeUp=None, resolvedAt=100000)
+    result = audit_settled_receipt_lag(s)
+    # For n=2, nearest-rank P50 is the first and P95 is the second.
+    assert result["settledCount"] == 2
+    assert (result["receiptDelaySecondsP50"], result["receiptDelaySecondsP95"]) == (20, 100)
+    assert result["byModelHorizon"][0]["receiptDelaySecondsP95"] == 100
+
+
+def test_settlement_lag_declared_delay_percentiles_empty_are_null():
+    result = audit_settled_receipt_lag(snapshot(0))
+    assert result["receiptDelaySecondsP50"] is None
+    assert result["receiptDelaySecondsP95"] is None
+    assert result["byModelHorizon"] == []
+
+
+def test_settlement_lag_declared_delay_percentiles_include_late_receipts():
+    s = snapshot(2)
+    s["forecasts"][0]["resolvedAt"] += 121
+    result = audit_settled_receipt_lag(s)
+    assert result["lateBeyondDeclaredLagCount"] == 1
+    assert result["receiptDelaySecondsP50"] == 0
+    assert result["receiptDelaySecondsP95"] == 121
+    assert result["byModelHorizon"][0]["receiptDelaySecondsP95"] == 121
