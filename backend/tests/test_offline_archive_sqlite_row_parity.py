@@ -87,6 +87,7 @@ def test_source_decimal_precision_loss_is_disclosed(tmp_path):
 
 @pytest.mark.parametrize("column, replacement, error", [
     ("open", 999.0, "FLOAT parity"),
+    ("open", float("inf"), "FLOAT parity"),
     ("source_line", 888, "lineage"),
     ("source_member", "wrong.csv", "lineage"),
     ("time", 42, "lineage"),
