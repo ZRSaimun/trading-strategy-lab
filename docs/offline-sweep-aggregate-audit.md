@@ -20,3 +20,26 @@ This code is not imported by any production API, database, signal filter, order 
 The three offline aggregate command-line auditors (reconciliation, censored-exit net-R tipping and observed-only 0–5bps cost crossing) now share a bounded strict JSON loader. It reads at most 4,000,001 bytes, rejects reports larger than 4,000,000 bytes, rejects duplicate keys at **any nesting depth** (including overwritten provenance/permission fields and state counts), and rejects nonstandard `NaN`/`Infinity` tokens. The validator still reconciles the declared report after parsing. This prevents silent last-key-wins interpretation of conflicting JSON claims; it does **not** authenticate source archives, establish actual broker execution costs, fill unknown exits, create an independent holdout or demonstrate profitability. No strategy admission, production path, broker interface or order permission is changed.
 
 Synthetic CLI regressions: `PYTHONPATH=. pytest -q tests/test_offline_sweep_aggregate_json_input.py` from `backend/`.
+
+## Frozen closed-schema enforcement (28 October 2026)
+
+The aggregate arithmetic auditor now rejects **unknown or missing keys** at the
+report, individual eight-state row, and totals levels. The existing fixed 0/5
+basis-point mean maps already require exactly those two keys. This prevents a
+caller from attaching misleading undeclared assertions such as
+`broker_verified_or_selected: true` while obtaining a successful arithmetic
+audit. All three offline aggregate CLIs inherit the check because both derived
+auditors first invoke `audit_aggregate`.
+
+The committed 27 October aggregate JSON remains valid without modification.
+This is a deliberately **closed schema** for one already-inspected exploratory
+report, not a generic extensible market-data format. Any future legitimate
+metadata requires an explicitly reviewed schema version and corresponding
+tests; do not silently accept extra provenance or execution fields. The check
+does not cryptographically authenticate the report or verify source rights,
+BID/ASK fills, cost receipts, independent holdout, missing exits or profits.
+
+Synthetic regression command (from `backend/`):
+`PYTHONPATH=. python -m pytest -q tests/test_offline_sweep_aggregate_closed_schema.py`.
+No original archives are read, no trading decisions are changed and no
+production or broker path imports this offline auditor.
