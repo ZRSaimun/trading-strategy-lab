@@ -194,3 +194,56 @@ def test_declared_slack_is_minimum_over_all_fold_transitions():
     assert audit_declared_holdout_fold_isolation(folds)[
         "min_declared_label_embargo_slack_seconds"
     ] == 2
+
+
+def test_earliest_decision_late_label_blocks_later_fold():
+    # Label availability need not follow decision order. A naive check of the
+    # final census row would miss the longest-maturing earlier observation.
+    folds = _valid()
+    later = folds[1]["manifest"]
+    earliest = folds[0]["census"][0]
+    earliest["label_available_at_utc"] = (
+        later["selected_at_utc"] - later["embargo_seconds"] + 1
+    )
+    assert (earliest["label_available_at_utc"] >
+            folds[0]["census"][-1]["label_available_at_utc"])
+    folds[0]["manifest"]["holdout_census_sha256"] = (
+        prepare_declared_holdout_census_sha256(folds[0]["census"])
+    )
+    with pytest.raises(ValueError, match="labels not mature"):
+        audit_declared_holdout_fold_isolation(folds)
+
+    # The exact boundary is permitted, but remains only a declared clock.
+    earliest["label_available_at_utc"] -= 1
+    folds[0]["manifest"]["holdout_census_sha256"] = (
+        prepare_declared_holdout_census_sha256(folds[0]["census"])
+    )
+    result = audit_declared_holdout_fold_isolation(folds)
+    assert result["min_declared_label_embargo_slack_seconds"] == 0
+    assert result["holdout_untouched_independently_verified"] is False
+    assert result["may_execute_demo_order"] is False
+    assert result["may_execute_real_order"] is False
+
+
+def test_later_folds_embargo_not_earlier_folds_controls_slack():
+    folds = _valid()
+    later = folds[1]["manifest"]
+    later["embargo_seconds"] = 2 * 86400
+    # The later selection is exactly two days after its validation end,
+    # so both the one- and two-day later-fold embargo are valid.
+    earliest = folds[0]["census"][0]
+    earliest["label_available_at_utc"] = (
+        later["selected_at_utc"] - later["embargo_seconds"] - 3
+    )
+    folds[0]["manifest"]["holdout_census_sha256"] = (
+        prepare_declared_holdout_census_sha256(folds[0]["census"])
+    )
+    result = audit_declared_holdout_fold_isolation(folds)
+    assert result["min_declared_label_embargo_slack_seconds"] == 3
+    assert "net_cash" not in result
+
+    # Reducing only the *later* embargo adds exactly one day of slack.
+    later["embargo_seconds"] = 86400
+    assert audit_declared_holdout_fold_isolation(folds)[
+        "min_declared_label_embargo_slack_seconds"
+    ] == 86403
