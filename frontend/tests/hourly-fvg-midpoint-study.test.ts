@@ -372,6 +372,12 @@ test('formation census preserves unknown outcomes and distinguishes paired from 
    PASS:Array(12).fill(0),FAIL:Array(12).fill(0),
    INSUFFICIENT_DATA:[1,...Array(11).fill(0)],
   },
+  firstTouchStrictCandidateByWaitByDirection:{
+   BULLISH:{PASS:Array(12).fill(0),FAIL:Array(12).fill(0),
+    INSUFFICIENT_DATA:[1,...Array(11).fill(0)]},
+   BEARISH:{PASS:Array(12).fill(0),FAIL:Array(12).fill(0),
+    INSUFFICIENT_DATA:Array(12).fill(0)},
+  },
   firstTouchObservedExposureByWait:[1,...Array(11).fill(0)],
   firstTouchObservedExposureByWaitByDirection:{
    BULLISH:[1,...Array(11).fill(0)],BEARISH:Array(12).fill(0),
