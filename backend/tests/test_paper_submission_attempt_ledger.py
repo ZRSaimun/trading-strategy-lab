@@ -1293,7 +1293,8 @@ def test_new_intent_cannot_reuse_prior_terminal_receipt_digest(db):
     attempt(db)
     reconcile(db)
     with pytest.raises(ValueError, match='Reused terminal receipt as intent fingerprint'):
-        prep(db, client_order_id='order-2', intent_sha256=E)
+        prepare_intent(db, recorded_at_ms=103, **(KEY | {
+            'client_order_id': 'order-2', 'intent_sha256': E}))
     assert inspect_ledger(db)['event_count'] == 3
 
 
