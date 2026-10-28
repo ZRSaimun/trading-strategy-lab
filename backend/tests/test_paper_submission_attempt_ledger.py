@@ -593,10 +593,15 @@ def test_uncommitted_sqlite_transition_rolls_back_after_process_death(db):
     child = subprocess.run([sys.executable, '-c', script, str(db)],
                            env=env, timeout=15, check=False)
     assert child.returncode == 41
-    snapshot = inspect_ledger(db)
-    assert snapshot['event_count'] == 1
-    assert snapshot['orders'][0]['status'] == 'PREPARED'
+    # Read-only diagnostics cannot implicitly consume crash-recovery evidence.
+    with pytest.raises(ValueError, match='Nonempty rollback journal'):
+        inspect_ledger(db)
+    # A separately reviewed write-capable transition may let SQLite recover
+    # the uncommitted transaction, then re-audit the durable PREPARED state.
     assert attempt(db)['status'] == 'ATTEMPT_UNKNOWN'
+    snapshot = inspect_ledger(db)
+    assert snapshot['event_count'] == 2
+    assert snapshot['orders'][0]['status'] == 'ATTEMPT_UNKNOWN'
 
 
 @pytest.mark.parametrize('suffix', ['-wal', '-shm'])
@@ -1129,6 +1134,12 @@ def test_initialization_rejects_regular_journal_injected_after_open(tmp_path, mo
     assert db.exists()  # Partial initialization remains for manual review.
     assert journal.read_bytes() == b'foreign-recovery-evidence'
     monkeypatch.setattr(ledger, '_connect', real_connect)
+    with pytest.raises(ValueError, match='Nonempty rollback journal'):
+        inspect_ledger(db)
+    assert journal.read_bytes() == b'foreign-recovery-evidence'
+    # Only the test fixture removes this synthetic orphan to inspect the
+    # partially initialized database; production code never deletes it.
+    journal.unlink()
     with pytest.raises(ValueError, match='schema'):
         inspect_ledger(db)
 
