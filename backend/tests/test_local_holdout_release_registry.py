@@ -507,3 +507,46 @@ def test_legacy_registration_rejects_partial_population_schema(
         assert set(row[0] for row in conn.execute(
             "SELECT name FROM sqlite_master WHERE type='table'"
         )) == set(present_tables)
+
+
+@pytest.mark.parametrize("object_name", [
+    "holdout_locked_rows", "holdout_locked_decisions", "holdout_locked_pairs",
+])
+def test_view_named_as_population_reservation_blocks_legacy_registration(
+        tmp_path, clock, object_name):
+    # A damaged population lock can be replaced with a SQLite VIEW. A
+    # type='table' sqlite_master scan would miss the name and permit a new
+    # unreserved legacy study to bypass population-lock integrity.
+    path = tmp_path / "shadowed-registration.sqlite"
+    _register(path)
+    with sqlite3.connect(path) as conn:
+        conn.execute(f"CREATE VIEW {object_name} AS SELECT 1 AS dummy")
+    with pytest.raises(ValueError, match="rejects legacy registration"):
+        registry.register_local_holdout(
+            path, study_id="second", manifest_sha256="b" * 64,
+            holdout_start_at_utc=200, holdout_end_at_utc=300)
+    with sqlite3.connect(path) as conn:
+        assert conn.execute("SELECT count(*) FROM holdout_claims").fetchone() == (1,)
+        assert conn.execute(
+            "SELECT release_claimed_at_utc FROM holdout_claims WHERE study_id='study-1'"
+        ).fetchone() == (None,)
+
+
+@pytest.mark.parametrize("object_name", [
+    "holdout_locked_rows", "holdout_locked_decisions", "holdout_locked_pairs",
+])
+def test_view_named_as_population_reservation_blocks_direct_legacy_release(
+        tmp_path, clock, object_name):
+    # Do not misclassify an existing non-table reservation object as an
+    # empty legacy registry and consume the only evaluation attempt.
+    path = tmp_path / "shadowed-release.sqlite"
+    _register(path)
+    with sqlite3.connect(path) as conn:
+        conn.execute(f"CREATE VIEW {object_name} AS SELECT 1 AS dummy")
+    clock[0] = 350
+    with pytest.raises(ValueError, match="Invalid population-lock schema object"):
+        _claim(path)
+    with sqlite3.connect(path) as conn:
+        assert conn.execute(
+            "SELECT release_claimed_at_utc FROM holdout_claims WHERE study_id='study-1'"
+        ).fetchone() == (None,)
