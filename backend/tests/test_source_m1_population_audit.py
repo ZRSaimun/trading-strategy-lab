@@ -81,6 +81,51 @@ def test_gap_does_not_form_a_complete_m15_window():
     assert result["stored_complete_m15_windows"] == 0
 
 
+def test_replayed_complete_m15_buckets_are_identified_for_quarantine_review():
+    original = [T + 60 * i for i in range(120)]
+    raw = original[:90] + original[15:75] + original[90:]
+    report = audit(raw, original, sample_limit=2)
+    assert report["stored_complete_m15_buckets_touched_by_repeated_source_minutes"] == 4
+    assert report["common_complete_m15_buckets_without_repeated_source_minutes"] == 4
+    assert report["source_complete_m15_buckets_absent_from_store"] == 0
+    assert report["stored_complete_m15_buckets_absent_from_source_order"] == 0
+    assert len(report["stored_complete_m15_replayed_source_bucket_samples_utc"]) == 2
+    assert report["m15_bucket_diagnostics_are_not_research_approval"] is True
+    assert report["research_ready"] is False
+
+
+def test_duplicate_in_incomplete_bucket_does_not_create_complete_bucket():
+    original = [T + 60 * i for i in range(14)]
+    report = audit(original + [original[5]], original)
+    assert report["source_repeated_rows"] == 1
+    assert report["stored_complete_m15_buckets_touched_by_repeated_source_minutes"] == 0
+    assert report["common_complete_m15_buckets_without_repeated_source_minutes"] == 0
+    assert report["result"] == "QUARANTINE_REQUIRED"
+
+
+def test_equal_m15_totals_can_hide_different_complete_bucket_identities():
+    source = [T + 60 * i for i in range(30)]
+    stored = source[:15] + [T + 1800 + 60 * i for i in range(15)]
+    report = audit(source, stored, sample_limit=0)
+    assert report["source_order_complete_m15_windows"] == 2
+    assert report["stored_complete_m15_windows"] == 2
+    assert report["source_minus_stored_complete_m15_windows"] == 0
+    assert report["source_complete_m15_buckets_absent_from_store"] == 1
+    assert report["stored_complete_m15_buckets_absent_from_source_order"] == 1
+    assert report["source_complete_m15_absent_from_store_samples_utc"] == []
+    assert report["stored_complete_m15_absent_from_source_samples_utc"] == []
+    assert report["result"] == "QUARANTINE_REQUIRED"
+
+
+def test_no_replays_keeps_complete_common_m15_buckets_structural_only():
+    original = [T + 60 * i for i in range(30)]
+    report = audit(original, original)
+    assert report["stored_complete_m15_buckets_touched_by_repeated_source_minutes"] == 0
+    assert report["common_complete_m15_buckets_without_repeated_source_minutes"] == 2
+    assert report["research_ready"] is False
+    assert report["live"] is False
+
+
 @pytest.mark.parametrize("source,stored", [
     ([], [T]), ([T], []),
     ([True], [T]), ([T + 1], [T]),
