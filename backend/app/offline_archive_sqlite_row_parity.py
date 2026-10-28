@@ -11,6 +11,7 @@ from contextlib import closing
 from datetime import timedelta, timezone
 from decimal import Decimal
 import json
+import math
 from pathlib import Path
 import re
 import sqlite3
@@ -99,7 +100,8 @@ def audit_original_ascii_sqlite(archive_zip, sqlite_path, dataset_id, expected_s
                     raise ValueError("Source timestamp or lineage mismatch")
                 for original, db_float in zip(prices, (o, h, l, c)):
                     if (original <= 0 or type(db_float) is not float or
-                            not db_float > 0 or
+                            not math.isfinite(db_float) or db_float <= 0 or
+                            not math.isfinite(float(original)) or
                             float(original) != db_float):
                         raise ValueError("Source/SQLite OHLC FLOAT parity mismatch")
                     if original != Decimal(str(db_float)):
