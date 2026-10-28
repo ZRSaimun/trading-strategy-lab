@@ -44,6 +44,10 @@ def replay_declared_sqlite(path, dataset_id, expected_archive_sha256):
     with closing(sqlite3.connect(uri, uri=True, timeout=3)) as conn:
         conn.execute("PRAGMA query_only=ON")
         conn.execute("PRAGMA busy_timeout=3000")
+        # Python sqlite3 SELECTs do not implicitly open a lasting transaction.
+        # Pin metadata and all candle rows to one WAL-compatible read snapshot:
+        # otherwise a concurrent importer can change the cohort between reads.
+        conn.execute("BEGIN")
         row = conn.execute(
             "SELECT provider,instrument,format,utc_offset_minutes,"
             "archive_sha256,state,accepted,rejected FROM historical_datasets "
