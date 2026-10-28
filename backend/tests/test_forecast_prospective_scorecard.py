@@ -205,3 +205,33 @@ def test_gap_void_may_be_known_before_future_target_close():
     row["resolvedAt"] = 2**53
     with pytest.raises(ValueError, match="resolution"):
         summarize_forecast_snapshot(s)
+
+
+@pytest.mark.parametrize("horizon,lag", [
+    (1, 0), (1, 1), (1, 120), (3, 0), (3, 120), (12, 3600),
+])
+def test_settled_receipt_respects_declared_completed_candle_lag(horizon, lag):
+    # Event-store replay only SETTLES from a completed target candle whose
+    # receipt must fall within target close + maxLagSeconds. A caller-forged
+    # scorecard must not accept a much later timestamp as a valid settlement.
+    s = snapshot()
+    s["maxLagSeconds"] = lag
+    row, event = s["forecasts"][0], s["events"][0]
+    row["horizon"] = event["horizon"] = horizon
+    row["targetStart"] = row["baseStart"] + horizon * IDENTITY["seconds"]
+    deadline = row["targetStart"] + IDENTITY["seconds"] + lag
+    row["resolvedAt"] = deadline
+    assert sum(g["settled"] for g in summarize_forecast_snapshot(s)["groups"]) == 30
+    row["resolvedAt"] = deadline + 1
+    with pytest.raises(ValueError, match="resolution"):
+        summarize_forecast_snapshot(s)
+
+
+def test_void_gap_receipt_is_not_mistaken_for_settled_target_receipt():
+    # A later observed candle may reveal a missing target long after its
+    # expected close (market closures are not inferred by this scorecard).
+    s = snapshot()
+    row = s["forecasts"][0]
+    row.update(status="VOID_GAP", outcomeUp=None,
+               resolvedAt=row["targetStart"] + IDENTITY["seconds"] + 3601)
+    assert group(s)["voidGap"] == 1
