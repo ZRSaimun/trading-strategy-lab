@@ -640,3 +640,27 @@ def test_case_variant_trigger_target_blocks_legacy_release(tmp_path, clock):
         assert conn.execute(
             "SELECT release_claimed_at_utc FROM holdout_claims"
         ).fetchone() == (None,)
+
+
+
+def test_legacy_registration_rejects_weakened_claim_primary_key(tmp_path, clock):
+    path = tmp_path / "weak-claims.sqlite"
+    with sqlite3.connect(path) as conn:
+        conn.execute(registry._SCHEMA.replace(" PRIMARY KEY", "", 1))
+    with pytest.raises(ValueError, match="Invalid holdout claims table definition"):
+        _register(path)
+    with sqlite3.connect(path) as conn:
+        assert conn.execute("SELECT count(*) FROM holdout_claims").fetchone() == (0,)
+
+
+def test_release_rejects_weakened_claim_primary_key_without_consuming(tmp_path, clock):
+    path = tmp_path / "weak-release.sqlite"
+    with sqlite3.connect(path) as conn:
+        conn.execute(registry._SCHEMA.replace(" PRIMARY KEY", "", 1))
+        conn.execute("INSERT INTO holdout_claims VALUES (?, ?, ?, ?, ?, NULL)",
+                     ("study-1", "a" * 64, 200, 300, 100))
+    clock[0] = 350
+    with pytest.raises(ValueError, match="Invalid holdout claims table definition"):
+        _claim(path)
+    with sqlite3.connect(path) as conn:
+        assert conn.execute("SELECT release_claimed_at_utc FROM holdout_claims").fetchone() == (None,)
