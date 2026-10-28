@@ -206,3 +206,21 @@ not prove provider acceptance, device delivery, human reading, or a live
 market feed. No send/retry, paper fill, live order, worker, route or deployment
 is enabled. Synthetic regressions cover ties, mixed populations, empty
 populations and the exact zero-age boundary.
+
+
+## Next unverified ACK escalation deadline (28 October 2026)
+
+The disconnected, read-only census now includes
+`nextUnverifiedAckEscalationSecondsRemaining` and
+`nextUnverifiedAckEscalationKeys`. Among self-attested ACKs still *within*
+the configured reconciliation budget, these identify the nearest upcoming
+operator-review escalation and all tied `[sessionId, forecastId]` keys.
+If there are no such ACKs, the countdown is null and the keys list is empty.
+At the exact threshold the ACK leaves this upcoming-deadline inventory and
+enters `ACK_RECONCILIATION_OVERDUE_WARNING`/`warningKeys`. Already overdue
+ACKs are never represented as zero-second upcoming deadlines.
+
+This is a descriptive countdown using caller-declared timestamps, not a
+scheduler, delivery proof, authenticated source, send/retry permission, or
+trading signal. It does not activate workers, Telegram delivery, paper
+execution, live broker access, or production deployment.
