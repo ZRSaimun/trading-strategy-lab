@@ -147,3 +147,32 @@ permission flags remain false. Synthetic regressions cover inclusive deadlines,
 1/3/12-horizon reconciliation, resolved/void exclusions, invalid or future
 cutoffs, empty journals and forged issuance linkage. Production release gates
 remain unchanged.
+
+
+### Declared overdue pending tail and full-issuance denominator (28 October 2026)
+
+The opt-in pending deadline audit now also returns `overdueFractionOfIssued`,
+`overdueSecondsP50` and `overdueSecondsP95`, overall and per frozen
+model/horizon. The issued fraction uses **all issued forecasts** as denominator,
+including settled and gap-void outcomes, unlike the existing
+`overdueFractionOfPending`. An empty issued population yields null, not a
+fabricated zero-rate observation.
+
+Tail ages are computed **only for still-PENDING forecasts strictly beyond**
+their declared target-close-plus-lag deadline. The integer nearest-rank P50/P95
+sorts positive overdue ages and selects one-based ranks ceil(0.50*n) and
+ceil(0.95*n). At the exact deadline the pending forecast is not overdue; with
+zero overdue pending records both percentiles are null. Settled, void and
+not-yet-overdue forecasts never enter the overdue-age distribution. Each
+model/horizon group is evaluated independently; aggregating group percentiles
+is invalid. Four synthetic regression tests cover 20-age nearest ranks,
+settled/void exclusions, empty and exact-deadline cases, and mixed frozen
+model/horizon reconciliation.
+
+These metrics help identify long-tail declared outcome backlog without
+silently treating all issued forecasts as settled or claiming provider outages.
+The caller's timestamps, journal, source, session calendar and receipt clock
+remain **unauthenticated**. They do not prove missed issuance, forecast
+calibration, notification delivery, paper fills, trading returns or permission
+for live orders. All operational gates and production deployment remain
+unchanged.
