@@ -173,6 +173,19 @@ def audit_declared_completed_m1_receipts(
     expected = set(expected_utc_minutes) if expected_utc_minutes is not None else None
     missing = len(expected - seen_minutes) if expected is not None else None
     extra = len(seen_minutes - expected) if expected is not None else None
+    # A source-order forward jump is not a unique missing-minute census:
+    # delayed backfills and replayed ranges can inflate that observation.
+    # Count interior holes once across distinct UTC minute identities. These
+    # may still be market closures, not verified provider outages.
+    ordered_minutes = sorted(seen_minutes)
+    interior_gap_lengths = [
+        (right - left) // 60 - 1
+        for left, right in zip(ordered_minutes, ordered_minutes[1:])
+        if right > left + 60
+    ]
+    distinct_interior_unobserved_minutes = sum(interior_gap_lengths)
+    distinct_interior_gap_runs = len(interior_gap_lengths)
+    largest_interior_gap_run = max(interior_gap_lengths, default=0)
     latest_candle_age = now - (newest_start + 60)
     latest_receipt_age = now - newest_received
     structurally_clean = (
@@ -191,6 +204,13 @@ def audit_declared_completed_m1_receipts(
         "changed_duplicate_numeric_ohlc_rows": changed_duplicate_numeric_ohlc_rows,
         "backward_candle_events": backward_minutes,
         "observed_gap_minutes_not_proven_missing": observed_gap_minutes,
+        "distinct_interior_unobserved_minutes_not_proven_missing": (
+            distinct_interior_unobserved_minutes
+        ),
+        "distinct_interior_gap_runs_not_proven_missing": distinct_interior_gap_runs,
+        "largest_interior_gap_run_minutes_not_proven_missing": (
+            largest_interior_gap_run
+        ),
         "transport_lag_exceeded_rows": lag_exceeded,
         "finalization_lag_exceeded_rows": finalization_lag_exceeded,
         "declared_max_finalization_lag_seconds": max_finalization_lag_seconds,
