@@ -39,6 +39,9 @@ def inspect_declared_snapshot_transition(expected: dict, previous: dict,
         failures.add("snapshot_id_reused")
     if current["sequence"] <= previous["sequence"]:
         failures.add("snapshot_sequence_replay")
+    elif current["sequence"] != previous["sequence"] + 1:
+        # Skipped caller checkpoints may conceal intervening broker changes.
+        failures.add("snapshot_sequence_gap")
     if (current["observed_at_ms"] <= previous["observed_at_ms"]
             or current["received_at_ms"] <= previous["received_at_ms"]):
         failures.add("snapshot_time_regression")
@@ -46,6 +49,9 @@ def inspect_declared_snapshot_transition(expected: dict, previous: dict,
     # an ambiguous overlap. Preserve quarantine rather than trusting ordering.
     if current["observed_at_ms"] <= previous["received_at_ms"]:
         failures.add("snapshot_observation_overlap")
+    if current["observed_at_ms"] <= previous_now_ms:
+        # The next observation must follow the prior trusted checkpoint.
+        failures.add("snapshot_observation_precedes_prior_check")
     if set(earlier["failed_checks"]) - _ALLOWED_PREVIOUS_FAILURES:
         failures.add("previous_census_invalid")
     if later["failed_checks"]:

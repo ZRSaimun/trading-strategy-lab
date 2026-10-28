@@ -157,3 +157,31 @@ def test_overlapping_snapshot_observation_and_previous_receipt_holds(overlapping
     assert "retroactive_fill_appearance" not in result["failed_checks"]
     assert result["current_census_failed_checks"] == []
     assert result["may_submit_real_order"] is False
+
+
+@pytest.mark.parametrize("skipped_sequence", [3, 10])
+def test_skipped_caller_checkpoint_sequence_holds(skipped_sequence):
+    result = evaluate(change_current=lambda c: c.update(sequence=skipped_sequence))
+    assert result["status"] == "HOLD_RECONCILIATION"
+    assert "snapshot_sequence_gap" in result["failed_checks"]
+    assert result["current_census_failed_checks"] == []
+    assert result["may_submit_real_order"] is False
+
+
+@pytest.mark.parametrize("observed_at", [NOW - 1050, NOW - 1000])
+def test_new_observation_not_after_prior_trusted_check_holds(observed_at):
+    def adjust(c):
+        c["observed_at_ms"] = observed_at
+        c["pages"][0]["orders"][0]["fills"][1]["filled_at_ms"] = NOW - 1200
+    result = evaluate(change_current=adjust)
+    assert result["status"] == "HOLD_RECONCILIATION"
+    assert "snapshot_observation_precedes_prior_check" in result["failed_checks"]
+    assert "snapshot_observation_overlap" not in result["failed_checks"]
+    assert result["current_census_failed_checks"] == []
+    assert result["may_clear_unknown"] is False
+
+
+def test_new_observation_after_prior_trusted_check_is_allowed():
+    result = evaluate(change_current=lambda c: c.update(observed_at_ms=NOW - 999))
+    assert result["status"] == "DECLARED_TRANSITION_CANDIDATE_UNVERIFIED"
+    assert "snapshot_observation_precedes_prior_check" not in result["failed_checks"]

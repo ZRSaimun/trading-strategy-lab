@@ -7,7 +7,7 @@ respective trusted-caller observation times. A previous `PARTIAL` or `OPEN`
 status is permitted as an unresolved diagnostic; other previous census
 failures and **any** current census failure require `HOLD_RECONCILIATION`.
 
-The fence detects reused snapshot IDs, nonincreasing caller-assigned sequence,
+The fence detects reused snapshot IDs, nonincreasing or skipped caller-assigned sequence,
 nonincreasing observation/receipt timestamps, account changes, missing orders,
 broker-order ID changes, decreasing cumulative filled quantity, disappearance
 or mutation of prior fill receipts, and terminal status changes. Legitimate
@@ -22,7 +22,12 @@ provider reporting delays, but are **not** sufficient evidence to release a
 quarantined order. Boundaries are inclusive; neither clock nor fill receipt is
 broker-authenticated. Neither sequence nor snapshots are
 provider-authenticated; the caller must independently persist and authenticate
-the prior checkpoint. The function does not persist a checkpoint or call a
+the prior checkpoint. The new observation must also occur strictly after the
+previous trusted-caller check time; an earlier/equal observation is held as an
+ambiguous or backdated transition. Sequence numbers are required to advance by
+exactly one, and a gap is held because intervening snapshots may be missing.
+These conservative conditions may reject legitimate delayed ingestion, but
+cannot prove provider-side continuity. The function does not persist a checkpoint or call a
 broker. `DECLARED_TRANSITION_CANDIDATE_UNVERIFIED` is **not** permission to
 clear an `ATTEMPT_UNKNOWN` quarantine or retry a non-idempotent order.
 
