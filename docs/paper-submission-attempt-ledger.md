@@ -261,3 +261,10 @@ regression cases cover initial intent preparation, declared reconciliation
 historical event with matching projection. The change does **not** prove that
 any nonzero digest authenticates a broker receipt, and does not enable broker
 requests, paper/live execution or automatic quarantine release.
+
+
+## Independent reconciliation-digest check (28 October 2026)
+
+A declared terminal reconciliation must supply a syntactically valid, nonzero SHA-256 digest **different from the original prepared intent fingerprint**. Reusing the intent digest as supposed fill/rejection/cancellation evidence now fails closed in both the transactional writer and historical event replay, including a locally rehashed event chain with a matching projection. Three synthetic cases cover a refused write and both inspection/write refusal of a forged historical terminal transition. The unresolved attempt remains quarantined after a rejected write.
+
+**This is only a minimum evidence-distinctness check.** A different digest is not proof of an authenticated broker response, fill, cancellation, accepted protective stop, or human approval. The caller still declares terminal status and may provide a fabricated digest; the module grants no order execution. Do not use declared reconciliation to release any live-order gate. Authenticated provider inventory and externally anchored evidence are required before a future execution adapter can trust terminal outcomes.
