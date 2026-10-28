@@ -106,15 +106,19 @@ def test_default_transport_ignores_implicit_environment_proxies(monkeypatch, pro
 
     def inspect_opener(*handlers):
         configured = original_build_opener(*handlers)
-        proxy_handlers = [h for h in configured.handlers
-                          if isinstance(h, urllib.request.ProxyHandler)]
-        inspected.append([h.proxies for h in proxy_handlers])
+        # urllib omits an empty ProxyHandler from the installed chain, but
+        # passing it suppresses its otherwise implicit environment handler.
+        explicit_empty = any(isinstance(h, urllib.request.ProxyHandler)
+                             and h.proxies == {} for h in handlers)
+        installed = [h.proxies for h in configured.handlers
+                     if isinstance(h, urllib.request.ProxyHandler)]
+        inspected.append((explicit_empty, installed))
         return fake
 
     monkeypatch.setattr("app.forecast_telegram_transport.urllib.request.build_opener",
                         inspect_opener)
     result = send_telegram_once(bot_token=TOKEN, chat_id=CHAT, text=review_text())
-    assert inspected == [[{}]]
+    assert inspected == [(True, [])]
     assert result["providerAccepted"] is True
     assert result["deliveryVerified"] is False
     assert len(fake.calls) == 1
