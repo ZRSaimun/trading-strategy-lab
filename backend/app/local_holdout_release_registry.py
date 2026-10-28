@@ -29,6 +29,20 @@ _SCHEMA = """CREATE TABLE IF NOT EXISTS holdout_claims (
 )"""
 
 
+def _assert_claims_schema(conn):
+    """Reject a same-named table with weakened identity/chronology constraints.
+
+    SQLite's CREATE TABLE IF NOT EXISTS does not check an existing table's
+    definition. These registries are created by this module; a different
+    definition is not safe to use as a one-attempt release fence.
+    """
+    row = conn.execute(
+        "SELECT sql FROM sqlite_master WHERE type='table' AND name='holdout_claims'"
+    ).fetchone()
+    if row is None or row[0] != _SCHEMA.replace(" IF NOT EXISTS", "", 1):
+        raise ValueError("Invalid holdout claims table definition")
+
+
 def _now_utc_seconds():
     return int(time.time())
 
@@ -109,6 +123,7 @@ def register_local_holdout(db_path, *, study_id, manifest_sha256,
             ).fetchone() is not None:
                 raise ValueError("Invalid holdout claims trigger at registration")
             conn.execute(_SCHEMA)
+            _assert_claims_schema(conn)
             # Do not allow the legacy, row-unreserved path to bypass a
             # population-locked registry in this same SQLite database.
             if conn.execute(
@@ -211,6 +226,11 @@ def claim_local_holdout_release(db_path, *, study_id, manifest_sha256,
                 "'holdout_locked_decisions', 'holdout_locked_pairs') LIMIT 1"
             ).fetchone() is not None:
                 raise ValueError("Invalid holdout registry trigger at release")
+            _assert_claims_schema(conn)
+            # Import lazily: the population lock imports this registry.
+            from app.local_holdout_population_lock import _assert_reservation_schema
+            if any(name != 'holdout_claims' for name, kind in protected_objects):
+                _assert_reservation_schema(conn)
             row = conn.execute(
                 "SELECT manifest_sha256, holdout_start_at_utc, "
                 "holdout_end_at_utc, registered_at_utc, "
