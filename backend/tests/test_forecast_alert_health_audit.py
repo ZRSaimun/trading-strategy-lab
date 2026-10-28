@@ -514,3 +514,43 @@ def test_zero_age_ack_is_still_identified_for_reconciliation():
     assert result["oldestUnverifiedAckKeys"] == [["s1", "f1"]]
     assert result["counts"]["ACK_RECONCILIATION_OVERDUE_WARNING"] == 0
     assert result["recipientDeliveryVerified"] is False
+
+
+def test_next_unverified_ack_escalation_selects_earliest_unbreached_deadline():
+    records = [
+        {"sessionId": "s2", "state": state("ACK_RECORDED_UNVERIFIED",
+            forecastId="f2", claimId="b" * 32, ackAt=145)},
+        {"sessionId": "s3", "state": state("ACK_RECORDED_UNVERIFIED",
+            forecastId="f3", claimId="c" * 32, ackAt=130)},
+        {"sessionId": "s1", "state": state("ACK_RECORDED_UNVERIFIED", ackAt=140)},
+        {"sessionId": "s4", "state": state("ACK_RECORDED_UNVERIFIED",
+            forecastId="f4", claimId="d" * 32, ackAt=140)},
+    ]
+    expected = [("s1", "f1"), ("s2", "f2"), ("s3", "f3"), ("s4", "f4")]
+    result = check(records=records, expected=expected, now=160,
+                   unverified_ack_warning_seconds=30)
+    assert result["nextUnverifiedAckEscalationSecondsRemaining"] == 10
+    assert result["nextUnverifiedAckEscalationKeys"] == [["s1", "f1"], ["s4", "f4"]]
+    assert result["counts"]["ACK_RECONCILIATION_OVERDUE_WARNING"] == 1
+    assert result["warningKeys"] == [["s3", "f3"]]
+    assert check(records=list(reversed(records)), expected=list(reversed(expected)),
+                 now=160, unverified_ack_warning_seconds=30) == result
+
+
+def test_next_unverified_ack_escalation_excludes_exact_breach_and_empty_cohort():
+    overdue = check(state("ACK_RECORDED_UNVERIFIED"), now=170,
+                    unverified_ack_warning_seconds=30)
+    assert overdue["nextUnverifiedAckEscalationSecondsRemaining"] is None
+    assert overdue["nextUnverifiedAckEscalationKeys"] == []
+    assert overdue["counts"]["ACK_RECONCILIATION_OVERDUE_WARNING"] == 1
+    empty = check(state("QUEUED"), now=150)
+    assert empty["nextUnverifiedAckEscalationSecondsRemaining"] is None
+    assert empty["nextUnverifiedAckEscalationKeys"] == []
+
+
+def test_next_unverified_ack_escalation_exactly_one_second_remaining():
+    result = check(state("ACK_RECORDED_UNVERIFIED"), now=169,
+                   unverified_ack_warning_seconds=30)
+    assert result["nextUnverifiedAckEscalationSecondsRemaining"] == 1
+    assert result["nextUnverifiedAckEscalationKeys"] == [["s1", "f1"]]
+    assert result["counts"]["ACK_RECONCILIATION_OVERDUE_WARNING"] == 0
