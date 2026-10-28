@@ -11,7 +11,7 @@ import json
 from contextlib import closing
 
 from app.local_holdout_release_registry import (
-    _SCHEMA, _clock, _connect, _path,
+    _SCHEMA, _assert_claims_schema, _clock, _connect, _path,
 )
 
 _ROW_SCHEMA = """CREATE TABLE IF NOT EXISTS holdout_locked_rows (
@@ -37,6 +37,26 @@ _PAIR_SCHEMA = """CREATE TABLE IF NOT EXISTS holdout_locked_pairs (
     PRIMARY KEY (source_sha256, row_sha256),
     UNIQUE (source_sha256, decision_at_utc)
 )"""
+
+
+def _assert_reservation_schema(conn):
+    """Reject reservation tables with missing unique keys or altered columns.
+
+    A pre-existing same-named table can defeat CREATE TABLE IF NOT EXISTS.
+    Canonical definitions include both source/row and source/time uniqueness.
+    Do not silently migrate historical reservations or guess their meaning.
+    """
+    for name, ddl in (
+        ("holdout_locked_rows", _ROW_SCHEMA),
+        ("holdout_locked_decisions", _DECISION_SCHEMA),
+        ("holdout_locked_pairs", _PAIR_SCHEMA),
+    ):
+        row = conn.execute(
+            "SELECT sql FROM sqlite_master WHERE type='table' AND name=?",
+            (name,),
+        ).fetchone()
+        if row is None or row[0] != ddl.replace(" IF NOT EXISTS", "", 1):
+            raise ValueError("Invalid population-lock table definition: " + name)
 
 
 def _source_key(source):
@@ -133,6 +153,8 @@ def register_population_locked_holdout(db_path, manifest, census):
             conn.execute(_ROW_SCHEMA)
             conn.execute(_DECISION_SCHEMA)
             conn.execute(_PAIR_SCHEMA)
+            _assert_claims_schema(conn)
+            _assert_reservation_schema(conn)
             # Fail closed if any earlier study has missing row or timestamp
             # reservations, or mismatched counts across both populations.
             if conn.execute(
