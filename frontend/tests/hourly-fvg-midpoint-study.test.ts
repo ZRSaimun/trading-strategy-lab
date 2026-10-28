@@ -561,7 +561,7 @@ test('research report rejects extra source fields without leaking caller private
  const report=studyHourlyFvgMidpoint(fixture(),source);
  assert.deepEqual(report.source,source);
  assert.deepEqual(Object.keys(report.source).sort(),Object.keys(source).sort());
- assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v47');
+ assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v48');
 });
 test('ambiguous source labels and contradictory volume evidence fail closed',()=>{
  // These are declared metadata, not independent vendor authentication.
@@ -937,7 +937,7 @@ test('an overflowing next-open comparator suppresses both matched markouts',()=>
 });
 test('completed hourly timestamps are safe and numeric rule changes have a new version',()=>{
  const report=studyHourlyFvgMidpoint(fixture(),source);
- assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v47');
+ assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v48');
  const lastSafeAlignedOpen=Math.floor(Number.MAX_SAFE_INTEGER/H)*H;
  assert.equal(Number.isSafeInteger(lastSafeAlignedOpen),true);
  assert.equal(Number.isSafeInteger(lastSafeAlignedOpen+H),false);
@@ -1753,4 +1753,45 @@ test('v47 undeclared source identity fields fail closed without reading hostile 
  assert.deepEqual(studyHourlyFvgMidpointAsOf(bars,valid,cutoff),
   studyHourlyFvgMidpointAsOf(bars,source,cutoff),
   'as-of replay retains the same valid source evidence');
+});
+
+
+test('v48 completed candles reject undeclared BID/ASK or volume metadata without reading it',()=>{
+ const baseline=studyHourlyFvgMidpoint(fixture(),source);
+ const cutoff=BASE+37*H;
+ const hidden=fixture();
+ Object.defineProperty(hidden[33],'ask',{value:105.8,enumerable:false});
+ const symbolic=fixture();
+ Object.defineProperty(symbolic[33],Symbol('broker-volume-certified'),{value:true});
+ const typo=fixture();
+ Object.defineProperty(typo[33],'observedMinutes',{value:60});
+ for(const candles of [hidden,symbolic,typo]){
+  assert.throws(()=>studyHourlyFvgMidpoint(candles,source),
+   /Unexpected FVG candle field/,
+   'extra archive fields must not silently disappear from BID-only provenance');
+  assert.throws(()=>studyHourlyFvgMidpointAsOf(candles,source,cutoff),
+   /Unexpected FVG candle field/,
+   'completed as-of candles must use the same strict archive schema');
+ }
+ let hostileReads=0;
+ const hostile=fixture();
+ Object.defineProperty(hostile[33],'privateBrokerToken',{get(){
+  hostileReads++;
+  throw Error('synthetic-private-token-must-not-be-read');
+ }});
+ assert.throws(()=>studyHourlyFvgMidpoint(hostile,source),
+  /Unexpected FVG candle field/);
+ assert.equal(hostileReads,0,'unknown candle getters must not be evaluated');
+ const future=fixture();
+ Object.defineProperty(future[39],'ask',{get(){
+  throw Error('future ASK must not be read');
+ }});
+ assert.deepEqual(studyHourlyFvgMidpointAsOf(future,source,BASE+37*H),
+  studyHourlyFvgMidpoint(fixture().slice(0,37),source),
+  'a future extra key cannot leak into an earlier completed-bar replay');
+ assert.throws(()=>studyHourlyFvgMidpointAsOf(future,source,BASE+40*H),
+  /Unexpected FVG candle field/,
+  'once the extra-key candle closes, its unsupported metadata is rejected');
+ assert.deepEqual(studyHourlyFvgMidpoint(fixture(),source),baseline,
+  'valid seven-field candles preserve the frozen research result');
 });

@@ -7,7 +7,7 @@
  */
 import type {Bar} from './research.ts';
 
-export const HOURLY_FVG_VERSION='hourly-fvg-first-midpoint-touch-v47';
+export const HOURLY_FVG_VERSION='hourly-fvg-first-midpoint-touch-v48';
 export type Evidence='PASS'|'FAIL'|'INSUFFICIENT_DATA';
 // First-touch volume evidence is not independent broker/source authentication.
 export type VolumeEvidenceReason='NOT_EVALUATED'|'SOURCE_UNVERIFIED'|
@@ -535,6 +535,13 @@ export function studyHourlyFvgMidpoint(
   const b=suppliedBars[index];
   if(!b||typeof b!=='object'||!CANDLE_FIELDS.every(field=>hasOwnField(b,field)))
    throw Error('Hourly research candle lacks own field evidence');
+  // Undeclared price-side or broker-certification metadata must not be
+  // silently dropped from a report describing a seven-field BID candle.
+  // Inspect keys before any unknown accessor can execute.
+  for(const key of Reflect.ownKeys(b)){
+   if(!CANDLE_FIELDS.some(field=>field===key))
+    throw Error('Unexpected FVG candle field outside frozen archive schema');
+  }
   bars.push({
    time:b.time,open:b.open,high:b.high,low:b.low,close:b.close,
    volume:b.volume,observed_minutes:b.observed_minutes,
@@ -835,6 +842,12 @@ export function studyHourlyFvgMidpointAsOf(
   // Future OHLC remains unread; completed historical rows need own fields.
   if(!CANDLE_FIELDS.every(field=>hasOwnField(bar,field)))
    throw Error('Hourly as-of candle lacks own field evidence');
+  // For completed candles only, reject unreviewed ASK/spread/source fields.
+  // Future candles remain timestamp-only: do not inspect future metadata.
+  for(const key of Reflect.ownKeys(bar)){
+   if(!CANDLE_FIELDS.some(field=>field===key))
+    throw Error('Unexpected FVG candle field outside frozen archive schema');
+  }
   prefix.push({time,open:bar.open,high:bar.high,low:bar.low,
    close:bar.close,volume:bar.volume,observed_minutes:bar.observed_minutes});
  }
