@@ -24,6 +24,7 @@ def audit_declared_holdout_fold_isolation(folds):
     seen_archives, seen_rows, seen_manifest_hashes = set(), set(), set()
     previous_end = None
     previous_max_label = None
+    min_label_embargo_slack = None
     study_id = candidate_id = candidate_sha = source_signature = None
     summaries = []
     for index, fold in enumerate(folds):
@@ -53,8 +54,12 @@ def audit_declared_holdout_fold_isolation(folds):
                 raise ValueError("Overlapping or out-of-order holdout windows")
             if manifest["selected_at_utc"] < previous_end:
                 raise ValueError("Later fold candidate selection overlaps previous holdout")
-            if previous_max_label + manifest["embargo_seconds"] > manifest["selected_at_utc"]:
+            label_embargo_slack = (manifest["selected_at_utc"] -
+                                   previous_max_label - manifest["embargo_seconds"])
+            if label_embargo_slack < 0:
                 raise ValueError("Earlier fold labels not mature before later selection embargo")
+            min_label_embargo_slack = (label_embargo_slack if min_label_embargo_slack is None
+                                      else min(min_label_embargo_slack, label_embargo_slack))
         rows = {row["row_sha256"] for row in census}
         if rows & seen_rows:
             raise ValueError("Cross-fold row identity reused")
@@ -75,6 +80,7 @@ def audit_declared_holdout_fold_isolation(folds):
         "status": "DECLARED_MEMBERSHIP_ONLY",
         "fold_count": len(folds),
         "observation_count": len(seen_rows),
+        "min_declared_label_embargo_slack_seconds": min_label_embargo_slack,
         "folds": summaries,
         "source_bytes_independently_authenticated": False,
         "holdout_untouched_independently_verified": False,
@@ -83,6 +89,7 @@ def audit_declared_holdout_fold_isolation(folds):
         "may_execute_demo_order": False,
         "may_execute_real_order": False,
         "warning": "Only caller-declared manifests and membership were checked. "
+                   "Embargo slack is computed from unverified declared clocks, not proof of leakage prevention. "
                    "Distinct archive digests do not prove independent market data. "
                    "No holdout outcomes, executable costs or trading permissions are evaluated."
     }
