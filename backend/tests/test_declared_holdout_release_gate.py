@@ -90,6 +90,41 @@ def test_release_threshold_exposes_only_declared_not_verified_results():
     assert result["profitable_edge_verified"] is False
 
 
+
+def test_drawdown_uses_receipt_observation_time_not_decision_time():
+    # A later decision can close before an earlier decision. Decision-time
+    # ordering would report 60 rather than the 40 actually observable from
+    # the declared receipt chronology in this synthetic example.
+    data = list(fixture(30))
+    for row in data[3]:
+        row.update(gross_cash="0", spread_cash="0", slippage_cash="0",
+                   commission_cash="0", financing_cash="0", fx_cash="0")
+    for index, gross in enumerate(("20", "-30", "-30", "20")):
+        data[3][index]["gross_cash"] = gross
+    assert audit(data)["max_observation_end_drawdown_cash"] == "60.0000"
+    late_receipt = copy.deepcopy(data)
+    late_receipt[3][2]["observed_at_utc"] = 10000
+    result = audit(late_receipt)
+    assert result["max_observation_end_drawdown_cash"] == "40.0000"
+    assert result["net_cash"] == "-20.0000"
+    assert result["profitable_edge_verified"] is False
+
+
+def test_same_second_receipts_are_batched_without_fabricated_order():
+    data = list(fixture(30))
+    for row in data[3]:
+        row.update(gross_cash="0", spread_cash="0", slippage_cash="0",
+                   commission_cash="0", financing_cash="0", fx_cash="0")
+    data[3][0]["gross_cash"] = "20"
+    data[3][1]["gross_cash"] = "-30"
+    data[3][0]["observed_at_utc"] = 10000
+    data[3][1]["observed_at_utc"] = 10000
+    result = audit(data)
+    assert result["net_cash"] == "-10.0000"
+    assert result["max_observation_end_drawdown_cash"] == "10.0000"
+    assert result["broker_costs_verified"] is False
+
+
 def test_outcome_order_independent_and_no_input_mutation():
     data = fixture()
     original = copy.deepcopy(data)
