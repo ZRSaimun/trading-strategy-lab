@@ -1182,3 +1182,35 @@ def test_rehashed_history_with_zero_evidence_fails_closed(db):
         prepare_intent(db, broker=KEY['broker'], account_alias='other-account',
                        client_order_id='order-3', intent_sha256=E,
                        recorded_at_ms=102)
+
+
+def test_reconciliation_cannot_reuse_original_intent_fingerprint(db):
+    """A prepared-intent digest is not a broker reconciliation receipt."""
+    prep(db)
+    attempt(db)
+    with pytest.raises(ValueError, match='reuses intent fingerprint'):
+        reconcile(db, evidence_sha256=H)
+    audited = inspect_ledger(db)
+    assert audited['event_count'] == 2
+    assert audited['orders'][0]['status'] == 'ATTEMPT_UNKNOWN'
+    assert audited['may_submit_real_order'] is False
+
+
+@pytest.mark.parametrize('operation', ['inspect', 'prepare'])
+def test_rehashed_reconciliation_with_reused_intent_digest_is_rejected(db, operation):
+    """Matching projection and locally recomputed hashes cannot clear quarantine."""
+    prep(db)
+    attempt(db)
+    _inject_rehashed_event(
+        db, broker=KEY['broker'], account=KEY['account_alias'],
+        order=KEY['client_order_id'], event='RECONCILED_FILLED',
+        evidence=H, stamp=102)
+    with pytest.raises(ValueError, match='reuses intent fingerprint'):
+        if operation == 'inspect':
+            inspect_ledger(db)
+        else:
+            prepare_intent(
+                db, broker=KEY['broker'], account_alias=KEY['account_alias'],
+                client_order_id='order-2', intent_sha256=E, recorded_at_ms=103)
+    with sqlite3.connect(db) as conn:
+        assert conn.execute('SELECT count(*) FROM events').fetchone()[0] == 3
