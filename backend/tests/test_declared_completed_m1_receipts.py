@@ -398,3 +398,55 @@ def test_absent_and_empty_expected_run_diagnostics_are_distinct():
     assert empty["extra_declared_expected_minute_sample_utc"] == [T]
     assert absent["receipt_inventory_sha256"] == empty["receipt_inventory_sha256"]
     assert absent["declared_audit_policy_sha256"] != empty["declared_audit_policy_sha256"]
+
+
+def test_declared_overdue_missing_expected_minutes_exclude_not_yet_due():
+    # Default declared budgets: 60s to finalize and 30s to transport.
+    # At T+240, T+60 is overdue; T+120 and T+180 are still pending.
+    report = audit([row()], expected_utc_minutes=[T, T + 60, T + 120, T + 180])
+    assert report["missing_declared_expected_minutes"] == 3
+    assert report["declared_overdue_missing_expected_minutes"] == 1
+    assert report["declared_pending_missing_expected_minutes"] == 2
+    assert report["overdue_declared_expected_minute_sample_utc"] == [T + 60]
+    assert report["structurally_clean"] is False
+    assert report["session_calendar_verified"] is False
+    assert report["may_execute_order"] is False
+
+
+def test_declared_overdue_boundary_requires_clock_strictly_after_deadline():
+    kwargs = dict(provider="synthetic", instrument="XAU/USD",
+                  source_id="test:feed", price_side="mid",
+                  expected_utc_minutes=[T, T + 60])
+    at_deadline = audit_declared_completed_m1_receipts(
+        [row()], as_of_utc=T + 210, **kwargs)
+    after_deadline = audit_declared_completed_m1_receipts(
+        [row()], as_of_utc=T + 211, **kwargs)
+    assert at_deadline["declared_overdue_missing_expected_minutes"] == 0
+    assert at_deadline["declared_pending_missing_expected_minutes"] == 1
+    assert after_deadline["declared_overdue_missing_expected_minutes"] == 1
+    assert after_deadline["declared_pending_missing_expected_minutes"] == 0
+
+
+def test_declared_overdue_census_uses_configured_budgets_without_changing_receipt_hash():
+    expected = [T, T + 60]
+    normal = audit([row()], expected_utc_minutes=expected)
+    relaxed = audit([row()], expected_utc_minutes=expected,
+                    max_finalization_lag_seconds=120)
+    assert normal["declared_overdue_missing_expected_minutes"] == 1
+    assert relaxed["declared_overdue_missing_expected_minutes"] == 0
+    assert relaxed["declared_pending_missing_expected_minutes"] == 1
+    assert normal["receipt_inventory_sha256"] == relaxed["receipt_inventory_sha256"]
+    assert normal["declared_audit_policy_sha256"] != relaxed["declared_audit_policy_sha256"]
+    assert normal["structurally_clean"] == relaxed["structurally_clean"] is False
+
+
+def test_absent_and_empty_expected_overdue_diagnostics_are_distinct():
+    absent = audit([row()])
+    empty = audit([row()], expected_utc_minutes=[])
+    for key in ("declared_overdue_missing_expected_minutes",
+                "declared_pending_missing_expected_minutes",
+                "overdue_declared_expected_minute_sample_utc"):
+        assert absent[key] is None
+    assert empty["declared_overdue_missing_expected_minutes"] == 0
+    assert empty["declared_pending_missing_expected_minutes"] == 0
+    assert empty["overdue_declared_expected_minute_sample_utc"] == []
