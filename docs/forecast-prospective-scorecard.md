@@ -50,3 +50,27 @@ the journal, or establish the event-store receipt-lag ceiling; the original
 early and boundary settlement, longer horizons, overflow, and early gap
 invalidation. No production alert, paper fill, broker or trading permission
 is enabled.
+
+
+## Settled target receipt-lag ceiling (28 October 2026)
+
+The disconnected scorecard now additionally rejects a caller-declared
+`SETTLED` outcome whose `resolvedAt` is **later than**
+`targetStart + candleSeconds + maxLagSeconds`. A target candle can only
+settle in `ForecastEventStore._replay` when its completed-candle receipt
+arrives by that same deadline; accepting later scorecard-only timestamps
+would misrepresent replay eligibility. The deadline is inclusive. This
+is a defensive cross-check of an already loaded snapshot, **not** proof
+of the source clock, candle finality, or real-time market observation.
+
+A `VOID_GAP` outcome is intentionally **not** subject to the target
+receipt-lag ceiling: a later completed candle can reveal that the target
+was skipped, and this scorecard cannot independently infer exchange
+sessions, holidays or source completeness. The original
+`ForecastEventStore.load` replay remains mandatory.
+
+Seven additional synthetic parameterized regressions cover 1-, 3- and
+12-candle horizons, zero and maximum declared lag, inclusive deadline,
+one-second-late rejection, and a late gap-void exception. No notification,
+paper execution, broker order, feed entitlement, or production setting
+changes. Keep release gates in place.
