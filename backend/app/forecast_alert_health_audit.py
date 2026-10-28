@@ -112,6 +112,8 @@ def audit_forecast_alert_health(records, expected_keys, *, as_of,
     oldest_uncertain = 0
     max_ack_lag = 0
     oldest_unverified_ack = 0
+    next_ack_escalation = None
+    next_ack_escalation_keys = []
     warning_keys = []
     warning_reason_map = {}
     unverified_ack_keys = []
@@ -184,6 +186,15 @@ def audit_forecast_alert_health(records, expected_keys, *, as_of,
             ack_age = as_of - state["ackAt"]
             unverified_ack_ages[key] = ack_age
             oldest_unverified_ack = max(oldest_unverified_ack, ack_age)
+            # Only unbreached ACKs enter the next-deadline inventory. Already
+            # overdue ACKs belong to warningKeys, not a misleading zero timer.
+            if ack_age < unverified_ack_warning_seconds:
+                remaining = unverified_ack_warning_seconds - ack_age
+                if next_ack_escalation is None or remaining < next_ack_escalation:
+                    next_ack_escalation = remaining
+                    next_ack_escalation_keys = [key]
+                elif remaining == next_ack_escalation:
+                    next_ack_escalation_keys.append(key)
             # An unverified ACK can linger indefinitely without independent
             # provider/recipient evidence. Escalate aged entries for review,
             # without granting a retry or treating the ACK as delivered.
@@ -216,6 +227,8 @@ def audit_forecast_alert_health(records, expected_keys, *, as_of,
             "oldestUncertainSeconds": oldest_uncertain,
             "maxSelfAttestedAckLagSeconds": max_ack_lag,
             "oldestUnverifiedAckAgeSeconds": oldest_unverified_ack,
+            "nextUnverifiedAckEscalationSecondsRemaining": next_ack_escalation,
+            "nextUnverifiedAckEscalationKeys": [list(key) for key in sorted(next_ack_escalation_keys)],
             "oldestUnverifiedAckKeys": [list(key) for key in sorted(
                 key for key, age in unverified_ack_ages.items()
                 if age == oldest_unverified_ack)],
