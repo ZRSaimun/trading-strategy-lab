@@ -5,7 +5,7 @@ import pytest
 
 from app.forecast_temporal_calibration_audit import (
     _issued_probability_ecdf_shift, _issued_probability_shape_shift,
-    _issued_utc_hour_mix,
+    _issued_utc_hour_mix, _outcome_availability_utc_weekday_hour168,
     audit_temporal_forecast_calibration)
 
 IDENTITY = {"instrument": "SYNTH", "provider": "FAKE", "venue": "TEST",
@@ -1401,3 +1401,96 @@ def test_utc_weekday_availability_visible_with_scores_withheld_and_no_trade_perm
     assert row["maySendNotification"] is False
     assert row["mayExecutePaperOrder"] is False
     assert row["mayExecuteLiveOrder"] is False
+
+
+def test_joint_utc_weekday_hour_empty_cells_are_explicit_and_null():
+    cells = _outcome_availability_utc_weekday_hour168([], [])
+    assert len(cells) == 168
+    assert [(c["utcWeekdayMonday0"], c["utcHour"]) for c in cells] == [
+        (day, hour) for day in range(7) for hour in range(24)]
+    assert all(c["issued"] == c["eligibleSettled"] == c["unavailable"] == 0
+               and c["unavailableFraction"] is None
+               and c["lowSupportUnder30"] is None for c in cells)
+
+
+def test_joint_utc_weekday_hour_uses_utc_epoch_and_midnight_rollover():
+    # 1970-01-01 00:00 UTC is Thursday (Monday=0 => 3).
+    # 1970-01-04 23:00 UTC is Sunday; next hour is Monday.
+    rows = [
+        {"id": "thursday", "baseStart": 0},
+        {"id": "sunday", "baseStart": 3 * 86400 + 23 * 3600},
+        {"id": "monday", "baseStart": 4 * 86400},
+    ]
+    cells = _outcome_availability_utc_weekday_hour168(rows, [rows[0], rows[2]])
+    assert cells[3 * 24]["eligibleSettled"] == 1
+    assert cells[6 * 24 + 23]["unavailable"] == 1
+    assert cells[0]["eligibleSettled"] == 1
+    assert sum(c["issued"] for c in cells) == 3
+
+
+def test_joint_cells_expose_missingness_hidden_by_both_marginals():
+    # Each weekday and each hour has exactly 50% availability, but
+    # the two diagonal weekday/hour cells have 100% missingness.
+    rows = [
+        {"id": "a", "baseStart": 4 * 86400},
+        {"id": "b", "baseStart": 4 * 86400 + 3600},
+        {"id": "c", "baseStart": 5 * 86400},
+        {"id": "d", "baseStart": 5 * 86400 + 3600},
+    ]
+    cells = _outcome_availability_utc_weekday_hour168(rows, [rows[1], rows[2]])
+    assert cells[0]["unavailableFraction"] == 1
+    assert cells[1]["unavailableFraction"] == 0
+    assert cells[24]["unavailableFraction"] == 0
+    assert cells[25]["unavailableFraction"] == 1
+    assert all(cells[i]["lowSupportUnder30"] is True for i in (0, 1, 24, 25))
+
+
+def test_joint_census_integrates_with_existing_weekday_and_hour_marginals():
+    row = audit_temporal_forecast_calibration(fixture())["groups"][0]
+    for phase in ("early", "late"):
+        joint = row[phase + "CensusOutcomeAvailabilityUtcWeekdayHour168"]
+        hours = row[phase + "CensusOutcomeAvailabilityUtcHour24"]
+        days = row[phase + "CensusOutcomeAvailabilityUtcWeekday7"]
+        assert len(joint) == 168
+        for key in ("issued", "eligibleSettled", "unavailable"):
+            assert sum(c[key] for c in joint) == row[
+                phase + "NonoverlappingIssued"] if key == "issued" else sum(
+                    c[key] for c in hours)
+            assert [sum(joint[day * 24 + hour][key] for day in range(7))
+                    for hour in range(24)] == [c[key] for c in hours]
+            assert [sum(joint[day * 24 + hour][key] for hour in range(24))
+                    for day in range(7)] == [c[key] for c in days]
+
+
+def test_joint_missingness_keeps_fixed_census_and_ignores_unselected_neighbor():
+    s = fixture()
+    baseline = audit_temporal_forecast_calibration(s)["groups"][0][
+        "lateCensusOutcomeAvailabilityUtcWeekdayHour168"]
+    s["forecasts"][81].update(status="PENDING", outcomeUp=None, resolvedAt=None)
+    unchanged = audit_temporal_forecast_calibration(s)["groups"][0][
+        "lateCensusOutcomeAvailabilityUtcWeekdayHour168"]
+    assert unchanged == baseline
+    s["forecasts"][80].update(status="PENDING", outcomeUp=None, resolvedAt=None)
+    changed = audit_temporal_forecast_calibration(s)["groups"][0][
+        "lateCensusOutcomeAvailabilityUtcWeekdayHour168"]
+    assert sum(c["unavailable"] for c in changed) == 1
+    assert sum(c["issued"] for c in changed) == 40
+
+
+def test_joint_missingness_respects_declared_as_of_and_withheld_scores():
+    s = fixture()
+    cutoff = max(r["issuedAt"] for r in s["forecasts"])
+    s["forecasts"][80]["resolvedAt"] = cutoff + 100
+    group = audit_temporal_forecast_calibration(
+        s, evaluation_as_of=cutoff)["groups"][0]
+    assert sum(c["unavailable"] for c in group[
+        "lateCensusOutcomeAvailabilityUtcWeekdayHour168"]) == 1
+    for i in (82, 84):
+        s["forecasts"][i].update(status="PENDING", outcomeUp=None, resolvedAt=None)
+    group = audit_temporal_forecast_calibration(
+        s, evaluation_as_of=cutoff, max_unresolved_fraction=.05)["groups"][0]
+    assert group["status"] == "UNRESOLVED_SELECTION_RISK"
+    assert group["lateBrier"] is None
+    assert sum(c["unavailable"] for c in group[
+        "lateCensusOutcomeAvailabilityUtcWeekdayHour168"]) == 3
+    assert group["lateCensusOutcomeAvailabilityUtcWeekdayHour168"][0]["utcHour"] == 0
