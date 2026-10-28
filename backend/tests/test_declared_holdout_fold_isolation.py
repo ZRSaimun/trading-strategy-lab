@@ -54,6 +54,7 @@ def test_three_two_year_windows_are_membership_only():
                  "profitable_edge_verified", "may_execute_demo_order", "may_execute_real_order"):
         assert result[name] is False
     assert "net_cash" not in result
+    assert result["min_declared_label_embargo_slack_seconds"] > 0
 
 
 @pytest.mark.parametrize("mutate", [
@@ -151,3 +152,45 @@ def test_cross_fold_source_identity_changes_fail_with_recommitted_manifest(
     # cross-fold source identity rather than an unrelated census mismatch.
     with pytest.raises(ValueError, match="source convention changed"):
         audit_declared_holdout_fold_isolation(folds)
+
+
+def test_declared_label_embargo_slack_reports_exact_boundary_without_outcomes():
+    folds = _valid()
+    selected = folds[1]["manifest"]["selected_at_utc"]
+    embargo = folds[1]["manifest"]["embargo_seconds"]
+    folds[0]["census"][-1]["label_available_at_utc"] = selected - embargo
+    folds[0]["manifest"]["holdout_census_sha256"] = (
+        prepare_declared_holdout_census_sha256(folds[0]["census"])
+    )
+    original = copy.deepcopy(folds)
+    result = audit_declared_holdout_fold_isolation(folds)
+    assert result["min_declared_label_embargo_slack_seconds"] == 0
+    assert result["status"] == "DECLARED_MEMBERSHIP_ONLY"
+    assert result["may_execute_demo_order"] is False
+    assert result["may_execute_real_order"] is False
+    assert result["profitable_edge_verified"] is False
+    assert "net_cash" not in result
+    assert folds == original  # Audit must never rewrite caller declarations.
+
+    # Moving the previous label one second earlier yields one second of slack.
+    folds[0]["census"][-1]["label_available_at_utc"] -= 1
+    folds[0]["manifest"]["holdout_census_sha256"] = (
+        prepare_declared_holdout_census_sha256(folds[0]["census"])
+    )
+    assert audit_declared_holdout_fold_isolation(folds)[
+        "min_declared_label_embargo_slack_seconds"
+    ] == 1
+
+
+def test_declared_slack_is_minimum_over_all_fold_transitions():
+    folds = _valid()
+    # Make only the second transition tight, leaving the first unchanged.
+    selected = folds[2]["manifest"]["selected_at_utc"]
+    embargo = folds[2]["manifest"]["embargo_seconds"]
+    folds[1]["census"][-1]["label_available_at_utc"] = selected - embargo - 2
+    folds[1]["manifest"]["holdout_census_sha256"] = (
+        prepare_declared_holdout_census_sha256(folds[1]["census"])
+    )
+    assert audit_declared_holdout_fold_isolation(folds)[
+        "min_declared_label_embargo_slack_seconds"
+    ] == 2
