@@ -196,8 +196,8 @@ def test_new_observation_not_after_prior_trusted_check_holds(observed_at):
 
 def test_new_observation_after_prior_trusted_check_is_allowed():
     def adjust(c):
-        c["observed_at_ms"] = NOW - 999
-        c["pages"][0]["orders"][0]["fills"][1]["filled_at_ms"] = NOW - 1001
+        c["observed_at_ms"] = NOW - 900
+        c["pages"][0]["orders"][0]["fills"][1]["filled_at_ms"] = NOW - 999
     result = evaluate(change_current=adjust)
     assert result["status"] == "DECLARED_TRANSITION_CANDIDATE_UNVERIFIED"
     assert "snapshot_observation_precedes_prior_check" not in result["failed_checks"]
