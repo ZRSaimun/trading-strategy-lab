@@ -1,0 +1,11 @@
+# News-spike alignment and unknown-horizon attrition (offline research)
+
+`app.offline_news_spike_attrition.audit_news_spike_attrition(report)` consumes the **unchanged** output of `census_news_spike_persistence` on the Loop 2 research branch. It is a disconnected, standard-library-only descriptive auditor, with no data imports, network, API route, database write, order, broker permission or deployed UI.
+
+The report must have the exact producer schema, explicit UTC minute timestamps, unique events at least 75 minutes apart, and exactly the 5/15/30/60-minute horizons. It rejects extra/missing keys, inconsistent spike/horizon labels, invented missing outcomes, an observed horizon before its candle-close cutoff, and later complete horizons after earlier cumulative gaps. Caller-declared source and event timestamps **are not authenticated**.
+
+The event population always includes one-sided `up` and `down`, `both`, `none`, missing pre-event windows, and missing first-five-minute windows. Only one-sided events enter directional alignment denominators; two-sided/no-break and quarantined events remain separately counted. For each horizon and up/down/combined directional cohort, report `eligible`, `observed`, `aligned`, `not_aligned`, `unknown`, observed-only alignment fraction, and **all-eligible bounds**: aligned/eligible if every unknown fails, and (aligned+unknown)/eligible if every unknown succeeds. Empty denominators return `null`, never zero or 100% success. Six-decimal fractions are descriptive, not confidence intervals or calibrated probabilities.
+
+An `aligned` observation only says the close remained beyond the frozen pre-event range in the original spike direction. **It does not mean a trade was profitable**: there is no entry/fill, spread, bid/ask side, slippage, fees, stop, financing, or trade R. Even 100% observed alignment cannot justify a pre-release BUY/SELL: the initial five-minute spike direction is unknowable before five completed candles. These event cohorts are retrospective, not independent holdout or evidence of causation. Freeze event inventory before studying outcomes and independently authenticate source, UTC, release calendar, event capture times and execution costs before any economic claim.
+
+Run `cd backend && PYTHONPATH=. python -m pytest -q tests/test_offline_news_spike_attrition.py`.
