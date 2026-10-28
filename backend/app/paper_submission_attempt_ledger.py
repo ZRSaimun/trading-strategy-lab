@@ -375,6 +375,10 @@ def _verify(conn):
         else:
             if old is None or old[1] != 'ATTEMPT_UNKNOWN':
                 raise ValueError('Invalid reconciliation transition')
+            # A fingerprint of the original intent is not independent
+            # reconciliation evidence, even if a local hash chain is rebuilt.
+            if evidence == old[0]:
+                raise ValueError('Reconciliation evidence reuses intent fingerprint')
             if unresolved_accounts.get(account_key) != key:
                 raise ValueError('Unresolved broker submission for account in audit history')
             state[key] = (old[0], event)
@@ -439,6 +443,8 @@ def _write(path, key, event, evidence, stamp):
         else:
             if old is None or old[1] != 'ATTEMPT_UNKNOWN':
                 raise ValueError('Reconciliation requires one unresolved attempt')
+            if evidence == old[0]:
+                raise ValueError('Reconciliation evidence reuses intent fingerprint')
             conn.execute('UPDATE intents SET status=? WHERE broker=? AND account=? AND order_id=?',
                          (event, *key))
         digest = _append(conn, key, event, evidence, stamp, count, previous)
