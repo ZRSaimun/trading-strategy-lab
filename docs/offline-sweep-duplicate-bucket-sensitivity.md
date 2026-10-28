@@ -27,3 +27,38 @@ The duplicate timestamps and original M15 population remain caller-declared sour
 The report also contains `causal_confirmation_window_coverage` using **only the 16 completed pre-sweep M15 bars, sweep bar, and completed confirmation bar** (18 bars total). Its candidate sweep indices, chronological 70/30 split and 16-bar embargo match the frozen `research()` signal-stage index eligibility. It counts possible sweep indices, windows crossing existing gaps or segments, originally contiguous windows, and the latter split into caller-declared duplicate-touched versus structurally clean windows. These identities reconcile separately for each cohort. It reads **no future entry or exit bar** and does not inspect prices, identify sweeps, alter the engine or select signals. Existing no-overlap scheduling may reduce the actual signal opportunities; these are upper-bound structural index counts, not observed trades.
 
 Unlike `full_horizon_window_coverage`, which asks whether a *future* 16-bar outcome would eventually have been observable, the causal denominator never uses outcome availability. **Do not use the post-outcome denominator as an ex-ante entry gate**, or confuse either count with a verified market session or broker fill. For a 120-bar synthetic continuous sample, one duplicate-touched bucket affects 18 completed-confirmation windows but 21 otherwise contiguous full-horizon windows in the development cohort. These are synthetic arithmetic checks, not historical performance. Both reports use the same declared source-local timestamps; neither authenticates source clock, original ZIP, licensing, price parity or prospective holdout.
+
+
+## Mutually exclusive causal contamination phases
+
+Within `causal_confirmation_window_coverage`, the additional
+`contamination_phase_attribution.cohorts` object partitions **only**
+originally contiguous, caller-declared duplicate-touched 18-bar confirmation
+windows into seven mutually exclusive combinations: `PRIOR_ONLY`,
+`SWEEP_ONLY`, `CONFIRMATION_ONLY`, `PRIOR_AND_SWEEP`,
+`PRIOR_AND_CONFIRMATION`, `SWEEP_AND_CONFIRMATION`, and
+`PRIOR_SWEEP_AND_CONFIRMATION`. "Prior" means the **16 completed M15 bars
+before** the sweep; sweep and completed confirmation each have their own
+single-bar phase. If multiple buckets are touched, a window belongs to
+exactly one combination; it is never counted twice. For each cohort:
+
+`sum(contamination_phase_attribution.cohorts[cohort].values()) == causal_confirmation_window_coverage.cohorts[cohort].declared_duplicate_touched_confirmation_windows`
+
+This identity is asserted during research. Source segment breaks or missing
+M15 timestamps are excluded from the phase denominator and remain visible in
+the separate gap/segment count. The 70/30 index split, 16-bar embargo, OHLC,
+signal logic, and no-overlap scheduler are unchanged. Phase attribution uses
+no prices, no entry bar, and no future exit/horizon bar. In a **synthetic**
+120-bar continuous series, one touched M15 bucket yields 16 prior-only, one
+sweep-only and one confirmation-only candidate window in development; two
+adjacent touched buckets yield 19 unique contaminated windows, **not** 36
+independent signals. These are structural candidate windows, not observed
+trades, forecasts, risk-adjusted returns, verified session availability or
+broker-executable prices.
+
+The source-local clock and duplicate-minute declaration are still
+unauthenticated. These phase counts cannot be equated with Loop 1's UTC
+clean-bucket inventories until the private source-local-to-UTC mapping and
+original ZIP/SQLite row parity are independently established. They are
+diagnostics only; do not use phase membership as a retrospectively optimized
+entry filter, to promote a subgroup, or to claim profitable execution.
