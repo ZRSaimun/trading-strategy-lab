@@ -1255,3 +1255,79 @@ def test_utc_hour_audit_is_outcome_independent_and_never_authorizes_trading():
     assert second["maySendNotification"] is False
     assert second["mayExecutePaperOrder"] is False
     assert second["mayExecuteLiveOrder"] is False
+
+
+def test_utc_hour_outcome_availability_fixed_census_and_empty_hours():
+    row = audit_temporal_forecast_calibration(fixture())["groups"][0]
+    early = row["earlyCensusOutcomeAvailabilityUtcHour24"]
+    late = row["lateCensusOutcomeAvailabilityUtcHour24"]
+    assert len(early) == len(late) == 24
+    assert sum(b["issued"] for b in early) == row["earlyNonoverlappingIssued"] == 40
+    assert sum(b["issued"] for b in late) == row["lateNonoverlappingIssued"] == 40
+    assert (early[0]["issued"], early[1]["issued"]) == (30, 10)
+    assert (late[1]["issued"], late[2]["issued"]) == (20, 20)
+    assert all(b["unavailable"] == 0 for b in late)
+    assert late[3] == {"utcHour": 3, "issued": 0, "eligibleSettled": 0,
+                       "unavailable": 0, "unavailableFraction": None,
+                       "lowSupportUnder30": None}
+    assert early[0]["lowSupportUnder30"] is False
+    assert late[1]["lowSupportUnder30"] is True
+
+
+def test_utc_hour_availability_does_not_shift_census_to_unselected_neighbor():
+    s = fixture()
+    s["forecasts"][80].update(status="PENDING", outcomeUp=None, resolvedAt=None)
+    s["forecasts"][81].update(status="PENDING", outcomeUp=None, resolvedAt=None)
+    row = audit_temporal_forecast_calibration(s)["groups"][0]
+    hour = row["lateCensusOutcomeAvailabilityUtcHour24"][1]
+    assert hour["issued"] == 20
+    assert hour["eligibleSettled"] == 19
+    assert hour["unavailableFraction"] == pytest.approx(1 / 20)
+    s["forecasts"][81].update(status="SETTLED", outcomeUp=True, resolvedAt=5040)
+    again = audit_temporal_forecast_calibration(s)["groups"][0]
+    assert (again["lateCensusOutcomeAvailabilityUtcHour24"] ==
+            row["lateCensusOutcomeAvailabilityUtcHour24"])
+
+
+def test_utc_hour_early_availability_purges_post_boundary_label():
+    s = fixture()
+    s["forecasts"][78]["resolvedAt"] = s["forecasts"][80]["issuedAt"]
+    row = audit_temporal_forecast_calibration(s)["groups"][0]
+    hour = row["earlyCensusOutcomeAvailabilityUtcHour24"][1]
+    assert hour["issued"] == 10
+    assert hour["eligibleSettled"] == 9
+    assert hour["unavailable"] == 1
+    assert row["earlyCensusUnavailableAtBoundary"] == 1
+
+
+def test_utc_hour_late_availability_respects_declared_as_of():
+    s = fixture()
+    cutoff = max(r["issuedAt"] for r in s["forecasts"])
+    s["forecasts"][80]["resolvedAt"] = cutoff + 120
+    row = audit_temporal_forecast_calibration(
+        s, evaluation_as_of=cutoff)["groups"][0]
+    hour = row["lateCensusOutcomeAvailabilityUtcHour24"][1]
+    assert hour["issued"] == 20 and hour["eligibleSettled"] == 19
+    assert hour["unavailable"] == row["lateCensusSettledAfterDeclaredAsOf"] == 1
+
+
+def test_utc_hour_availability_visible_when_scores_withheld():
+    row = audit_temporal_forecast_calibration(
+        fixture(horizon=12))["groups"][0]
+    assert row["status"] == "INSUFFICIENT_NONOVERLAPPING_OUTCOMES"
+    assert row["lateBrier"] is None
+    assert (sum(b["issued"] for b in row["lateCensusOutcomeAvailabilityUtcHour24"])
+            == row["lateNonoverlappingIssued"])
+
+
+def test_utc_hour_availability_uses_utc_day_rollover_and_no_outcome_direction():
+    from app.forecast_temporal_calibration_audit import _outcome_availability_utc_hour24
+    rows = [{"id": "a", "baseStart": 23 * 3600},
+            {"id": "b", "baseStart": 24 * 3600},
+            {"id": "c", "baseStart": 25 * 3600}]
+    bins = _outcome_availability_utc_hour24(rows, [rows[0], rows[2]])
+    assert bins[23]["eligibleSettled"] == 1
+    assert bins[0]["issued"] == 1 and bins[0]["unavailable"] == 1
+    assert bins[1]["eligibleSettled"] == 1
+    assert bins[2]["unavailableFraction"] is None
+    assert sum(b["issued"] for b in bins) == 3
