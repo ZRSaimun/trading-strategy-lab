@@ -290,3 +290,9 @@ cannot authorize order placement, even after a terminal reconciliation. Both
 paper and real execution permission flags remain false. No external broker
 connection, order placement, paid service, production migration or automatic
 quarantine release is introduced.
+
+## Broker/account cross-purpose evidence anti-replay (28 October 2026)
+
+Within the same broker/account, a terminal reconciliation digest must not match **any** prepared intent digest, including a different order prepared earlier. Conversely, a later intent digest must not reuse any earlier terminal reconciliation digest. Both transactional writes and full historical replay enforce these constraints. Rehashed, internally consistent but invalid histories fail closed, and a rejected terminal claim leaves the ambiguous order quarantined. Other broker/account namespaces remain independent.
+
+These are conservative local fingerprint-hygiene checks, not broker authentication: the evidence hashes are caller-declared, no provider receipt is validated, and a privileged attacker can still rewrite an unanchored local history. The changes do not enable any paper or live submission. The original no-retry, credential isolation, independently authenticated broker reconciliation, persistent risk reservation, protective-stop verification and positive owner confirmation requirements remain in force.
