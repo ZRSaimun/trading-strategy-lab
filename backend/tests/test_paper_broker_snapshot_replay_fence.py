@@ -127,3 +127,33 @@ def test_decimal_spellings_not_treated_as_changed_fills():
 def test_invalid_sequence_schema_fails_closed(invalid_sequence):
     with pytest.raises(ValueError, match="Invalid snapshot sequence"):
         evaluate(change_current=lambda c: c.update(sequence=invalid_sequence))
+
+
+@pytest.mark.parametrize("backdated_at", [NOW - 1500, NOW - 1400])
+def test_newly_disclosed_fill_at_or_before_previous_observation_holds(backdated_at):
+    result = evaluate(change_current=lambda c: c["pages"][0]["orders"][0]["fills"][1].update(
+        filled_at_ms=backdated_at))
+    assert result["status"] == "HOLD_RECONCILIATION"
+    assert "retroactive_fill_appearance" in result["failed_checks"]
+    assert result["current_census_failed_checks"] == []
+    assert result["may_clear_unknown"] is False
+
+
+def test_new_fill_after_previous_observation_is_not_a_retroactive_fill():
+    result = evaluate(change_current=lambda c: c["pages"][0]["orders"][0]["fills"][1].update(
+        filled_at_ms=NOW - 1399))
+    assert result["status"] == "DECLARED_TRANSITION_CANDIDATE_UNVERIFIED"
+    assert "retroactive_fill_appearance" not in result["failed_checks"]
+
+
+@pytest.mark.parametrize("overlapping_observed_at", [NOW - 1150, NOW - 1100])
+def test_overlapping_snapshot_observation_and_previous_receipt_holds(overlapping_observed_at):
+    def overlap(c):
+        c["observed_at_ms"] = overlapping_observed_at
+        c["pages"][0]["orders"][0]["fills"][1]["filled_at_ms"] = NOW - 1200
+    result = evaluate(change_current=overlap)
+    assert result["status"] == "HOLD_RECONCILIATION"
+    assert "snapshot_observation_overlap" in result["failed_checks"]
+    assert "retroactive_fill_appearance" not in result["failed_checks"]
+    assert result["current_census_failed_checks"] == []
+    assert result["may_submit_real_order"] is False
