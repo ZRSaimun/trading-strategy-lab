@@ -1,5 +1,7 @@
 """Synthetic SQLite adapter regressions; no proprietary archive bytes or broker I/O."""
+import hashlib
 import json
+import zipfile
 import sqlite3
 from datetime import datetime, timezone
 from decimal import Decimal as D
@@ -7,6 +9,7 @@ from decimal import Decimal as D
 import pytest
 
 from app.offline_sweep_sqlite_replay import replay_declared_sqlite, main
+import app.offline_sweep_sqlite_replay as adapter
 
 DATASET = "a" * 64
 SOURCE = "b" * 64
@@ -159,3 +162,82 @@ def test_replay_pins_metadata_and_candles_to_one_wal_snapshot(tmp_path, monkeypa
         assert writer.execute(
             "SELECT count(*) FROM historical_candles WHERE dataset_id=?",
             (DATASET,)).fetchone()[0] == 3001
+
+
+def _bind_synthetic_zip(tmp_path, db):
+    archive = tmp_path / "original.zip"
+    with zipfile.ZipFile(archive, "w") as zf:
+        zf.writestr("original.txt", "synthetic archive, not market data")
+    digest = hashlib.sha256(archive.read_bytes()).hexdigest()
+    with sqlite3.connect(db) as con:
+        con.execute("UPDATE historical_datasets SET archive_sha256=? WHERE id=?",
+                    (digest, DATASET))
+    return archive, digest
+
+
+def test_optional_original_zip_digest_matches_twice_without_extraction(tmp_path):
+    db = build_db(tmp_path)
+    archive, digest = _bind_synthetic_zip(tmp_path, db)
+    original_db = db.read_bytes()
+    original_zip = archive.read_bytes()
+    report = replay_declared_sqlite(db, DATASET, digest, archive_zip=archive)
+    assert report["original_archive_bytes_sha256_verified"] is True
+    assert report["source_authenticated"] is False
+    assert report["complete_m15"] == 200
+    assert db.read_bytes() == original_db
+    assert archive.read_bytes() == original_zip
+    assert replay_declared_sqlite(db, DATASET, digest)[
+        "original_archive_bytes_sha256_verified"] is False
+
+
+def test_optional_original_zip_rejects_wrong_bytes_and_missing_path(tmp_path):
+    db = build_db(tmp_path)
+    archive, digest = _bind_synthetic_zip(tmp_path, db)
+    archive.write_bytes(archive.read_bytes() + b"altered")
+    with pytest.raises(ValueError, match="archive bytes disagree"):
+        replay_declared_sqlite(db, DATASET, digest, archive_zip=archive)
+    with pytest.raises(FileNotFoundError):
+        replay_declared_sqlite(db, DATASET, digest,
+                               archive_zip=tmp_path / "absent.zip")
+    with pytest.raises(ValueError, match="archive file"):
+        replay_declared_sqlite(db, DATASET, digest, archive_zip=tmp_path)
+
+
+def test_optional_original_zip_rejects_empty_and_oversized(tmp_path, monkeypatch):
+    db = build_db(tmp_path)
+    archive, digest = _bind_synthetic_zip(tmp_path, db)
+    archive.write_bytes(b"")
+    with pytest.raises(ValueError, match="archive is empty"):
+        replay_declared_sqlite(db, DATASET, digest, archive_zip=archive)
+    archive.write_bytes(b"not a real ZIP; oversized before digest comparison")
+    monkeypatch.setattr(adapter, "_MAX_ARCHIVE_BYTES", 10)
+    with pytest.raises(ValueError, match="byte cap"):
+        replay_declared_sqlite(db, DATASET, digest, archive_zip=archive)
+
+
+def test_optional_original_zip_detects_mid_replay_change(tmp_path, monkeypatch):
+    db = build_db(tmp_path)
+    archive, digest = _bind_synthetic_zip(tmp_path, db)
+    original_digest = adapter._compressed_archive_digest
+    calls = []
+
+    def changed_on_second_read(path):
+        calls.append(True)
+        if len(calls) == 2:
+            archive.write_bytes(archive.read_bytes() + b"changed")
+        return original_digest(path)
+
+    monkeypatch.setattr(adapter, "_compressed_archive_digest", changed_on_second_read)
+    with pytest.raises(ValueError, match="changed during SQLite replay"):
+        replay_declared_sqlite(db, DATASET, digest, archive_zip=archive)
+    assert len(calls) == 2
+
+
+def test_cli_optional_zip_proof_is_explicit(tmp_path, capsys):
+    db = build_db(tmp_path)
+    archive, digest = _bind_synthetic_zip(tmp_path, db)
+    main([str(db), "--dataset-id", DATASET,
+          "--expected-archive-sha256", digest, "--archive-zip", str(archive)])
+    report = json.loads(capsys.readouterr().out)
+    assert report["original_archive_bytes_sha256_verified"] is True
+    assert report["may_execute_order"] is False
