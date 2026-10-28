@@ -2886,3 +2886,43 @@ test('v69 matched first-touch wait attrition reconciles strict status and as-of 
  assert.ok(afterExit.cohort.firstTouchPairedByWaitAndStrictCandidate.PASS[0]>=1,
   'matched evidence appears only once the shared exit candle closes');
 });
+
+test('as-of future timestamp getter cannot rewrite historical source or frozen settings',()=>{
+ const bars=fixture();
+ const mutableSource:FvgSource={...source};
+ const mutableConfig:FvgConfig={
+  volumeMultiple:1.5,hypotheticalRoundTripCostsBps:[0,5,15],
+ };
+ const cutoff=BASE+34*H; // first midpoint-touch bar is now completed
+ const expected=studyHourlyFvgMidpoint(bars.slice(0,34),mutableSource,mutableConfig);
+ const firstFuture=bars[34];
+ const originalFutureTime=firstFuture.time;
+ let futureTimestampReads=0;
+ Object.defineProperty(firstFuture,'time',{get(){
+  futureTimestampReads++;
+  // Future OHLC must not be read, but even the timestamp getter must not
+  // be able to reclassify already-observed volume or rewrite the report.
+  mutableSource.volumeVerified=false;
+  mutableSource.provider='spoofed-after-cutoff';
+  mutableConfig.volumeMultiple=10;
+  mutableConfig.hypotheticalRoundTripCostsBps=[0,900];
+  return originalFutureTime;
+ }});
+ for(const field of ['open','high','low','close','volume','observed_minutes'])
+  Object.defineProperty(firstFuture,field,{get(){
+   throw Error('future '+field+' must not be inspected');
+  }});
+ const actual=studyHourlyFvgMidpointAsOf(bars,mutableSource,cutoff,mutableConfig);
+ assert.ok(futureTimestampReads>0,'future timestamps are still checked for ordering');
+ assert.equal(mutableSource.volumeVerified,false,'mutation fixture must execute');
+ assert.equal(mutableConfig.volumeMultiple,10,'future getter must attempt config rewrite');
+ assert.deepEqual(actual,expected,
+  'historical source, volume classification and cost settings must be frozen before future timestamp reads');
+ assert.equal(actual.source.provider,source.provider);
+ assert.equal(actual.source.volumeVerified,true);
+ assert.deepEqual(actual.config.hypotheticalRoundTripCostsBps,[0,5,15]);
+ const observed=actual.observations.find(o=>o.formationClosedAt===BASE+33*H);
+ assert.equal(observed?.gates.verifiedVolume,'PASS');
+ assert.equal(observed?.gates.markout,'INSUFFICIENT_DATA',
+  'future exit candles remain right-censored as of the touch close');
+});
