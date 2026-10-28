@@ -74,7 +74,7 @@ def _state_valid(state, now):
 
 def audit_forecast_alert_health(records, expected_keys, *, as_of,
                                 queue_warning_seconds=60, uncertain_warning_seconds=30,
-                                expiry_warning_seconds=30):
+                                expiry_warning_seconds=30, unverified_ack_warning_seconds=300):
     """Audit a caller-declared exact alert population without sending anything.
 
     `records`: [{"sessionId": str, "state": unpacked_outbox_state}, ...]
@@ -86,7 +86,8 @@ def audit_forecast_alert_health(records, expected_keys, *, as_of,
         raise ValueError("Invalid alert health audit time")
     if (type(queue_warning_seconds) is not int or not 1 <= queue_warning_seconds <= 3600 or
             type(uncertain_warning_seconds) is not int or not 1 <= uncertain_warning_seconds <= 3600 or
-            type(expiry_warning_seconds) is not int or not 1 <= expiry_warning_seconds <= 3600):
+            type(expiry_warning_seconds) is not int or not 1 <= expiry_warning_seconds <= 3600 or
+            type(unverified_ack_warning_seconds) is not int or not 1 <= unverified_ack_warning_seconds <= 3600):
         raise ValueError("Invalid alert health warning budget")
     if (type(records) is not list or type(expected_keys) is not list or
             len(records) > _MAX_ROWS or len(expected_keys) > _MAX_ROWS):
@@ -108,6 +109,7 @@ def audit_forecast_alert_health(records, expected_keys, *, as_of,
     oldest_queued = 0
     oldest_uncertain = 0
     max_ack_lag = 0
+    oldest_unverified_ack = 0
     warning_keys = []
     warning_reason_map = {}
     unverified_ack_keys = []
@@ -168,6 +170,14 @@ def audit_forecast_alert_health(records, expected_keys, *, as_of,
             # without conflating it with an age/expiry warning.
             unverified_ack_keys.append(key)
             max_ack_lag = max(max_ack_lag, state["ackAt"] - state["claimedAt"])
+            ack_age = as_of - state["ackAt"]
+            oldest_unverified_ack = max(oldest_unverified_ack, ack_age)
+            # An unverified ACK can linger indefinitely without independent
+            # provider/recipient evidence. Escalate aged entries for review,
+            # without granting a retry or treating the ACK as delivered.
+            if ack_age >= unverified_ack_warning_seconds:
+                counts["ACK_RECONCILIATION_OVERDUE_WARNING"] += 1
+                warn(key, "ACK_RECONCILIATION_OVERDUE_WARNING")
             if state["ackAt"] >= state["expiresAt"]:
                 counts["ACK_AT_OR_AFTER_EXPIRY_WARNING"] += 1
                 warn(key, "ACK_AT_OR_AFTER_EXPIRY_WARNING")
@@ -177,12 +187,13 @@ def audit_forecast_alert_health(records, expected_keys, *, as_of,
         raise ValueError("Incomplete declared alert health population")
     statuses = ("QUEUED", "EXPIRED_UNCLAIMED", "IN_FLIGHT_UNCERTAIN",
                 "EXPIRED_IN_FLIGHT_UNCERTAIN", "ACK_RECORDED_UNVERIFIED",
-                "ACK_AT_OR_AFTER_EXPIRY_WARNING", "CANCELLED",
+                "ACK_AT_OR_AFTER_EXPIRY_WARNING", "ACK_RECONCILIATION_OVERDUE_WARNING", "CANCELLED",
                 "QUEUE_DELAY_WARNING", "UNCERTAIN_DELAY_WARNING",
                 "EXPIRING_SOON_WARNING")
     requires_review = bool(counts["EXPIRED_UNCLAIMED"] or counts["IN_FLIGHT_UNCERTAIN"] or
                            counts["QUEUE_DELAY_WARNING"] or counts["EXPIRING_SOON_WARNING"] or
-                           counts["ACK_AT_OR_AFTER_EXPIRY_WARNING"])
+                           counts["ACK_AT_OR_AFTER_EXPIRY_WARNING"] or
+                           counts["ACK_RECONCILIATION_OVERDUE_WARNING"])
     return {"populationEvidence": "DECLARED_ONLY_NOT_INDEPENDENTLY_VERIFIED",
             "status": "NO_DECLARED_ALERTS" if not expected else
                       "OPERATOR_REVIEW_REQUIRED" if requires_review else "DECLARED_ONLY",
@@ -190,6 +201,7 @@ def audit_forecast_alert_health(records, expected_keys, *, as_of,
             "oldestQueuedSeconds": oldest_queued,
             "oldestUncertainSeconds": oldest_uncertain,
             "maxSelfAttestedAckLagSeconds": max_ack_lag,
+            "oldestUnverifiedAckAgeSeconds": oldest_unverified_ack,
             "warningKeys": [list(key) for key in sorted(set(warning_keys))],
             "warningReasons": [{"key": list(key), "reasons": sorted(reasons)}
                                for key, reasons in sorted(warning_reason_map.items())],
