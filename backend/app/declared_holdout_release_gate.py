@@ -185,15 +185,23 @@ def audit_declared_holdout_release(manifest, census, anchor, outcomes, release_a
             receipts.add(row["receipt_sha256"])
         if seen != set(by_id):
             raise ValueError("Incomplete holdout outcome population")
+        # Decision order is not receipt/label-availability order: overlapping
+        # positions can finish out of order. A decision-ordered equity curve
+        # would leak a misleading drawdown estimate. Aggregate receipts at the
+        # same observed second, since their within-second order is unknown.
         total = running = peak = drawdown = Decimal(0)
         worst = None
-        for item in census:
+        observed_batches = {}
+        for item in outcomes:
             net = parsed[item["observation_id"]]
             total += net
-            running += net
+            worst = net if worst is None else min(worst, net)
+            observed_at = item["observed_at_utc"]
+            observed_batches[observed_at] = observed_batches.get(observed_at, Decimal(0)) + net
+        for observed_at in sorted(observed_batches):
+            running += observed_batches[observed_at]
             peak = max(peak, running)
             drawdown = max(drawdown, peak - running)
-            worst = net if worst is None else min(worst, net)
         # A withheld holdout must not reveal the result it purports to withhold.
         # Otherwise repeated small-sample probes can tune candidates on holdout P&L.
         sufficient = len(census) >= 30
