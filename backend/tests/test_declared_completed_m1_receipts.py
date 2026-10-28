@@ -450,3 +450,66 @@ def test_absent_and_empty_expected_overdue_diagnostics_are_distinct():
     assert empty["declared_overdue_missing_expected_minutes"] == 0
     assert empty["declared_pending_missing_expected_minutes"] == 0
     assert empty["overdue_declared_expected_minute_sample_utc"] == []
+
+
+def test_overdue_gap_runs_split_at_declared_session_breaks():
+    expected = [T, T + 60, T + 120, T + 600, T + 660, T + 720]
+    report = audit_declared_completed_m1_receipts(
+        [row(T, event="first"), row(T + 720, event="last", received=T + 782)],
+        provider="synthetic", instrument="XAU/USD", source_id="test:feed",
+        price_side="mid", as_of_utc=T + 800, expected_utc_minutes=expected,
+    )
+    assert report["missing_declared_expected_minutes"] == 4
+    assert report["declared_overdue_missing_expected_minutes"] == 3
+    assert report["declared_pending_missing_expected_minutes"] == 1
+    assert report["declared_overdue_missing_expected_gap_runs"] == 2
+    assert report["largest_declared_overdue_missing_expected_gap_run_minutes"] == 2
+    assert report["overdue_declared_expected_minute_sample_utc"] == [
+        T + 60, T + 120, T + 600,
+    ]
+    assert report["pending_declared_expected_minute_sample_utc"] == [T + 660]
+    assert report["structurally_clean"] is False
+    assert report["session_calendar_verified"] is False
+    assert report["may_execute_order"] is False
+
+
+def test_overdue_run_strict_deadline_and_empty_overdue_population():
+    kwargs = dict(
+        provider="synthetic", instrument="XAU/USD", source_id="test:feed",
+        price_side="mid", expected_utc_minutes=[T, T + 60],
+    )
+    at_deadline = audit_declared_completed_m1_receipts(
+        [row()], as_of_utc=T + 210, **kwargs,
+    )
+    after_deadline = audit_declared_completed_m1_receipts(
+        [row()], as_of_utc=T + 211, **kwargs,
+    )
+    assert at_deadline["declared_overdue_missing_expected_gap_runs"] == 0
+    assert at_deadline["largest_declared_overdue_missing_expected_gap_run_minutes"] == 0
+    assert at_deadline["pending_declared_expected_minute_sample_utc"] == [T + 60]
+    assert after_deadline["declared_overdue_missing_expected_gap_runs"] == 1
+    assert after_deadline["largest_declared_overdue_missing_expected_gap_run_minutes"] == 1
+    assert after_deadline["pending_declared_expected_minute_sample_utc"] == []
+
+
+def test_overdue_run_absent_vs_empty_and_pending_sample_bounded():
+    absent = audit([row()])
+    empty = audit([row()], expected_utc_minutes=[])
+    keys = (
+        "pending_declared_expected_minute_sample_utc",
+        "declared_overdue_missing_expected_gap_runs",
+        "largest_declared_overdue_missing_expected_gap_run_minutes",
+    )
+    for key in keys:
+        assert absent[key] is None
+    assert empty["pending_declared_expected_minute_sample_utc"] == []
+    assert empty["declared_overdue_missing_expected_gap_runs"] == 0
+    assert empty["largest_declared_overdue_missing_expected_gap_run_minutes"] == 0
+    expected = [T + 60 * i for i in range(30)]
+    report = audit([row()], expected_utc_minutes=expected)
+    assert report["declared_overdue_missing_expected_minutes"] == 1
+    assert report["declared_pending_missing_expected_minutes"] == 28
+    assert report["pending_declared_expected_minute_sample_utc"] == expected[2:14]
+    assert len(report["pending_declared_expected_minute_sample_utc"]) == 12
+    assert report["declared_overdue_missing_expected_gap_runs"] == 1
+    assert report["largest_declared_overdue_missing_expected_gap_run_minutes"] == 1
