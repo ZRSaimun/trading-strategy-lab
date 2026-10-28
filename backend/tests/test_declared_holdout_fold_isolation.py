@@ -100,3 +100,54 @@ def test_outcome_mutation_cannot_enter_membership_only_audit():
 def test_population_bounds_fail_closed(folds):
     with pytest.raises(ValueError):
         audit_declared_holdout_fold_isolation(folds)
+
+
+def test_maximum_24_distinct_declared_folds_remain_membership_only():
+    # 24 synthetic, two-year, source-disjoint windows: upper protocol bound.
+    folds = [_fold(i) for i in range(24)]
+    result = audit_declared_holdout_fold_isolation(folds)
+    assert result["fold_count"] == 24
+    assert result["observation_count"] == 24 * 40
+    assert len({item["archive_sha256"] for item in result["folds"]}) == 24
+    assert result["source_bytes_independently_authenticated"] is False
+    assert result["holdout_untouched_independently_verified"] is False
+    assert result["may_execute_demo_order"] is False
+    assert result["may_execute_real_order"] is False
+    assert "net_cash" not in result
+
+
+def test_previous_label_embargo_equality_is_allowed_but_one_second_late_fails():
+    folds = _valid()
+    selected = folds[1]["manifest"]["selected_at_utc"]
+    embargo = folds[1]["manifest"]["embargo_seconds"]
+    # Equality is the permitted boundary: label_available + embargo <= selected.
+    folds[0]["census"][-1]["label_available_at_utc"] = selected - embargo
+    folds[0]["manifest"]["holdout_census_sha256"] = (
+        prepare_declared_holdout_census_sha256(folds[0]["census"])
+    )
+    assert audit_declared_holdout_fold_isolation(folds)["fold_count"] == 3
+
+    folds[0]["census"][-1]["label_available_at_utc"] += 1
+    folds[0]["manifest"]["holdout_census_sha256"] = (
+        prepare_declared_holdout_census_sha256(folds[0]["census"])
+    )
+    with pytest.raises(ValueError, match="labels not mature"):
+        audit_declared_holdout_fold_isolation(folds)
+
+
+@pytest.mark.parametrize("field,replacement", [
+    ("provider", "AnotherProvider"),
+    ("venue", "AnotherVenue"),
+    ("instrument", "XAGUSD-CFD"),
+    ("account_alias", "different-paper-account"),
+    ("settlement_currency", "USD"),
+])
+def test_cross_fold_source_identity_changes_fail_with_recommitted_manifest(
+    field, replacement
+):
+    folds = _valid()
+    folds[1]["manifest"]["source"][field] = replacement
+    # The census commitment remains valid, so rejection must come from
+    # cross-fold source identity rather than an unrelated census mismatch.
+    with pytest.raises(ValueError, match="source convention changed"):
+        audit_declared_holdout_fold_isolation(folds)
