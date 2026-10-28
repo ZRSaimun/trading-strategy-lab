@@ -11,10 +11,10 @@ import re
 from typing import Any
 
 _MAX_MS = 8_640_000_000_000_000
-_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:/+-]{0,79}\\Z")
-_SHA = re.compile(r"[0-9a-f]{64}\\Z")
-_DEC = re.compile(r"(?:0|[1-9][0-9]{0,15})(?:\\.[0-9]{1,8})?\\Z")
-_SIGNED = re.compile(r"-?(?:0|[1-9][0-9]{0,15})(?:\\.[0-9]{1,8})?\\Z")
+_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:/+-]{0,79}\Z")
+_SHA = re.compile(r"[0-9a-f]{64}\Z")
+_DEC = re.compile(r"(?:0|[1-9][0-9]{0,15})(?:\.[0-9]{1,8})?\Z")
+_SIGNED = re.compile(r"-?(?:0|[1-9][0-9]{0,15})(?:\.[0-9]{1,8})?\Z")
 _ORDER = {"client_order_id", "intent_sha", "instrument", "side", "quantity", "stop_price", "requested_leverage"}
 _QUOTE = {"instrument", "source", "bid", "ask", "observed_at_ms", "received_at_ms"}
 _ACCOUNT = {"broker", "account_alias", "equity", "free_margin", "daily_realized_pnl", "open_notional", "open_risk", "circuit_breaker_open"}
