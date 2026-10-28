@@ -12,11 +12,13 @@ from app.paper_broker_inventory_census import inspect_declared_inventory
 from app.paper_broker_snapshot_replay_fence import inspect_declared_snapshot_transition
 
 MAX_CHAIN_SNAPSHOTS = 16
+MAX_CHECKPOINT_GAP_MS = 60_000
 _ALLOWED_INTERMEDIATE_FAILURES = frozenset({"unresolved_order_state"})
 
 
 def inspect_declared_snapshot_chain(expected: dict, snapshots: list[dict],
-                                    check_times_ms: list[int]) -> dict[str, Any]:
+                                    check_times_ms: list[int],
+                                    max_checkpoint_gap_ms: int = MAX_CHECKPOINT_GAP_MS) -> dict[str, Any]:
     """Fail closed on replay/gaps across 2..16 declared broker snapshots.
 
     Intermediate OPEN/PARTIAL inventories are allowed *only* as diagnostics.
@@ -28,6 +30,10 @@ def inspect_declared_snapshot_chain(expected: dict, snapshots: list[dict],
         raise ValueError("Invalid snapshot chain length")
     if type(check_times_ms) is not list or len(check_times_ms) != len(snapshots):
         raise ValueError("Invalid snapshot chain check times")
+
+    if (type(max_checkpoint_gap_ms) is not int or
+            not 1 <= max_checkpoint_gap_ms <= MAX_CHECKPOINT_GAP_MS):
+        raise ValueError("Invalid maximum checkpoint gap")
 
     failures: set[str] = set()
     seen_snapshot_ids: set[str] = set()
@@ -48,6 +54,14 @@ def inspect_declared_snapshot_chain(expected: dict, snapshots: list[dict],
         seen_snapshot_ids.add(snapshot_id)
 
         if i:
+            # Fresh individual snapshots do not prove continuous monitoring.
+            # Reject long blind intervals even when caller sequence numbers
+            # remain contiguous and both individual censuses appear fresh.
+            if check_times_ms[i] - check_times_ms[i - 1] > max_checkpoint_gap_ms:
+                failures.add("trusted_checkpoint_gap")
+            if (snapshot["observed_at_ms"] - snapshots[i - 1]["observed_at_ms"]
+                    > max_checkpoint_gap_ms):
+                failures.add("snapshot_observation_gap")
             result = inspect_declared_snapshot_transition(
                 expected, snapshots[i - 1], snapshot,
                 check_times_ms[i - 1], check_times_ms[i])
