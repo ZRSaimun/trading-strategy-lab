@@ -700,3 +700,76 @@ def test_release_rejects_triggers_added_after_population_registration(
         assert conn.execute(
             "SELECT count(*) FROM holdout_locked_pairs"
         ).fetchone() == (len(census),)
+
+
+@pytest.mark.parametrize("shadow_name", [
+    "holdout_claims", "holdout_locked_rows",
+    "holdout_locked_decisions", "holdout_locked_pairs",
+])
+def test_case_variant_view_cannot_shadow_population_registration(
+        tmp_path, clock, shadow_name):
+    """SQLite names are case-insensitive; sqlite_master.name comparisons are not."""
+    path = tmp_path / "mixed-case-registration.sqlite"
+    columns = {
+        "holdout_claims": (
+            "'' AS study_id, '' AS manifest_sha256, "
+            "0 AS holdout_start_at_utc, 0 AS holdout_end_at_utc, "
+            "0 AS registered_at_utc, NULL AS release_claimed_at_utc"
+        ),
+        "holdout_locked_rows": (
+            "'' AS source_sha256, '' AS row_sha256, '' AS study_id"
+        ),
+        "holdout_locked_decisions": (
+            "'' AS source_sha256, 0 AS decision_at_utc, '' AS study_id"
+        ),
+        "holdout_locked_pairs": (
+            "'' AS source_sha256, '' AS row_sha256, "
+            "0 AS decision_at_utc, '' AS study_id"
+        ),
+    }
+    upper = shadow_name.upper()
+    with sqlite3.connect(path) as conn:
+        conn.execute(f"CREATE VIEW {upper} AS SELECT {columns[shadow_name]} WHERE 0")
+        conn.execute(
+            f"CREATE TRIGGER swallow_insert INSTEAD OF INSERT ON {upper} "
+            "BEGIN SELECT 1; END"
+        )
+    with pytest.raises(ValueError, match="Invalid population-lock schema object"):
+        register_population_locked_holdout(path, *_study())
+    with sqlite3.connect(path) as conn:
+        assert conn.execute(
+            "SELECT name, type FROM sqlite_master WHERE lower(name)=?",
+            (shadow_name,),
+        ).fetchone() == (upper, "view")
+        assert conn.execute(
+            "SELECT count(*) FROM sqlite_master WHERE type='table' "
+            "AND lower(name) IN ('holdout_claims', 'holdout_locked_rows', "
+            "'holdout_locked_decisions', 'holdout_locked_pairs')"
+        ).fetchone() == (0,)
+
+
+@pytest.mark.parametrize("protected_table", [
+    "holdout_claims", "holdout_locked_rows",
+    "holdout_locked_decisions", "holdout_locked_pairs",
+])
+def test_case_variant_trigger_target_blocks_population_registration(
+        tmp_path, clock, protected_table):
+    """sqlite_master.tbl_name preserves the case used by CREATE TRIGGER."""
+    from app.local_holdout_population_lock import _DECISION_SCHEMA, _PAIR_SCHEMA
+
+    path = tmp_path / "mixed-case-trigger.sqlite"
+    with sqlite3.connect(path) as conn:
+        for schema in (registry._SCHEMA, _ROW_SCHEMA, _DECISION_SCHEMA, _PAIR_SCHEMA):
+            conn.execute(schema)
+        conn.execute(
+            f"CREATE TRIGGER silent_insert AFTER INSERT ON {protected_table.upper()} "
+            f"BEGIN DELETE FROM {protected_table}; END"
+        )
+        assert conn.execute(
+            "SELECT tbl_name FROM sqlite_master WHERE type='trigger'"
+        ).fetchone() == (protected_table.upper(),)
+    with pytest.raises(ValueError, match="Invalid population-lock trigger"):
+        register_population_locked_holdout(path, *_study())
+    with sqlite3.connect(path) as conn:
+        assert conn.execute("SELECT count(*) FROM holdout_claims").fetchone() == (0,)
+        assert conn.execute("SELECT count(*) FROM holdout_locked_pairs").fetchone() == (0,)
