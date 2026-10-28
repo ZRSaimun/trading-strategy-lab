@@ -190,18 +190,42 @@ def audit_declared_holdout_release(manifest, census, anchor, outcomes, release_a
         # would leak a misleading drawdown estimate. Aggregate receipts at the
         # same observed second, since their within-second order is unknown.
         total = running = peak = drawdown = Decimal(0)
+        adverse_running = adverse_peak = adverse_drawdown = Decimal(0)
         worst = None
+        # Each batch records (net, positive receipts, negative receipts).
+        # The second diagnostic is the maximum possible peak-to-trough cash
+        # drawdown over all within-second permutations of declared receipts.
+        # It is NOT a bound on unobserved intraperiod broker-equity losses.
         observed_batches = {}
         for item in outcomes:
             net = parsed[item["observation_id"]]
             total += net
             worst = net if worst is None else min(worst, net)
             observed_at = item["observed_at_utc"]
-            observed_batches[observed_at] = observed_batches.get(observed_at, Decimal(0)) + net
+            batch = observed_batches.setdefault(
+                observed_at, [Decimal(0), Decimal(0), Decimal(0)]
+            )
+            batch[0] += net
+            batch[1 if net >= 0 else 2] += net
         for observed_at in sorted(observed_batches):
-            running += observed_batches[observed_at]
+            batch_net, positive, negative = observed_batches[observed_at]
+            running += batch_net
             peak = max(peak, running)
             drawdown = max(drawdown, peak - running)
+
+            # A prior possible peak can precede all same-second debits.
+            # Alternatively, credits can precede debits within this batch.
+            # These two orders attain the worst possible within-batch loss;
+            # each batch's ending cash is fixed regardless of its ordering.
+            adverse_end = adverse_running + batch_net
+            adverse_drawdown = max(
+                adverse_drawdown,
+                adverse_peak - (adverse_running + negative),
+                -negative,
+                adverse_peak - adverse_end,
+            )
+            adverse_peak = max(adverse_peak, adverse_running + positive)
+            adverse_running = adverse_end
         # A withheld holdout must not reveal the result it purports to withhold.
         # Otherwise repeated small-sample probes can tune candidates on holdout P&L.
         sufficient = len(census) >= 30
@@ -222,6 +246,9 @@ def audit_declared_holdout_release(manifest, census, anchor, outcomes, release_a
             "worst_observation_net_cash": format(worst, ".4f") if sufficient else None,
             "max_observation_end_drawdown_cash": (
                 format(drawdown, ".4f") if sufficient else None
+            ),
+            "max_receipt_time_ordering_drawdown_cash_upper_bound": (
+                format(adverse_drawdown, ".4f") if sufficient else None
             ),
             "anchor_independently_authenticated": False,
             "source_bytes_independently_authenticated": False,
