@@ -7,7 +7,7 @@
  */
 import type {Bar} from './research.ts';
 
-export const HOURLY_FVG_VERSION='hourly-fvg-first-midpoint-touch-v53';
+export const HOURLY_FVG_VERSION='hourly-fvg-first-midpoint-touch-v54';
 export type Evidence='PASS'|'FAIL'|'INSUFFICIENT_DATA';
 // First-touch volume evidence is not independent broker/source authentication.
 export type VolumeEvidenceReason='NOT_EVALUATED'|'SOURCE_UNVERIFIED'|
@@ -108,6 +108,10 @@ export type PairedMaximumDisjointCensus={
 };
 export type FvgCohort={
  formations:number;firstTouchOutcome:Record<FirstTouchOutcome,number>;
+ // Index zero is the first completed post-formation hour. Only timestamped
+ // TOUCH, OPEN_GAP_THROUGH and completed NO_TOUCH outcomes are counted.
+ // Missing-hour and right-censored windows cannot become observed negatives.
+ firstDispositionWaitBarCounts:Record<'TOUCH'|'OPEN_GAP_THROUGH'|'NO_TOUCH',readonly number[]>;
   incompleteWindowByReason:Record<FirstTouchCensorReason,number>;
   markoutCensoredByReason:Record<MarkoutCensorReason,number>;
  midpointTouch:EvidenceCounts;strictCandidate:EvidenceCounts;markout:EvidenceCounts;
@@ -289,7 +293,8 @@ function positiveNetAfterCost(entry:number,exit:number,direction:Side,costBps:nu
 // Account for the full observed formation population, not just attractive
 // confirmed returns. Unknown outcomes remain unknown, and blind-only markouts
 // must not be presented as matched wick-versus-limit comparisons.
-function summarizeCohort(observations:readonly FvgObservation[],costs:readonly number[]):FvgCohort{
+function summarizeCohort(observations:readonly FvgObservation[],costs:readonly number[],
+ maxTouchWaitBars:number):FvgCohort{
  const count=(gate:'midpointTouch'|'strictCandidate'|'markout'):EvidenceCounts=>{
   const result:EvidenceCounts={PASS:0,FAIL:0,INSUFFICIENT_DATA:0};
   for(const observation of observations)result[observation.gates[gate]]++;
@@ -479,15 +484,34 @@ function summarizeCohort(observations:readonly FvgObservation[],costs:readonly n
  const markoutCensoredByReason:Record<MarkoutCensorReason,number>={
   MISSING_HOUR:0,RIGHT_CENSORED:0,UNREPRESENTABLE_RETURN:0,
  };
+ const firstDispositionWaitBarCounts:Record<'TOUCH'|'OPEN_GAP_THROUGH'|'NO_TOUCH',number[]>={
+  TOUCH:Array(maxTouchWaitBars).fill(0),
+  OPEN_GAP_THROUGH:Array(maxTouchWaitBars).fill(0),
+  NO_TOUCH:Array(maxTouchWaitBars).fill(0),
+ };
  for(const observation of observations){
   firstTouchOutcome[observation.firstTouchOutcome]++;
+  if(observation.firstTouchOutcome!=='INCOMPLETE_WINDOW'){
+   const observedAt=observation.firstTouchOutcomeObservedAt;
+   const wait=observedAt===null?NaN:
+    (observedAt-observation.formationClosedAt)/HOUR;
+   if(!Number.isSafeInteger(wait)||wait<1||wait>maxTouchWaitBars)
+    throw Error('Observed FVG first-disposition wait is inconsistent');
+   firstDispositionWaitBarCounts[observation.firstTouchOutcome][wait-1]++;
+  }
   if(observation.firstTouchCensorReason!==null)
    incompleteWindowByReason[observation.firstTouchCensorReason]++;
   if(observation.markoutCensorReason!==null)
    markoutCensoredByReason[observation.markoutCensorReason]++;
  }
+ for(const outcome of ['TOUCH','OPEN_GAP_THROUGH','NO_TOUCH'] as const){
+  const accounted=firstDispositionWaitBarCounts[outcome].reduce((sum,n)=>sum+n,0);
+  if(accounted!==firstTouchOutcome[outcome])
+   throw Error('Observed FVG first-disposition wait census does not reconcile');
+ }
  return {
-  formations:observations.length,firstTouchOutcome,incompleteWindowByReason,
+  formations:observations.length,firstTouchOutcome,firstDispositionWaitBarCounts,
+  incompleteWindowByReason,
   pairedNetSignByCost,pairedGrossOrdering,pairedHoldingWindowOverlap,
   pairedHoldingWindowOverlapByStrictCandidate,
   pairedHoldingWindowCrossStrictCandidate,pairedMaximumDisjointWindows,
@@ -835,7 +859,7 @@ export function studyHourlyFvgMidpoint(
    coverage:summarizeCoverage(bars),
   config:{maxTouchWaitBars,markoutBars,minimumRejectionWickFraction,
    volumeMultiple,hypotheticalRoundTripCostsBps:[...costs]},
-  observations,cohort:summarizeCohort(observations,costs),
+  observations,cohort:summarizeCohort(observations,costs,maxTouchWaitBars),
   warning:'Read-only hourly BID OHLC research. Midpoint touch is a hypothetical blind limit, not an executable fill. Rejection entry uses only the next observed hourly open. Markouts omit intrabar stops, spreads, financing, news, slippage and broker contracts; bps costs are illustrative, not measured. No strategy edge or live execution is established.'};
 }
 

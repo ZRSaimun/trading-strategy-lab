@@ -561,7 +561,7 @@ test('research report rejects extra source fields without leaking caller private
  const report=studyHourlyFvgMidpoint(fixture(),source);
  assert.deepEqual(report.source,source);
  assert.deepEqual(Object.keys(report.source).sort(),Object.keys(source).sort());
- assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v53');
+ assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v54');
 });
 test('ambiguous source labels and contradictory volume evidence fail closed',()=>{
  // These are declared metadata, not independent vendor authentication.
@@ -962,7 +962,7 @@ test('an overflowing next-open comparator suppresses both matched markouts',()=>
 });
 test('completed hourly timestamps are safe and numeric rule changes have a new version',()=>{
  const report=studyHourlyFvgMidpoint(fixture(),source);
- assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v53');
+ assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v54');
  const lastSafeAlignedOpen=Math.floor(Number.MAX_SAFE_INTEGER/H)*H;
  assert.equal(Number.isSafeInteger(lastSafeAlignedOpen),true);
  assert.equal(Number.isSafeInteger(lastSafeAlignedOpen+H),false);
@@ -1946,4 +1946,43 @@ test('explicit nullish FVG settings cannot silently become frozen defaults',()=>
  assert.equal(reads,1,'declared nullish getter must not be read twice');
  assert.deepEqual(studyHourlyFvgMidpoint(bars,source),baseline);
  assert.deepEqual(studyHourlyFvgMidpointAsOf(bars,source,cutoff),asOfBaseline);
+});
+
+test('v54 observed first-disposition wait census is causal and excludes censored tails',()=>{
+ const config={maxTouchWaitBars:3};
+ const bars=[
+  candle(0,100,101,99,100),
+  candle(1,102,104,101,103),
+  candle(2,106,107,105,106),
+  candle(3,106,107,103.5,106),
+  candle(4,106,107,101,106),
+ ];
+ const read=(series:Bar[])=>studyHourlyFvgMidpoint(series,source,config);
+ const asOf=(series:Bar[],closedAt:number)=>
+  studyHourlyFvgMidpointAsOf(series,source,closedAt,config);
+ const empty={TOUCH:[0,0,0],OPEN_GAP_THROUGH:[0,0,0],NO_TOUCH:[0,0,0]};
+ assert.equal(read(bars).observations.length,1,'only the intended bullish gap forms');
+ assert.deepEqual(asOf(bars,BASE+3*H).cohort.firstDispositionWaitBarCounts,empty,
+  'formation alone cannot report an observed first touch');
+ assert.deepEqual(asOf(bars,BASE+4*H).cohort.firstDispositionWaitBarCounts,empty,
+  'the first untouched completed hour is not a known no-touch deadline');
+ assert.deepEqual(asOf(bars,BASE+5*H).cohort.firstDispositionWaitBarCounts,
+  {TOUCH:[0,1,0],OPEN_GAP_THROUGH:[0,0,0],NO_TOUCH:[0,0,0]},
+  'a second-hour midpoint touch is counted only when its bar closes');
+ assert.deepEqual(read(bars).cohort.firstDispositionWaitBarCounts,
+  asOf(bars,BASE+5*H).cohort.firstDispositionWaitBarCounts);
+ const gapThrough=bars.slice(0,4);
+ gapThrough[3]=candle(3,102,107,101,105);
+ assert.deepEqual(asOf(gapThrough,BASE+4*H).cohort.firstDispositionWaitBarCounts,
+  {TOUCH:[0,0,0],OPEN_GAP_THROUGH:[1,0,0],NO_TOUCH:[0,0,0]},
+  'an opening gap-through is not a certified touch or hypothetical fill');
+ const untouched=[...bars.slice(0,4),
+  candle(4,106,107,103.5,106),candle(5,106,107,103.5,106)];
+ assert.deepEqual(asOf(untouched,BASE+5*H).cohort.firstDispositionWaitBarCounts,empty,
+  'two observed no-touch hours do not prove a three-hour negative');
+ assert.deepEqual(asOf(untouched,BASE+6*H).cohort.firstDispositionWaitBarCounts,
+  {TOUCH:[0,0,0],OPEN_GAP_THROUGH:[0,0,0],NO_TOUCH:[0,0,1]},
+  'a known no-touch outcome is counted at its configured completed deadline');
+ assert.deepEqual(read(untouched.slice(0,5)).cohort.firstDispositionWaitBarCounts,empty,
+  'a right-censored tail cannot be reclassified as a late no-touch');
 });
