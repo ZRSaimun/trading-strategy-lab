@@ -146,3 +146,16 @@ preservation of the original claim. Legitimate unreserved legacy databases
 without any such objects retain their compatibility path. This detects
 local schema inconsistency, not malicious SQLite file replacement,
 externally authenticated historical data or independent holdout integrity.
+
+
+**External anchor versus optional local lock chronology (28 October 2026):**
+An independently timestamped manifest anchor may legitimately be recorded
+**before** the optional SQLite registry is created, provided both occur before
+the frozen holdout begins and the declared manifest/anchor chronology passes
+validation. The local registry is a defense-in-depth claim fence, not the
+source of truth for external preregistration. Do not require
+`anchor.anchored_at_utc >= holdout_claims.registered_at_utc`: such a rule
+would reject legitimate externally preregistered studies. A synthetic
+end-to-end regression covers external anchor first, later local population
+registration, exact frozen-population release, and one-attempt enforcement.
+Neither clock or digest is independently authenticated by this test.
