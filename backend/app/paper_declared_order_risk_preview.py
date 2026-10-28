@@ -145,7 +145,8 @@ def inspect_declared_order_risk_preview(order: dict, quote: dict, account: dict,
         if max(Decimal(0), -pnl) + risk > equity * limits["max_daily_loss_pct"] / 100:
             failures.add("daily_loss_circuit_breaker")
     recent_in_window = 0
-    seen: set[tuple[str, str]] = set()
+    seen_ids: set[str] = set()
+    seen_intents: set[str] = set()
     for row in recent_orders:
         item = _obj(row, _RECENT, "recent order")
         prior_id = _id(item["client_order_id"], "recent order ID")
@@ -153,9 +154,10 @@ def inspect_declared_order_risk_preview(order: dict, quote: dict, account: dict,
         stamp = _ms(item["submitted_at_ms"], "recent order time")
         if stamp > now:
             failures.add("future_order_history")
-        if (prior_id, prior_intent) in seen:
+        if prior_id in seen_ids or prior_intent in seen_intents:
             failures.add("duplicate_order_history")
-        seen.add((prior_id, prior_intent))
+        seen_ids.add(prior_id)
+        seen_intents.add(prior_intent)
         if prior_id == cid or prior_intent == intent:
             failures.add("duplicate_order_intent")
         if 0 <= now - stamp <= p["order_window_ms"]:
