@@ -133,3 +133,43 @@ def test_extra_keys_and_empty_inventory_rejected():
     bad["license_verified"] = True
     with pytest.raises(ValueError):
         audit([bad])
+
+
+def test_delayed_finalization_cannot_hide_behind_fast_transport():
+    late = row()
+    late["finalized_at_utc"] = T + 180
+    late["received_at_utc"] = T + 181
+    report = audit([late], max_finalization_lag_seconds=60)
+    assert report["transport_lag_exceeded_rows"] == 0
+    assert report["finalization_lag_exceeded_rows"] == 1
+    assert report["structurally_clean"] is False
+    assert report["declared_freshness_within_budget"] is False
+    assert report["market_data_live"] is False
+    assert report["may_execute_order"] is False
+
+
+def test_finalization_lag_exact_budget_is_inclusive():
+    item = row()
+    item["finalized_at_utc"] = T + 120
+    item["received_at_utc"] = T + 121
+    report = audit([item], max_finalization_lag_seconds=60)
+    assert report["finalization_lag_exceeded_rows"] == 0
+    assert report["structurally_clean"] is True
+    assert report["declared_max_finalization_lag_seconds"] == 60
+
+
+def test_finalization_lag_is_checked_for_old_rows_not_only_newest():
+    old = row(event="old")
+    old["finalized_at_utc"] = T + 180
+    old["received_at_utc"] = T + 181
+    fresh = row(T + 60, event="fresh", received=T + 183)
+    report = audit([old, fresh], max_finalization_lag_seconds=60)
+    assert report["latest_candle_end_age_seconds"] == 120
+    assert report["finalization_lag_exceeded_rows"] == 1
+    assert report["declared_freshness_within_budget"] is False
+
+
+@pytest.mark.parametrize("bad_budget", [-1, 301, True, 1.0, "60"])
+def test_finalization_budget_must_be_bounded_integer(bad_budget):
+    with pytest.raises(ValueError, match="Bounded freshness"):
+        audit([row()], max_finalization_lag_seconds=bad_budget)
