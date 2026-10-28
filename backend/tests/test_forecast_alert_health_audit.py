@@ -65,7 +65,7 @@ def test_fresh_uncertain_claim_is_actionable_before_delay_threshold():
 
 def test_fresh_uncertain_review_keys_are_sorted_and_deduplicated():
     records = [
-        {"sessionId": "s2", "state": state("IN_FLIGHT_UNCERTAIN", forecastId="f2")},
+        {"sessionId": "s2", "state": state("IN_FLIGHT_UNCERTAIN", forecastId="f2", claimId="b" * 32)},
         {"sessionId": "s1", "state": state("IN_FLIGHT_UNCERTAIN")},
         {"sessionId": "s1", "state": state(forecastId="f3")},
     ]
@@ -98,7 +98,7 @@ def test_ack_never_counts_as_human_delivery():
 
 def test_unverified_ack_reconciliation_inventory_is_sorted_and_separate_from_warnings():
     records = [
-        {"sessionId": "s2", "state": state("ACK_RECORDED_UNVERIFIED", forecastId="f2")},
+        {"sessionId": "s2", "state": state("ACK_RECORDED_UNVERIFIED", forecastId="f2", claimId="b" * 32)},
         {"sessionId": "s1", "state": state("QUEUED", forecastId="f3")},
         {"sessionId": "s1", "state": state("ACK_RECORDED_UNVERIFIED")},
     ]
@@ -319,7 +319,7 @@ def test_warning_reasons_distinguish_expired_queue_and_late_ack():
 
 def test_warning_reasons_are_stable_across_input_order_and_disjoint_from_timeline_acks():
     records = [
-        {"sessionId": "s2", "state": state("ACK_RECORDED_UNVERIFIED", forecastId="f3")},
+        {"sessionId": "s2", "state": state("ACK_RECORDED_UNVERIFIED", forecastId="f3", claimId="b" * 32)},
         {"sessionId": "s1", "state": state("IN_FLIGHT_UNCERTAIN", forecastId="f2")},
         {"sessionId": "s1", "state": state(expiresAt=180)},
     ]
