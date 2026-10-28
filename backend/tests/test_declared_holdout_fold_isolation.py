@@ -247,3 +247,61 @@ def test_later_folds_embargo_not_earlier_folds_controls_slack():
     assert audit_declared_holdout_fold_isolation(folds)[
         "min_declared_label_embargo_slack_seconds"
     ] == 86403
+
+
+@pytest.mark.parametrize("seed", range(48))
+def test_randomized_nonmonotonic_label_maturity_matches_independent_embargo_oracle(seed):
+    """A label can mature long after its decision/window, without order assumptions.
+
+    This compares the audit against a separate per-transition maximum-label
+    oracle; all dates and digests are synthetic, caller-controlled fixtures.
+    """
+    import random
+
+    rng = random.Random(20261028 + seed)
+    folds = _valid()
+    expected_slacks = []
+    for previous, later in zip(folds, folds[1:]):
+        manifest = later["manifest"]
+        chosen = previous["census"][rng.randrange(len(previous["census"]))]
+        slack = rng.randrange(0, 1001)
+        chosen["label_available_at_utc"] = (
+            manifest["selected_at_utc"] - manifest["embargo_seconds"] - slack
+        )
+        previous["manifest"]["holdout_census_sha256"] = (
+            prepare_declared_holdout_census_sha256(previous["census"])
+        )
+        expected_slacks.append(
+            manifest["selected_at_utc"]
+            - max(row["label_available_at_utc"] for row in previous["census"])
+            - manifest["embargo_seconds"]
+        )
+    original = copy.deepcopy(folds)
+    result = audit_declared_holdout_fold_isolation(folds)
+    assert result["min_declared_label_embargo_slack_seconds"] == min(expected_slacks)
+    assert result["observation_count"] == 120
+    assert result["holdout_untouched_independently_verified"] is False
+    assert result["may_execute_demo_order"] is False
+    assert result["may_execute_real_order"] is False
+    assert "net_cash" not in result
+    assert folds == original
+
+
+@pytest.mark.parametrize("seed", range(16))
+def test_randomized_late_label_one_second_past_embargo_rejected(seed):
+    """Any row, not merely the final decision, can violate the next embargo."""
+    import random
+
+    rng = random.Random(20261028 + seed)
+    folds = _valid()
+    transition = rng.randrange(2)
+    previous, later = folds[transition], folds[transition + 1]
+    chosen = previous["census"][rng.randrange(len(previous["census"]))]
+    chosen["label_available_at_utc"] = (
+        later["manifest"]["selected_at_utc"] - later["manifest"]["embargo_seconds"] + 1
+    )
+    previous["manifest"]["holdout_census_sha256"] = (
+        prepare_declared_holdout_census_sha256(previous["census"])
+    )
+    with pytest.raises(ValueError, match="labels not mature"):
+        audit_declared_holdout_fold_isolation(folds)
