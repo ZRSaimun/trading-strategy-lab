@@ -246,3 +246,54 @@ def test_opt_in_receipt_lag_audit_empty_and_invalid_journals():
     s["forecasts"][0]["resolvedAt"] = -1
     with pytest.raises(ValueError, match="resolution"):
         audit_settled_receipt_lag(s)
+
+
+def test_settlement_lag_audit_model_horizon_breakdown_is_reconciled():
+    s = snapshot(5)
+    for index, horizon in ((0, 3), (1, 12)):
+        row, event = s["forecasts"][index], s["events"][index]
+        row["horizon"] = event["horizon"] = horizon
+        row["targetStart"] = row["baseStart"] + horizon * IDENTITY["seconds"]
+    s["forecasts"][0]["resolvedAt"] = s["forecasts"][0]["targetStart"] + 60 + 120 + 4
+    s["forecasts"][1]["resolvedAt"] = s["forecasts"][1]["targetStart"] + 60 + 120
+    s["forecasts"][2]["modelVersion"] = s["events"][2]["modelVersion"] = "alt"
+    s["forecasts"][2]["resolvedAt"] = s["forecasts"][2]["targetStart"] + 60 + 120 + 1
+    s["forecasts"][3].update(status="VOID_GAP", outcomeUp=None,
+                             resolvedAt=s["forecasts"][3]["targetStart"] + 60 + 4000)
+    s["forecasts"][4].update(status="PENDING", outcomeUp=None, resolvedAt=None)
+
+    result = audit_settled_receipt_lag(s)
+    assert result["settledCount"] == 3
+    assert result["lateBeyondDeclaredLagCount"] == 2
+    assert result["largestExcessSeconds"] == 4
+    assert result["byModelHorizon"] == [
+        {"modelVersion": "alt", "horizonCandles": 1, "settledCount": 1,
+         "lateBeyondDeclaredLagCount": 1, "lateFractionOfSettled": 1.0,
+         "largestExcessSeconds": 1},
+        {"modelVersion": "baseline", "horizonCandles": 3, "settledCount": 1,
+         "lateBeyondDeclaredLagCount": 1, "lateFractionOfSettled": 1.0,
+         "largestExcessSeconds": 4},
+        {"modelVersion": "baseline", "horizonCandles": 12, "settledCount": 1,
+         "lateBeyondDeclaredLagCount": 0, "lateFractionOfSettled": 0.0,
+         "largestExcessSeconds": None},
+    ]
+    assert sum(g["settledCount"] for g in result["byModelHorizon"]) == result["settledCount"]
+    assert (sum(g["lateBeyondDeclaredLagCount"] for g in result["byModelHorizon"])
+            == result["lateBeyondDeclaredLagCount"])
+
+
+def test_settlement_lag_audit_breakdown_empty_or_all_on_time():
+    assert audit_settled_receipt_lag(snapshot(0))["byModelHorizon"] == []
+    result = audit_settled_receipt_lag(snapshot(30))
+    assert result["byModelHorizon"] == [
+        {"modelVersion": "baseline", "horizonCandles": 1, "settledCount": 30,
+         "lateBeyondDeclaredLagCount": 0, "lateFractionOfSettled": 0.0,
+         "largestExcessSeconds": None},
+    ]
+
+
+def test_settlement_lag_audit_breakdown_preserves_fail_closed_validation():
+    s = snapshot()
+    s["forecasts"][0]["modelVersion"] = "forged"
+    with pytest.raises(ValueError, match="issuance/outcome mismatch"):
+        audit_settled_receipt_lag(s)
