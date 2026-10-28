@@ -28,6 +28,7 @@ execution/authentication/release flags are always false.
 - `now_ms` must be supplied by a trusted caller clock, not an untrusted
   provider response. Timestamps are UTC epoch milliseconds.
 - Strict schemas and numeric bounds: 1–256 unresolved orders, 1–16 pages,
+  at most 256 observed order rows **across all pages** (including duplicates),
   at most 256 orders per page, at most 2,048 fills total, positive age/lag
   limits at most 60 seconds, finite decimal strings (16 integral and 8
   fractional digits maximum). Malformed inputs raise `ValueError`.
