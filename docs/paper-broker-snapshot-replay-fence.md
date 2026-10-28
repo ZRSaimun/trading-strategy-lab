@@ -17,9 +17,12 @@ provider-specific human reconciliation. Additionally, the fence holds when the
 new snapshot's observation timestamp is at or before the previous snapshot's
 receipt timestamp (ambiguous overlapping acquisition), or a newly disclosed
 fill is timestamped at or before the previous snapshot's observation time
-(retroactive fill / previously incomplete inventory). These can be legitimate
-provider reporting delays, but are **not** sufficient evidence to release a
-quarantined order. Boundaries are inclusive; neither clock nor fill receipt is
+(retroactive fill / previously incomplete inventory). A newly disclosed
+fill timestamped at or before the **prior trusted-caller census check** is
+also held, even when it postdates the prior broker observation: that previous
+checkpoint was already missing the fill when checked. The boundary is
+inclusive. These can be legitimate provider reporting delays, but are **not**
+sufficient evidence to release a quarantined order. Boundaries are inclusive; neither clock nor fill receipt is
 broker-authenticated. Neither sequence nor snapshots are
 provider-authenticated; the caller must independently persist and authenticate
 the prior checkpoint. The new observation must also occur strictly after the
