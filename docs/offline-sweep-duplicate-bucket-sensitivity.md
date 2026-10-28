@@ -1,0 +1,64 @@
+# Declared duplicate M1 minute → M15 sweep sensitivity
+
+**Offline research only.** `app.offline_sweep_duplicate_bucket_sensitivity` compares the frozen Decimal CRT/ICT sweep engine against the **same** source-local M15 population after isolating each caller-declared duplicate-touched M15 bar as a singleton continuity segment. It does **not** delete a bar, change its OHLC, or move the chronological 70/30 split index. The following clean segment is separated too, so no signal lookback/confirmation/entry or known exit can bridge a quarantined bar. A preexisting segment break is preserved. Original and quarantined populations are reported side-by-side, including confirmed, entered, observed, censored, missing-entry and 0/5/10/20 illustrative extra-bps observed-only means.
+
+Run locally with `cd backend && python -m app.offline_sweep_duplicate_bucket_sensitivity /private/declared-input.json`. Input is a closed-schema JSON object containing `dataset_id` and `archive_sha256` (64-character lowercase hex declarations), `duplicate_m1_times` (unique sorted ISO `YYYY-MM-DDTHH:MM:00` source-local timestamps), and `bars` (chronologically ordered complete M15 objects with `time`, Decimal-string `o,h,l,c`, and integer `segment`). The timestamp convention is **source-local, not authenticated UTC**. Never publish input, private price rows, archive bytes or paths. The CLI refuses duplicate JSON keys, nonfinite/nonpositive OHLC, non-chronological M15 bars, malformed minutes, unknown keys and unbounded populations.
+
+**Interpretation:** A duplicate M1 minute touches the M15 quarter-hour bucket containing that minute. A bucket only enters the quarantine count if a complete M15 bar with the same source-local start time exists in the declared population. Missing/incomplete buckets are counted separately. All original bars remain in the replay, preserving the split boundary; a contaminated bar is isolated from causal windows. This **does not preserve the matched trade population**: removing continuity may censor earlier exits or prevent later confirmations, and frozen no-overlap position scheduling can change. Never call the difference an unbiased causal estimate of duplicate impact, a repaired historical series, an untouched holdout, or evidence of profitable execution.
+
+The original ZIP's SHA and the duplicate-minute list are **caller declarations only**. This tool does not inspect or authenticate the ZIP, independently derive duplicate minutes, validate original ASCII-to-Decimal parity, establish DST/timezone or rights, prove BID/ASK, account for actual spread/financing/slippage, or authorize orders. Use the separate `offline_archive_sqlite_row_parity` auditor and independent source-population audit to derive and verify the manifest before interpreting results. Earlier independent 11-archive analysis found 660 repeated M1 source rows and 44 extra raw-order M15 windows; this tool does **not** claim to have replayed those archives. Any historically selected confluence remains exploratory. Production merge/deployment still requires all CI plus independent backup/rollback/health/hosting verification.
+
+
+## Post-outcome full-horizon observability envelope
+
+The report now includes `full_horizon_window_coverage` by frozen **development** and **exploratory_later** bar-index cohort. This is a structural *denominator* audit, **not** a signal, trade, fill, expectancy or candidate-selection census. For every index at which a sweep *could* be considered by the frozen 70/30 split and 16-bar embargo, it checks a 34-bar window: **16 completed prior M15 bars + sweep + completed confirmation + 16 potential entry/holding M15 bars**. It counts windows whose full horizon runs past the cohort boundary or archive end, windows crossing any existing source segment/time gap, and originally contiguous windows that either intersect a caller-declared duplicate-touched complete M15 bucket or remain clean. Each cohort reconciles:
+
+`possible_sweep_indices = full_horizon_outside_cohort_or_archive + full_horizon_crosses_source_gap_or_segment + original_contiguous_full_horizon_windows`
+
+`original_contiguous_full_horizon_windows = declared_duplicate_touched_full_horizon_windows + quarantine_clean_full_horizon_windows`
+
+This uses a future horizon **only to audit eventual outcome observability after the fact**. It must **never** be used to admit or reject a signal, choose a strategy, tune a parameter, label a forward test or claim no-lookahead trading performance. A trade may exit before 16 bars, so lack of a *full* 16-bar horizon does not imply that an actual observed trade is censored. Likewise, a fully contiguous window is not evidence of a sweep, entry, valid stop, executable quote, real fill, or authenticated market session. Existing engine signal admission, stop-first exits, non-overlap reservation, split index and illustrative costs are unchanged.
+
+The duplicate timestamps and original M15 population remain caller-declared source-local times. This census does not validate the source clock, independently derive repeated rows, certify exchange-session completeness, or match individual trades between original and quarantined runs. It is intended to make denominator loss from quarantine visible before interpreting any exploratory performance comparison.
+
+
+## Causal completed-confirmation denominator (separate from full-horizon audit)
+
+The report also contains `causal_confirmation_window_coverage` using **only the 16 completed pre-sweep M15 bars, sweep bar, and completed confirmation bar** (18 bars total). Its candidate sweep indices, chronological 70/30 split and 16-bar embargo match the frozen `research()` signal-stage index eligibility. It counts possible sweep indices, windows crossing existing gaps or segments, originally contiguous windows, and the latter split into caller-declared duplicate-touched versus structurally clean windows. These identities reconcile separately for each cohort. It reads **no future entry or exit bar** and does not inspect prices, identify sweeps, alter the engine or select signals. Existing no-overlap scheduling may reduce the actual signal opportunities; these are upper-bound structural index counts, not observed trades.
+
+Unlike `full_horizon_window_coverage`, which asks whether a *future* 16-bar outcome would eventually have been observable, the causal denominator never uses outcome availability. **Do not use the post-outcome denominator as an ex-ante entry gate**, or confuse either count with a verified market session or broker fill. For a 120-bar synthetic continuous sample, one duplicate-touched bucket affects 18 completed-confirmation windows but 21 otherwise contiguous full-horizon windows in the development cohort. These are synthetic arithmetic checks, not historical performance. Both reports use the same declared source-local timestamps; neither authenticates source clock, original ZIP, licensing, price parity or prospective holdout.
+
+
+## Mutually exclusive causal contamination phases
+
+Within `causal_confirmation_window_coverage`, the additional
+`contamination_phase_attribution.cohorts` object partitions **only**
+originally contiguous, caller-declared duplicate-touched 18-bar confirmation
+windows into seven mutually exclusive combinations: `PRIOR_ONLY`,
+`SWEEP_ONLY`, `CONFIRMATION_ONLY`, `PRIOR_AND_SWEEP`,
+`PRIOR_AND_CONFIRMATION`, `SWEEP_AND_CONFIRMATION`, and
+`PRIOR_SWEEP_AND_CONFIRMATION`. "Prior" means the **16 completed M15 bars
+before** the sweep; sweep and completed confirmation each have their own
+single-bar phase. If multiple buckets are touched, a window belongs to
+exactly one combination; it is never counted twice. For each cohort:
+
+`sum(contamination_phase_attribution.cohorts[cohort].values()) == causal_confirmation_window_coverage.cohorts[cohort].declared_duplicate_touched_confirmation_windows`
+
+This identity is asserted during research. Source segment breaks or missing
+M15 timestamps are excluded from the phase denominator and remain visible in
+the separate gap/segment count. The 70/30 index split, 16-bar embargo, OHLC,
+signal logic, and no-overlap scheduler are unchanged. Phase attribution uses
+no prices, no entry bar, and no future exit/horizon bar. In a **synthetic**
+120-bar continuous series, one touched M15 bucket yields 16 prior-only, one
+sweep-only and one confirmation-only candidate window in development; two
+adjacent touched buckets yield 19 unique contaminated windows, **not** 36
+independent signals. These are structural candidate windows, not observed
+trades, forecasts, risk-adjusted returns, verified session availability or
+broker-executable prices.
+
+The source-local clock and duplicate-minute declaration are still
+unauthenticated. These phase counts cannot be equated with Loop 1's UTC
+clean-bucket inventories until the private source-local-to-UTC mapping and
+original ZIP/SQLite row parity are independently established. They are
+diagnostics only; do not use phase membership as a retrospectively optimized
+entry filter, to promote a subgroup, or to claim profitable execution.
