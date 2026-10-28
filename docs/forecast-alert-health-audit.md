@@ -170,3 +170,21 @@ only: no automatic resend, notification sender, broker adapter, paper fill,
 order execution, production route or deployment is enabled. Synthetic tests
 cover exact age boundaries, budget overrides, empty populations, deterministic
 mixed records, overlapping warnings and invalid budgets.
+
+
+## Earliest active queue expiry triage (28 October 2026)
+
+The read-only health census now returns
+`earliestQueuedExpirySecondsRemaining` and `earliestQueuedExpiryKeys`.
+Only still-valid, unclaimed `QUEUED` rows participate. The countdown is
+`expiresAt - as_of`, strictly positive; at exact expiry the row is instead
+`EXPIRED_UNCLAIMED` and excluded. All ties for the nearest expiry are returned
+as sorted `[sessionId, forecastId]` identities. Empty, cancelled, expired,
+uncertain-claim and ACK-only populations return `null` for the countdown and
+an empty key list. Results are independent of record ordering.
+
+These caller-declared expiry deadlines help an operator triage a backlog; they
+do not authenticate a server clock, prove complete registration, establish
+provider/device delivery, grant permission to send, retry uncertain attempts,
+execute paper/live orders or bypass entitlement/opt-in gates. The metric is not
+a delivery SLA or trading-performance measure.
