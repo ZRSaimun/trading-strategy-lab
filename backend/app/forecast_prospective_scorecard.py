@@ -165,6 +165,22 @@ def audit_settled_receipt_lag(snapshot):
     excess = [row["resolvedAt"] - (row["targetStart"] + seconds + lag)
               for row in settled
               if row["resolvedAt"] > row["targetStart"] + seconds + lag]
+    # Group by both frozen model version and horizon: aggregate counts alone can
+    # hide a broken receipt path specific to one model or forecast horizon.
+    grouped = defaultdict(list)
+    for row in settled:
+        grouped[(row["modelVersion"], row["horizon"])].append(row)
+    by_model_horizon = []
+    for (model, horizon), rows in sorted(grouped.items()):
+        late = [row["resolvedAt"] - (row["targetStart"] + seconds + lag)
+                for row in rows
+                if row["resolvedAt"] > row["targetStart"] + seconds + lag]
+        by_model_horizon.append({
+            "modelVersion": model, "horizonCandles": horizon,
+            "settledCount": len(rows), "lateBeyondDeclaredLagCount": len(late),
+            "lateFractionOfSettled": len(late) / len(rows),
+            "largestExcessSeconds": max(late) if late else None,
+        })
     return {
         "status": ("DECLARED_SETTLEMENT_LAG_VIOLATIONS" if excess else
                    "NO_SETTLED_OUTCOMES" if not settled else
@@ -173,6 +189,7 @@ def audit_settled_receipt_lag(snapshot):
         "settledCount": len(settled),
         "lateBeyondDeclaredLagCount": len(excess),
         "largestExcessSeconds": max(excess) if excess else None,
+        "byModelHorizon": by_model_horizon,
         "sourceAuthenticated": False,
         "prospectiveReceiptVerified": False,
         "maySendNotification": False,
