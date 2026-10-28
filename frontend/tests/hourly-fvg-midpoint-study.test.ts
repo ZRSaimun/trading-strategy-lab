@@ -616,8 +616,8 @@ test('v52 source identities reject noncanonical and default-ignorable Unicode al
    /Invalid source/,'as-of replay enforces identical identity checks');
  }
  assert.deepEqual(studyHourlyFvgMidpoint(bars,source),baseline);
- assert.equal(valid.eligibleForLiveTrading,undefined,
-  'read-only study has no study-level trading permission');
+ assert.ok(valid.observations.every(o=>o.eligibleForLiveTrading===false),
+  'no observation grants live trading permission');
 });
 test('first bullish midpoint touch has a hypothetical blind limit and later next-open rejection markout',()=>{
  const x=target(fixture());
