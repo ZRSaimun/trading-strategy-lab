@@ -420,3 +420,61 @@ def test_pending_deadline_audit_rejects_forged_snapshot():
     s["forecasts"][0]["modelVersion"] = "forged"
     with pytest.raises(ValueError, match="issuance/outcome mismatch"):
         audit_pending_outcome_deadlines(s, as_of=500)
+
+
+def test_pending_deadline_audit_overdue_tail_nearest_rank():
+    s = snapshot(20, status="PENDING")
+    result = audit_pending_outcome_deadlines(s, as_of=1500)
+    # Declared deadlines 300, 360, ... 1440; overdue ages 1200, ... 60.
+    assert result["overduePendingCount"] == 20
+    assert result["overdueFractionOfIssued"] == 1.0
+    assert (result["overdueSecondsP50"], result["overdueSecondsP95"]) == (600, 1140)
+    assert result["byModelHorizon"][0]["overdueSecondsP50"] == 600
+    assert result["byModelHorizon"][0]["overdueSecondsP95"] == 1140
+    assert result["sourceAuthenticated"] is False
+    assert result["maySendNotification"] is False
+
+
+def test_pending_deadline_audit_tail_excludes_resolved_and_void():
+    s = snapshot(4, status="PENDING")
+    s["forecasts"][1].update(status="SETTLED", outcomeUp=True,
+                             resolvedAt=s["forecasts"][1]["targetStart"] + 60)
+    s["forecasts"][3].update(status="VOID_GAP", outcomeUp=None,
+                             resolvedAt=s["forecasts"][3]["issuedAt"])
+    result = audit_pending_outcome_deadlines(s, as_of=500)
+    # Pending rows 0 and 2 have ages 200 and 80; others stay issued.
+    assert (result["issuedCount"], result["pendingCount"],
+            result["overduePendingCount"]) == (4, 2, 2)
+    assert result["overdueFractionOfIssued"] == 0.5
+    assert (result["overdueSecondsP50"], result["overdueSecondsP95"]) == (80, 200)
+
+
+def test_pending_deadline_audit_tail_null_when_no_overdue():
+    boundary = audit_pending_outcome_deadlines(snapshot(1, status="PENDING"), as_of=300)
+    assert boundary["overdueFractionOfIssued"] == 0.0
+    assert boundary["overdueSecondsP50"] is None
+    assert boundary["overdueSecondsP95"] is None
+    empty = audit_pending_outcome_deadlines(snapshot(0), as_of=0)
+    assert empty["overdueFractionOfIssued"] is None
+    assert empty["overdueSecondsP50"] is None
+    assert empty["overdueSecondsP95"] is None
+
+
+def test_pending_deadline_audit_tail_reconciles_by_model_horizon():
+    s = snapshot(4, status="PENDING")
+    for index, horizon in ((0, 3), (1, 12)):
+        row, event = s["forecasts"][index], s["events"][index]
+        row["horizon"] = event["horizon"] = horizon
+        row["targetStart"] = row["baseStart"] + horizon * IDENTITY["seconds"]
+    s["forecasts"][2]["modelVersion"] = s["events"][2]["modelVersion"] = "challenger"
+    result = audit_pending_outcome_deadlines(s, as_of=500)
+    assert result["overduePendingCount"] == 3
+    assert result["overdueFractionOfIssued"] == 0.75
+    assert (result["overdueSecondsP50"], result["overdueSecondsP95"]) == (80, 80)
+    groups = {(g["modelVersion"], g["horizonCandles"]): g
+              for g in result["byModelHorizon"]}
+    assert groups[("baseline", 3)]["overdueSecondsP50"] == 80
+    assert groups[("baseline", 12)]["overdueSecondsP95"] is None
+    assert groups[("challenger", 1)]["overdueSecondsP95"] == 80
+    assert groups[("baseline", 1)]["overdueSecondsP50"] == 20
+    assert sum(g["overduePendingCount"] for g in groups.values()) == 3
