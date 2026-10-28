@@ -1,7 +1,9 @@
-# Hourly FVG first-touch midpoint rejection versus blind limit (research v50)
+# Hourly FVG first-touch midpoint rejection versus blind limit (research v51)
 
 **Status: proposed, deterministic, read-only hypothesis.** This standalone TypeScript library is not yet wired to the terminal UI, production broker, archive query or cloud service. No actual BID/ASK executions, licensed news data, verified performance, live trades or profitability claims are included. It deliberately does **not** duplicate PR #24's sweep/MSS/FVG confluence risk-path experiment or PR #33's 4H CRT/15m confirmation screen.
 
+
+**Version 51: require distinct, ascending illustrative cost stresses.** The frozen FVG research protocol now rejects repeated or descending hypothetical round-trip bps scenarios. Duplicate cost settings can otherwise repeat identical paired net-sign populations under separate scenario indices, while descending values obscure the intended low-to-high stress comparison. Both full-history and causal as-of replay enforce the same rule; distinct ascending scenarios retain their original values and ordering. One synthetic regression checks duplicate, descending and valid fractional bps cases. This is experiment/reporting integrity only: the costs remain illustrative, not measured broker spreads, financing, executable two-sided quotes or evidence of profitable expectancy. Frozen rule: `hourly-fvg-first-midpoint-touch-v51`.
 
 **Version 50: reject undeclared archive-array metadata.** The bounded BID-only hourly candle array now accepts only its own indexed candle slots, `length` and the deliberately ignored custom iterator. Extra own array-level ASK quotes, spread assertions, broker receipts, hidden metadata and symbols fail closed without invoking unknown getters, both in full-history and as-of replay. This closes a provenance ambiguity distinct from v48's per-candle field checks: unsupported array-level evidence can no longer silently disappear from an otherwise valid-looking report. One synthetic regression covers hidden, symbol and explicit extra fields, hostile getter nonexecution, unchanged valid index-only iteration and causal as-of parity. No authenticated broker prices, verified volume, measured costs, licensed news, real fills or profitability are established. Frozen rule: `hourly-fvg-first-midpoint-touch-v50`.
 
@@ -123,6 +125,6 @@ The research still lacks an authenticated broker's timestamped BID/ASK observati
 
 ## Verification
 
-68 synthetic Node tests cover bullish and bearish gap geometry, first-touch freeze, strict volume gating, incomplete and missing candles, gap-through uncertainty, causal next-open timing, common-horizon cost arithmetic and source validation. Run `cd frontend && npm test && npm run typecheck && npm run build`; repository CI also exercises backend and container smoke. Synthetic passing tests do not establish a statistical edge.
+70 synthetic Node tests cover bullish and bearish gap geometry, first-touch freeze, strict volume gating, incomplete and missing candles, gap-through uncertainty, causal next-open timing, common-horizon cost arithmetic and source validation. Run `cd frontend && npm test && npm run typecheck && npm run build`; repository CI also exercises backend and container smoke. Synthetic passing tests do not establish a statistical edge.
 
 **Deployment safety:** isolated draft PR; no secrets, private datasets, paid APIs, orders, production database changes, merge or Render deployment.

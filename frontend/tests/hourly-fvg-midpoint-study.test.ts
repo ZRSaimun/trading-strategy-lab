@@ -561,7 +561,7 @@ test('research report rejects extra source fields without leaking caller private
  const report=studyHourlyFvgMidpoint(fixture(),source);
  assert.deepEqual(report.source,source);
  assert.deepEqual(Object.keys(report.source).sort(),Object.keys(source).sort());
- assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v50');
+ assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v51');
 });
 test('ambiguous source labels and contradictory volume evidence fail closed',()=>{
  // These are declared metadata, not independent vendor authentication.
@@ -937,7 +937,7 @@ test('an overflowing next-open comparator suppresses both matched markouts',()=>
 });
 test('completed hourly timestamps are safe and numeric rule changes have a new version',()=>{
  const report=studyHourlyFvgMidpoint(fixture(),source);
- assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v50');
+ assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v51');
  const lastSafeAlignedOpen=Math.floor(Number.MAX_SAFE_INTEGER/H)*H;
  assert.equal(Number.isSafeInteger(lastSafeAlignedOpen),true);
  assert.equal(Number.isSafeInteger(lastSafeAlignedOpen+H),false);
@@ -1872,4 +1872,25 @@ test('v50 archive arrays reject undeclared BID/ASK or source metadata without ev
  assert.deepEqual(studyHourlyFvgMidpoint(iteratorProtected,source),baseline);
  assert.deepEqual(studyHourlyFvgMidpointAsOf(iteratorProtected,source,cutoff),
   studyHourlyFvgMidpointAsOf(fixture(),source,cutoff));
+});
+
+test('v51 illustrative cost stress scenarios are strictly ascending and distinct',()=>{
+ const bars=fixture(),cutoff=BASE+37*H;
+ for(const costs of [[0,5,5],[15,5,0],[0,0],[5,0],[0,5,0]]){
+  const config={hypotheticalRoundTripCostsBps:costs};
+  assert.throws(()=>studyHourlyFvgMidpoint(bars,source,config),
+   /Invalid source identity, volume provenance or frozen FVG study settings/,
+   'duplicate or reversed bps stresses must not inflate the scenario census');
+  assert.throws(()=>studyHourlyFvgMidpointAsOf(bars,source,cutoff,config),
+   /Invalid source identity, volume provenance or frozen FVG study settings/,
+   'completed-prefix research must enforce the same cost-stress ordering');
+ }
+ const costs=[0,0.3,5,15];
+ const config={hypotheticalRoundTripCostsBps:costs};
+ const full=studyHourlyFvgMidpoint(bars,source,config);
+ const asOf=studyHourlyFvgMidpointAsOf(bars,source,BASE+40*H,config);
+ assert.deepEqual(full.config.hypotheticalRoundTripCostsBps,costs);
+ assert.deepEqual(full.cohort.pairedNetSignByCost.map(x=>x.costBps),costs);
+ assert.equal(full.cohort.pairedNetSignByCost.length,costs.length);
+ assert.deepEqual(asOf,full,'complete as-of replay preserves valid ordered stresses');
 });

@@ -7,7 +7,7 @@
  */
 import type {Bar} from './research.ts';
 
-export const HOURLY_FVG_VERSION='hourly-fvg-first-midpoint-touch-v50';
+export const HOURLY_FVG_VERSION='hourly-fvg-first-midpoint-touch-v51';
 export type Evidence='PASS'|'FAIL'|'INSUFFICIENT_DATA';
 // First-touch volume evidence is not independent broker/source authentication.
 export type VolumeEvidenceReason='NOT_EVALUATED'|'SOURCE_UNVERIFIED'|
@@ -660,7 +660,10 @@ export function studyHourlyFvgMidpoint(
   minimumRejectionWickFraction<0||minimumRejectionWickFraction>1||
   !Number.isFinite(volumeMultiple)||volumeMultiple<1||volumeMultiple>10||
   !Array.isArray(costs)||costs.length<1||costs.length>10||
-  costs.some(x=>!Number.isFinite(x)||x<0||x>1000))
+  // A cost stress axis must be unique and ascending. Repeated or reversed
+  // scenarios otherwise duplicate or scramble the paired outcome census.
+  costs.some((x,i)=>!Number.isFinite(x)||x<0||x>1000||
+   (i>0&&x<=costs[i-1])))
   throw Error('Invalid source identity, volume provenance or frozen FVG study settings');
  validateBars(bars);
  const observations:FvgObservation[]=[];
