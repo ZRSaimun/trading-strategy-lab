@@ -606,3 +606,36 @@ or deliberately omitted candle/forecast opportunities. PR #86 and Loop 1
 still require an independent expected-bar register and authenticated
 completed-candle receipts. All source, delivery, paper and live-trading
 permissions remain false. No actual market, notification or order was used.
+
+## Joint UTC weekday/hour outcome-availability census (28 October 2026)
+
+The fixed, nonoverlapping issued-forecast census now exposes
+`earlyCensusOutcomeAvailabilityUtcWeekdayHour168` and
+`lateCensusOutcomeAvailabilityUtcWeekdayHour168`. Each is a stable flat
+168-cell table ordered by UTC weekday (Monday=0) then UTC hour (0–23).
+Every cell reports `utcWeekdayMonday0`, `utcHour`, `issued`,
+`eligibleSettled`, `unavailable`, `unavailableFraction`, and
+`lowSupportUnder30`. Empty cells have zero counts and null fractions
+and low-support flags. The sum of the cells reconciles exactly to the
+existing weekday, hour, and overall fixed-census counts.
+
+This joint view exposes interaction patterns that **both marginal views**
+can conceal: for example, Monday at 00:00 and Tuesday at 01:00 could be
+100% unavailable while each weekday and each hour averages 50%.
+Selection is fixed before settlement inspection. A pending/void label,
+an early label resolved at/after the early/late boundary, or a late
+settlement after the caller-declared `evaluation_as_of` is unavailable,
+never silently filled. A missing label on an *unselected overlapping*
+forecast cannot change a selected cell. The counts remain visible even
+when Brier and log-loss scoring is withheld.
+
+These are **descriptive sparse-cell diagnostics**, not a 168-way
+hypothesis test, missing-at-random proof, session/holiday/DST calendar,
+independent forecast opportunity inventory, authenticated feed, live
+notification, paper fill, or trading result. Cells with fewer than
+30 issued observations explicitly flag low support. The existing
+chronology, score and permission gates remain unchanged and disabled.
+Only legally entitled, independently authenticated prospective completed
+candles with server-owned timestamps and session-aware expected-bar
+inventories can support stronger operational claims. No order, alert,
+external request, production write, or broker permission is enabled.
