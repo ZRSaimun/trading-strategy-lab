@@ -50,3 +50,29 @@ This is an offline diagnostic for coordinating delayed forecast issuance and
 data-quality investigations. The expected calendar, `as_of_utc`, finality and
 receipt times remain **caller-declared**. Neither these fields nor clean
 results authorize alerts, live market-data claims, paper fills or real orders.
+
+
+### First-seen lateness versus late replay (declared evidence only)
+
+A repeated M1 minute can arrive after the declared delivery budget even if
+the **first** receipt of that minute arrived on time. Treating every late
+duplicate as a missed initial issuance would overstate source-feed gaps.
+The additive `declared_first_seen_after_budget_minutes` counts distinct minute
+starts whose *first* observation arrived strictly after minute close plus
+declared finalization and transport allowances. Its corresponding
+`declared_first_seen_after_budget_minute_sample_utc` contains at most 12
+sorted UTC minute starts. The separate
+`declared_late_first_seen_backfill_minutes` and
+`declared_late_first_seen_backfill_minute_sample_utc` count/sample only
+those late first observations that were also first-seen out-of-order
+backfills below the previous candle-start high-water mark.
+
+These populations are subsets of the existing late-distinct and first-seen
+backfill counts respectively. A duplicate that is late cannot retroactively
+make an on-time first observation late. The exact composite deadline remains
+inclusive (not late), while individual transport/finalization stage breaches
+continue to fail the pre-existing cleanliness/freshness gates. These metrics
+are **caller-declared**; they do not prove provider outages, independent
+receipt custody, session coverage, data entitlements, executable quotes or
+forecast-delivery failures. The original receipt/policy digests and all
+permanently false authorization flags are unchanged. No prices are returned.
