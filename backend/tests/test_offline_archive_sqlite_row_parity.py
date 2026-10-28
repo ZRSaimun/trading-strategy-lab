@@ -13,11 +13,11 @@ DATASET = "a" * 64
 CSV_MEMBER = "DAT_ASCII_SYNTHETIC_M1.csv"
 
 
-def make_pair(tmp_path, *, duplicate=True, precision=False, offset=-300):
+def make_pair(tmp_path, *, duplicate=True, precision=False, offset=-300, price_text=None):
     tmp_path.mkdir(parents=True, exist_ok=True)
     archive = tmp_path / "original.zip"
     db = tmp_path / "research.sqlite"
-    open_price = "100.123456789123456789" if precision else "100.0"
+    open_price = price_text if price_text is not None else ("100.123456789123456789" if precision else "100.0")
     rows = [
         ("20250101 000000", open_price, "101", "99", open_price, "0"),
         ("20250101 000100", "100", "102", "99", "101", "0"),
@@ -83,6 +83,27 @@ def test_source_decimal_precision_loss_is_disclosed(tmp_path):
     result = audit_original_ascii_sqlite(archive, db, DATASET, sha)
     assert result["original_decimal_values_not_preserved_by_float"] == 2
     assert result["exact_original_decimal_storage_verified"] is False
+
+
+def test_shortest_decimal_roundtrip_does_not_prove_exact_binary_storage(tmp_path):
+    # 100.1 prints as 100.1 but cannot be represented exactly in binary64.
+    archive, db, sha = make_pair(tmp_path, price_text="100.1")
+    report = audit_original_ascii_sqlite(archive, db, DATASET, sha)
+    assert report["original_decimal_values_not_preserved_by_float"] == 0
+    assert report["original_decimal_values_not_preserved_on_shortest_roundtrip"] == 0
+    assert report["original_decimal_values_not_preserved_by_binary_float"] == 2
+    assert report["shortest_decimal_roundtrip_verified"] is True
+    assert report["exact_original_decimal_storage_verified"] is False
+    assert report["may_execute_order"] is False
+
+
+def test_exact_binary_representable_decimal_is_distinguished(tmp_path):
+    archive, db, sha = make_pair(tmp_path, price_text="100.125")
+    report = audit_original_ascii_sqlite(archive, db, DATASET, sha)
+    assert report["original_decimal_values_not_preserved_by_binary_float"] == 0
+    assert report["original_decimal_values_not_preserved_on_shortest_roundtrip"] == 0
+    assert report["exact_original_decimal_storage_verified"] is True
+
 
 
 @pytest.mark.parametrize("column, replacement, error", [
