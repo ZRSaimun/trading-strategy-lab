@@ -64,7 +64,6 @@ def test_valid_declared_progression_remains_non_executable():
 @pytest.mark.parametrize("change,reason", [
     (lambda c: c.update(snapshot_id="snapshot1", pages=[dict(c["pages"][0], snapshot_id="snapshot1")]), "snapshot_id_reused"),
     (lambda c: c.update(sequence=1), "snapshot_sequence_replay"),
-    (lambda c: c.update(sequence=0), "snapshot_sequence_replay"),
     (lambda c: c.update(observed_at_ms=NOW-1500), "snapshot_time_regression"),
     (lambda c: c.update(received_at_ms=NOW-1200), "snapshot_time_regression"),
     (lambda c: c.update(account_alias="other"), "snapshot_account_changed"),
@@ -122,3 +121,9 @@ def test_no_mutation():
 def test_decimal_spellings_not_treated_as_changed_fills():
     result = evaluate(change_current=lambda c: c["pages"][0]["orders"][0]["fills"][0].update(quantity="1.0"))
     assert result["failed_checks"] == []
+
+
+@pytest.mark.parametrize("invalid_sequence", [0, True, -1])
+def test_invalid_sequence_schema_fails_closed(invalid_sequence):
+    with pytest.raises(ValueError, match="Invalid snapshot sequence"):
+        evaluate(change_current=lambda c: c.update(sequence=invalid_sequence))
