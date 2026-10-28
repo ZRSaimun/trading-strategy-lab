@@ -28,7 +28,13 @@ Hosts are hard-coded to `demo.trading212.com` and `live.trading212.com`.
 No caller-supplied URLs, paths, redirects, proxies, write verbs, or order
 endpoints are accepted. The request uses Basic authentication over
 certificate-verified HTTPS. Responses are limited to 8 MiB, must be JSON and
-HTTP 200, and are not automatically retried. Non-200, malformed, redirected,
+HTTP 200, and are not automatically retried.
+When a `Content-Length` header is supplied, the adapter now verifies that
+its declared byte count exactly matches the bounded identity-encoded body
+actually hashed and parsed. Mismatches fail closed with a sanitized error,
+even if the received fragment is otherwise valid JSON. A missing header does
+not constitute an attested length; matching lengths are transport consistency
+only, **not** broker signing, vendor entitlement, or market-data authenticity. Non-200, malformed, redirected,
 oversized and transport-failed responses raise a sanitized exception; their
 bodies, keys and secrets are not included in error messages.
 
