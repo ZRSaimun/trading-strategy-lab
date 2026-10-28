@@ -137,3 +137,70 @@ def test_source_digest_cannot_be_swapped_after_declared_census_freeze():
     data[2]["manifest_sha256"] = prepare_declared_holdout_manifest_sha256(data[0])
     with pytest.raises(ValueError, match="cross-source"):
         audit_declared_holdout_release(*data)
+
+
+@pytest.mark.parametrize("fold_index", range(len(_WINDOWS)))
+def test_randomized_adverse_costs_cannot_improve_drawdown(fold_index):
+    """Pointwise higher declared costs cannot improve any receipt-cash drawdown.
+
+    Invented overlapping receipt batches and signed financing are deliberate.
+    This is a metamorphic arithmetic regression, not broker calibration or
+    evidence of out-of-sample market returns.
+    """
+    from random import Random
+
+    rng = Random(20261028 + fold_index)
+    fields = ("spread_cash", "slippage_cash", "commission_cash",
+              "financing_cash", "fx_cash")
+    for _ in range(24):
+        baseline = _fold(fold_index)
+        # Overlapping trades can have receipts grouped into only three
+        # UTC seconds, despite 60 distinct earlier decision timestamps.
+        observed_base = max(row["label_available_at_utc"] for row in baseline[1]) + _DAY
+        for i, row in enumerate(baseline[3]):
+            row["observed_at_utc"] = observed_base + i % 3
+            row["gross_cash"] = format(Decimal(rng.randint(-100000, 100000)) / 10000, ".4f")
+            for field in fields:
+                numerator = rng.randint(-3000 if field == "financing_cash" else 0, 3000)
+                row[field] = format(Decimal(numerator) / 10000, ".4f")
+
+        original = audit_declared_holdout_release(*baseline)
+        stressed = copy.deepcopy(baseline)
+        incremental = Decimal(0)
+        for row in stressed[3]:
+            for field in fields:
+                increase = Decimal(rng.randint(0, 500)) / 10000
+                row[field] = format(Decimal(row[field]) + increase, ".4f")
+                incremental += increase
+        higher_cost = audit_declared_holdout_release(*stressed)
+
+        assert Decimal(higher_cost["net_cash"]) == (
+            Decimal(original["net_cash"]) - incremental
+        )
+        assert Decimal(higher_cost["worst_observation_net_cash"]) <= Decimal(
+            original["worst_observation_net_cash"])
+        for field in ("max_observation_end_drawdown_cash",
+                      "max_receipt_time_ordering_drawdown_cash_upper_bound"):
+            assert Decimal(higher_cost[field]) >= Decimal(original[field])
+        assert Decimal(higher_cost["max_observation_end_drawdown_cash"]) <= Decimal(
+            higher_cost["max_receipt_time_ordering_drawdown_cash_upper_bound"])
+        assert higher_cost["broker_costs_verified"] is False
+        assert higher_cost["profitable_edge_verified"] is False
+        assert higher_cost["may_execute_demo_order"] is False
+        assert higher_cost["may_execute_real_order"] is False
+
+        # Receipt input order must not create a fictitious within-second
+        # execution ordering, nor alter the committed receipt digest.
+        rng.shuffle(stressed[3])
+        assert audit_declared_holdout_release(*stressed) == higher_cost
+
+
+@pytest.mark.parametrize("fold_index", range(len(_WINDOWS)))
+@pytest.mark.parametrize("field", ("spread_cash", "slippage_cash",
+                                   "commission_cash", "fx_cash"))
+def test_multiyear_cost_stress_rejects_negative_execution_charges(fold_index, field):
+    """Negative execution charges must not be disguised as signed financing."""
+    invalid = _fold(fold_index)
+    invalid[3][0][field] = "-0.0001"
+    with pytest.raises(ValueError, match="cash sign"):
+        audit_declared_holdout_release(*invalid)
