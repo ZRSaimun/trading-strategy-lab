@@ -22,6 +22,11 @@ _EVENTS = _TERMINAL | {"PREPARED", "ATTEMPT_UNKNOWN"}
 _KEYS = {"seq", "broker", "account", "order_id", "event", "evidence_sha",
          "recorded_at_ms", "prev_hash", "event_hash"}
 _MAX_UNKNOWN_TO_ATTEMPT_MS = 60_000
+_SUMMARY_KEYS = {
+    "schema", "event_count", "order_count", "audit_tip_sha256",
+    "last_recorded_at_ms", "orders", "status", "may_submit_paper_order",
+    "may_submit_real_order", "warning",
+}
 
 
 def _digest(value: Any, name: str, *, zero_ok: bool = False) -> str:
@@ -64,11 +69,28 @@ def inspect_declared_ledger_event_lineage(expected: dict, ledger_summary: dict,
         raise ValueError("Invalid complete ledger event population")
     if type(expected) is not dict or type(ledger_summary) is not dict:
         raise ValueError("Invalid ledger comparison input")
-    if ledger_summary.get("schema") != "paper-submission-attempt-ledger-v1":
+    # A standalone lineage check must not silently trust a caller-supplied
+    # summary that claims quarantine has been lifted or orders are permitted.
+    # The composed bridge checks this too, but callers may use this audit alone.
+    if set(ledger_summary) != _SUMMARY_KEYS:
+        raise ValueError("Invalid ledger summary fields")
+    if ledger_summary["schema"] != "paper-submission-attempt-ledger-v1":
         raise ValueError("Unsupported ledger schema")
-    if (type(ledger_summary.get("event_count")) is not int
+    if (ledger_summary["status"] != "HOLD_RECONCILIATION"
+            or ledger_summary["may_submit_paper_order"] is not False
+            or ledger_summary["may_submit_real_order"] is not False):
+        raise ValueError("Unsafe ledger summary execution claim")
+    if type(ledger_summary["warning"]) is not str or not ledger_summary["warning"]:
+        raise ValueError("Invalid ledger summary warning")
+    if (type(ledger_summary["event_count"]) is not int
             or ledger_summary["event_count"] != len(events)):
         raise ValueError("Ledger event count does not match complete stream")
+    if (type(ledger_summary["order_count"]) is not int
+            or not 1 <= ledger_summary["order_count"] <= len(events)):
+        raise ValueError("Invalid ledger summary order count")
+    if (type(ledger_summary["last_recorded_at_ms"]) is not int
+            or not 0 <= ledger_summary["last_recorded_at_ms"] <= _MAX_MS):
+        raise ValueError("Invalid ledger summary event time")
     expected_broker = _id(expected.get("broker"), "expected broker")
     expected_account = _id(expected.get("account_alias"), "expected account")
     if expected_broker not in _BROKERS:
