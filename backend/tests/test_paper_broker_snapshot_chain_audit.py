@@ -139,3 +139,53 @@ def test_input_not_mutated():
     before = deepcopy((expected, snapshots, clocks))
     inspect_declared_snapshot_chain(expected, snapshots, clocks)
     assert (expected, snapshots, clocks) == before
+
+
+def test_large_blind_interval_holds_despite_fresh_individual_censuses():
+    expected, snapshots, clocks = sample()
+    delta = 60_001
+    for field in ("observed_at_ms", "received_at_ms"):
+        snapshots[2][field] += delta
+    clocks[2] += delta
+    result = inspect_declared_snapshot_chain(expected, snapshots, clocks)
+    assert result["status"] == "HOLD_RECONCILIATION"
+    assert "trusted_checkpoint_gap" in result["failed_checks"]
+    assert "snapshot_observation_gap" in result["failed_checks"]
+    assert result["transitions"][-1]["failed_checks"] == []
+    assert result["may_clear_unknown"] is False
+
+
+def test_observation_gap_holds_even_when_checkpoints_meet_policy():
+    expected, snapshots, clocks = sample()
+    snapshots[1]["observed_at_ms"] = NOW - 3500
+    result = inspect_declared_snapshot_chain(
+        expected, snapshots, clocks, max_checkpoint_gap_ms=2400)
+    assert result["status"] == "HOLD_RECONCILIATION"
+    assert "snapshot_observation_gap" in result["failed_checks"]
+    assert "trusted_checkpoint_gap" not in result["failed_checks"]
+    assert result["may_submit_real_order"] is False
+
+
+def test_checkpoint_gap_exact_policy_boundary_is_accepted_but_unverified():
+    expected, snapshots, clocks = sample()
+    result = inspect_declared_snapshot_chain(
+        expected, snapshots, clocks, max_checkpoint_gap_ms=2300)
+    assert result["status"] == "DECLARED_CHAIN_CANDIDATE_UNVERIFIED"
+    assert result["failed_checks"] == []
+    assert result["may_clear_unknown"] is False
+
+
+def test_checkpoint_gap_over_custom_policy_holds():
+    expected, snapshots, clocks = sample()
+    result = inspect_declared_snapshot_chain(
+        expected, snapshots, clocks, max_checkpoint_gap_ms=2299)
+    assert "trusted_checkpoint_gap" in result["failed_checks"]
+    assert result["status"] == "HOLD_RECONCILIATION"
+
+
+@pytest.mark.parametrize("invalid_gap", [0, -1, True, 60_001, "5000", 1.5])
+def test_invalid_checkpoint_gap_policy_rejected(invalid_gap):
+    expected, snapshots, clocks = sample()
+    with pytest.raises(ValueError, match="Invalid maximum checkpoint gap"):
+        inspect_declared_snapshot_chain(
+            expected, snapshots, clocks, max_checkpoint_gap_ms=invalid_gap)
