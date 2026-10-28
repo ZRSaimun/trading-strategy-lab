@@ -69,14 +69,23 @@ def _iso(minute: int) -> str:
     return datetime.fromtimestamp(minute, timezone.utc).isoformat()
 
 
-def _clean_m15_run_census(buckets: set[int], sample_limit: int) -> tuple[int, int, list[dict]]:
-    """Count contiguous UTC M15 *structural* bucket runs, never market sessions."""
+def _clean_m15_run_census(
+    buckets: set[int], sample_limit: int, horizon_bars: int
+) -> tuple[int, int, list[dict], int, int, list[dict]]:
+    """Count structural clean runs and all overlapping declared-horizon starts.
+
+    A candidate start means only that the following horizon_bars UTC M15
+    bucket timestamps are consecutive and untouched by source M1 repeats.
+    It does NOT certify exchange sessions, prices, or trading eligibility.
+    """
     count = longest = length = 0
+    qualifying_runs = candidate_starts = 0
     first = last = None
     samples: list[dict] = []
+    horizon_samples: list[dict] = []
 
     def record(start: int, end: int, bars: int) -> None:
-        nonlocal count, longest
+        nonlocal count, longest, qualifying_runs, candidate_starts
         count += 1
         longest = max(longest, bars)
         if len(samples) < sample_limit:
@@ -85,6 +94,16 @@ def _clean_m15_run_census(buckets: set[int], sample_limit: int) -> tuple[int, in
                 "last_bucket_utc": _iso(end),
                 "complete_m15_buckets": bars,
             })
+        if bars >= horizon_bars:
+            qualifying_runs += 1
+            starts = bars - horizon_bars + 1
+            candidate_starts += starts
+            if len(horizon_samples) < sample_limit:
+                horizon_samples.append({
+                    "first_candidate_start_utc": _iso(start),
+                    "last_candidate_start_utc": _iso(end - (horizon_bars - 1) * 900),
+                    "candidate_starts": starts,
+                })
 
     for bucket in sorted(buckets):
         if last is not None and bucket == last + 900:
@@ -97,12 +116,12 @@ def _clean_m15_run_census(buckets: set[int], sample_limit: int) -> tuple[int, in
         last = bucket
     if first is not None:
         record(first, last, length)
-    return count, longest, samples
+    return count, longest, samples, qualifying_runs, candidate_starts, horizon_samples
 
 
 def audit_source_m1_population(
     source_order_minutes: list[int], stored_minutes: list[int], *,
-    source_id: str, sample_limit: int = 5,
+    source_id: str, sample_limit: int = 5, horizon_bars: int = 34,
 ) -> dict:
     """Compare raw row-order and stored unique timestamp populations.
 
@@ -114,6 +133,8 @@ def audit_source_m1_population(
         raise ValueError("A bounded source identifier is required")
     if type(sample_limit) is not int or not 0 <= sample_limit <= 20:
         raise ValueError("sample_limit must be an integer from 0 to 20")
+    if type(horizon_bars) is not int or not 1 <= horizon_bars <= 1_000:
+        raise ValueError("horizon_bars must be an integer from 1 to 1000")
     source = _validated(source_order_minutes, "source_order_minutes", require_sorted_unique=False)
     stored = _validated(stored_minutes, "stored_minutes", require_sorted_unique=True)
 
@@ -183,8 +204,9 @@ def audit_source_m1_population(
     raw_only_buckets = sorted(raw_buckets - stored_buckets)
     stored_only_buckets = sorted(stored_buckets - raw_buckets)
     common_without_repeats = (raw_buckets & stored_buckets) - repeated_bucket_starts
-    clean_run_count, longest_clean_run, clean_run_samples = _clean_m15_run_census(
-        common_without_repeats, sample_limit
+    (clean_run_count, longest_clean_run, clean_run_samples,
+     horizon_qualifying_runs, horizon_candidate_starts, horizon_samples) = _clean_m15_run_census(
+        common_without_repeats, sample_limit, horizon_bars
     )
     quarantine = bool(
         repeats or backward or missing or extra or raw_m15 != stored_m15
@@ -229,6 +251,11 @@ def audit_source_m1_population(
         "common_clean_m15_contiguous_run_count": clean_run_count,
         "common_clean_m15_longest_contiguous_run_buckets": longest_clean_run,
         "common_clean_m15_contiguous_run_samples": clean_run_samples,
+        "declared_clean_m15_horizon_bars": horizon_bars,
+        "common_clean_m15_horizon_qualifying_run_count": horizon_qualifying_runs,
+        "common_clean_m15_horizon_candidate_start_count": horizon_candidate_starts,
+        "common_clean_m15_horizon_candidate_samples": horizon_samples,
+        "horizon_candidates_are_structural_only": True,
         "source_repeated_minute_set_sha256": _fingerprint(sorted(repeated_minutes), scope="REPEATED_SOURCE_M1_SET_V1"),
         "stored_replay_touched_complete_m15_set_sha256": _fingerprint(stored_replay_touched, scope="STORED_REPLAY_TOUCHED_M15_SET_V1"),
         "common_clean_complete_m15_set_sha256": _fingerprint(sorted(common_without_repeats), scope="COMMON_CLEAN_M15_SET_V1"),

@@ -58,3 +58,11 @@ PYTHONPATH=. pytest -q tests/test_source_m1_population_audit.py tests/test_sourc
 ```
 
 All outputs remain read-only, bounded, timestamp-only and `research_ready=False`. No live feed or execution route is enabled.
+
+## Declared clean-M15 horizon start census (structural only)
+
+The same timestamp-only helper accepts optional `horizon_bars` (default **34**, strictly an integer from 1 to 1000). It counts all overlapping starts of `horizon_bars` consecutive UTC M15 bucket timestamps in the *common complete source/store bucket intersection after excluding every bucket touched by repeated source M1 minutes*. A clean run of length `L` contributes `max(0, L - horizon_bars + 1)` candidate starts. Gaps and repeated-source-minute buckets split runs. Results include `common_clean_m15_horizon_qualifying_run_count`, `common_clean_m15_horizon_candidate_start_count`, the declared horizon, and up to `sample_limit` bounded first/last possible start timestamps per qualifying run. `sample_limit=0` suppresses examples but not counts.
+
+This is intended as a **cross-worker population-denominator diagnostic**, especially for Loop 2's declared 34-M15-bar full-horizon observability research. It is not a sweep outcome, a trading signal, an independently certified market calendar, a timestamp/price provenance attestation, an executable bid/ask quote, a holdout, or permission to run research or orders. Every result retains `research_ready=False`, `live=False`, `may_execute_order=False`. The count does not prove any individual entry's future path was observed: align each candidate to the exact entry/exit and embargo policy independently. Existing caller defaults and result fields remain compatible.
+
+Synthetic regression suite: `PYTHONPATH=. pytest -q tests/test_source_m1_population_horizon.py` from `backend/`. No provider or broker calls are made.
