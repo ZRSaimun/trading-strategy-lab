@@ -34,7 +34,7 @@ def study(as_of, *, missing=()):
 @pytest.mark.parametrize("as_of,pending,missing", [
     (5, ("15", "30", "60"), ()),
     (15, ("30", "60"), ()),
-    (20, ("30", "60"), ("15",)),
+    (20, (), ("15", "30", "60")),
     (65, (), ("15", "30", "60")),
 ])
 def test_pending_vs_mature_missing_horizons(as_of, pending, missing):
@@ -47,6 +47,15 @@ def test_pending_vs_mature_missing_horizons(as_of, pending, missing):
         assert row["pending_unknown"] == int(h in pending)
         assert row["missing_unknown"] == int(h in missing)
     assert source["events"][0]["spike"] == "up"
+
+
+def test_matured_gap_taints_pending_later_cumulative_horizons():
+    _, audit = study(20, missing=(10,))
+    for horizon in ("15", "30", "60"):
+        row = audit["horizons"]["up"][horizon]
+        assert row["missing_unknown"] == 1
+        assert row["pending_unknown"] == 0
+    assert audit["horizons"]["up"]["5"]["unknown"] == 0
 
 
 def test_as_of_boundary_maturity_not_pending():
