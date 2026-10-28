@@ -121,3 +121,66 @@ def test_offset_underflow_and_overflow_rejected():
 def test_invalid_source_identifier_rejected():
     with pytest.raises(ValueError):
         audit_declared_m15_bucket_anchors([T], [T], source_id="../\n", offset_candidates_minutes=[0])
+
+
+def test_shuffled_complete_bucket_not_source_order_contiguous():
+    source = minutes(T, 15) + [T + 15 * 60, T + 17 * 60, T + 16 * 60] + minutes(T + 18 * 60, 12)
+    report = check(source, minutes(T, 30), (0,))
+    candidate = report["candidate_results"][0]
+    assert report["source_wall_replay_free_complete_m15_buckets"] == 2
+    assert report["source_order_contiguous_replay_free_complete_m15_buckets"] == 1
+    assert report["source_wall_replay_free_complete_but_noncontiguous_m15_buckets"] == 1
+    assert candidate["anchor_matched_replay_free_complete_m15_buckets"] == 2
+    assert candidate["anchor_matched_source_order_contiguous_clean_m15_buckets"] == 1
+    assert candidate["anchor_matched_source_order_contiguous_clean_m15_bucket_starts_sample"] == [T]
+    assert report["research_ready"] is False
+
+
+def test_interleaved_complete_buckets_have_no_source_order_window():
+    source = [m for i in range(15) for m in (T + i * 60, T + 900 + i * 60)]
+    report = check(source, minutes(T, 30), (0,))
+    assert report["source_wall_replay_free_complete_m15_buckets"] == 2
+    assert report["source_order_contiguous_replay_free_complete_m15_buckets"] == 0
+    assert report["candidate_results"][0]["anchor_matched_source_order_contiguous_clean_m15_buckets"] == 0
+
+
+def test_whole_bucket_reordering_preserves_per_bucket_contiguity_not_global_order():
+    report = check(minutes(T + 900, 15) + minutes(T, 15), minutes(T, 30), (0,))
+    assert report["source_order_contiguous_replay_free_complete_m15_buckets"] == 2
+    assert report["source_wall_replay_free_complete_but_noncontiguous_m15_buckets"] == 0
+    assert report["source_authenticity_verified"] is False
+
+
+def test_repeated_complete_source_order_window_not_admitted():
+    report = check(minutes(T, 15) + minutes(T, 15), minutes(T, 15), (0,))
+    assert report["source_wall_replay_touched_complete_m15_buckets"] == 1
+    assert report["source_order_contiguous_replay_free_complete_m15_buckets"] == 0
+    assert report["candidate_results"][0]["anchor_matched_source_order_contiguous_clean_m15_buckets"] == 0
+
+
+def test_new_fingerprint_separates_same_distinct_minute_set_different_row_order():
+    anchor = minutes(T, 30)
+    sorted_report = check(minutes(T, 30), anchor, (0,))
+    shuffled = minutes(T, 15) + [T + 15 * 60, T + 17 * 60, T + 16 * 60] + minutes(T + 18 * 60, 12)
+    changed_report = check(shuffled, anchor, (0,))
+    old_key = "anchor_matched_clean_m15_bucket_starts_sha256"
+    new_key = "anchor_matched_source_order_contiguous_clean_m15_bucket_starts_sha256"
+    assert sorted_report["candidate_results"][0][old_key] == changed_report["candidate_results"][0][old_key]
+    assert sorted_report["candidate_results"][0][new_key] != changed_report["candidate_results"][0][new_key]
+    assert len(sorted_report["candidate_results"][0][new_key]) == 64
+
+
+def test_source_order_candidate_offset_and_sample_bound():
+    source = minutes(T, 15 * 20)
+    report = check(source, [m + 18000 for m in source], (-300,))
+    candidate = report["candidate_results"][0]
+    assert candidate["anchor_matched_source_order_contiguous_clean_m15_buckets"] == 20
+    assert len(candidate["anchor_matched_source_order_contiguous_clean_m15_bucket_starts_sample"]) == 8
+    assert report["highest_source_order_matched_clean_m15_bucket_count"] == 20
+    assert report["clock_offset_verified"] is False
+
+
+def test_incomplete_bucket_not_source_order_contiguous():
+    report = check(minutes(T, 14), minutes(T, 15), (0,))
+    assert report["source_order_contiguous_replay_free_complete_m15_buckets"] == 0
+    assert report["candidate_results"][0]["anchor_matched_source_order_contiguous_clean_m15_buckets"] == 0
