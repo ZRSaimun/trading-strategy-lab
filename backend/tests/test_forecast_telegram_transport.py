@@ -136,6 +136,29 @@ def test_network_failures_never_expose_secret_or_retry(failure):
     assert "secret" not in str(err.value) and TOKEN not in str(err.value)
 
 
+@pytest.mark.parametrize("raw_number", [b"NaN", b"Infinity", b"-Infinity", b"1e400"])
+def test_nonfinite_numeric_field_in_otherwise_valid_ack_is_uncertain(raw_number):
+    # Python's default json.loads accepts nonstandard constants and float
+    # overflow. An ACK with invalid numeric metadata is not valid JSON evidence.
+    payload = accepted()[:-1] + b',"unexpected":' + raw_number + b"}"
+    fake = FakeOpener(Reply(payload))
+    with pytest.raises(DeliveryUncertain, match="manual reconciliation") as err:
+        send_telegram_once(bot_token=TOKEN, chat_id=CHAT,
+                           text=review_text(), opener=fake)
+    assert TOKEN not in str(err.value) and len(fake.calls) == 1
+
+
+def test_finite_numeric_metadata_does_not_invalidate_ack():
+    # Telegram may add unrelated standard JSON fields in future versions.
+    payload = accepted()[:-1] + b',"unexpected":1.25}'
+    fake = FakeOpener(Reply(payload))
+    result = send_telegram_once(bot_token=TOKEN, chat_id=CHAT,
+                                text=review_text(), opener=fake)
+    assert result["providerAccepted"] is True
+    assert result["deliveryVerified"] is False
+    assert len(fake.calls) == 1
+
+
 def test_non_200_is_uncertain():
     fake = FakeOpener(Reply(accepted(), status=202))
     with pytest.raises(DeliveryUncertain):
