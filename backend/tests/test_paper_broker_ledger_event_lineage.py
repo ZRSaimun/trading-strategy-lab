@@ -37,7 +37,10 @@ def fixture():
                "order_count": 1, "audit_tip_sha256": e2["event_hash"],
                "last_recorded_at_ms": NOW - 5001,
                "orders": [{"broker": BROKER, "account_alias": ACCOUNT,
-                           "client_order_id": "client1", "status": "ATTEMPT_UNKNOWN"}]}
+                           "client_order_id": "client1", "status": "ATTEMPT_UNKNOWN"}],
+               "status": "HOLD_RECONCILIATION",
+               "may_submit_paper_order": False, "may_submit_real_order": False,
+               "warning": "Caller-declared ledger evidence is not authenticated."}
     return [expected, summary, [e1, e2], e2["event_hash"]]
 
 
@@ -210,3 +213,47 @@ def test_integration_context_change_cannot_be_cleared_by_event_tip():
     assert "reconciliation_context_digest_mismatch" in result["failed_checks"]
     assert "ledger_event_intent_mismatch" in result["failed_checks"]
     assert result["status"] == "HOLD_RECONCILIATION"
+
+
+@pytest.mark.parametrize("field,value", [
+    ("status", "RELEASED"),
+    ("status", None),
+    ("may_submit_paper_order", True),
+    ("may_submit_paper_order", 0),
+    ("may_submit_real_order", True),
+    ("may_submit_real_order", 0),
+    ("warning", ""),
+    ("warning", None),
+    ("order_count", True),
+    ("order_count", -1),
+    ("order_count", 3),
+    ("last_recorded_at_ms", True),
+    ("last_recorded_at_ms", -1),
+    ("last_recorded_at_ms", 8_640_000_000_000_001),
+])
+def test_standalone_lineage_rejects_unsafe_or_malformed_summary(field, value):
+    args = fixture()
+    args[1][field] = value
+    with pytest.raises(ValueError):
+        inspect(args)
+
+
+def test_standalone_lineage_rejects_extra_summary_field():
+    args = fixture()
+    args[1]["allow_live"] = True
+    with pytest.raises(ValueError, match="summary fields"):
+        inspect(args)
+
+
+def test_standalone_lineage_rejects_missing_summary_field():
+    args = fixture()
+    del args[1]["may_submit_real_order"]
+    with pytest.raises(ValueError, match="summary fields"):
+        inspect(args)
+
+
+def test_standalone_lineage_rejects_boolean_event_count():
+    args = fixture()
+    args[1]["event_count"] = True
+    with pytest.raises(ValueError, match="event count"):
+        inspect(args)
