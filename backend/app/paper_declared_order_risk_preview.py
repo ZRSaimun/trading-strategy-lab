@@ -6,7 +6,7 @@ quotes, margin and order history immediately before each approved submission.
 """
 from __future__ import annotations
 
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal, InvalidOperation, localcontext
 import re
 from typing import Any
 
@@ -122,25 +122,28 @@ def inspect_declared_order_risk_preview(order: dict, quote: dict, account: dict,
     entry = ask if o["side"] == "BUY" else bid
     if (o["side"] == "BUY" and stop >= bid) or (o["side"] == "SELL" and stop <= ask):
         failures.add("invalid_protective_stop")
-    notional = entry * quantity
-    # Conservative declared gap-to-stop + explicit slippage buffer. A stop is
-    # NOT a guaranteed loss cap during gaps, outages or failed broker execution.
-    risk = abs(entry - stop) * quantity + notional * limits["max_slippage_bps"] / 10_000
-    margin = notional / leverage
-    if leverage > limits["max_leverage"]:
-        failures.add("leverage_limit")
-    if quantity > limits["max_order_quantity"]:
-        failures.add("quantity_limit")
-    if margin > free_margin:
-        failures.add("insufficient_declared_margin")
-    if notional + open_notional > equity * limits["max_notional_pct"] / 100:
-        failures.add("gross_exposure_limit")
-    if risk > equity * limits["max_position_loss_pct"] / 100:
-        failures.add("position_loss_limit")
-    if risk + open_risk > equity * limits["max_total_open_risk_pct"] / 100:
-        failures.add("portfolio_risk_limit")
-    if max(Decimal(0), -pnl) + risk > equity * limits["max_daily_loss_pct"] / 100:
-        failures.add("daily_loss_circuit_breaker")
+    # Decimal default precision (28) can round large notional products near a limit.
+    with localcontext() as ctx:
+        ctx.prec = 80
+        notional = entry * quantity
+        # Conservative declared gap-to-stop + explicit slippage buffer. A stop is
+        # NOT a guaranteed loss cap during gaps, outages or failed broker execution.
+        risk = abs(entry - stop) * quantity + notional * limits["max_slippage_bps"] / 10_000
+        margin = notional / leverage
+        if leverage > limits["max_leverage"]:
+            failures.add("leverage_limit")
+        if quantity > limits["max_order_quantity"]:
+            failures.add("quantity_limit")
+        if margin > free_margin:
+            failures.add("insufficient_declared_margin")
+        if notional + open_notional > equity * limits["max_notional_pct"] / 100:
+            failures.add("gross_exposure_limit")
+        if risk > equity * limits["max_position_loss_pct"] / 100:
+            failures.add("position_loss_limit")
+        if risk + open_risk > equity * limits["max_total_open_risk_pct"] / 100:
+            failures.add("portfolio_risk_limit")
+        if max(Decimal(0), -pnl) + risk > equity * limits["max_daily_loss_pct"] / 100:
+            failures.add("daily_loss_circuit_breaker")
     recent_in_window = 0
     seen: set[tuple[str, str]] = set()
     for row in recent_orders:
