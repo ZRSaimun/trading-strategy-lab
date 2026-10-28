@@ -381,6 +381,11 @@ test('formation census preserves unknown outcomes and distinguishes paired from 
   },
   incompleteWindowByReason:{MISSING_HOUR:0,RIGHT_CENSORED:0},
   markoutCensoredByReason:{MISSING_HOUR:0,RIGHT_CENSORED:0,UNREPRESENTABLE_RETURN:0},
+  markoutCensoredByReasonByStrictCandidate:{
+   PASS:{MISSING_HOUR:0,RIGHT_CENSORED:0,UNREPRESENTABLE_RETURN:0},
+   FAIL:{MISSING_HOUR:0,RIGHT_CENSORED:0,UNREPRESENTABLE_RETURN:0},
+   INSUFFICIENT_DATA:{MISSING_HOUR:0,RIGHT_CENSORED:0,UNREPRESENTABLE_RETURN:0},
+  },
   pairedGrossOrdering:{
    all:{confirmedHigher:0,blindHigher:1,equal:0},
    strict:{confirmedHigher:0,blindHigher:0,equal:0},
@@ -583,7 +588,7 @@ test('research report rejects extra source fields without leaking caller private
  const report=studyHourlyFvgMidpoint(fixture(),source);
  assert.deepEqual(report.source,source);
  assert.deepEqual(Object.keys(report.source).sort(),Object.keys(source).sort());
- assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v57');
+ assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v58');
 });
 test('ambiguous source labels and contradictory volume evidence fail closed',()=>{
  // These are declared metadata, not independent vendor authentication.
@@ -984,7 +989,7 @@ test('an overflowing next-open comparator suppresses both matched markouts',()=>
 });
 test('completed hourly timestamps are safe and numeric rule changes have a new version',()=>{
  const report=studyHourlyFvgMidpoint(fixture(),source);
- assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v57');
+ assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v58');
  const lastSafeAlignedOpen=Math.floor(Number.MAX_SAFE_INTEGER/H)*H;
  assert.equal(Number.isSafeInteger(lastSafeAlignedOpen),true);
  assert.equal(Number.isSafeInteger(lastSafeAlignedOpen+H),false);
@@ -2160,4 +2165,50 @@ test('v57 censor attrition is indexed by completed wait and conserves each risk 
  const matured=studyHourlyFvgMidpointAsOf(future,source,BASE+5*H,config);
  assert.deepEqual(matured.cohort.firstTouchCensoredAfterWaitByReason,
   {MISSING_HOUR:[0,0,0],RIGHT_CENSORED:[0,0,0]});
+});
+
+
+test('v58 markout censor attrition remains partitioned by strict evidence state',()=>{
+ const missing=fixture().filter(b=>b.time!==BASE+35*H);
+ const weak=missing.map(b=>({...b}));
+ weak.find(b=>b.time===BASE+33*H)!.close=104.5;
+ const tail=fixture().slice(0,35);
+ const overflow=fixture();
+ overflow[36]={...overflow[36],high:Number.MAX_VALUE,close:Number.MAX_VALUE};
+ const cases=[
+  {name:'verified-volume strict pass missing exit',bars:missing,src:source,
+   gate:'PASS',reason:'MISSING_HOUR'},
+  {name:'wick failure missing exit',bars:weak,src:source,
+   gate:'FAIL',reason:'MISSING_HOUR'},
+  {name:'unverified volume missing exit',bars:missing,
+   src:{...source,volumeVerified:false},gate:'INSUFFICIENT_DATA',reason:'MISSING_HOUR'},
+  {name:'strict pass right-censored exit',bars:tail,src:source,
+   gate:'PASS',reason:'RIGHT_CENSORED'},
+  {name:'strict pass unrepresentable exit',bars:overflow,src:source,
+   gate:'PASS',reason:'UNREPRESENTABLE_RETURN'},
+ ] as const;
+ for(const sample of cases){
+  const report=studyHourlyFvgMidpoint(sample.bars,sample.src);
+  const formation=report.observations.find(o=>o.formationClosedAt===BASE+33*H);
+  assert.ok(formation,sample.name);
+  assert.equal(formation.gates.strictCandidate,sample.gate,sample.name);
+  assert.equal(formation.markoutCensorReason,sample.reason,sample.name);
+  assert.ok(report.cohort.markoutCensoredByReasonByStrictCandidate[sample.gate]
+   [sample.reason]>=1,sample.name);
+  for(const reason of ['MISSING_HOUR','RIGHT_CENSORED','UNREPRESENTABLE_RETURN'] as const){
+   const classified=(['PASS','FAIL','INSUFFICIENT_DATA'] as const)
+    .reduce((sum,gate)=>sum+
+     report.cohort.markoutCensoredByReasonByStrictCandidate[gate][reason],0);
+   assert.equal(classified,report.cohort.markoutCensoredByReason[reason],
+    'pooled censor count must equal all three strict populations');
+  }
+  assert.deepEqual(studyHourlyFvgMidpointAsOf(sample.bars,sample.src,
+   sample.bars[sample.bars.length-1].time+H),report,
+   'full completed-prefix replay must retain the same censor evidence');
+ }
+ const beforeExit=studyHourlyFvgMidpointAsOf(overflow,source,BASE+36*H);
+ const formation=beforeExit.observations.find(o=>o.formationClosedAt===BASE+33*H);
+ assert.equal(formation?.markoutCensorReason,'RIGHT_CENSORED',
+  'future unrepresentable exit cannot leak into an earlier prefix');
+ assert.ok(beforeExit.cohort.markoutCensoredByReasonByStrictCandidate.PASS.RIGHT_CENSORED>=1);
 });

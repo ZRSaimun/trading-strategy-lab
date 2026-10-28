@@ -7,7 +7,7 @@
  */
 import type {Bar} from './research.ts';
 
-export const HOURLY_FVG_VERSION='hourly-fvg-first-midpoint-touch-v57';
+export const HOURLY_FVG_VERSION='hourly-fvg-first-midpoint-touch-v58';
 export type Evidence='PASS'|'FAIL'|'INSUFFICIENT_DATA';
 // First-touch volume evidence is not independent broker/source authentication.
 export type VolumeEvidenceReason='NOT_EVALUATED'|'SOURCE_UNVERIFIED'|
@@ -130,6 +130,10 @@ export type FvgCohort={
   Record<FirstTouchCensorReason,readonly number[]>>;
   incompleteWindowByReason:Record<FirstTouchCensorReason,number>;
   markoutCensoredByReason:Record<MarkoutCensorReason,number>;
+  // Keep missing-exit and unrepresentable-return attrition separate for
+  // known strict PASS, known FAIL and unknown eligibility populations.
+  markoutCensoredByReasonByStrictCandidate:Record<Evidence,
+   Record<MarkoutCensorReason,number>>;
  midpointTouch:EvidenceCounts;strictCandidate:EvidenceCounts;markout:EvidenceCounts;
  volumeEvidenceByReason:Record<VolumeEvidenceReason,number>;
  pairedMarkouts:number;strictPairedMarkouts:number;nonStrictPairedMarkouts:number;
@@ -497,9 +501,15 @@ function summarizeCohort(observations:readonly FvgObservation[],costs:readonly n
  const incompleteWindowByReason:Record<FirstTouchCensorReason,number>={
   MISSING_HOUR:0,RIGHT_CENSORED:0,
  };
- const markoutCensoredByReason:Record<MarkoutCensorReason,number>={
+ const emptyMarkoutCensorCounts=():Record<MarkoutCensorReason,number>=>({
   MISSING_HOUR:0,RIGHT_CENSORED:0,UNREPRESENTABLE_RETURN:0,
- };
+ });
+ const markoutCensoredByReason=emptyMarkoutCensorCounts();
+ const markoutCensoredByReasonByStrictCandidate:Record<Evidence,
+  Record<MarkoutCensorReason,number>>={
+   PASS:emptyMarkoutCensorCounts(),FAIL:emptyMarkoutCensorCounts(),
+   INSUFFICIENT_DATA:emptyMarkoutCensorCounts(),
+  };
  const emptyWaitCounts=():Record<'TOUCH'|'OPEN_GAP_THROUGH'|'NO_TOUCH',number[]>=>({
   TOUCH:Array(maxTouchWaitBars).fill(0),
   OPEN_GAP_THROUGH:Array(maxTouchWaitBars).fill(0),
@@ -552,8 +562,11 @@ function summarizeCohort(observations:readonly FvgObservation[],costs:readonly n
   }else if(observation.firstTouchCensorReason!==null){
    throw Error('Observed FVG disposition cannot carry a censor reason');
   }
-  if(observation.markoutCensorReason!==null)
+  if(observation.markoutCensorReason!==null){
    markoutCensoredByReason[observation.markoutCensorReason]++;
+   markoutCensoredByReasonByStrictCandidate[observation.gates.strictCandidate]
+    [observation.markoutCensorReason]++;
+  }
  }
  for(const outcome of ['TOUCH','OPEN_GAP_THROUGH','NO_TOUCH'] as const){
   const accounted=firstDispositionWaitBarCounts[outcome].reduce((sum,n)=>sum+n,0);
@@ -576,6 +589,14 @@ function summarizeCohort(observations:readonly FvgObservation[],costs:readonly n
     firstTouchCensoredAfterWaitByReasonByDirection.BEARISH[reason][wait])
     throw Error('Directional FVG censor population does not reconcile');
   }
+ }
+ // Every censored hypothetical markout belongs to exactly one declared
+ // strict-evidence class; unknown evidence is never promoted to FAIL/PASS.
+ for(const reason of ['MISSING_HOUR','RIGHT_CENSORED','UNREPRESENTABLE_RETURN'] as const){
+  const classified=(['PASS','FAIL','INSUFFICIENT_DATA'] as const)
+   .reduce((sum,gate)=>sum+markoutCensoredByReasonByStrictCandidate[gate][reason],0);
+  if(classified!==markoutCensoredByReason[reason])
+   throw Error('FVG markout censor evidence populations do not reconcile');
  }
  for(let wait=0;wait<maxTouchWaitBars;wait++){
   const exposure=firstTouchObservedExposureByWait[wait];
@@ -619,7 +640,7 @@ function summarizeCohort(observations:readonly FvgObservation[],costs:readonly n
   pairedNetSignByCost,pairedGrossOrdering,pairedHoldingWindowOverlap,
   pairedHoldingWindowOverlapByStrictCandidate,
   pairedHoldingWindowCrossStrictCandidate,pairedMaximumDisjointWindows,
-  markoutCensoredByReason,
+  markoutCensoredByReason,markoutCensoredByReasonByStrictCandidate,
   midpointTouch:count('midpointTouch'),volumeEvidenceByReason,
   strictCandidate:count('strictCandidate'),
   markout:count('markout'),
