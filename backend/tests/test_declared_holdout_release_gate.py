@@ -397,3 +397,67 @@ def test_adverse_same_second_bound_matches_exhaustive_orderings(first, second):
     random.Random(20261028).shuffle(shuffled[3])
     assert audit(shuffled) == report
     assert report["profitable_edge_verified"] is False
+
+
+def test_seeded_fractional_execution_costs_and_same_second_adverse_bound_oracle():
+    """48 synthetic two-batch trials against an independent permutation oracle.
+
+    Spread, slippage, commission, FX and signed financing are declared cash,
+    not broker evidence. Receipts share a second; their order is unknowable.
+    """
+    from decimal import Decimal
+    from itertools import permutations, product
+
+    rng = random.Random(20261028)
+    for _ in range(48):
+        data = list(fixture(30))
+        for row in data[3]:
+            row.update(gross_cash="0", spread_cash="0", slippage_cash="0",
+                       commission_cash="0", financing_cash="0", fx_cash="0",
+                       observed_at_utc=7000)
+        batches = []
+        for batch_index in range(2):
+            values = []
+            for j in range(3):
+                row = data[3][3 * batch_index + j]
+                row["observed_at_utc"] = 8000 + batch_index * 100
+                row["gross_cash"] = format(
+                    Decimal(rng.randint(-200, 200)) / 10, ".1f")
+                for field in ("spread_cash", "slippage_cash",
+                              "commission_cash", "fx_cash"):
+                    row[field] = format(
+                        Decimal(rng.randint(0, 40)) / 100, ".2f")
+                row["financing_cash"] = format(
+                    Decimal(rng.randint(-30, 30)) / 100, ".2f")
+                net = (Decimal(row["gross_cash"])
+                       - sum((Decimal(row[field]) for field in
+                              ("spread_cash", "slippage_cash",
+                               "commission_cash", "financing_cash", "fx_cash")),
+                             Decimal(0)))
+                values.append(net)
+            batches.append(values)
+
+        expected_worst_drawdown = Decimal(0)
+        for first, second in product(permutations(batches[0]),
+                                     permutations(batches[1])):
+            cash = peak = drawdown = Decimal(0)
+            for amount in first + second:
+                cash += amount
+                peak = max(peak, cash)
+                drawdown = max(drawdown, peak - cash)
+            expected_worst_drawdown = max(expected_worst_drawdown, drawdown)
+
+        report = audit(data)
+        assert report["max_receipt_time_ordering_drawdown_cash_upper_bound"] == (
+            format(expected_worst_drawdown, ".4f"))
+        assert Decimal(report["net_cash"]) == sum(
+            (value for batch in batches for value in batch), Decimal(0))
+        assert Decimal(report["max_observation_end_drawdown_cash"]) <= (
+            expected_worst_drawdown)
+        shuffled = copy.deepcopy(data)
+        rng.shuffle(shuffled[3])
+        assert audit(shuffled) == report
+        assert report["broker_costs_verified"] is False
+        assert report["profitable_edge_verified"] is False
+        assert report["may_execute_demo_order"] is False
+        assert report["may_execute_real_order"] is False
