@@ -134,3 +134,39 @@ def test_never_mutates_caller_data():
     before = deepcopy((e, o))
     inspect_declared_inventory(e, o, NOW)
     assert (e, o) == before
+
+
+def _multi_page_orders(total: int, *, duplicate_ids: bool = False):
+    e, o = sample()
+    original = o["pages"][0]["orders"][0]
+    rows = [deepcopy(original)]
+    for index in range(1, total):
+        row = deepcopy(original)
+        if not duplicate_ids:
+            row["client_order_id"] = f"client{index + 1}"
+            row["broker_order_id"] = f"broker{index + 1}"
+            row["fills"][0]["fill_id"] = f"fill{index + 1}"
+        rows.append(row)
+    o["pages"] = [
+        {"snapshot_id": "snapshot1", "index": 0, "total_pages": 2,
+         "complete": True, "orders": rows[:256]},
+        {"snapshot_id": "snapshot1", "index": 1, "total_pages": 2,
+         "complete": True, "orders": rows[256:]},
+    ]
+    return e, o
+
+
+def test_aggregate_order_limit_accepts_exact_boundary_as_hold():
+    e, o = _multi_page_orders(256)
+    result = inspect_declared_inventory(e, o, NOW)
+    assert result["status"] == "HOLD_RECONCILIATION"
+    assert "unexpected_account_order" in result["failed_checks"]
+    assert result["observed_order_count"] == 256
+    assert result["may_clear_unknown"] is False
+
+
+@pytest.mark.parametrize("duplicate_ids", [False, True])
+def test_aggregate_order_limit_rejects_257_rows_across_pages(duplicate_ids):
+    e, o = _multi_page_orders(257, duplicate_ids=duplicate_ids)
+    with pytest.raises(ValueError, match="Observed order population exceeds bound"):
+        inspect_declared_inventory(e, o, NOW)
