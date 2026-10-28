@@ -7,7 +7,7 @@
  */
 import type {Bar} from './research.ts';
 
-export const HOURLY_FVG_VERSION='hourly-fvg-first-midpoint-touch-v67';
+export const HOURLY_FVG_VERSION='hourly-fvg-first-midpoint-touch-v68';
 export type Evidence='PASS'|'FAIL'|'INSUFFICIENT_DATA';
 // First-touch volume evidence is not independent broker/source authentication.
 export type VolumeEvidenceReason='NOT_EVALUATED'|'SOURCE_UNVERIFIED'|
@@ -85,9 +85,16 @@ export type PairedNetSignCells={
 export type PairedGrossOrderingCells={
  confirmedHigher:number;blindHigher:number;equal:number;
 };
+export type PairedGrossOrderingByDirectionCensus=Record<Side,{
+ all:PairedGrossOrderingCells;strict:PairedGrossOrderingCells;
+ strictFail:PairedGrossOrderingCells;strictUnknown:PairedGrossOrderingCells;
+}>;
 export type PairedGrossOrderingCensus={
  all:PairedGrossOrderingCells;strict:PairedGrossOrderingCells;
  strictFail:PairedGrossOrderingCells;strictUnknown:PairedGrossOrderingCells;
+ // Direction-specific gross ordering on the SAME matured matched population.
+ // A favorable pooled entry comparison may conceal an adverse one-sided cohort.
+ byDirection:PairedGrossOrderingByDirectionCensus;
 };
 export type PairedNetSignByDirectionCensus=Record<Side,{
  all:PairedNetSignCells;strict:PairedNetSignCells;
@@ -531,9 +538,13 @@ function summarizeCohort(observations:readonly FvgObservation[],costs:readonly n
  const emptyOrdering=():PairedGrossOrderingCells=>({
   confirmedHigher:0,blindHigher:0,equal:0,
  });
- const pairedGrossOrdering:PairedGrossOrderingCensus={
+ const emptyDirectionalOrdering=()=>({
   all:emptyOrdering(),strict:emptyOrdering(),
   strictFail:emptyOrdering(),strictUnknown:emptyOrdering(),
+ });
+ const pairedGrossOrdering:PairedGrossOrderingCensus={
+  ...emptyDirectionalOrdering(),
+  byDirection:{BULLISH:emptyDirectionalOrdering(),BEARISH:emptyDirectionalOrdering()},
  };
  for(const observation of observations){
   if(!paired(observation))continue;
@@ -547,9 +558,36 @@ function summarizeCohort(observations:readonly FvgObservation[],costs:readonly n
     confirmedEntry<blindEntry?'confirmedHigher':'blindHigher':
     confirmedEntry>blindEntry?'confirmedHigher':'blindHigher';
   pairedGrossOrdering.all[cell]++;
-  if(observation.gates.strictCandidate==='PASS')pairedGrossOrdering.strict[cell]++;
-  else if(observation.gates.strictCandidate==='FAIL')pairedGrossOrdering.strictFail[cell]++;
-  else pairedGrossOrdering.strictUnknown[cell]++;
+  const directional=pairedGrossOrdering.byDirection[observation.direction];
+  directional.all[cell]++;
+  if(observation.gates.strictCandidate==='PASS'){
+   pairedGrossOrdering.strict[cell]++;
+   directional.strict[cell]++;
+  }else if(observation.gates.strictCandidate==='FAIL'){
+   pairedGrossOrdering.strictFail[cell]++;
+   directional.strictFail[cell]++;
+  }else{
+   pairedGrossOrdering.strictUnknown[cell]++;
+   directional.strictUnknown[cell]++;
+  }
+ }
+ // Every direction/status cell belongs to exactly one matured matched pair.
+ // Do not count unmatched, censored or not-yet-closed comparisons.
+ for(const status of ['all','strict','strictFail','strictUnknown'] as const){
+  for(const cell of ['confirmedHigher','blindHigher','equal'] as const){
+   if(pairedGrossOrdering[status][cell]!==(
+    pairedGrossOrdering.byDirection.BULLISH[status][cell]+
+    pairedGrossOrdering.byDirection.BEARISH[status][cell]))
+    throw Error('Directional FVG gross ordering population does not reconcile');
+  }
+ }
+ for(const side of ['BULLISH','BEARISH'] as const){
+  const direction=pairedGrossOrdering.byDirection[side];
+  for(const cell of ['confirmedHigher','blindHigher','equal'] as const){
+   if(direction.all[cell]!==direction.strict[cell]+
+    direction.strictFail[cell]+direction.strictUnknown[cell])
+    throw Error('Directional strict FVG gross ordering does not reconcile');
+  }
  }
  // Count every matured matched pair, not only attractive strict candidates.
  // Unpaired, right-censored and opening-gap-through outcomes are excluded.
