@@ -93,6 +93,13 @@ def audit_declared_completed_m1_receipts(
     duplicate_minutes = backward_minutes = observed_gap_minutes = 0
     changed_duplicate_ohlc_text_rows = changed_duplicate_numeric_ohlc_rows = 0
     lag_exceeded = finalization_lag_exceeded = 0
+    # A received-after-budget row is not proof of a provider outage. A
+    # first-seen minute below the high-water mark is an out-of-order backfill,
+    # even when its immediate predecessor was also an older minute.
+    after_budget_rows = 0
+    after_budget_minutes: set[int] = set()
+    out_of_order_first_seen_minutes: set[int] = set()
+    high_water_start = None
     digest = hashlib.sha256(b"DECLARED_COMPLETED_M1_RECEIPT_CENSUS_V1\n")
     digest.update(json.dumps(
         [provider, instrument, source_id, price_side],
@@ -125,6 +132,11 @@ def audit_declared_completed_m1_receipts(
         if low > min(opening, closing) or high < max(opening, closing):
             raise ValueError("Invalid OHLC ordering")
         raw_ohlc = tuple(record[k] for k in ("open", "high", "low", "close"))
+        if (start not in seen_minutes and high_water_start is not None
+                and start < high_water_start):
+            out_of_order_first_seen_minutes.add(start)
+        if high_water_start is None or start > high_water_start:
+            high_water_start = start
         if start in seen_minutes:
             duplicate_minutes += 1
             original_ohlc = first_minute_ohlc[start]
@@ -149,6 +161,13 @@ def audit_declared_completed_m1_receipts(
         # Transport lag alone cannot establish prompt candle finalization.
         if finalized - (start + 60) > max_finalization_lag_seconds:
             finalization_lag_exceeded += 1
+        # This composite arrival deadline is a *declared* diagnostic only.
+        # Individual stage breaches above remain independently quarantined,
+        # including at an exact composite-deadline boundary.
+        if received > (start + 60 + max_finalization_lag_seconds
+                       + max_transport_lag_seconds):
+            after_budget_rows += 1
+            after_budget_minutes.add(start)
         digest.update(json.dumps(
             [event_id, start, finalized, received, record["open"],
              record["high"], record["low"], record["close"]],
@@ -250,6 +269,15 @@ def audit_declared_completed_m1_receipts(
         "changed_duplicate_ohlc_text_rows": changed_duplicate_ohlc_text_rows,
         "changed_duplicate_numeric_ohlc_rows": changed_duplicate_numeric_ohlc_rows,
         "backward_candle_events": backward_minutes,
+        "out_of_order_first_seen_minutes": len(out_of_order_first_seen_minutes),
+        "out_of_order_first_seen_minute_sample_utc": sorted(
+            out_of_order_first_seen_minutes
+        )[:12],
+        "declared_arrived_after_budget_rows": after_budget_rows,
+        "declared_arrived_after_budget_distinct_minutes": len(after_budget_minutes),
+        "declared_arrived_after_budget_minute_sample_utc": sorted(
+            after_budget_minutes
+        )[:12],
         "observed_gap_minutes_not_proven_missing": observed_gap_minutes,
         "distinct_interior_unobserved_minutes_not_proven_missing": (
             distinct_interior_unobserved_minutes
