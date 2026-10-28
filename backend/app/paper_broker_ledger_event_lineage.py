@@ -10,6 +10,8 @@ import json
 import re
 from typing import Any
 
+from app.paper_broker_inventory_census import _qty
+
 _MAX_EVENTS = 10_000
 _MAX_MS = 8_640_000_000_000_000
 _ZERO = "0" * 64
@@ -22,6 +24,10 @@ _EVENTS = _TERMINAL | {"PREPARED", "ATTEMPT_UNKNOWN"}
 _KEYS = {"seq", "broker", "account", "order_id", "event", "evidence_sha",
          "recorded_at_ms", "prev_hash", "event_hash"}
 _MAX_UNKNOWN_TO_ATTEMPT_MS = 60_000
+_EXPECTED_KEYS = {"broker", "account_alias", "max_snapshot_age_ms",
+                  "max_transport_lag_ms", "unresolved_orders"}
+_EXPECTED_ROW_KEYS = {"client_order_id", "intent_sha", "instrument", "side",
+                      "quantity", "attempted_at_ms"}
 _SUMMARY_KEYS = {
     "schema", "event_count", "order_count", "audit_tip_sha256",
     "last_recorded_at_ms", "orders", "status", "may_submit_paper_order",
@@ -91,6 +97,14 @@ def inspect_declared_ledger_event_lineage(expected: dict, ledger_summary: dict,
     if (type(ledger_summary["last_recorded_at_ms"]) is not int
             or not 0 <= ledger_summary["last_recorded_at_ms"] <= _MAX_MS):
         raise ValueError("Invalid ledger summary event time")
+    # Standalone callers must supply the complete census expected-intent schema.
+    # A partial or permissive contract is not evidence of safe reconciliation.
+    if set(expected) != _EXPECTED_KEYS:
+        raise ValueError("Invalid expected inventory fields")
+    for name in ("max_snapshot_age_ms", "max_transport_lag_ms"):
+        value = expected[name]
+        if type(value) is not int or not 1 <= value <= 60_000:
+            raise ValueError(f"Invalid {name}")
     expected_broker = _id(expected.get("broker"), "expected broker")
     expected_account = _id(expected.get("account_alias"), "expected account")
     if expected_broker not in _BROKERS:
@@ -99,14 +113,22 @@ def inspect_declared_ledger_event_lineage(expected: dict, ledger_summary: dict,
     if type(expected_rows) is not list or not 1 <= len(expected_rows) <= 256:
         raise ValueError("Invalid expected unresolved population")
     expected_intents = {}
+    seen_expected_fingerprints: set[str] = set()
     for row in expected_rows:
-        if type(row) is not dict:
+        if type(row) is not dict or set(row) != _EXPECTED_ROW_KEYS:
             raise ValueError("Invalid expected order row")
-        cid = _id(row.get("client_order_id"), "expected client order ID")
+        _id(row["instrument"], "expected instrument")
+        if type(row["side"]) is not str or row["side"] not in ("BUY", "SELL"):
+            raise ValueError("Invalid expected side")
+        _qty(row["quantity"], "expected quantity", positive=True)
+        cid = _id(row["client_order_id"], "expected client order ID")
         if cid in expected_intents:
             raise ValueError("Duplicate expected order ID")
-        expected_intents[cid] = (_digest(row.get("intent_sha"), "expected intent"),
-                                 _ms(row.get("attempted_at_ms"), "expected attempt time"))
+        intent = _digest(row["intent_sha"], "expected intent")
+        if intent in seen_expected_fingerprints:
+            raise ValueError("Duplicate expected intent fingerprint")
+        seen_expected_fingerprints.add(intent)
+        expected_intents[cid] = (intent, _ms(row["attempted_at_ms"], "expected attempt time"))
 
     state: dict[tuple[str, str, str], tuple[str, str, int | None]] = {}
     unresolved_accounts: dict[tuple[str, str], tuple[str, str, str]] = {}
