@@ -17,7 +17,13 @@ They do not verify the original ZIP bytes or its license, source timestamp
 convention, provider, venue, or broker quote side. Do not put private paths,
 archive names, candle prices or source hashes in public PR comments.
 
-The adapter uses a SQLite read-only connection with `query_only=ON`. It
+The adapter uses a SQLite read-only connection with `query_only=ON`. An
+explicit read transaction pins dataset metadata and candle rows to the same
+SQLite snapshot, including when another process commits into a WAL database
+between those two queries. This prevents mixed-revision research reports; it
+does **not** authenticate either revision or guarantee a later replay sees the
+same data. Preserve the database snapshot and original archive separately for
+reproducible comparisons. It
 requires `READY` HistData ASCII metadata, an explicit matching original
 archive SHA-256 declaration, a bounded accepted row count, one strictly
 increasing source-line lineage, minute-aligned UTC epochs, positive finite
