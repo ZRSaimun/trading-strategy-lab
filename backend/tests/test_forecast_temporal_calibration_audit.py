@@ -6,6 +6,7 @@ import pytest
 from app.forecast_temporal_calibration_audit import (
     _issued_probability_ecdf_shift, _issued_probability_shape_shift,
     _issued_utc_hour_mix, _outcome_availability_utc_weekday_hour168,
+    _ece10_unavailable_binary_bounds, _calibration_ece10,
     _paired_frozen_baseline_regret_bounds,
     audit_temporal_forecast_calibration)
 
@@ -1566,3 +1567,84 @@ def test_paired_regret_logarithms_remain_finite_at_interior_probability_tails():
     assert all(math.isfinite(value) for value in report.values())
     assert (report["lateLogLossRegretBestCaseAllIssuedCensusVsFrozenEarlyClimatology"]
             < report["lateLogLossRegretWorstCaseAllIssuedCensusVsFrozenEarlyClimatology"])
+
+
+def test_fixed_census_ece_bounds_match_exhaustive_binary_assignments():
+    # Counterfactual binary labels only; no fabricated observed market outcomes.
+    from itertools import product
+
+    rows = [
+        {"id": "a", "probability": .05, "outcomeUp": True},
+        {"id": "b", "probability": .25, "outcomeUp": None},
+        {"id": "c", "probability": .72, "outcomeUp": None},
+        {"id": "d", "probability": .72, "outcomeUp": None},
+        {"id": "e", "probability": .93, "outcomeUp": False},
+    ]
+    observed = [rows[0], rows[-1]]
+    bounds = _ece10_unavailable_binary_bounds(rows, observed)
+    scores = []
+    for labels in product((False, True), repeat=3):
+        assigned = [dict(row) for row in rows]
+        for index, outcome in zip((1, 2, 3), labels):
+            assigned[index]["outcomeUp"] = outcome
+        scores.append(_calibration_ece10(assigned))
+    assert bounds["lateEce10BestCaseAllIssuedCensus"] == pytest.approx(min(scores))
+    assert bounds["lateEce10WorstCaseAllIssuedCensus"] == pytest.approx(max(scores))
+
+
+def test_fixed_census_ece_bounds_collapse_with_all_labels_settled():
+    s = fixture()
+    row = audit_temporal_forecast_calibration(s)["groups"][0]
+    assert row["lateEce10BestCaseAllIssuedCensus"] == pytest.approx(
+        row["lateExpectedCalibrationError10"])
+    assert row["lateEce10WorstCaseAllIssuedCensus"] == pytest.approx(
+        row["lateExpectedCalibrationError10"])
+
+
+def test_fixed_census_ece_bounds_expand_without_shifting_denominator():
+    s = fixture()
+    fully_settled = audit_temporal_forecast_calibration(s)["groups"][0]
+    # Index 81 overlaps an already-selected issued forecast.
+    s["forecasts"][81].update(status="PENDING", outcomeUp=None, resolvedAt=None)
+    unselected = audit_temporal_forecast_calibration(s)["groups"][0]
+    for key in ("lateEce10BestCaseAllIssuedCensus",
+                "lateEce10WorstCaseAllIssuedCensus"):
+        assert unselected[key] == pytest.approx(fully_settled[key])
+    s["forecasts"][80].update(status="PENDING", outcomeUp=None, resolvedAt=None)
+    missing = audit_temporal_forecast_calibration(s)["groups"][0]
+    assert missing["lateNonoverlappingIssued"] == fully_settled["lateNonoverlappingIssued"]
+    assert missing["lateEce10BestCaseAllIssuedCensus"] < (
+        fully_settled["lateExpectedCalibrationError10"])
+    assert missing["lateEce10WorstCaseAllIssuedCensus"] == pytest.approx(
+        fully_settled["lateExpectedCalibrationError10"])
+
+
+def test_fixed_census_ece_bounds_respect_declared_as_of():
+    s = fixture()
+    s["forecasts"][80]["resolvedAt"] = 20000
+    row = audit_temporal_forecast_calibration(
+        s, evaluation_as_of=10000)["groups"][0]
+    assert row["lateCensusSettledAfterDeclaredAsOf"] == 1
+    assert row["lateEce10BestCaseAllIssuedCensus"] < (
+        row["lateEce10WorstCaseAllIssuedCensus"])
+    assert row["lateNonoverlappingSettled"] == 39
+
+
+def test_fixed_census_ece_bounds_withheld_when_selection_risk_excessive():
+    s = fixture()
+    for i in (80, 82, 84, 86, 88):
+        s["forecasts"][i].update(status="PENDING", outcomeUp=None, resolvedAt=None)
+    row = audit_temporal_forecast_calibration(s)["groups"][0]
+    assert row["status"] == "UNRESOLVED_SELECTION_RISK"
+    assert row["lateEce10BestCaseAllIssuedCensus"] is None
+    assert row["lateEce10WorstCaseAllIssuedCensus"] is None
+
+
+def test_fixed_census_ece_bins_do_not_cancel_opposite_calibration_gaps():
+    rows = [{"id": "lo", "probability": .1, "outcomeUp": None},
+            {"id": "hi", "probability": .9, "outcomeUp": None}]
+    bounds = _ece10_unavailable_binary_bounds(rows, [])
+    assert bounds["lateEce10BestCaseAllIssuedCensus"] == pytest.approx(.1)
+    assert bounds["lateEce10WorstCaseAllIssuedCensus"] == pytest.approx(.9)
+    # Opposite bin errors cannot cancel in ECE as they can in global mean gap.
+    assert all(math.isfinite(v) for v in bounds.values())
