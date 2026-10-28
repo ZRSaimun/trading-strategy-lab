@@ -62,7 +62,7 @@ def _m15_windows(minutes: list[int]) -> tuple[int, int, int, list[int]]:
     repeats = sum(count - 1 for count in bucket_counts.values())
     return complete, len(bucket_counts), repeats, sorted(
         bucket for bucket, count in bucket_counts.items() if count > 1
-    )
+    ), set(bucket_counts)
 
 
 def _iso(minute: int) -> str:
@@ -87,6 +87,7 @@ def audit_source_m1_population(
     stored = _validated(stored_minutes, "stored_minutes", require_sorted_unique=True)
 
     seen: set[int] = set()
+    repeated_minutes: set[int] = set()
     repeats = backward = adjacent = 0
     first_repeat_ordinal = last_repeat_ordinal = None
     repeat_samples: list[dict] = []
@@ -101,6 +102,7 @@ def audit_source_m1_population(
             elif minute == previous:
                 adjacent += 1
         if minute in seen:
+            repeated_minutes.add(minute)
             repeats += 1
             if first_repeat_ordinal is None:
                 first_repeat_ordinal = ordinal
@@ -140,9 +142,20 @@ def audit_source_m1_population(
     stored_set = set(stored)
     missing = sorted(seen - stored_set)
     extra = sorted(stored_set - seen)
-    raw_m15, raw_distinct, raw_repeat_windows, repeat_buckets = _m15_windows(source)
-    stored_m15, stored_distinct, _, _ = _m15_windows(stored)
-    quarantine = bool(repeats or backward or missing or extra or raw_m15 != stored_m15)
+    raw_m15, raw_distinct, raw_repeat_windows, repeat_buckets, raw_buckets = _m15_windows(source)
+    stored_m15, stored_distinct, _, _, stored_buckets = _m15_windows(stored)
+    # A repeated source minute contaminates its entire UTC M15 bucket even if
+    # its duplicate appears far away in source order and has identical OHLC.
+    # Count only *complete stored* buckets; incomplete buckets are not candidates.
+    repeated_bucket_starts = {minute - minute % 900 for minute in repeated_minutes}
+    stored_replay_touched = sorted(stored_buckets & repeated_bucket_starts)
+    raw_only_buckets = sorted(raw_buckets - stored_buckets)
+    stored_only_buckets = sorted(stored_buckets - raw_buckets)
+    common_without_repeats = (raw_buckets & stored_buckets) - repeated_bucket_starts
+    quarantine = bool(
+        repeats or backward or missing or extra or raw_m15 != stored_m15
+        or raw_only_buckets or stored_only_buckets
+    )
     return {
         "result": "QUARANTINE_REQUIRED" if quarantine else "STRUCTURAL_PARITY_ONLY_UNVERIFIED",
         "source_id": source_id,
@@ -172,6 +185,14 @@ def audit_source_m1_population(
         "stored_complete_m15_windows": stored_m15,
         "stored_distinct_complete_m15_buckets": stored_distinct,
         "source_minus_stored_complete_m15_windows": raw_m15 - stored_m15,
+        "source_complete_m15_buckets_absent_from_store": len(raw_only_buckets),
+        "stored_complete_m15_buckets_absent_from_source_order": len(stored_only_buckets),
+        "source_complete_m15_absent_from_store_samples_utc": [_iso(t) for t in raw_only_buckets[:sample_limit]],
+        "stored_complete_m15_absent_from_source_samples_utc": [_iso(t) for t in stored_only_buckets[:sample_limit]],
+        "stored_complete_m15_buckets_touched_by_repeated_source_minutes": len(stored_replay_touched),
+        "stored_complete_m15_replayed_source_bucket_samples_utc": [_iso(t) for t in stored_replay_touched[:sample_limit]],
+        "common_complete_m15_buckets_without_repeated_source_minutes": len(common_without_repeats),
+        "m15_bucket_diagnostics_are_not_research_approval": True,
         "timestamp_population_only": True,
         "source_clock_verified": False,
         "original_archive_authenticated": False,
