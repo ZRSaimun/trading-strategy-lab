@@ -706,3 +706,23 @@ and journal timestamps are not independently validated; source entitlement,
 prospective receipts, session-aware inventories and independent holdout
 verification remain outstanding. No provider request, real alert, paper fill,
 broker order, production mutation or live execution is enabled.
+
+
+## Fixed-census consecutive unavailable-outcome runs (28 October 2026)
+
+The read-only audit now includes `earlyCensusOutcomeUnavailableRuns` and
+`lateCensusOutcomeUnavailableRuns` even when the scoring gates withhold Brier,
+ECE, or log-loss results. Each object reports `issued`, `unavailable`,
+`unavailableRunCount`, `longestUnavailableRun`, and
+`longestUnavailableRunFractionOfIssued` (null for an empty cohort).
+Availability uses only the existing chronologically eligible outcome IDs.
+The preselected nonoverlapping issued census and its order are unchanged.
+A pending, void, chronologically purged, or post-as-of label is unavailable.
+
+This detects clustered missing labels that an aggregate missingness fraction
+or separate weekday/hour cells can conceal. **Consecutive means consecutive
+selected issued records, not consecutive actual market candles.** Unissued
+opportunities, exchange closures, DST, provider gaps, market sessions, source
+authenticity and statistical significance cannot be inferred from this
+diagnostic. No labels are filled in, no score gate is relaxed, and no
+notification, paper fill or live order is authorized.
