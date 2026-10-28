@@ -93,6 +93,33 @@ def test_acceptance_is_not_delivery():
     assert "parse_mode" not in json.loads(request.data)
 
 
+@pytest.mark.parametrize("proxy_env", ["HTTPS_PROXY", "https_proxy", "ALL_PROXY"])
+def test_default_transport_ignores_implicit_environment_proxies(monkeypatch, proxy_env):
+    # The Bot API token is in the HTTPS URL. An environment-provided proxy
+    # must not silently receive the request; this test makes no network call.
+    import urllib.request
+
+    monkeypatch.setenv(proxy_env, "http://untrusted-proxy.invalid:8080")
+    original_build_opener = urllib.request.build_opener
+    fake = FakeOpener(Reply(accepted()))
+    inspected = []
+
+    def inspect_opener(*handlers):
+        configured = original_build_opener(*handlers)
+        proxy_handlers = [h for h in configured.handlers
+                          if isinstance(h, urllib.request.ProxyHandler)]
+        inspected.append([h.proxies for h in proxy_handlers])
+        return fake
+
+    monkeypatch.setattr("app.forecast_telegram_transport.urllib.request.build_opener",
+                        inspect_opener)
+    result = send_telegram_once(bot_token=TOKEN, chat_id=CHAT, text=review_text())
+    assert inspected == [[{}]]
+    assert result["providerAccepted"] is True
+    assert result["deliveryVerified"] is False
+    assert len(fake.calls) == 1
+
+
 @pytest.mark.parametrize("token,chat,text,timeout", [
     ("invalid", CHAT, review_text("x"), 5), (TOKEN, "@someone", review_text("x"), 5),
     (TOKEN, CHAT, "", 5), (TOKEN, CHAT, review_text("x" * 1001), 5),
