@@ -120,3 +120,45 @@ def test_empty_validated_journal():
     s = snapshot(0)
     result = summarize_forecast_snapshot(s)
     assert result["groups"] == [] and result["issuedTotal"] == 0
+
+
+@pytest.mark.parametrize("invalid_lag", [-1, 3601, True, 0.5, None, "120"])
+def test_rejects_forged_maximum_receipt_lag(invalid_lag):
+    s = snapshot()
+    s["maxLagSeconds"] = invalid_lag
+    with pytest.raises(ValueError, match="maximum receipt lag"):
+        summarize_forecast_snapshot(s)
+
+
+@pytest.mark.parametrize("base,issued", [
+    (61, 121),           # base candle is not UTC-duration aligned
+    (60, 119),           # forecast predates completed base candle
+    (60, 181),           # forecast is after the next candle closed
+    (60, 180),           # upper issuance window is exclusive
+    (-60, 0),            # invalid epoch
+    (2**53, 2**53 + 60), # epoch overflow
+])
+def test_rejects_forged_issuance_chronology(base, issued):
+    s = snapshot()
+    row, event = s["forecasts"][0], s["events"][0]
+    row["baseStart"] = event["baseStart"] = base
+    row["issuedAt"] = event["receivedAt"] = issued
+    row["targetStart"] = base + 60
+    with pytest.raises(ValueError, match="resolution"):
+        summarize_forecast_snapshot(s)
+
+
+def test_rejects_forecast_issued_after_declared_lag():
+    s = snapshot()
+    s["maxLagSeconds"] = 10
+    s["forecasts"][0]["issuedAt"] = s["events"][0]["receivedAt"] = 71 + 60
+    with pytest.raises(ValueError, match="resolution"):
+        summarize_forecast_snapshot(s)
+
+
+def test_valid_completed_candle_issuance_inside_declared_window():
+    s = snapshot()
+    s["maxLagSeconds"] = 59
+    s["forecasts"][0]["issuedAt"] = s["events"][0]["receivedAt"] = 60 + 60 + 59
+    # A later issuedAt remains before the already-declared settlement receipt.
+    assert group(s)["settled"] == 30
