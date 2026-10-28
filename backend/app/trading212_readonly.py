@@ -149,6 +149,13 @@ def fetch_trading212_readonly(
     except httpx.HTTPError:
         raise ReadOnlyBrokerError("Broker transport unavailable") from None
 
+    # Content-Length, when present, describes the exact identity-encoded
+    # response body. Reject a declared length that disagrees with the bytes
+    # actually hashed and parsed, even if truncated JSON happens to be valid.
+    # This is transport consistency only, not broker signing or entitlement.
+    if size is not None and len(raw) != int(size):
+        raise ReadOnlyBrokerError("Broker response length mismatch")
+
     try:
         payload = json.loads(raw, object_pairs_hook=_unique_object_pairs,
                              parse_float=_finite_float, parse_constant=_reject_constant)
