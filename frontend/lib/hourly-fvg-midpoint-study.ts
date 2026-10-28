@@ -7,7 +7,7 @@
  */
 import type {Bar} from './research.ts';
 
-export const HOURLY_FVG_VERSION='hourly-fvg-first-midpoint-touch-v55';
+export const HOURLY_FVG_VERSION='hourly-fvg-first-midpoint-touch-v56';
 export type Evidence='PASS'|'FAIL'|'INSUFFICIENT_DATA';
 // First-touch volume evidence is not independent broker/source authentication.
 export type VolumeEvidenceReason='NOT_EVALUATED'|'SOURCE_UNVERIFIED'|
@@ -44,6 +44,9 @@ export type FvgObservation={
  // Known no-entry failure is observed at the completed no-touch deadline.
  markoutOutcomeObservedAt:number|null;
  firstTouchOutcome:FirstTouchOutcome;
+ // Consecutive completed post-formation hours actually inspected before
+ // first disposition or censor; unobserved/missing hours never count.
+ firstTouchObservedWaitBars:number;
   // Missing interior source hours and incomplete archive tails are different
   // evidence gaps; neither can be treated as an observed no-touch failure.
   firstTouchCensorReason:FirstTouchCensorReason|null;
@@ -116,6 +119,10 @@ export type FvgCohort={
  // histogram can hide asymmetric bullish/bearish first-touch attrition.
  firstDispositionWaitBarCountsByDirection:Record<Side,
   Record<'TOUCH'|'OPEN_GAP_THROUGH'|'NO_TOUCH',readonly number[]>>;
+ // Per-wait observed risk set: unresolved at hour start AND completed hour
+ // actually present. Censored/missing hours contribute no invented exposure.
+ firstTouchObservedExposureByWait:readonly number[];
+ firstTouchObservedExposureByWaitByDirection:Record<Side,readonly number[]>;
   incompleteWindowByReason:Record<FirstTouchCensorReason,number>;
   markoutCensoredByReason:Record<MarkoutCensorReason,number>;
  midpointTouch:EvidenceCounts;strictCandidate:EvidenceCounts;markout:EvidenceCounts;
@@ -494,22 +501,35 @@ function summarizeCohort(observations:readonly FvgObservation[],costs:readonly n
   NO_TOUCH:Array(maxTouchWaitBars).fill(0),
  });
  const firstDispositionWaitBarCounts=emptyWaitCounts();
+ const firstTouchObservedExposureByWait:number[]=Array(maxTouchWaitBars).fill(0);
+ const firstTouchObservedExposureByWaitByDirection:Record<Side,number[]>={
+  BULLISH:Array(maxTouchWaitBars).fill(0),BEARISH:Array(maxTouchWaitBars).fill(0),
+ };
  const firstDispositionWaitBarCountsByDirection:Record<Side,
   Record<'TOUCH'|'OPEN_GAP_THROUGH'|'NO_TOUCH',number[]>>={
    BULLISH:emptyWaitCounts(),BEARISH:emptyWaitCounts(),
   };
  for(const observation of observations){
+  const observed=observation.firstTouchObservedWaitBars;
+  if(!Number.isSafeInteger(observed)||observed<0||observed>maxTouchWaitBars)
+   throw Error('Observed FVG waiting exposure is inconsistent');
+  for(let wait=0;wait<observed;wait++){
+   firstTouchObservedExposureByWait[wait]++;
+   firstTouchObservedExposureByWaitByDirection[observation.direction][wait]++;
+  }
   firstTouchOutcome[observation.firstTouchOutcome]++;
   if(observation.firstTouchOutcome!=='INCOMPLETE_WINDOW'){
    const observedAt=observation.firstTouchOutcomeObservedAt;
    const wait=observedAt===null?NaN:
     (observedAt-observation.formationClosedAt)/HOUR;
-   if(!Number.isSafeInteger(wait)||wait<1||wait>maxTouchWaitBars)
+   if(!Number.isSafeInteger(wait)||wait<1||wait>maxTouchWaitBars||wait!==observed)
     throw Error('Observed FVG first-disposition wait is inconsistent');
    firstDispositionWaitBarCounts[observation.firstTouchOutcome][wait-1]++;
    firstDispositionWaitBarCountsByDirection[observation.direction]
     [observation.firstTouchOutcome][wait-1]++;
   }
+  if(observation.firstTouchOutcome==='INCOMPLETE_WINDOW'&&observed===maxTouchWaitBars)
+   throw Error('Censored FVG waiting exposure cannot be complete');
   if(observation.firstTouchCensorReason!==null)
    incompleteWindowByReason[observation.firstTouchCensorReason]++;
   if(observation.markoutCensorReason!==null)
@@ -525,9 +545,21 @@ function summarizeCohort(observations:readonly FvgObservation[],costs:readonly n
   if(directionalAccounted!==accounted)
    throw Error('Directional FVG first-disposition wait census does not reconcile');
  }
+ for(let wait=0;wait<maxTouchWaitBars;wait++){
+  const exposure=firstTouchObservedExposureByWait[wait];
+  const directional=firstTouchObservedExposureByWaitByDirection.BULLISH[wait]+
+   firstTouchObservedExposureByWaitByDirection.BEARISH[wait];
+  const dispositions=firstDispositionWaitBarCounts.TOUCH[wait]+
+   firstDispositionWaitBarCounts.OPEN_GAP_THROUGH[wait]+
+   firstDispositionWaitBarCounts.NO_TOUCH[wait];
+  if(exposure!==directional||dispositions>exposure||
+   (wait>0&&exposure>firstTouchObservedExposureByWait[wait-1]))
+   throw Error('Observed FVG waiting exposure does not reconcile');
+ }
  return {
   formations:observations.length,firstTouchOutcome,firstDispositionWaitBarCounts,
   firstDispositionWaitBarCountsByDirection,
+  firstTouchObservedExposureByWait,firstTouchObservedExposureByWaitByDirection,
   incompleteWindowByReason,
   pairedNetSignByCost,pairedGrossOrdering,pairedHoldingWindowOverlap,
   pairedHoldingWindowOverlapByStrictCandidate,
@@ -747,6 +779,7 @@ export function studyHourlyFvgMidpoint(
   let markoutCensorReason:MarkoutCensorReason|null=null;
   let markoutCensorObservedAt:number|null=null;
   let openingGapThrough=false;
+  let observedWaitBars=0;
   let outcomeObservedAt:number|null=null;
   for(let wait=1;wait<=maxTouchWaitBars;wait++){
    const j=i+wait,b=bars[j],prev=bars[j-1];
@@ -758,6 +791,7 @@ export function studyHourlyFvgMidpoint(
     if(b)censorObservedAt=b.time+HOUR;
     break;
    }
+   observedWaitBars++;
    // A bar that OPENS beyond the midpoint has already jumped across the
    // proposed limit price. Even if its entire range stays beyond that level,
    // a later return cannot establish that the original order was filled.
@@ -864,6 +898,7 @@ export function studyHourlyFvgMidpoint(
     gates.markout==='FAIL'?outcomeObservedAt:null,
    firstTouchOutcome:openingGapThrough?'OPEN_GAP_THROUGH':
     touch!==null?'TOUCH':windowComplete?'NO_TOUCH':'INCOMPLETE_WINDOW',
+   firstTouchObservedWaitBars:observedWaitBars,
    firstTouchCensorReason:censorReason,firstTouchCensorObservedAt:censorObservedAt,
    markoutCensorReason,markoutCensorObservedAt,
    rejectionWickFraction:wickFraction,volumeEvidenceObservedAt,

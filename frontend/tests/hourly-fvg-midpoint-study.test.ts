@@ -368,6 +368,10 @@ test('formation census preserves unknown outcomes and distinguishes paired from 
    BEARISH:{TOUCH:Array(12).fill(0),
     OPEN_GAP_THROUGH:Array(12).fill(0),NO_TOUCH:Array(12).fill(0)},
   },
+  firstTouchObservedExposureByWait:[1,...Array(11).fill(0)],
+  firstTouchObservedExposureByWaitByDirection:{
+   BULLISH:[1,...Array(11).fill(0)],BEARISH:Array(12).fill(0),
+  },
   incompleteWindowByReason:{MISSING_HOUR:0,RIGHT_CENSORED:0},
   markoutCensoredByReason:{MISSING_HOUR:0,RIGHT_CENSORED:0,UNREPRESENTABLE_RETURN:0},
   pairedGrossOrdering:{
@@ -2041,4 +2045,50 @@ test('v55 directional first-disposition waits reconcile and remain causal for bo
  const before=studyHourlyFvgMidpointAsOf(bullish,source,BASE+4*H,config);
  assert.deepEqual(before.cohort.firstDispositionWaitBarCountsByDirection.BULLISH,empty(),
   'a future second-hour touch cannot leak into the first-hour prefix');
+});
+
+test('v56 observed waiting exposure counts only completed, uncensored hours',()=>{
+ const config={maxTouchWaitBars:3};
+ const bullish=[
+  candle(0,100,101,99,100),candle(1,102,104,101,103),
+  candle(2,106,107,105,106),candle(3,106,107,103.5,106),
+  candle(4,106,107,101,106),
+ ];
+ const mirror=(bars:Bar[])=>bars.map(b=>({...b,
+  open:220-b.open,high:220-b.low,low:220-b.high,close:220-b.close}));
+ const cases=[
+  {name:'second-hour touch',bars:bullish,at:BASE+5*H,exposure:[1,1,0],outcome:'TOUCH'},
+  {name:'first-hour gap-through',bars:[...bullish.slice(0,3),candle(3,102,107,101,105)],
+   at:BASE+4*H,exposure:[1,0,0],outcome:'OPEN_GAP_THROUGH'},
+  {name:'completed no-touch',bars:[...bullish.slice(0,4),
+   candle(4,106,107,103.5,106),candle(5,106,107,103.5,106)],
+   at:BASE+6*H,exposure:[1,1,1],outcome:'NO_TOUCH'},
+  {name:'right-censored',bars:bullish.slice(0,4),
+   at:BASE+4*H,exposure:[1,0,0],outcome:'INCOMPLETE_WINDOW'},
+  {name:'missing second hour',bars:[...bullish.slice(0,4),candle(5,106,107,103.5,106)],
+   at:BASE+6*H,exposure:[1,0,0],outcome:'INCOMPLETE_WINDOW'},
+  {name:'formation only',bars:bullish.slice(0,3),
+   at:BASE+3*H,exposure:[0,0,0],outcome:'INCOMPLETE_WINDOW'},
+ ];
+ for(const side of ['BULLISH','BEARISH'] as const){
+  for(const sample of cases){
+   const bars=side==='BULLISH'?sample.bars:mirror(sample.bars);
+   const other=side==='BULLISH'?'BEARISH':'BULLISH';
+   const report=studyHourlyFvgMidpointAsOf(bars,source,sample.at,config);
+   assert.equal(report.observations.length,1,sample.name+' '+side);
+   assert.equal(report.observations[0].firstTouchOutcome,sample.outcome);
+   assert.equal(report.observations[0].firstTouchObservedWaitBars,
+    sample.exposure.reduce((n,x)=>n+x,0),sample.name);
+   assert.deepEqual(report.cohort.firstTouchObservedExposureByWait,sample.exposure);
+   assert.deepEqual(report.cohort.firstTouchObservedExposureByWaitByDirection[side],sample.exposure);
+   assert.deepEqual(report.cohort.firstTouchObservedExposureByWaitByDirection[other],[0,0,0]);
+   assert.deepEqual(studyHourlyFvgMidpoint(bars,source,config).cohort
+    .firstTouchObservedExposureByWait,report.cohort.firstTouchObservedExposureByWait);
+   if(sample.name==='missing second hour')
+    assert.equal(report.observations[0].firstTouchCensorReason,'MISSING_HOUR');
+  }
+ }
+ const early=studyHourlyFvgMidpointAsOf(bullish,source,BASE+4*H,config);
+ assert.deepEqual(early.cohort.firstTouchObservedExposureByWait,[1,0,0]);
+ assert.deepEqual(early.cohort.firstDispositionWaitBarCounts.TOUCH,[0,0,0]);
 });
