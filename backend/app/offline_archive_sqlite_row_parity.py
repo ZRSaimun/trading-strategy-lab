@@ -19,7 +19,7 @@ import zipfile
 from .archive_duplicate_parity import _records
 from .offline_sweep_sqlite_replay import _compressed_archive_digest
 
-_SHA = re.compile(r"[0-9a-f]{64}\\Z")
+_SHA = re.compile(r"[0-9a-f]{64}\Z")
 _MAX_ROWS = 5_000_000
 _MAX_UNCOMPRESSED = 512 * 1024 * 1024
 
