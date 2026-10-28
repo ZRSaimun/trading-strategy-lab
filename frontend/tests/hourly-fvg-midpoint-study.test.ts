@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {studyHourlyFvgMidpoint,studyHourlyFvgMidpointAsOf,type FvgSource} from '../lib/hourly-fvg-midpoint-study.ts';
+import {studyHourlyFvgMidpoint,studyHourlyFvgMidpointAsOf,type FvgSource,type FvgConfig} from '../lib/hourly-fvg-midpoint-study.ts';
 import type {Bar} from '../lib/research.ts';
 
 const H=3600,BASE=Date.UTC(2026,9,20)/1000;
@@ -561,7 +561,7 @@ test('research report rejects extra source fields without leaking caller private
  const report=studyHourlyFvgMidpoint(fixture(),source);
  assert.deepEqual(report.source,source);
  assert.deepEqual(Object.keys(report.source).sort(),Object.keys(source).sort());
- assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v52');
+ assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v53');
 });
 test('ambiguous source labels and contradictory volume evidence fail closed',()=>{
  // These are declared metadata, not independent vendor authentication.
@@ -962,7 +962,7 @@ test('an overflowing next-open comparator suppresses both matched markouts',()=>
 });
 test('completed hourly timestamps are safe and numeric rule changes have a new version',()=>{
  const report=studyHourlyFvgMidpoint(fixture(),source);
- assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v52');
+ assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v53');
  const lastSafeAlignedOpen=Math.floor(Number.MAX_SAFE_INTEGER/H)*H;
  assert.equal(Number.isSafeInteger(lastSafeAlignedOpen),true);
  assert.equal(Number.isSafeInteger(lastSafeAlignedOpen+H),false);
@@ -1918,4 +1918,32 @@ test('v51 illustrative cost stress scenarios are strictly ascending and distinct
  assert.deepEqual(full.cohort.pairedNetSignByCost.map(x=>x.costBps),costs);
  assert.equal(full.cohort.pairedNetSignByCost.length,costs.length);
  assert.deepEqual(asOf,full,'complete as-of replay preserves valid ordered stresses');
+});
+
+test('explicit nullish FVG settings cannot silently become frozen defaults',()=>{
+ const settings=['maxTouchWaitBars','markoutBars',
+  'minimumRejectionWickFraction','volumeMultiple',
+  'hypotheticalRoundTripCostsBps'] as const;
+ const bars=fixture(),cutoff=BASE+37*H;
+ const baseline=studyHourlyFvgMidpoint(bars,source);
+ const asOfBaseline=studyHourlyFvgMidpointAsOf(bars,source,cutoff);
+ for(const setting of settings){
+  for(const value of [undefined,null]){
+   const malformed={[setting]:value} as unknown as FvgConfig;
+   assert.throws(()=>studyHourlyFvgMidpoint(bars,source,malformed),
+    /Explicit nullish FVG study setting/);
+   assert.throws(()=>studyHourlyFvgMidpointAsOf(bars,source,cutoff,malformed),
+    /Explicit nullish FVG study setting/);
+  }
+ }
+ let reads=0;
+ const accessor=Object.defineProperty({},'maxTouchWaitBars',{get(){
+  reads++;
+  return undefined;
+ }}) as FvgConfig;
+ assert.throws(()=>studyHourlyFvgMidpoint(bars,source,accessor),
+  /Explicit nullish FVG study setting/);
+ assert.equal(reads,1,'declared nullish getter must not be read twice');
+ assert.deepEqual(studyHourlyFvgMidpoint(bars,source),baseline);
+ assert.deepEqual(studyHourlyFvgMidpointAsOf(bars,source,cutoff),asOfBaseline);
 });

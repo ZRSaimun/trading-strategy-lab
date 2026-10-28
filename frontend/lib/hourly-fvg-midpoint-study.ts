@@ -7,7 +7,7 @@
  */
 import type {Bar} from './research.ts';
 
-export const HOURLY_FVG_VERSION='hourly-fvg-first-midpoint-touch-v52';
+export const HOURLY_FVG_VERSION='hourly-fvg-first-midpoint-touch-v53';
 export type Evidence='PASS'|'FAIL'|'INSUFFICIENT_DATA';
 // First-touch volume evidence is not independent broker/source authentication.
 export type VolumeEvidenceReason='NOT_EVALUATED'|'SOURCE_UNVERIFIED'|
@@ -582,7 +582,13 @@ export function studyHourlyFvgMidpoint(
     throw Error('Inherited FVG study settings are not explicit research evidence');
    return undefined;
   }
-  return config[field];
+  // An explicitly present null/undefined is a malformed declared experiment,
+  // not permission to silently fall back to a different frozen setting.
+  // Read the own value once so accessor-backed inputs cannot change later.
+  const value=config[field];
+  if(value===undefined||value===null)
+   throw Error('Explicit nullish FVG study setting cannot select a frozen default');
+  return value;
  };
  const maxTouchWaitBars=readOwnSetting('maxTouchWaitBars')??12;
  const markoutBars=readOwnSetting('markoutBars')??3;
