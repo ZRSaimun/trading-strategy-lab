@@ -69,6 +69,37 @@ def _iso(minute: int) -> str:
     return datetime.fromtimestamp(minute, timezone.utc).isoformat()
 
 
+def _clean_m15_run_census(buckets: set[int], sample_limit: int) -> tuple[int, int, list[dict]]:
+    """Count contiguous UTC M15 *structural* bucket runs, never market sessions."""
+    count = longest = length = 0
+    first = last = None
+    samples: list[dict] = []
+
+    def record(start: int, end: int, bars: int) -> None:
+        nonlocal count, longest
+        count += 1
+        longest = max(longest, bars)
+        if len(samples) < sample_limit:
+            samples.append({
+                "first_bucket_utc": _iso(start),
+                "last_bucket_utc": _iso(end),
+                "complete_m15_buckets": bars,
+            })
+
+    for bucket in sorted(buckets):
+        if last is not None and bucket == last + 900:
+            length += 1
+        else:
+            if first is not None:
+                record(first, last, length)
+            first = bucket
+            length = 1
+        last = bucket
+    if first is not None:
+        record(first, last, length)
+    return count, longest, samples
+
+
 def audit_source_m1_population(
     source_order_minutes: list[int], stored_minutes: list[int], *,
     source_id: str, sample_limit: int = 5,
@@ -152,6 +183,9 @@ def audit_source_m1_population(
     raw_only_buckets = sorted(raw_buckets - stored_buckets)
     stored_only_buckets = sorted(stored_buckets - raw_buckets)
     common_without_repeats = (raw_buckets & stored_buckets) - repeated_bucket_starts
+    clean_run_count, longest_clean_run, clean_run_samples = _clean_m15_run_census(
+        common_without_repeats, sample_limit
+    )
     quarantine = bool(
         repeats or backward or missing or extra or raw_m15 != stored_m15
         or raw_only_buckets or stored_only_buckets
@@ -192,6 +226,12 @@ def audit_source_m1_population(
         "stored_complete_m15_buckets_touched_by_repeated_source_minutes": len(stored_replay_touched),
         "stored_complete_m15_replayed_source_bucket_samples_utc": [_iso(t) for t in stored_replay_touched[:sample_limit]],
         "common_complete_m15_buckets_without_repeated_source_minutes": len(common_without_repeats),
+        "common_clean_m15_contiguous_run_count": clean_run_count,
+        "common_clean_m15_longest_contiguous_run_buckets": longest_clean_run,
+        "common_clean_m15_contiguous_run_samples": clean_run_samples,
+        "source_repeated_minute_set_sha256": _fingerprint(sorted(repeated_minutes), scope="REPEATED_SOURCE_M1_SET_V1"),
+        "stored_replay_touched_complete_m15_set_sha256": _fingerprint(stored_replay_touched, scope="STORED_REPLAY_TOUCHED_M15_SET_V1"),
+        "common_clean_complete_m15_set_sha256": _fingerprint(sorted(common_without_repeats), scope="COMMON_CLEAN_M15_SET_V1"),
         "m15_bucket_diagnostics_are_not_research_approval": True,
         "timestamp_population_only": True,
         "source_clock_verified": False,
