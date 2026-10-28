@@ -94,3 +94,12 @@ def test_untrusted_policy_extra_field_rejected():
     args=fixture()
     args[3]["allow_live"]=True
     with pytest.raises(ValueError): inspect(args)
+
+@pytest.mark.parametrize("repeat_field", ["client_order_id", "intent_sha"])
+def test_conflicting_reused_history_identity_holds(repeat_field):
+    args = fixture()
+    first = dict(client_order_id="older1", intent_sha="b"*64, submitted_at_ms=NOW-20000)
+    second = dict(client_order_id="older2", intent_sha="c"*64, submitted_at_ms=NOW-10000)
+    second[repeat_field] = first[repeat_field]
+    args[4] = [first, second]
+    assert "duplicate_order_history" in inspect(args)["failed_checks"]
