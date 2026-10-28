@@ -7,7 +7,7 @@
  */
 import type {Bar} from './research.ts';
 
-export const HOURLY_FVG_VERSION='hourly-fvg-first-midpoint-touch-v69';
+export const HOURLY_FVG_VERSION='hourly-fvg-first-midpoint-touch-v70';
 export type Evidence='PASS'|'FAIL'|'INSUFFICIENT_DATA';
 // First-touch volume evidence is not independent broker/source authentication.
 export type VolumeEvidenceReason='NOT_EVALUATED'|'SOURCE_UNVERIFIED'|
@@ -1221,6 +1221,13 @@ export function studyHourlyFvgMidpointAsOf(
   throw Error('Invalid or oversized hourly research window');
  const barCount=suppliedBars.length;
  validateBarArraySchema(suppliedBars,barCount);
+ // Freeze source identity, declared volume provenance and study settings
+ // BEFORE reading any future timestamp accessors. Otherwise a future bar's
+ // time getter can rewrite the caller's source/config after the completed
+ // price prefix was copied, contaminating a historical as-of report.
+ // Empty-history preflight uses the SAME validated declaration snapshot path
+ // as the full study and performs no future OHLC or volume reads.
+ const frozenDeclaration=studyHourlyFvgMidpoint([],source,config);
  const prefix:Bar[]=[];
  let previousTime:number|null=null;
  for(let index=0;index<barCount;index++){
@@ -1256,5 +1263,5 @@ export function studyHourlyFvgMidpointAsOf(
  }
  if(suppliedBars.length!==barCount)
   throw Error('Hourly research candle array length changed during snapshot');
- return studyHourlyFvgMidpoint(prefix,source,config);
+ return studyHourlyFvgMidpoint(prefix,frozenDeclaration.source,frozenDeclaration.config);
 }
