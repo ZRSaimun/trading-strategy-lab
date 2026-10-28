@@ -670,3 +670,39 @@ statistical significance, or a proof of positive trading expectancy. The
 frozen baseline and cutoff remain caller-declared, not independently
 attested. No live feed, notification, paper fill, broker action, data write,
 or execution permission is enabled.
+
+
+## Sharp ten-bin ECE sensitivity to missing labels (28 October 2026)
+
+When the existing minimum-sample, chronology, whole-issued missingness and
+fixed-census missingness gates pass, two additional **counterfactual** fields
+bound ten-bin expected calibration error (ECE) across the unchanged
+preselected, nonoverlapping **late issued** population:
+
+- `lateEce10BestCaseAllIssuedCensus`
+- `lateEce10WorstCaseAllIssuedCensus`
+
+Each of the ten fixed probability bins retains its sum of **all issued**
+probabilities and its eligible, observed number of UP outcomes. If a bin has
+`m` unavailable labels, its unknown UP count can be any integer from
+`0` through `m`. The lower endpoint minimizes the absolute bin
+calibration difference over those integer counts; the upper endpoint
+maximizes it at an endpoint. Sum these binwise extrema and divide by the
+**full fixed-census size**, not just settled observations. Because bins do
+not share missing labels, the resulting endpoints are sharp for hypothetical
+binary assignments. A brute-force synthetic enumeration test verifies this.
+
+The two endpoints collapse to `lateExpectedCalibrationError10` when
+all selected outcomes are eligible and settled. Missing outcomes in
+overlapping, unselected forecasts do not change the bounds. Settlements
+after the caller-declared evaluation cutoff are unavailable, not silently
+used as labels. Empty bins contribute zero. Both fields are **null when
+the existing scoring gates fail**.
+
+These are sensitivity bounds, **not observed calibration**, statistical
+significance, market profit, or authorization to alert or trade. A void
+market gap may not possess a well-defined target outcome. The 10-bin choice
+and journal timestamps are not independently validated; source entitlement,
+prospective receipts, session-aware inventories and independent holdout
+verification remain outstanding. No provider request, real alert, paper fill,
+broker order, production mutation or live execution is enabled.
