@@ -7,7 +7,7 @@
  */
 import type {Bar} from './research.ts';
 
-export const HOURLY_FVG_VERSION='hourly-fvg-first-midpoint-touch-v70';
+export const HOURLY_FVG_VERSION='hourly-fvg-first-midpoint-touch-v71';
 export type Evidence='PASS'|'FAIL'|'INSUFFICIENT_DATA';
 // First-touch volume evidence is not independent broker/source authentication.
 export type VolumeEvidenceReason='NOT_EVALUATED'|'SOURCE_UNVERIFIED'|
@@ -907,6 +907,7 @@ export function studyHourlyFvgMidpoint(
  // otherwise yield unbounded or substituted candles despite the length cap.
  // Indexed reads keep the snapshot bounded and preserve sparse-hole rejection.
  const bars:Bar[]=[];
+ const originalRows:Bar[]=[];
  for(let index=0;index<barCount;index++){
   // A hole may resolve through Array.prototype or a custom prototype to a
   // plausible candle. That is not an observed archive row: fail closed.
@@ -926,9 +927,19 @@ export function studyHourlyFvgMidpoint(
    time:b.time,open:b.open,high:b.high,low:b.low,close:b.close,
    volume:b.volume,observed_minutes:b.observed_minutes,
   });
+  originalRows.push(b);
  }
  if(suppliedBars.length!==barCount)
   throw Error('Hourly research candle array length changed during snapshot');
+ // A candle accessor may add undeclared ASK/source fields to the array or
+ // earlier rows after the initial preflight. Check schema again without
+ // rereading any candle values or caller-controlled iterators.
+ validateBarArraySchema(suppliedBars,barCount);
+ for(const row of originalRows){
+  if(!CANDLE_FIELDS.every(field=>hasOwnField(row,field))||
+   Reflect.ownKeys(row).some(key=>!CANDLE_FIELDS.some(field=>field===key)))
+   throw Error('Hourly research candle schema changed during snapshot');
+ }
  // A research setting must be explicitly supplied or use its frozen default.
  // An inherited prototype value can silently shorten the touch window,
  // change the wick/volume threshold or replace the cost scenarios.
@@ -994,6 +1005,17 @@ export function studyHourlyFvgMidpoint(
  }
  if(suppliedCosts.length!==costCount)
   throw Error('Hypothetical CFD cost array length changed during snapshot');
+ // Cost getters cannot attach undeclared broker commissions or delete an
+ // original scenario after the initial allowlist preflight.
+ for(const key of Reflect.ownKeys(suppliedCosts)){
+  if(key==='length'||key===Symbol.iterator||
+   (typeof key==='string'&&allowedCostIndices.has(key)))continue;
+  throw Error('Unexpected FVG cost scenario field outside frozen bps-only protocol');
+ }
+ for(let index=0;index<costCount;index++){
+  if(!hasOwnField(suppliedCosts,index))
+   throw Error('Hypothetical CFD cost array schema changed during snapshot');
+ }
  // Snapshot the seven allowlisted source fields exactly once. A mutable or
  // accessor-backed declaration must not pass validation as one identity,
  // qualify volume under another, then export a third identity.
@@ -1229,6 +1251,7 @@ export function studyHourlyFvgMidpointAsOf(
  // as the full study and performs no future OHLC or volume reads.
  const frozenDeclaration=studyHourlyFvgMidpoint([],source,config);
  const prefix:Bar[]=[];
+ const completedRows:Bar[]=[];
  let previousTime:number|null=null;
  for(let index=0;index<barCount;index++){
   // Even a future timestamp must be backed by an actual archive slot;
@@ -1260,8 +1283,17 @@ export function studyHourlyFvgMidpointAsOf(
   }
   prefix.push({time,open:bar.open,high:bar.high,low:bar.low,
    close:bar.close,volume:bar.volume,observed_minutes:bar.observed_minutes});
+  completedRows.push(bar);
  }
  if(suppliedBars.length!==barCount)
   throw Error('Hourly research candle array length changed during snapshot');
+ // Future timestamp accessors may mutate archive-level or already-revealed
+ // candle schemas. Recheck only completed rows; future OHLC stays unread.
+ validateBarArraySchema(suppliedBars,barCount);
+ for(const row of completedRows){
+  if(!CANDLE_FIELDS.every(field=>hasOwnField(row,field))||
+   Reflect.ownKeys(row).some(key=>!CANDLE_FIELDS.some(field=>field===key)))
+   throw Error('Hourly as-of completed candle schema changed during snapshot');
+ }
  return studyHourlyFvgMidpoint(prefix,frozenDeclaration.source,frozenDeclaration.config);
 }
