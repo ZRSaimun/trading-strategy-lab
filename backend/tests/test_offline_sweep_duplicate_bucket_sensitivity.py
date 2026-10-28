@@ -93,3 +93,38 @@ def test_cli_closed_schema_and_machine_readable(tmp_path, capsys):
     path.write_text('{"dataset_id":"x","dataset_id":"y"}')
     with pytest.raises(ValueError, match="Duplicate JSON"):
         main([str(path)])
+
+
+def test_isolation_preserves_bar_positions_and_breaks_all_crossing_windows(monkeypatch):
+    import app.offline_sweep_duplicate_bucket_sensitivity as sensitivity
+    captured = []
+    original_research = sensitivity.research
+
+    def inspect(bars):
+        captured.append(list(bars))
+        return original_research(bars)
+
+    monkeypatch.setattr(sensitivity, "research", inspect)
+    original = bars(120)
+    duplicate = [(START + timedelta(minutes=i)).isoformat(timespec="seconds")
+                 for i in range(60, 120)]
+    run(original, duplicate)
+    assert len(captured) == 2
+    before, after = captured
+    assert len(before) == len(after) == 120
+    assert [x.time for x in before] == [x.time for x in after]
+    assert [(x.o, x.h, x.l, x.c) for x in before] == [
+        (x.o, x.h, x.l, x.c) for x in after]
+    assert [x.segment for x in after[:10]] == [0, 0, 0, 0, 1, 2, 3, 4, 5, 5]
+
+
+def test_nonfinite_decimal_and_boolean_segment_rejected():
+    original = bars()
+    bad = list(original)
+    bad[3] = replace(bad[3], c=Decimal("NaN"))
+    with pytest.raises(ValueError):
+        run(bad, [])
+    bad = list(original)
+    bad[3] = replace(bad[3], segment=True)
+    with pytest.raises(ValueError, match="identity"):
+        run(bad, [])
