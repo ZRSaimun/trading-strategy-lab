@@ -87,9 +87,35 @@ def test_ack_never_counts_as_human_delivery():
     result = check(state("ACK_RECORDED_UNVERIFIED"))
     assert result["counts"]["ACK_RECORDED_UNVERIFIED"] == 1
     assert result["maxSelfAttestedAckLagSeconds"] == 10
+    assert result["unverifiedAckKeys"] == [["s1", "f1"]]
+    assert result["warningKeys"] == []
+    assert result["status"] == "DECLARED_ONLY"
     assert result["providerDeliveryVerified"] is False
     assert result["recipientDeliveryVerified"] is False
 
+
+
+
+def test_unverified_ack_reconciliation_inventory_is_sorted_and_separate_from_warnings():
+    records = [
+        {"sessionId": "s2", "state": state("ACK_RECORDED_UNVERIFIED", forecastId="f2")},
+        {"sessionId": "s1", "state": state("QUEUED", forecastId="f3")},
+        {"sessionId": "s1", "state": state("ACK_RECORDED_UNVERIFIED")},
+    ]
+    expected = [("s1", "f1"), ("s2", "f2"), ("s1", "f3")]
+    result = check(records=records, expected=expected, now=150)
+    assert result["unverifiedAckKeys"] == [["s1", "f1"], ["s2", "f2"]]
+    assert result["counts"]["ACK_RECORDED_UNVERIFIED"] == len(result["unverifiedAckKeys"])
+    assert result["warningKeys"] == []
+    assert result["status"] == "DECLARED_ONLY"
+    assert result["recipientDeliveryVerified"] is False
+    assert check(records=list(reversed(records)), expected=list(reversed(expected)), now=150) == result
+
+
+def test_unverified_ack_inventory_is_empty_without_ack_states():
+    result = check(records=[{"sessionId": "s1", "state": state("IN_FLIGHT_UNCERTAIN")}], now=150)
+    assert result["unverifiedAckKeys"] == []
+    assert result["warningKeys"] == [["s1", "f1"]]
 
 def test_cancelled():
     assert check(state("CANCELLED"))["counts"]["CANCELLED"] == 1
@@ -206,6 +232,7 @@ def test_self_attested_ack_at_or_after_expiry_requires_review(ack_at):
     result = check(state("ACK_RECORDED_UNVERIFIED", ackAt=ack_at), now=400)
     assert result["counts"]["ACK_RECORDED_UNVERIFIED"] == 1
     assert result["counts"]["ACK_AT_OR_AFTER_EXPIRY_WARNING"] == 1
+    assert result["unverifiedAckKeys"] == [["s1", "f1"]]
     assert result["status"] == "OPERATOR_REVIEW_REQUIRED"
     assert result["warningKeys"] == [["s1", "f1"]]
     assert result["providerDeliveryVerified"] is False
