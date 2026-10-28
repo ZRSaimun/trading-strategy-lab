@@ -268,3 +268,25 @@ requests, paper/live execution or automatic quarantine release.
 A declared terminal reconciliation must supply a syntactically valid, nonzero SHA-256 digest **different from the original prepared intent fingerprint**. Reusing the intent digest as supposed fill/rejection/cancellation evidence now fails closed in both the transactional writer and historical event replay, including a locally rehashed event chain with a matching projection. Three synthetic cases cover a refused write and both inspection/write refusal of a forged historical terminal transition. The unresolved attempt remains quarantined after a rejected write.
 
 **This is only a minimum evidence-distinctness check.** A different digest is not proof of an authenticated broker response, fill, cancellation, accepted protective stop, or human approval. The caller still declares terminal status and may provide a fabricated digest; the module grants no order execution. Do not use declared reconciliation to release any live-order gate. Authenticated provider inventory and externally anchored evidence are required before a future execution adapter can trust terminal outcomes.
+
+
+## Terminal receipt digest anti-replay (28 October 2026)
+
+A locally declared terminal reconciliation cannot reuse an earlier terminal
+reconciliation evidence SHA-256 for a **different order in the same broker/account**.
+The transactional writer checks the existing event history under its serialized
+SQLite write transaction. The independent audit replay also rejects a locally
+rehashed historical chain with repeated terminal receipt evidence, even if the
+current intent projection matches. Four synthetic regression cases exercise
+writer rejection, both audit/read and attempted-write rejection, and account
+isolation. Rejection leaves an unresolved second order in quarantine.
+
+This is a **minimal local anti-replay invariant**, not broker authentication.
+Different SHA-256 values can still be fabricated; the same external broker
+inventory snapshot may legitimately cover multiple orders, so a future adapter
+must instead bind verified, immutable **per-order** provider evidence to the
+broker/account/order identity before recording any terminal claim. This ledger
+cannot authorize order placement, even after a terminal reconciliation. Both
+paper and real execution permission flags remain false. No external broker
+connection, order placement, paid service, production migration or automatic
+quarantine release is introduced.
