@@ -334,3 +334,67 @@ def test_unique_interior_gap_empty_for_single_and_contiguous_rows():
         assert report["distinct_interior_unobserved_minutes_not_proven_missing"] == 0
         assert report["distinct_interior_gap_runs_not_proven_missing"] == 0
         assert report["largest_interior_gap_run_minutes_not_proven_missing"] == 0
+
+
+
+def test_declared_missing_expected_runs_are_bounded_and_contiguous():
+    expected = [T + i * 60 for i in range(30)]
+    rows = [row(T, event="first"),
+            row(T + 29 * 60, event="last", received=T + 29 * 60 + 62)]
+    report = audit_declared_completed_m1_receipts(
+        rows, provider="synthetic", instrument="XAU/USD", source_id="test:feed",
+        price_side="mid", as_of_utc=T + 2000, expected_utc_minutes=expected,
+    )
+    assert report["missing_declared_expected_minutes"] == 28
+    assert report["declared_missing_expected_gap_runs"] == 1
+    assert report["largest_declared_missing_expected_gap_run_minutes"] == 28
+    assert report["missing_declared_expected_minute_sample_utc"] == expected[1:13]
+    assert report["extra_declared_expected_minute_sample_utc"] == []
+    assert report["structurally_clean"] is False
+    assert report["session_calendar_verified"] is False
+    assert report["may_execute_order"] is False
+
+
+def test_declared_missing_runs_split_across_unsupplied_session_intervals():
+    expected = [T, T + 60, T + 120, T + 600, T + 660, T + 720]
+    rows = [row(T, event="first"),
+            row(T + 720, event="last", received=T + 782)]
+    report = audit_declared_completed_m1_receipts(
+        rows, provider="synthetic", instrument="XAU/USD", source_id="test:feed",
+        price_side="mid", as_of_utc=T + 900, expected_utc_minutes=expected,
+    )
+    assert report["missing_declared_expected_minutes"] == 4
+    assert report["declared_missing_expected_gap_runs"] == 2
+    assert report["largest_declared_missing_expected_gap_run_minutes"] == 2
+    assert report["missing_declared_expected_minute_sample_utc"] == [
+        T + 60, T + 120, T + 600, T + 660,
+    ]
+    assert report["session_calendar_verified"] is False
+
+
+def test_declared_extra_minute_sample_is_sorted_not_source_order():
+    rows = [row(T + 120, event="later", received=T + 182),
+            row(T, event="backfill", received=T + 183)]
+    report = audit(rows, expected_utc_minutes=[T + 60])
+    assert report["extra_minutes_outside_declared_expected"] == 2
+    assert report["extra_declared_expected_minute_sample_utc"] == [T, T + 120]
+    assert report["missing_declared_expected_minute_sample_utc"] == [T + 60]
+    assert report["declared_missing_expected_gap_runs"] == 1
+    assert report["largest_declared_missing_expected_gap_run_minutes"] == 1
+    assert report["backward_candle_events"] == 1
+
+
+def test_absent_and_empty_expected_run_diagnostics_are_distinct():
+    absent = audit([row()])
+    empty = audit([row()], expected_utc_minutes=[])
+    for key in ("declared_missing_expected_gap_runs",
+                "largest_declared_missing_expected_gap_run_minutes",
+                "missing_declared_expected_minute_sample_utc",
+                "extra_declared_expected_minute_sample_utc"):
+        assert absent[key] is None
+    assert empty["declared_missing_expected_gap_runs"] == 0
+    assert empty["largest_declared_missing_expected_gap_run_minutes"] == 0
+    assert empty["missing_declared_expected_minute_sample_utc"] == []
+    assert empty["extra_declared_expected_minute_sample_utc"] == [T]
+    assert absent["receipt_inventory_sha256"] == empty["receipt_inventory_sha256"]
+    assert absent["declared_audit_policy_sha256"] != empty["declared_audit_policy_sha256"]
