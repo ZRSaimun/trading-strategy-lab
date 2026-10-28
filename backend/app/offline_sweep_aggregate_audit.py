@@ -10,6 +10,19 @@ from pathlib import Path
 
 STATES = tuple(f"FVG{f}_MSS{m}_DISP{d}" for f in (0, 1) for m in (0, 1) for d in (0, 1))
 COUNT_KEYS = ("confirmed", "entered", "observed", "censored", "missing_entry", "invalid_geometry")
+# This is a frozen, declared-only research report. Unknown fields must not
+# silently imply stronger source, holdout, cost or execution assurances.
+TOP_LEVEL_KEYS = frozenset(("protocol", "scope", "source_status", "cost_status",
+                            "independent_holdout", "verified_profitability",
+                            "may_execute_order", "states", "totals"))
+STATE_KEYS = frozenset(("state", *COUNT_KEYS, "observed_mean_net_r_by_extra_bps"))
+TOTAL_KEYS = frozenset((*COUNT_KEYS, "observed_mean_net_r_by_extra_bps"))
+
+
+def _require_exact_keys(value, expected, location):
+    if not isinstance(value, dict) or set(value) != expected:
+        raise ValueError(f"{location}: unexpected or missing aggregate report fields")
+
 ROUNDING_TOLERANCE = Decimal("0.00001")  # two independently rounded 5dp means
 MAX_AGGREGATE_JSON_BYTES = 4_000_000
 
@@ -65,8 +78,7 @@ def _mean(value, name):
 
 def audit_aggregate(payload):
     """Reconcile counts and rounded cost means without interpreting an edge."""
-    if not isinstance(payload, dict):
-        raise ValueError("Expected JSON object")
+    _require_exact_keys(payload, TOP_LEVEL_KEYS, "report")
     if (payload.get("protocol") != "source-local-sweep-confirmation-v3" or
             payload.get("scope") != "annual_exploratory_later_16_archives" or
             payload.get("source_status") != "UNAUTHENTICATED" or
@@ -83,8 +95,7 @@ def audit_aggregate(payload):
     weighted = {0: Decimal(0), 5: Decimal(0)}
     positive_cells = []
     for row in rows:
-        if not isinstance(row, dict):
-            raise ValueError("Malformed state row")
+        _require_exact_keys(row, STATE_KEYS, "state")
         state = row.get("state")
         if state not in STATES or state in seen:
             raise ValueError("Unknown or duplicate confluence state")
@@ -116,8 +127,7 @@ def audit_aggregate(payload):
     if seen != set(STATES):
         raise ValueError("Missing confluence state")
     declared = payload.get("totals")
-    if not isinstance(declared, dict):
-        raise ValueError("Missing totals")
+    _require_exact_keys(declared, TOTAL_KEYS, "totals")
     for k, v in totals.items():
         if _nonnegative_integer(declared.get(k), f"totals.{k}") != v:
             raise ValueError(f"Total {k} does not reconcile")
