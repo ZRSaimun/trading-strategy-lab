@@ -39,6 +39,9 @@ def summarize_forecast_snapshot(snapshot, *, min_settled=30, calibration_bins=10
     if type(snapshot) is not dict or set(snapshot) != _REQUIRED or snapshot["evidence"] != _EVIDENCE:
         raise ValueError("Expected validated disconnected forecast journal snapshot")
     events, forecasts, identity = snapshot["events"], snapshot["forecasts"], snapshot["identity"]
+    lag = snapshot["maxLagSeconds"]
+    if type(lag) is not int or not 0 <= lag <= 3600:
+        raise ValueError("Invalid forecast scorecard maximum receipt lag")
     if (type(events) is not list or type(forecasts) is not list or len(events) > 5000
             or len(forecasts) > len(events) or type(snapshot["sequence"]) is not int
             or snapshot["sequence"] != len(events) or type(identity) is not dict
@@ -78,9 +81,17 @@ def summarize_forecast_snapshot(snapshot, *, min_settled=30, calibration_bins=10
                 or event.get("receivedAt") != row["issuedAt"]):
             raise ValueError("Forecast issuance/outcome mismatch")
         status, outcome, resolved = row["status"], row["outcomeUp"], row["resolvedAt"]
-        if (status not in _STATUSES or type(row["issuedAt"]) is not int
-                or type(row["baseStart"]) is not int or type(row["targetStart"]) is not int
-                or row["targetStart"] != row["baseStart"] + horizon * identity["seconds"]
+        base, issued, target = row["baseStart"], row["issuedAt"], row["targetStart"]
+        seconds = identity["seconds"]
+        # Mirror the journal's completed-candle issuance window. A scorecard
+        # must not turn a caller-forged early/stale forecast into a valid score.
+        if (type(status) is not str or status not in _STATUSES
+                or type(base) is not int or not 0 <= base <= 2**53 - 1
+                or base % seconds or type(issued) is not int
+                or not base + seconds <= issued < base + 2 * seconds
+                or issued - (base + seconds) > lag
+                or type(target) is not int or target != base + horizon * seconds
+                or target + seconds > 2**53 - 1
                 or type(row["baseClose"]) not in (int, float)
                 or not math.isfinite(row["baseClose"]) or row["baseClose"] <= 0
                 or (status == "SETTLED" and (type(outcome) is not bool or type(resolved) is not int
