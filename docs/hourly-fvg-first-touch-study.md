@@ -1,7 +1,9 @@
-# Hourly FVG first-touch midpoint rejection versus blind limit (research v63)
+# Hourly FVG first-touch midpoint rejection versus blind limit (research v64)
 
 **Status: proposed, deterministic, read-only hypothesis.** This standalone TypeScript library is not yet wired to the terminal UI, production broker, archive query or cloud service. No actual BID/ASK executions, licensed news data, verified performance, live trades or profitability claims are included. It deliberately does **not** duplicate PR #24's sweep/MSS/FVG confluence risk-path experiment or PR #33's 4H CRT/15m confirmation screen.
 
+
+**Version 64: strict first-touch evidence by waiting hour.** The read-only FVG cohort now reports `firstTouchStrictCandidateByWait` as PASS, FAIL and INSUFFICIENT_DATA counts at each completed post-formation waiting hour. Only observed first midpoint touches enter; opening gap-through, completed no-touch and censored windows are excluded, with exact reconciliation against the existing touch-by-wait population. Synthetic regression covers first/second-hour touches, both directions, volume thresholds, unverified volume, causal as-of replay and no-touch/gap/censor cases. Caller-declared volume is not independently authenticated; this does not establish BID/ASK fills, actual CFD costs or profitability. Frozen rule: `hourly-fvg-first-midpoint-touch-v64`.
 
 **Version 63: reject confusable Unicode spacing in declared feed labels.** The read-only FVG source boundary now permits ordinary internal ASCII spaces while rejecting Unicode space separators (including nonbreaking, figure, narrow no-break, en and ideographic spaces) that can make different provider/instrument strings look identical. Both historical and completed-prefix replay fail closed; a synthetic regression checks five spacing variants in both fields and preserves legitimate ASCII-spaced names. This improves caller-declared source identity hygiene only; it does **not** independently authenticate a broker, historical BID/ASK, volume, spreads, news, fills or profitability. Frozen rule: `hourly-fvg-first-midpoint-touch-v63`.
 
