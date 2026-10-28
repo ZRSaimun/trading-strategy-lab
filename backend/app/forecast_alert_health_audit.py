@@ -107,6 +107,8 @@ def audit_forecast_alert_health(records, expected_keys, *, as_of,
     claimed_ids = set()
     counts = Counter()
     oldest_queued = 0
+    earliest_queued_expiry = None
+    earliest_queued_keys = []
     oldest_uncertain = 0
     max_ack_lag = 0
     oldest_unverified_ack = 0
@@ -139,6 +141,14 @@ def audit_forecast_alert_health(records, expected_keys, *, as_of,
                 warn(key, "EXPIRED_UNCLAIMED")
             else:
                 counts["QUEUED"] += 1
+                # Triage the first unclaimed alert that will expire. Never
+                # treat this countdown as authorization to bypass send gates.
+                remaining = state["expiresAt"] - as_of
+                if earliest_queued_expiry is None or remaining < earliest_queued_expiry:
+                    earliest_queued_expiry = remaining
+                    earliest_queued_keys = [key]
+                elif remaining == earliest_queued_expiry:
+                    earliest_queued_keys.append(key)
                 age = as_of - state["issuedAt"]
                 oldest_queued = max(oldest_queued, age)
                 if age >= queue_warning_seconds:
@@ -199,6 +209,8 @@ def audit_forecast_alert_health(records, expected_keys, *, as_of,
                       "OPERATOR_REVIEW_REQUIRED" if requires_review else "DECLARED_ONLY",
             "declaredCount": len(expected), "counts": {name: counts[name] for name in statuses},
             "oldestQueuedSeconds": oldest_queued,
+            "earliestQueuedExpirySecondsRemaining": earliest_queued_expiry,
+            "earliestQueuedExpiryKeys": [list(key) for key in sorted(earliest_queued_keys)],
             "oldestUncertainSeconds": oldest_uncertain,
             "maxSelfAttestedAckLagSeconds": max_ack_lag,
             "oldestUnverifiedAckAgeSeconds": oldest_unverified_ack,
