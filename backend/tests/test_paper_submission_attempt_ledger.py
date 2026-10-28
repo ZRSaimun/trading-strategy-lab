@@ -771,6 +771,45 @@ def test_initialize_refuses_group_writable_orphan_rollback_journal(tmp_path):
         journal.unlink()
 
 
+
+@pytest.mark.parametrize('phase', ['before_open', 'after_open', 'after_audit'])
+def test_nonempty_rollback_journal_never_consumed_by_readonly_inspection(
+        db, monkeypatch, phase):
+    """A diagnostic must preserve unreviewed nonempty recovery evidence."""
+    journal = ledger.Path(str(db) + '-journal')
+    evidence = b'untrusted-pending-rollback-journal'
+    original = db.read_bytes()
+    real_connect = ledger.sqlite3.connect
+    real_verify = ledger._verify
+
+    if phase == 'before_open':
+        journal.write_bytes(evidence)
+    elif phase == 'after_open':
+        def inject_after_open(*args, **kwargs):
+            conn = real_connect(*args, **kwargs)
+            journal.write_bytes(evidence)
+            return conn
+        monkeypatch.setattr(ledger.sqlite3, 'connect', inject_after_open)
+    else:
+        def inject_after_audit(conn):
+            result = real_verify(conn)
+            journal.write_bytes(evidence)
+            return result
+        monkeypatch.setattr(ledger, '_verify', inject_after_audit)
+
+    try:
+        with pytest.raises(ValueError, match='Nonempty rollback journal'):
+            inspect_ledger(db)
+        assert journal.read_bytes() == evidence
+        assert db.read_bytes() == original
+    finally:
+        monkeypatch.setattr(ledger.sqlite3, 'connect', real_connect)
+        monkeypatch.setattr(ledger, '_verify', real_verify)
+        journal.unlink(missing_ok=True)
+    assert inspect_ledger(db)['event_count'] == 0
+
+
+
 def test_regular_private_parent_rollback_journal_does_not_disable_read(db):
     """Normal DELETE-mode crash recovery must remain possible."""
     journal = ledger.Path(str(db) + '-journal')
