@@ -223,3 +223,47 @@ def test_freshness_budgets_and_asof_change_policy_not_receipt_fingerprint():
                 later["receipt_inventory_sha256"]}) == 1
     assert baseline["declared_freshness_within_budget"] is True
     assert strict["declared_freshness_within_budget"] is False
+
+
+@pytest.mark.parametrize("replacement,expected_text,expected_numeric", [
+    ("100.50", 0, 0),
+    ("100.500", 1, 0),
+    ("100.51", 1, 1),
+])
+def test_duplicate_ohlc_revision_census(replacement, expected_text, expected_numeric):
+    first = row(event="first")
+    duplicate = row(event="second", received=T + 63)
+    duplicate["close"] = replacement
+    rows = [first, duplicate]
+    original = deepcopy(rows)
+    report = audit(rows)
+    assert rows == original
+    assert report["duplicate_minute_rows"] == 1
+    assert report["changed_duplicate_ohlc_text_rows"] == expected_text
+    assert report["changed_duplicate_numeric_ohlc_rows"] == expected_numeric
+    assert report["structurally_clean"] is False
+    assert report["source_authenticity_verified"] is False
+    assert report["market_data_live"] is False
+    assert report["may_execute_order"] is False
+
+
+def test_duplicate_ohlc_comparisons_are_against_first_observation():
+    first = row(event="first")
+    revision = row(event="revision", received=T + 63)
+    revision["high"] = "102.00"
+    replay = row(event="replay", received=T + 64)
+    report = audit([first, revision, replay])
+    assert report["duplicate_minute_rows"] == 2
+    assert report["changed_duplicate_ohlc_text_rows"] == 1
+    assert report["changed_duplicate_numeric_ohlc_rows"] == 1
+    assert report["structurally_clean"] is False
+
+
+def test_duplicate_ohlc_revision_changes_receipt_digest_not_policy_digest():
+    baseline = audit([row(event="first"), row(event="second", received=T + 63)])
+    changed = row(event="second", received=T + 63)
+    changed["low"] = "98.00"
+    revised = audit([row(event="first"), changed])
+    assert baseline["receipt_inventory_sha256"] != revised["receipt_inventory_sha256"]
+    assert baseline["declared_audit_policy_sha256"] == revised["declared_audit_policy_sha256"]
+    assert revised["changed_duplicate_numeric_ohlc_rows"] == 1
