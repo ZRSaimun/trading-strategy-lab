@@ -85,18 +85,18 @@ def register_population_locked_holdout(db_path, manifest, census):
             # absorb reservations and return a false registration success.
             # Reject all reserved-name shadowing before creating any tables.
             reserved_objects = conn.execute(
-                "SELECT name, type FROM sqlite_master WHERE name IN "
+                "SELECT name, type FROM sqlite_master WHERE lower(name) IN "
                 "('holdout_claims', 'holdout_locked_rows', "
                 "'holdout_locked_decisions', 'holdout_locked_pairs')"
             ).fetchall()
-            if any(kind != "table" for _, kind in reserved_objects):
+            if any(kind != "table" or name not in {"holdout_claims", "holdout_locked_rows", "holdout_locked_decisions", "holdout_locked_pairs"} for name, kind in reserved_objects):
                 raise ValueError("Invalid population-lock schema object at registration")
             # Real tables can also have AFTER INSERT triggers that silently
             # delete or rewrite reservations while INSERT reports success.
             # Reject triggers attached to any protected table before writes.
             # BEGIN IMMEDIATE keeps this schema preflight and inserts atomic.
             if conn.execute(
-                "SELECT 1 FROM sqlite_master WHERE type='trigger' AND tbl_name IN "
+                "SELECT 1 FROM sqlite_master WHERE type='trigger' AND lower(tbl_name) IN "
                 "('holdout_claims', 'holdout_locked_rows', "
                 "'holdout_locked_decisions', 'holdout_locked_pairs') LIMIT 1"
             ).fetchone() is not None:
