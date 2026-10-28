@@ -97,7 +97,9 @@ def summarize_forecast_snapshot(snapshot, *, min_settled=30, calibration_bins=10
                 # A settled target label cannot be observed before its candle closes.
                 # A gap may invalidate a later target before that target closes.
                 or (status == "SETTLED" and (type(outcome) is not bool or type(resolved) is not int
-                                                  or resolved < target + seconds or resolved > 2**53 - 1))
+                                                  or resolved < target + seconds
+                                                  or resolved > target + seconds + lag
+                                                  or resolved > 2**53 - 1))
                 or (status == "PENDING" and (outcome is not None or resolved is not None))
                 or (status == "VOID_GAP" and (outcome is not None or type(resolved) is not int
                                                    or resolved < row["issuedAt"] or resolved > 2**53 - 1))):
