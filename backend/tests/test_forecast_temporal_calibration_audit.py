@@ -6,6 +6,7 @@ import pytest
 from app.forecast_temporal_calibration_audit import (
     _issued_probability_ecdf_shift, _issued_probability_shape_shift,
     _issued_utc_hour_mix, _outcome_availability_utc_weekday_hour168,
+    _paired_frozen_baseline_regret_bounds,
     audit_temporal_forecast_calibration)
 
 IDENTITY = {"instrument": "SYNTH", "provider": "FAKE", "venue": "TEST",
@@ -1495,3 +1496,73 @@ def test_joint_missingness_respects_declared_as_of_and_withheld_scores():
     assert sum(c["unavailable"] for c in group[
         "lateCensusOutcomeAvailabilityUtcWeekdayHour168"]) == 3
     assert group["lateCensusOutcomeAvailabilityUtcWeekdayHour168"][0]["utcHour"] == 0
+
+
+def test_paired_regret_bounds_are_sharp_for_missing_binary_outcomes():
+    rows = [{"id": "a", "probability": .7, "outcomeUp": True},
+            {"id": "b", "probability": .2, "outcomeUp": False}]
+    full = _paired_frozen_baseline_regret_bounds(rows, rows, .6)
+    partial = _paired_frozen_baseline_regret_bounds(rows, rows[:1], .6)
+    for metric in ("Brier", "LogLoss"):
+        low = "late" + metric + "RegretBestCaseAllIssuedCensusVsFrozenEarlyClimatology"
+        high = "late" + metric + "RegretWorstCaseAllIssuedCensusVsFrozenEarlyClimatology"
+        assert full[low] == pytest.approx(full[high])
+        assert partial[low] <= full[low] <= partial[high]
+        assert partial[low] < partial[high]
+    assert full["lateBrierRegretBestCaseAllIssuedCensusVsFrozenEarlyClimatology"] == pytest.approx(-.195)
+
+
+def test_paired_regret_collapses_to_settled_score_minus_frozen_baseline():
+    group = audit_temporal_forecast_calibration(fixture())["groups"][0]
+    prior = (group["earlyNonoverlappingSettled"] + .5) / (
+        group["earlyNonoverlappingSettled"] + 1)
+    expected_brier = group["lateBrier"] - (1 - prior) ** 2
+    expected_log = group["lateLogLoss"] + math.log(prior)
+    for metric, expected in (("Brier", expected_brier), ("LogLoss", expected_log)):
+        for case in ("BestCase", "WorstCase"):
+            field = "late" + metric + "Regret" + case + "AllIssuedCensusVsFrozenEarlyClimatology"
+            assert group[field] == pytest.approx(expected)
+
+
+def test_paired_regret_bounds_preserve_fixed_census_under_missing_labels():
+    base = fixture()
+    full = audit_temporal_forecast_calibration(base)["groups"][0]
+    # Index 81 is an unselected overlapping forecast; censoring it must not
+    # alter the fixed selected-census paired regret or its baseline.
+    base["forecasts"][81].update(status="PENDING", outcomeUp=None, resolvedAt=None)
+    ignored = audit_temporal_forecast_calibration(base)["groups"][0]
+    for metric in ("Brier", "LogLoss"):
+        for case in ("BestCase", "WorstCase"):
+            key = "late" + metric + "Regret" + case + "AllIssuedCensusVsFrozenEarlyClimatology"
+            assert ignored[key] == pytest.approx(full[key])
+    # Index 80 belongs to the fixed late census; withholding its true label
+    # must expand the counterfactual bounds without shifting the denominator.
+    base["forecasts"][80].update(status="PENDING", outcomeUp=None, resolvedAt=None)
+    missing = audit_temporal_forecast_calibration(base)["groups"][0]
+    assert missing["lateNonoverlappingIssued"] == full["lateNonoverlappingIssued"]
+    assert missing["lateNonoverlappingSettled"] == full["lateNonoverlappingSettled"] - 1
+    for metric in ("Brier", "LogLoss"):
+        low = "late" + metric + "RegretBestCaseAllIssuedCensusVsFrozenEarlyClimatology"
+        high = "late" + metric + "RegretWorstCaseAllIssuedCensusVsFrozenEarlyClimatology"
+        assert missing[low] <= full[low] <= missing[high]
+        assert missing[low] < missing[high]
+
+
+def test_paired_regret_bounds_withheld_when_selection_risk_gate_fails():
+    s = fixture()
+    for i in (80, 82, 84, 86, 88):
+        s["forecasts"][i].update(status="PENDING", outcomeUp=None, resolvedAt=None)
+    row = audit_temporal_forecast_calibration(s)["groups"][0]
+    assert row["status"] == "UNRESOLVED_SELECTION_RISK"
+    for metric in ("Brier", "LogLoss"):
+        for case in ("BestCase", "WorstCase"):
+            key = "late" + metric + "Regret" + case + "AllIssuedCensusVsFrozenEarlyClimatology"
+            assert row[key] is None
+
+
+def test_paired_regret_logarithms_remain_finite_at_interior_probability_tails():
+    rows = [{"id": "extreme", "probability": 1e-12, "outcomeUp": False}]
+    report = _paired_frozen_baseline_regret_bounds(rows, [], .5)
+    assert all(math.isfinite(value) for value in report.values())
+    assert (report["lateLogLossRegretBestCaseAllIssuedCensusVsFrozenEarlyClimatology"]
+            < report["lateLogLossRegretWorstCaseAllIssuedCensusVsFrozenEarlyClimatology"])
