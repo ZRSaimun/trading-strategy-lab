@@ -139,10 +139,23 @@ def test_newly_disclosed_fill_at_or_before_previous_observation_holds(backdated_
     assert result["may_clear_unknown"] is False
 
 
-def test_new_fill_after_previous_observation_is_not_a_retroactive_fill():
+@pytest.mark.parametrize("fill_at", [NOW - 1399, NOW - 1001, NOW - 1000])
+def test_new_fill_at_or_before_prior_trusted_check_holds(fill_at):
     result = evaluate(change_current=lambda c: c["pages"][0]["orders"][0]["fills"][1].update(
-        filled_at_ms=NOW - 1399))
+        filled_at_ms=fill_at))
+    assert result["status"] == "HOLD_RECONCILIATION"
+    assert "fill_predates_prior_trusted_check" in result["failed_checks"]
+    assert "retroactive_fill_appearance" not in result["failed_checks"]
+    assert result["previous_census_failed_checks"] == ["unresolved_order_state"]
+    assert result["current_census_failed_checks"] == []
+    assert result["may_clear_unknown"] is False
+
+
+def test_new_fill_after_prior_trusted_check_is_not_backdated():
+    result = evaluate(change_current=lambda c: c["pages"][0]["orders"][0]["fills"][1].update(
+        filled_at_ms=NOW - 999))
     assert result["status"] == "DECLARED_TRANSITION_CANDIDATE_UNVERIFIED"
+    assert "fill_predates_prior_trusted_check" not in result["failed_checks"]
     assert "retroactive_fill_appearance" not in result["failed_checks"]
 
 
