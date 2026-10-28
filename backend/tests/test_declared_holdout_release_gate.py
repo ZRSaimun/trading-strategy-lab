@@ -505,3 +505,78 @@ def test_maximum_declared_population_same_second_fractional_cost_boundary():
     # A caller-supplied list order is not an executable fill sequence.
     data[3].reverse()
     assert audit(data) == report
+
+
+def test_four_receipt_batches_adverse_ordering_matches_exhaustive_decimal_oracle():
+    """Synthetic 4-batch exact-decimal permutation oracle, not broker equity.
+
+    Earlier regressions exhaustively cover two ambiguous receipt seconds. Four
+    successive seconds exercise carry-forward peaks/troughs and cost signs
+    across several independently unordered groups (6**4 possible sequences).
+    """
+    from decimal import Decimal
+    from itertools import permutations, product
+
+    rng = random.Random(20261028)
+    for _ in range(16):
+        data = list(fixture(30))
+        for row in data[3]:
+            row.update(gross_cash="0", spread_cash="0", slippage_cash="0",
+                       commission_cash="0", financing_cash="0", fx_cash="0",
+                       observed_at_utc=7000)
+
+        batches = []
+        for batch_index in range(4):
+            values = []
+            for receipt_index in range(3):
+                row = data[3][batch_index * 3 + receipt_index]
+                row["observed_at_utc"] = 8000 + batch_index * 100
+                row["gross_cash"] = format(
+                    Decimal(rng.randint(-30000, 30000)) / 10000, ".4f")
+                for field in ("spread_cash", "slippage_cash",
+                              "commission_cash", "fx_cash"):
+                    row[field] = format(
+                        Decimal(rng.randint(0, 3000)) / 10000, ".4f")
+                row["financing_cash"] = format(
+                    Decimal(rng.randint(-3000, 3000)) / 10000, ".4f")
+                values.append(
+                    Decimal(row["gross_cash"]) -
+                    sum((Decimal(row[field]) for field in (
+                        "spread_cash", "slippage_cash", "commission_cash",
+                        "financing_cash", "fx_cash")), Decimal(0))
+                )
+            batches.append(values)
+
+        # Enumerate every permissible ordering within each UTC second while
+        # preserving chronological order between distinct receipt seconds.
+        expected_adverse = Decimal(0)
+        for sequence in product(*(permutations(batch) for batch in batches)):
+            cash = peak = drawdown = Decimal(0)
+            for ordered_batch in sequence:
+                for net in ordered_batch:
+                    cash += net
+                    peak = max(peak, cash)
+                    drawdown = max(drawdown, peak - cash)
+            expected_adverse = max(expected_adverse, drawdown)
+
+        cash = peak = expected_batched = Decimal(0)
+        for batch in batches:
+            cash += sum(batch, Decimal(0))
+            peak = max(peak, cash)
+            expected_batched = max(expected_batched, peak - cash)
+
+        report = audit(data)
+        assert report["net_cash"] == format(
+            sum((net for batch in batches for net in batch), Decimal(0)), ".4f")
+        assert report["max_observation_end_drawdown_cash"] == (
+            format(expected_batched, ".4f"))
+        assert report["max_receipt_time_ordering_drawdown_cash_upper_bound"] == (
+            format(expected_adverse, ".4f"))
+        assert expected_batched <= expected_adverse
+        assert report["broker_costs_verified"] is False
+        assert report["profitable_edge_verified"] is False
+        assert report["may_execute_demo_order"] is False
+        assert report["may_execute_real_order"] is False
+
+        rng.shuffle(data[3])
+        assert audit(data) == report
