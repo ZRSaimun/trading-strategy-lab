@@ -373,3 +373,61 @@ def test_distinct_claim_tokens_and_unclaimed_rows_remain_valid_and_order_indepen
     assert result["maySendNotification"] is False
     assert result["mayExecutePaperOrder"] is False
     assert result["mayExecuteLiveOrder"] is False
+
+
+
+def test_unverified_ack_escalates_after_reconciliation_budget_without_retry_authority():
+    row = state("ACK_RECORDED_UNVERIFIED")
+    before = check(row, now=439)
+    assert before["counts"]["ACK_RECONCILIATION_OVERDUE_WARNING"] == 0
+    assert before["status"] == "DECLARED_ONLY"
+    assert before["unverifiedAckKeys"] == [["s1", "f1"]]
+    assert before["oldestUnverifiedAckAgeSeconds"] == 299
+    at = check(row, now=440)
+    assert at["counts"]["ACK_RECONCILIATION_OVERDUE_WARNING"] == 1
+    assert at["status"] == "OPERATOR_REVIEW_REQUIRED"
+    assert at["warningKeys"] == [["s1", "f1"]]
+    assert at["warningReasons"] == [{"key": ["s1", "f1"],
+        "reasons": ["ACK_RECONCILIATION_OVERDUE_WARNING"]}]
+    assert at["oldestUnverifiedAckAgeSeconds"] == 300
+    assert at["recipientDeliveryVerified"] is False
+    assert at["maySendNotification"] is False
+    assert at["mayExecutePaperOrder"] is False
+    assert at["mayExecuteLiveOrder"] is False
+
+
+def test_ack_reconciliation_budget_override_and_empty_inventory():
+    row = state("ACK_RECORDED_UNVERIFIED")
+    assert check(row, now=150, unverified_ack_warning_seconds=10)["counts"][
+        "ACK_RECONCILIATION_OVERDUE_WARNING"] == 1
+    assert check(row, now=150, unverified_ack_warning_seconds=11)["counts"][
+        "ACK_RECONCILIATION_OVERDUE_WARNING"] == 0
+    empty = check(records=[], expected=[], now=450)
+    assert empty["oldestUnverifiedAckAgeSeconds"] == 0
+    assert empty["counts"]["ACK_RECONCILIATION_OVERDUE_WARNING"] == 0
+
+
+@pytest.mark.parametrize("bad", [0, 3601, True, 1.5, None])
+def test_invalid_ack_reconciliation_warning_budget_fails_closed(bad):
+    with pytest.raises(ValueError, match="warning budget"):
+        check(unverified_ack_warning_seconds=bad)
+
+
+def test_ack_reconciliation_warning_order_independent_and_overlaps_late_ack():
+    records = [
+        {"sessionId": "s2", "state": state("ACK_RECORDED_UNVERIFIED",
+            forecastId="f2", claimId="b" * 32, ackAt=300)},
+        {"sessionId": "s1", "state": state("ACK_RECORDED_UNVERIFIED")},
+    ]
+    expected = [("s1", "f1"), ("s2", "f2")]
+    a = check(records=records, expected=expected, now=650)
+    b = check(records=list(reversed(records)), expected=list(reversed(expected)), now=650)
+    assert a == b
+    assert a["counts"]["ACK_RECONCILIATION_OVERDUE_WARNING"] == 2
+    assert a["counts"]["ACK_AT_OR_AFTER_EXPIRY_WARNING"] == 1
+    assert a["warningReasons"] == [
+        {"key": ["s1", "f1"], "reasons": ["ACK_RECONCILIATION_OVERDUE_WARNING"]},
+        {"key": ["s2", "f2"], "reasons": [
+            "ACK_AT_OR_AFTER_EXPIRY_WARNING", "ACK_RECONCILIATION_OVERDUE_WARNING"]},
+    ]
+    assert a["unverifiedAckKeys"] == [["s1", "f1"], ["s2", "f2"]]
