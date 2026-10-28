@@ -349,6 +349,7 @@ def _verify(conn):
     # the same broker/account. This is only local anti-replay, not proof that
     # the receipt originated from the broker.
     reconciliation_receipts = set()
+    intent_fingerprints = set()
     previous = ZERO
     last_time = -1
     for n, row in enumerate(rows, 1):
@@ -368,6 +369,11 @@ def _verify(conn):
                 raise ValueError('Repeated preparation in audit')
             if account_key in unresolved_accounts:
                 raise ValueError('Unresolved broker submission for account in audit history')
+            # A terminal receipt is not an order-intent fingerprint, even
+            # when a locally rehashed history claims otherwise.
+            if (broker, account, evidence) in reconciliation_receipts:
+                raise ValueError('Reused terminal receipt as intent fingerprint in audit')
+            intent_fingerprints.add((broker, account, evidence))
             state[key] = (evidence, 'PREPARED')
         elif event == 'ATTEMPT_UNKNOWN':
             if old is None or old[1] != 'PREPARED' or evidence != old[0]:
@@ -386,6 +392,8 @@ def _verify(conn):
             if unresolved_accounts.get(account_key) != key:
                 raise ValueError('Unresolved broker submission for account in audit history')
             receipt_key = (broker, account, evidence)
+            if receipt_key in intent_fingerprints:
+                raise ValueError('Reconciliation evidence reuses account intent fingerprint')
             if receipt_key in reconciliation_receipts:
                 raise ValueError('Reused reconciliation evidence in audit history')
             reconciliation_receipts.add(receipt_key)
@@ -442,6 +450,14 @@ def _write(path, key, event, evidence, stamp):
         if event == 'PREPARED':
             if old is not None:
                 raise ValueError('Duplicate client order ID, even if intent is identical')
+            # Do not repurpose a previously declared terminal receipt as a
+            # new intent digest in this broker/account evidence namespace.
+            if conn.execute(
+                    "SELECT 1 FROM events WHERE broker=? AND account=? "
+                    "AND evidence_sha=? AND event IN "
+                    "('RECONCILED_FILLED','RECONCILED_REJECTED','RECONCILED_CANCELLED') "
+                    "LIMIT 1", (key[0], key[1], evidence)).fetchone():
+                raise ValueError('Reused terminal receipt as intent fingerprint')
             conn.execute('INSERT INTO intents VALUES (?,?,?,?,?)', (*key, evidence, event))
         elif event == 'ATTEMPT_UNKNOWN':
             if old is None or old != (evidence, 'PREPARED'):
@@ -453,6 +469,13 @@ def _write(path, key, event, evidence, stamp):
                 raise ValueError('Reconciliation requires one unresolved attempt')
             if evidence == old[0]:
                 raise ValueError('Reconciliation evidence reuses intent fingerprint')
+            # A claimed receipt must not equal ANY intent digest in this
+            # account, including another order prepared before this attempt.
+            if conn.execute(
+                    'SELECT 1 FROM intents WHERE broker=? AND account=? '
+                    'AND intent_sha=? LIMIT 1',
+                    (key[0], key[1], evidence)).fetchone():
+                raise ValueError('Reconciliation evidence reuses account intent fingerprint')
             # Reject a previously claimed receipt for another order in this
             # broker/account, even when the first attempt is now terminal.
             # The transaction serializes competing writers; no auto-retry.
