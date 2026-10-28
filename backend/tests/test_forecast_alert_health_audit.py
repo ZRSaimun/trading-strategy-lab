@@ -294,3 +294,43 @@ def test_exact_target_completion_expiry_is_valid_but_not_authoritative():
     assert result["status"] == "DECLARED_ONLY"
     assert result["maySendNotification"] is False
     assert result["providerDeliveryVerified"] is False
+
+
+def test_warning_reasons_reconcile_overlapping_queue_and_uncertain_incidents():
+    queued = check(state(expiresAt=181), now=180)
+    assert queued["warningKeys"] == [["s1", "f1"]]
+    assert queued["warningReasons"] == [{"key": ["s1", "f1"], "reasons":
+        ["EXPIRING_SOON_WARNING", "QUEUE_DELAY_WARNING"]}]
+    uncertain = check(state("IN_FLIGHT_UNCERTAIN", expiresAt=150), now=160)
+    assert uncertain["warningReasons"] == [{"key": ["s1", "f1"], "reasons":
+        ["EXPIRED_IN_FLIGHT_UNCERTAIN", "IN_FLIGHT_UNCERTAIN", "UNCERTAIN_DELAY_WARNING"]}]
+    assert uncertain["maySendNotification"] is False
+
+
+def test_warning_reasons_distinguish_expired_queue_and_late_ack():
+    expired = check(state(), now=300)
+    assert expired["warningReasons"] == [{"key": ["s1", "f1"], "reasons": ["EXPIRED_UNCLAIMED"]}]
+    late = check(state("ACK_RECORDED_UNVERIFIED", ackAt=300), now=400)
+    assert late["warningReasons"] == [{"key": ["s1", "f1"],
+        "reasons": ["ACK_AT_OR_AFTER_EXPIRY_WARNING"]}]
+    assert late["unverifiedAckKeys"] == [["s1", "f1"]]
+    assert check()["warningReasons"] == []
+
+
+def test_warning_reasons_are_stable_across_input_order_and_disjoint_from_timeline_acks():
+    records = [
+        {"sessionId": "s2", "state": state("ACK_RECORDED_UNVERIFIED", forecastId="f3")},
+        {"sessionId": "s1", "state": state("IN_FLIGHT_UNCERTAIN", forecastId="f2")},
+        {"sessionId": "s1", "state": state(expiresAt=180)},
+    ]
+    expected = [("s1", "f1"), ("s1", "f2"), ("s2", "f3")]
+    a = check(records=records, expected=expected, now=150)
+    b = check(records=list(reversed(records)), expected=list(reversed(expected)), now=150)
+    assert a == b
+    assert a["warningKeys"] == [item["key"] for item in a["warningReasons"]]
+    assert a["warningReasons"] == [
+        {"key": ["s1", "f1"], "reasons": ["EXPIRING_SOON_WARNING"]},
+        {"key": ["s1", "f2"], "reasons": ["IN_FLIGHT_UNCERTAIN"]},
+    ]
+    assert a["unverifiedAckKeys"] == [["s2", "f3"]]
+    assert a["recipientDeliveryVerified"] is False
