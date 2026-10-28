@@ -229,7 +229,12 @@ def claim_local_holdout_release(db_path, *, study_id, manifest_sha256,
             _assert_claims_schema(conn)
             # Import lazily: the population lock imports this registry.
             from app.local_holdout_population_lock import _assert_reservation_schema
-            if any(name != 'holdout_claims' for name, kind in protected_objects):
+            # Preserve the explicit incomplete-schema error for partial
+            # registries; validate canonical definitions only when all three
+            # reservation tables exist.
+            if {'holdout_locked_rows', 'holdout_locked_decisions',
+                    'holdout_locked_pairs'}.issubset(
+                        {name for name, _ in protected_objects}):
                 _assert_reservation_schema(conn)
             row = conn.execute(
                 "SELECT manifest_sha256, holdout_start_at_utc, "
