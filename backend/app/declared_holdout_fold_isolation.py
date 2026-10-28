@@ -25,6 +25,7 @@ def audit_declared_holdout_fold_isolation(folds):
     previous_end = None
     previous_max_label = None
     min_label_embargo_slack = None
+    tightest_label_embargo_transition_index = None
     study_id = candidate_id = candidate_sha = source_signature = None
     summaries = []
     for index, fold in enumerate(folds):
@@ -58,8 +59,11 @@ def audit_declared_holdout_fold_isolation(folds):
                                    previous_max_label - manifest["embargo_seconds"])
             if label_embargo_slack < 0:
                 raise ValueError("Earlier fold labels not mature before later selection embargo")
-            min_label_embargo_slack = (label_embargo_slack if min_label_embargo_slack is None
-                                      else min(min_label_embargo_slack, label_embargo_slack))
+            # Stable tie-break: the earliest equally tight transition wins.
+            if (min_label_embargo_slack is None or
+                    label_embargo_slack < min_label_embargo_slack):
+                min_label_embargo_slack = label_embargo_slack
+                tightest_label_embargo_transition_index = index
         rows = {row["row_sha256"] for row in census}
         if rows & seen_rows:
             raise ValueError("Cross-fold row identity reused")
@@ -81,6 +85,7 @@ def audit_declared_holdout_fold_isolation(folds):
         "fold_count": len(folds),
         "observation_count": len(seen_rows),
         "min_declared_label_embargo_slack_seconds": min_label_embargo_slack,
+        "tightest_declared_label_embargo_later_fold_index": tightest_label_embargo_transition_index,
         "folds": summaries,
         "source_bytes_independently_authenticated": False,
         "holdout_untouched_independently_verified": False,
