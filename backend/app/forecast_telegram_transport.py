@@ -85,7 +85,10 @@ def send_telegram_once(*, bot_token, chat_id, text, timeout=5, opener=None):
     request = urllib.request.Request(url, data=body, headers={
         "Content-Type": "application/json", "Accept": "application/json"
     }, method="POST")
-    transport = opener if opener is not None else urllib.request.build_opener(_NoRedirect)
+    # Ignore environment/system proxy settings: bot tokens are embedded in the
+    # HTTPS request URL and must not be routed through an implicit proxy.
+    transport = opener if opener is not None else urllib.request.build_opener(
+        _NoRedirect, urllib.request.ProxyHandler({}))
     try:
         with transport.open(request, timeout=timeout) as response:
             if response.status != 200:
