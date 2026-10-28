@@ -61,11 +61,31 @@ def audit_declared_m1_coverage(
     i = j = matched = missing = outside = 0
     missing_sample: list[str] = []
     outside_sample: list[str] = []
+    # Runs require adjacent *declared* missing minutes in UTC, not simply
+    # consecutive positions in a possibly discontinuous session inventory.
+    missing_runs = longest_missing_run = current_missing_run = 0
+    previous_missing_minute: int | None = None
+    missing_run_samples: list[dict] = []
     while i < len(expected) or j < len(observed):
         if j == len(observed) or (i < len(expected) and expected[i] < observed[j]):
+            minute = expected[i]
             missing += 1
+            if previous_missing_minute is None or minute != previous_missing_minute + 60:
+                missing_runs += 1
+                current_missing_run = 0
+                if len(missing_run_samples) < sample_limit:
+                    missing_run_samples.append({
+                        "first_utc": _iso(minute), "last_utc": _iso(minute),
+                        "minutes": 0,
+                    })
+            current_missing_run += 1
+            longest_missing_run = max(longest_missing_run, current_missing_run)
+            previous_missing_minute = minute
+            if missing_runs <= sample_limit:
+                missing_run_samples[-1]["last_utc"] = _iso(minute)
+                missing_run_samples[-1]["minutes"] = current_missing_run
             if len(missing_sample) < sample_limit:
-                missing_sample.append(_iso(expected[i]))
+                missing_sample.append(_iso(minute))
             i += 1
         elif i == len(expected) or observed[j] < expected[i]:
             outside += 1
@@ -87,6 +107,9 @@ def audit_declared_m1_coverage(
         "observed_minutes": len(observed),
         "matched_declared_minutes": matched,
         "unobserved_declared_minutes": missing,
+        "unobserved_declared_runs": missing_runs,
+        "longest_unobserved_declared_run_minutes": longest_missing_run,
+        "unobserved_declared_run_samples_utc": missing_run_samples,
         "observed_undeclared_minutes": outside,
         "declared_first_utc": _iso(expected[0]),
         "declared_last_utc": _iso(expected[-1]),
