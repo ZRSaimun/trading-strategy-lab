@@ -195,6 +195,7 @@ def audit_declared_completed_m1_receipts(
     # transport budgets. Separate such pending gaps from overdue declarations
     # without treating either as authenticated missed provider issuance.
     overdue_missing = pending_missing = overdue_sample = None
+    overdue_runs = longest_overdue_run = pending_sample = None
     if missing_minutes is not None:
         overdue_minutes = [
             minute for minute in missing_minutes
@@ -204,6 +205,21 @@ def audit_declared_completed_m1_receipts(
         overdue_missing = len(overdue_minutes)
         pending_missing = len(missing_minutes) - overdue_missing
         overdue_sample = overdue_minutes[:12]
+        pending_sample = missing_minutes[overdue_missing:overdue_missing + 12]
+        # Deadline increases strictly with the expected minute start, so
+        # overdue identities are a sorted prefix. An omitted session minute
+        # splits a run rather than fabricating continuous market coverage.
+        overdue_runs = longest_overdue_run = 0
+        previous_overdue = None
+        current_run = 0
+        for minute in overdue_minutes:
+            if previous_overdue is None or minute != previous_overdue + 60:
+                overdue_runs += 1
+                current_run = 1
+            else:
+                current_run += 1
+            longest_overdue_run = max(longest_overdue_run, current_run)
+            previous_overdue = minute
     # A source-order forward jump is not a unique missing-minute census:
     # delayed backfills and replayed ranges can inflate that observation.
     # Count interior holes once across distinct UTC minute identities. These
@@ -259,6 +275,11 @@ def audit_declared_completed_m1_receipts(
         "declared_overdue_missing_expected_minutes": overdue_missing,
         "declared_pending_missing_expected_minutes": pending_missing,
         "overdue_declared_expected_minute_sample_utc": overdue_sample,
+        "pending_declared_expected_minute_sample_utc": pending_sample,
+        "declared_overdue_missing_expected_gap_runs": overdue_runs,
+        "largest_declared_overdue_missing_expected_gap_run_minutes": (
+            longest_overdue_run
+        ),
         "latest_candle_end_age_seconds": latest_candle_age,
         "latest_receipt_age_seconds": latest_receipt_age,
         "declared_freshness_within_budget": (
