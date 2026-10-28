@@ -81,6 +81,44 @@ def _log_loss_unavailable_binary_bounds(issued_census, eligible_settled):
     return lower / len(issued_census), upper / len(issued_census)
 
 
+
+def _paired_frozen_baseline_regret_bounds(issued_census, eligible_settled, prior_up):
+    """Sharp best/worst *paired* scoring regret under unavailable binary labels.
+
+    The frozen early-only climatology is compared to each forecast on the
+    SAME late issued-census row. For an unavailable label, consider both
+    hypothetical binary outcomes, not independent score extrema. VOID_GAP
+    may have no real outcome; these are counterfactual sensitivity bounds,
+    not measured skill, executable returns or a permission to trade.
+    """
+    eligible_ids = {row["id"] for row in eligible_settled}
+    brier_low = brier_high = log_low = log_high = 0.0
+    for row in issued_census:
+        p = row["probability"]
+        brier_down = p * p - prior_up * prior_up
+        brier_up = (1 - p) ** 2 - (1 - prior_up) ** 2
+        log_down = math.log1p(-prior_up) - math.log1p(-p)
+        log_up = math.log(prior_up) - math.log(p)
+        if row["id"] in eligible_ids:
+            if row["outcomeUp"]:
+                brier_down = brier_up
+                log_down = log_up
+            else:
+                brier_up = brier_down
+                log_up = log_down
+        brier_low += min(brier_down, brier_up)
+        brier_high += max(brier_down, brier_up)
+        log_low += min(log_down, log_up)
+        log_high += max(log_down, log_up)
+    n = len(issued_census)
+    return {
+        "lateBrierRegretBestCaseAllIssuedCensusVsFrozenEarlyClimatology": brier_low / n,
+        "lateBrierRegretWorstCaseAllIssuedCensusVsFrozenEarlyClimatology": brier_high / n,
+        "lateLogLossRegretBestCaseAllIssuedCensusVsFrozenEarlyClimatology": log_low / n,
+        "lateLogLossRegretWorstCaseAllIssuedCensusVsFrozenEarlyClimatology": log_high / n,
+    }
+
+
 def _calibration_ece10(rows):
     """Descriptive 10-bin ECE; do not interpret as statistical significance.
 
@@ -662,6 +700,10 @@ def audit_temporal_forecast_calibration(snapshot, *, min_per_window=30,
             "earlyBrier": None, "lateBrier": None, "lateBrierDelta": None,
             "lateBrierBestCaseAllIssuedCensus": None,
             "lateBrierWorstCaseAllIssuedCensus": None,
+            "lateBrierRegretBestCaseAllIssuedCensusVsFrozenEarlyClimatology": None,
+            "lateBrierRegretWorstCaseAllIssuedCensusVsFrozenEarlyClimatology": None,
+            "lateLogLossRegretBestCaseAllIssuedCensusVsFrozenEarlyClimatology": None,
+            "lateLogLossRegretWorstCaseAllIssuedCensusVsFrozenEarlyClimatology": None,
             "earlyLogLoss": None, "lateLogLoss": None, "lateLogLossDelta": None,
             "lateLogLossBestCaseAllIssuedCensus": None,
             "lateLogLossWorstCaseAllIssuedCensus": None,
@@ -714,6 +756,7 @@ def audit_temporal_forecast_calibration(snapshot, *, min_per_window=30,
                 lateBrierDelta=delta,
                 lateBrierBestCaseAllIssuedCensus=late_best,
                 lateBrierWorstCaseAllIssuedCensus=late_worst,
+                **_paired_frozen_baseline_regret_bounds(late_census, test, prior_up),
                 earlyLogLoss=early_log, lateLogLoss=late_log,
                 lateLogLossDelta=late_log - early_log,
                 lateLogLossBestCaseAllIssuedCensus=late_log_best,
