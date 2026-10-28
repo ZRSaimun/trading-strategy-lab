@@ -413,6 +413,20 @@ test('formation census preserves unknown outcomes and distinguishes paired from 
    strict:{confirmedHigher:0,blindHigher:0,equal:0},
    strictFail:{confirmedHigher:0,blindHigher:0,equal:0},
    strictUnknown:{confirmedHigher:0,blindHigher:1,equal:0},
+   byDirection:{
+    BULLISH:{
+     all:{confirmedHigher:0,blindHigher:1,equal:0},
+     strict:{confirmedHigher:0,blindHigher:0,equal:0},
+     strictFail:{confirmedHigher:0,blindHigher:0,equal:0},
+     strictUnknown:{confirmedHigher:0,blindHigher:1,equal:0},
+    },
+    BEARISH:{
+     all:{confirmedHigher:0,blindHigher:0,equal:0},
+     strict:{confirmedHigher:0,blindHigher:0,equal:0},
+     strictFail:{confirmedHigher:0,blindHigher:0,equal:0},
+     strictUnknown:{confirmedHigher:0,blindHigher:0,equal:0},
+    },
+   },
   },
   pairedNetSignByCost:[0,5,15].map((costBps,scenarioIndex)=>({
    scenarioIndex,costBps,
@@ -645,7 +659,7 @@ test('research report rejects extra source fields without leaking caller private
  const report=studyHourlyFvgMidpoint(fixture(),source);
  assert.deepEqual(report.source,source);
  assert.deepEqual(Object.keys(report.source).sort(),Object.keys(source).sort());
- assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v67');
+ assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v68');
 });
 test('ambiguous source labels and contradictory volume evidence fail closed',()=>{
  // These are declared metadata, not independent vendor authentication.
@@ -720,7 +734,7 @@ test('v61 source labels reject lone surrogates and Unicode noncharacters in both
  assert.deepEqual(studyHourlyFvgMidpoint(bars,valid).source,valid);
  assert.deepEqual(studyHourlyFvgMidpointAsOf(bars,valid,cutoff).source,valid);
  assert.equal(studyHourlyFvgMidpoint(bars,valid).version,
-  'hourly-fvg-first-midpoint-touch-v67');
+  'hourly-fvg-first-midpoint-touch-v68');
 });
 test('v63 source labels reject Unicode space lookalikes without banning ASCII spaces',()=>{
  const bars=fixture(),cutoff=BASE+37*H;
@@ -737,7 +751,7 @@ test('v63 source labels reject Unicode space lookalikes without banning ASCII sp
  assert.deepEqual(studyHourlyFvgMidpoint(bars,legitimate).source,legitimate);
  assert.deepEqual(studyHourlyFvgMidpointAsOf(bars,legitimate,cutoff).source,legitimate);
  assert.equal(studyHourlyFvgMidpoint(bars,legitimate).version,
-  'hourly-fvg-first-midpoint-touch-v67');
+  'hourly-fvg-first-midpoint-touch-v68');
 });
 test('first bullish midpoint touch has a hypothetical blind limit and later next-open rejection markout',()=>{
  const x=target(fixture());
@@ -1082,7 +1096,7 @@ test('an overflowing next-open comparator suppresses both matched markouts',()=>
 });
 test('completed hourly timestamps are safe and numeric rule changes have a new version',()=>{
  const report=studyHourlyFvgMidpoint(fixture(),source);
- assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v67');
+ assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v68');
  const lastSafeAlignedOpen=Math.floor(Number.MAX_SAFE_INTEGER/H)*H;
  assert.equal(Number.isSafeInteger(lastSafeAlignedOpen),true);
  assert.equal(Number.isSafeInteger(lastSafeAlignedOpen+H),false);
@@ -2756,6 +2770,67 @@ test('v67 matched net-sign outcomes conserve direction and strict evidence after
   const bullMatured=studyHourlyFvgMidpointAsOf(mixed,sample.src,BASE+38*H,sample.config);
   assert.ok(bullMatured.cohort.pairedNetSignByCost.every(s=>
    sum(s.byDirection.BULLISH.all)>=1&&sum(s.byDirection.BEARISH.all)===0));
+  assert.deepEqual(studyHourlyFvgMidpointAsOf(mixed,sample.src,
+   mixed[mixed.length-1].time+H,sample.config),report);
+ }
+});
+
+test('v68 directional gross ordering independently reconciles strict evidence and closed exits',()=>{
+ const mirror=(rows:Bar[])=>rows.map(b=>({...b,
+  open:220-b.open,high:220-b.low,low:220-b.high,close:220-b.close}));
+ const shiftedBear=mirror(fixture()).map((bar,i)=>({...bar,time:BASE+(50+i)*H}));
+ const mixed=[...fixture(),...shiftedBear];
+ const sides=['BULLISH','BEARISH'] as const;
+ const statuses=['all','strict','strictFail','strictUnknown'] as const;
+ const cells=['confirmedHigher','blindHigher','equal'] as const;
+ const sum=(counts:Record<(typeof cells)[number],number>)=>
+  cells.reduce((total,cell)=>total+counts[cell],0);
+ for(const sample of [
+  {src:source,config:{},gate:'PASS'},
+  {src:source,config:{volumeMultiple:10},gate:'FAIL'},
+  {src:{...source,volumeVerified:false},config:{},gate:'INSUFFICIENT_DATA'},
+ ] as const){
+  const report=studyHourlyFvgMidpoint(mixed,sample.src,sample.config);
+  const ordering=report.cohort.pairedGrossOrdering;
+  const matured=report.observations.filter(o=>
+   o.blindMidpointTouch!==null&&o.confirmedNextOpen!==null);
+  assert.ok(matured.some(o=>o.direction==='BULLISH'));
+  assert.ok(matured.some(o=>o.direction==='BEARISH'));
+  assert.equal(sum(ordering.all),matured.length);
+  for(const status of statuses)for(const cell of cells){
+   assert.equal(ordering[status][cell],sides.reduce((total,side)=>
+    total+ordering.byDirection[side][status][cell],0));
+  }
+  for(const side of sides){
+   const sideMatched=matured.filter(o=>o.direction===side);
+   for(const status of statuses){
+    const gate=status==='strict'?'PASS':
+     status==='strictFail'?'FAIL':'INSUFFICIENT_DATA';
+    const selected=status==='all'?sideMatched:
+     sideMatched.filter(o=>o.gates.strictCandidate===gate);
+    assert.equal(sum(ordering.byDirection[side][status]),selected.length);
+    for(const cell of cells){
+     // Reconstruct from completed entry prices, not rounded gross-bps fields.
+     const expected=selected.filter(o=>{
+      const blind=o.blindMidpointTouch!.entryPrice;
+      const confirmed=o.confirmedNextOpen!.entryPrice;
+      const observed=confirmed===blind?'equal':
+       o.direction==='BULLISH'?
+        confirmed<blind?'confirmedHigher':'blindHigher':
+        confirmed>blind?'confirmedHigher':'blindHigher';
+      return observed===cell;
+     }).length;
+     assert.equal(ordering.byDirection[side][status][cell],expected);
+    }
+   }
+   assert.ok(sideMatched.some(o=>o.gates.strictCandidate===sample.gate));
+  }
+  const before=studyHourlyFvgMidpointAsOf(mixed,sample.src,BASE+36*H,sample.config);
+  for(const side of sides)assert.equal(sum(before.cohort.pairedGrossOrdering.byDirection[side].all),0,
+   'future fixed exit must not populate directional gross ordering');
+  const firstMatured=studyHourlyFvgMidpointAsOf(mixed,sample.src,BASE+38*H,sample.config);
+  assert.ok(sum(firstMatured.cohort.pairedGrossOrdering.byDirection.BULLISH.all)>=1);
+  assert.equal(sum(firstMatured.cohort.pairedGrossOrdering.byDirection.BEARISH.all),0);
   assert.deepEqual(studyHourlyFvgMidpointAsOf(mixed,sample.src,
    mixed[mixed.length-1].time+H,sample.config),report);
  }
