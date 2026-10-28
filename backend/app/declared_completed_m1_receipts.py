@@ -98,6 +98,9 @@ def audit_declared_completed_m1_receipts(
     # even when its immediate predecessor was also an older minute.
     after_budget_rows = 0
     after_budget_minutes: set[int] = set()
+    # Late duplicate revisions must not be mistaken for late first issuance.
+    first_seen_after_budget_minutes: set[int] = set()
+    late_first_seen_backfill_minutes: set[int] = set()
     out_of_order_first_seen_minutes: set[int] = set()
     high_water_start = None
     digest = hashlib.sha256(b"DECLARED_COMPLETED_M1_RECEIPT_CENSUS_V1\n")
@@ -132,8 +135,12 @@ def audit_declared_completed_m1_receipts(
         if low > min(opening, closing) or high < max(opening, closing):
             raise ValueError("Invalid OHLC ordering")
         raw_ohlc = tuple(record[k] for k in ("open", "high", "low", "close"))
-        if (start not in seen_minutes and high_water_start is not None
-                and start < high_water_start):
+        first_seen = start not in seen_minutes
+        first_seen_backfill = (
+            first_seen and high_water_start is not None
+            and start < high_water_start
+        )
+        if first_seen_backfill:
             out_of_order_first_seen_minutes.add(start)
         if high_water_start is None or start > high_water_start:
             high_water_start = start
@@ -168,6 +175,10 @@ def audit_declared_completed_m1_receipts(
                        + max_transport_lag_seconds):
             after_budget_rows += 1
             after_budget_minutes.add(start)
+            if first_seen:
+                first_seen_after_budget_minutes.add(start)
+                if first_seen_backfill:
+                    late_first_seen_backfill_minutes.add(start)
         digest.update(json.dumps(
             [event_id, start, finalized, received, record["open"],
              record["high"], record["low"], record["close"]],
@@ -277,6 +288,18 @@ def audit_declared_completed_m1_receipts(
         "declared_arrived_after_budget_distinct_minutes": len(after_budget_minutes),
         "declared_arrived_after_budget_minute_sample_utc": sorted(
             after_budget_minutes
+        )[:12],
+        "declared_first_seen_after_budget_minutes": len(
+            first_seen_after_budget_minutes
+        ),
+        "declared_first_seen_after_budget_minute_sample_utc": sorted(
+            first_seen_after_budget_minutes
+        )[:12],
+        "declared_late_first_seen_backfill_minutes": len(
+            late_first_seen_backfill_minutes
+        ),
+        "declared_late_first_seen_backfill_minute_sample_utc": sorted(
+            late_first_seen_backfill_minutes
         )[:12],
         "observed_gap_minutes_not_proven_missing": observed_gap_minutes,
         "distinct_interior_unobserved_minutes_not_proven_missing": (
