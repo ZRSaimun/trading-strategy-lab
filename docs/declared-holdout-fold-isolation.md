@@ -1,0 +1,9 @@
+# Declared cross-fold holdout isolation (offline research only)
+
+`backend/app/declared_holdout_fold_isolation.py` checks **membership only** for 2–24 ordered, distinct-source declared holdout windows of one fixed candidate. It reuses the strict manifest and census validators in `declared_holdout_release_gate.py` and rejects outcome fields entirely. It does not fit models, release labels, calculate P&L, call a broker, or authorize paper/real orders.
+
+The audit rejects reused archive SHA-256 declarations, reused raw-row hashes, overlapping or out-of-order holdout windows, later selection inside an earlier holdout, earlier fold labels that are not mature plus embargo before later selection, and changes to study/candidate/config or provider, venue, account, quote side, currency, UTC convention and instrument. Identical observation IDs may be used in different folds only when archive and raw-row identities differ; IDs are local to their declared fold. Reports counts and caller-declared manifest/source hashes only, never realized outcomes.
+
+**Limitations:** This is not a source-authenticated walk-forward, an independently preregistered untouched holdout, proof of distinct market-data samples, or a broker-cost backtest. Distinct digest strings can be fabricated, and no cryptographic authentication of archive bytes or historical quote execution is performed. The fixed-candidate rule is intentionally narrower than retrained walk-forward strategies; development-fold audits remain in separate PR #144. For genuinely prospective holdouts, precommit eligibility rules before future market rows exist, then authenticate and freeze the observed census. A caller with access to raw outcomes can still peek. No result is evidence of profitability.
+
+Synthetic regression: `cd backend && PYTHONPATH=. python -m pytest -q tests/test_declared_holdout_fold_isolation.py`.
