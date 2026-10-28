@@ -51,6 +51,7 @@ def audit_declared_completed_m1_receipts(
     receipts: list[dict], *, provider: str, instrument: str, source_id: str,
     price_side: str, as_of_utc: int, max_age_seconds: int = 180,
     max_transport_lag_seconds: int = 30,
+    max_finalization_lag_seconds: int = 60,
     expected_utc_minutes: list[int] | None = None,
 ) -> dict:
     """Check declared receipt consistency, not authenticity or session coverage.
@@ -67,7 +68,9 @@ def audit_declared_completed_m1_receipts(
     now = _second(as_of_utc, "as_of_utc")
     if (type(max_age_seconds) is not int or not 1 <= max_age_seconds <= 3600
             or type(max_transport_lag_seconds) is not int
-            or not 0 <= max_transport_lag_seconds <= 300):
+            or not 0 <= max_transport_lag_seconds <= 300
+            or type(max_finalization_lag_seconds) is not int
+            or not 0 <= max_finalization_lag_seconds <= 300):
         raise ValueError("Bounded freshness and transport budgets required")
     if type(receipts) is not list or not 1 <= len(receipts) <= _MAX_ROWS:
         raise ValueError("Nonempty bounded receipt inventory required")
@@ -86,7 +89,7 @@ def audit_declared_completed_m1_receipts(
     seen_minutes: set[int] = set()
     previous_minute = previous_receipt = None
     duplicate_minutes = backward_minutes = observed_gap_minutes = 0
-    lag_exceeded = 0
+    lag_exceeded = finalization_lag_exceeded = 0
     digest = hashlib.sha256(b"DECLARED_COMPLETED_M1_RECEIPT_CENSUS_V1\n")
     digest.update(json.dumps(
         [provider, instrument, source_id, price_side],
@@ -128,6 +131,10 @@ def audit_declared_completed_m1_receipts(
                 observed_gap_minutes += (start - previous_minute) // 60 - 1
         if received - finalized > max_transport_lag_seconds:
             lag_exceeded += 1
+        # A provider can finalize a long-stale bar immediately before delivery.
+        # Transport lag alone cannot establish prompt candle finalization.
+        if finalized - (start + 60) > max_finalization_lag_seconds:
+            finalization_lag_exceeded += 1
         digest.update(json.dumps(
             [event_id, start, finalized, received, record["open"],
              record["high"], record["low"], record["close"]],
@@ -144,7 +151,8 @@ def audit_declared_completed_m1_receipts(
     latest_receipt_age = now - newest_received
     structurally_clean = (
         duplicate_minutes == 0 and backward_minutes == 0
-        and lag_exceeded == 0 and (missing in (None, 0))
+        and lag_exceeded == 0 and finalization_lag_exceeded == 0
+        and (missing in (None, 0))
         and (extra in (None, 0))
     )
     return {
@@ -156,6 +164,8 @@ def audit_declared_completed_m1_receipts(
         "backward_candle_events": backward_minutes,
         "observed_gap_minutes_not_proven_missing": observed_gap_minutes,
         "transport_lag_exceeded_rows": lag_exceeded,
+        "finalization_lag_exceeded_rows": finalization_lag_exceeded,
+        "declared_max_finalization_lag_seconds": max_finalization_lag_seconds,
         "expected_inventory_supplied": expected is not None,
         "missing_declared_expected_minutes": missing,
         "extra_minutes_outside_declared_expected": extra,
@@ -165,6 +175,7 @@ def audit_declared_completed_m1_receipts(
             latest_candle_age <= max_age_seconds
             and latest_receipt_age <= max_age_seconds
             and lag_exceeded == 0
+            and finalization_lag_exceeded == 0
         ),
         "structurally_clean": structurally_clean,
         "receipt_inventory_sha256": digest.hexdigest(),
