@@ -357,6 +357,11 @@ test('formation census preserves unknown outcomes and distinguishes paired from 
  assert.deepEqual(paired.cohort,{
   formations:1,
   firstTouchOutcome:{TOUCH:1,NO_TOUCH:0,OPEN_GAP_THROUGH:0,INCOMPLETE_WINDOW:0},
+  firstDispositionWaitBarCounts:{
+   TOUCH:[1,...Array(11).fill(0)],
+   OPEN_GAP_THROUGH:Array(12).fill(0),
+   NO_TOUCH:Array(12).fill(0),
+  },
   incompleteWindowByReason:{MISSING_HOUR:0,RIGHT_CENSORED:0},
   markoutCensoredByReason:{MISSING_HOUR:0,RIGHT_CENSORED:0,UNREPRESENTABLE_RETURN:0},
   pairedGrossOrdering:{
