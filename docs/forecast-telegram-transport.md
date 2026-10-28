@@ -122,3 +122,18 @@ This prevents an internal **policy/transport mismatch**, not a demonstrated
 Telegram security incident. Valid syntax does not prove chat existence,
 consent, entitlement, provider delivery or account authorization. All
 send/order permission flags remain false and the modules stay disconnected.
+
+## Strict finite JSON acknowledgement parsing (28 October 2026)
+
+The disconnected single-attempt Telegram sender now rejects nonstandard JSON
+numeric constants (`NaN`, `Infinity`, `-Infinity`) and floating-point
+overflow (for example `1e400`) **anywhere** in an otherwise valid HTTP 200
+acknowledgement. Python's default `json.loads` accepts these nonstandard
+values, potentially recording provider acceptance from a malformed response.
+Finite JSON numbers in unrelated provider metadata remain compatible. Four
+synthetic malformed-ACK cases and one compatibility case use fake HTTP openers;
+no Telegram request is made. After any attempted POST, malformed responses
+remain `DeliveryUncertain` and **must never be automatically retried**.
+This is local protocol-integrity validation, not evidence of Telegram delivery,
+source authentication, a live signal, or financial performance. The sender
+remains disconnected pending the existing independent activation/release gates.
