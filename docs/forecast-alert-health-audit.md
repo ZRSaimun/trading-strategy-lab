@@ -126,3 +126,23 @@ aggregate counters. `unverifiedAckKeys` remains separate for timely ACKs;
 a late self-attested ACK appears in both inventories. No underlying status,
 warning threshold, retry, notification, or order authority changes. Both
 inventories remain caller-declared and require independent reconciliation.
+
+
+## Cross-alert claim-token uniqueness (28 October 2026)
+
+The disconnected health census now **rejects reused non-null `claimId` tokens
+across the entire declared outbox population**, including different sessions
+and mixed `IN_FLIGHT_UNCERTAIN` / `ACK_RECORDED_UNVERIFIED` records.
+Outbox claim tokens are intended to correlate a single attempt with one alert;
+reusing a token could make a later transport receipt ambiguous even if the
+`[sessionId, forecastId]` keys are otherwise distinct. An integrity failure
+raises `ValueError` rather than emitting a superficially healthy census.
+Unclaimed `QUEUED` and `CANCELLED` rows have null claim tokens and remain
+valid. Synthetic tests cover cross-session collisions, mixed-status collisions,
+and order-independent valid distinct tokens.
+
+This is a **caller-declared collision check**, not cryptographic proof of
+unique claim issuance, provider acceptance, device delivery, feed authenticity
+or independent inventory completeness. The durable outbox and independent
+claim/receipt reconciliation remain necessary. No sender, automatic retry,
+paper fill, broker order or production route is enabled.
