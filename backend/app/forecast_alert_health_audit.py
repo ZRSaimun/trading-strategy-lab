@@ -105,6 +105,7 @@ def audit_forecast_alert_health(records, expected_keys, *, as_of,
     oldest_uncertain = 0
     max_ack_lag = 0
     warning_keys = []
+    unverified_ack_keys = []
     for record in records:
         if type(record) is not dict or set(record) != {"sessionId", "state"}:
             raise ValueError("Malformed alert health record")
@@ -148,6 +149,10 @@ def audit_forecast_alert_health(records, expected_keys, *, as_of,
                 warning_keys.append(key)
         elif status == "ACK_RECORDED_UNVERIFIED":
             counts[status] += 1
+            # A timely self-attested ACK is not independent provider/device
+            # delivery evidence. Retain its identity for later reconciliation
+            # without conflating it with an age/expiry warning.
+            unverified_ack_keys.append(key)
             max_ack_lag = max(max_ack_lag, state["ackAt"] - state["claimedAt"])
             if state["ackAt"] >= state["expiresAt"]:
                 counts["ACK_AT_OR_AFTER_EXPIRY_WARNING"] += 1
@@ -172,6 +177,7 @@ def audit_forecast_alert_health(records, expected_keys, *, as_of,
             "oldestUncertainSeconds": oldest_uncertain,
             "maxSelfAttestedAckLagSeconds": max_ack_lag,
             "warningKeys": [list(key) for key in sorted(set(warning_keys))],
+            "unverifiedAckKeys": [list(key) for key in sorted(unverified_ack_keys)],
             "providerDeliveryVerified": False, "recipientDeliveryVerified": False,
             "maySendNotification": False, "mayExecutePaperOrder": False,
             "mayExecuteLiveOrder": False}
