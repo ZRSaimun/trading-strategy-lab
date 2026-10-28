@@ -431,3 +431,44 @@ def test_ack_reconciliation_warning_order_independent_and_overlaps_late_ack():
             "ACK_AT_OR_AFTER_EXPIRY_WARNING", "ACK_RECONCILIATION_OVERDUE_WARNING"]},
     ]
     assert a["unverifiedAckKeys"] == [["s1", "f1"], ["s2", "f2"]]
+
+
+def test_earliest_active_queue_expiry_countdown_ties_and_order_independence():
+    records = [
+        {"sessionId": "s2", "state": state(forecastId="f2", expiresAt=180)},
+        {"sessionId": "s1", "state": state(forecastId="f1", expiresAt=180)},
+        {"sessionId": "s1", "state": state(forecastId="f3", expiresAt=240)},
+    ]
+    expected = [("s1", "f3"), ("s2", "f2"), ("s1", "f1")]
+    a = check(records=records, expected=expected, now=150)
+    b = check(records=list(reversed(records)), expected=list(reversed(expected)), now=150)
+    assert a == b
+    assert a["earliestQueuedExpirySecondsRemaining"] == 30
+    assert a["earliestQueuedExpiryKeys"] == [["s1", "f1"], ["s2", "f2"]]
+    assert a["maySendNotification"] is False
+    at = check(records=records, expected=expected, now=180)
+    assert at["earliestQueuedExpirySecondsRemaining"] == 60
+    assert at["earliestQueuedExpiryKeys"] == [["s1", "f3"]]
+    assert at["counts"]["EXPIRED_UNCLAIMED"] == 2
+
+
+def test_earliest_queue_expiry_exact_one_second_and_excludes_claims():
+    queued = check(state(expiresAt=151), now=150)
+    assert queued["earliestQueuedExpirySecondsRemaining"] == 1
+    assert queued["earliestQueuedExpiryKeys"] == [["s1", "f1"]]
+    expired = check(state(expiresAt=151), now=151)
+    assert expired["earliestQueuedExpirySecondsRemaining"] is None
+    assert expired["earliestQueuedExpiryKeys"] == []
+    uncertain = check(state("IN_FLIGHT_UNCERTAIN"), now=150)
+    assert uncertain["earliestQueuedExpirySecondsRemaining"] is None
+    assert uncertain["earliestQueuedExpiryKeys"] == []
+
+
+def test_earliest_queue_expiry_empty_and_cancelled_population():
+    empty = check(records=[], expected=[])
+    cancelled = check(state("CANCELLED"))
+    for report in (empty, cancelled):
+        assert report["earliestQueuedExpirySecondsRemaining"] is None
+        assert report["earliestQueuedExpiryKeys"] == []
+        assert report["mayExecutePaperOrder"] is False
+        assert report["mayExecuteLiveOrder"] is False
