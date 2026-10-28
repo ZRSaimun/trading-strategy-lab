@@ -1189,7 +1189,9 @@ def test_reconciliation_cannot_reuse_original_intent_fingerprint(db):
     prep(db)
     attempt(db)
     with pytest.raises(ValueError, match='reuses intent fingerprint'):
-        reconcile(db, evidence_sha256=H)
+        record_declared_reconciliation(
+            db, recorded_at_ms=102, evidence_sha256=H,
+            outcome='FILLED', **{k: v for k, v in KEY.items() if k != 'intent_sha256'})
     audited = inspect_ledger(db)
     assert audited['event_count'] == 2
     assert audited['orders'][0]['status'] == 'ATTEMPT_UNKNOWN'
