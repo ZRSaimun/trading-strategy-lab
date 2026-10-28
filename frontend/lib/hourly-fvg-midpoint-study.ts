@@ -7,7 +7,7 @@
  */
 import type {Bar} from './research.ts';
 
-export const HOURLY_FVG_VERSION='hourly-fvg-first-midpoint-touch-v48';
+export const HOURLY_FVG_VERSION='hourly-fvg-first-midpoint-touch-v49';
 export type Evidence='PASS'|'FAIL'|'INSUFFICIENT_DATA';
 // First-touch volume evidence is not independent broker/source authentication.
 export type VolumeEvidenceReason='NOT_EVALUATED'|'SOURCE_UNVERIFIED'|
@@ -589,6 +589,16 @@ export function studyHourlyFvgMidpoint(
  // population or bypass the ten-scenario allocation bound. Fix the count
  // before reading getters, and reject an array resized during capture.
  const costCount=suppliedCosts.length;
+ // A bps-only scenario list must not silently discard extra claimed broker
+ // spreads, financing or certification fields. Inspect own keys without
+ // evaluating unknown accessors. A custom iterator is ignored, not invoked:
+ // index-only snapshots preserve the existing bounded-array contract.
+ const allowedCostIndices=new Set(Array.from({length:costCount},(_,i)=>String(i)));
+ for(const key of Reflect.ownKeys(suppliedCosts)){
+  if(key==='length'||key===Symbol.iterator||
+     (typeof key==='string'&&allowedCostIndices.has(key)))continue;
+  throw Error('Unexpected FVG cost scenario field outside frozen bps-only protocol');
+ }
  const costs:number[]=[];
  for(let index=0;index<costCount;index++){
   // Never allow inherited values to fill a missing cost-scenario cell.

@@ -561,7 +561,7 @@ test('research report rejects extra source fields without leaking caller private
  const report=studyHourlyFvgMidpoint(fixture(),source);
  assert.deepEqual(report.source,source);
  assert.deepEqual(Object.keys(report.source).sort(),Object.keys(source).sort());
- assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v48');
+ assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v49');
 });
 test('ambiguous source labels and contradictory volume evidence fail closed',()=>{
  // These are declared metadata, not independent vendor authentication.
@@ -937,7 +937,7 @@ test('an overflowing next-open comparator suppresses both matched markouts',()=>
 });
 test('completed hourly timestamps are safe and numeric rule changes have a new version',()=>{
  const report=studyHourlyFvgMidpoint(fixture(),source);
- assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v48');
+ assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v49');
  const lastSafeAlignedOpen=Math.floor(Number.MAX_SAFE_INTEGER/H)*H;
  assert.equal(Number.isSafeInteger(lastSafeAlignedOpen),true);
  assert.equal(Number.isSafeInteger(lastSafeAlignedOpen+H),false);
@@ -1794,4 +1794,45 @@ test('v48 completed candles reject undeclared BID/ASK or volume metadata without
   'once the extra-key candle closes, its unsupported metadata is rejected');
  assert.deepEqual(studyHourlyFvgMidpoint(fixture(),source),baseline,
   'valid seven-field candles preserve the frozen research result');
+});
+
+test('v49 cost scenario arrays reject unmodeled broker-cost evidence without reading it',()=>{
+ const bars=fixture(),cutoff=BASE+37*H;
+ const baseline=studyHourlyFvgMidpoint(bars,source);
+ const hidden=[0,5,15];
+ Object.defineProperty(hidden,'financingBps',{value:12,enumerable:false});
+ const symbolic=[0,5,15];
+ Object.defineProperty(symbolic,Symbol('broker-ask-spread'),{value:3});
+ const misspelled=[0,5,15] as number[] & {commissionBps?:number};
+ misspelled.commissionBps=4;
+ for(const costs of [hidden,symbolic,misspelled]){
+  const config={hypotheticalRoundTripCostsBps:costs};
+  assert.throws(()=>studyHourlyFvgMidpoint(bars,source,config),
+   /Unexpected FVG cost scenario field/,
+   'unsupported cost-model metadata must not silently disappear');
+  assert.throws(()=>studyHourlyFvgMidpointAsOf(bars,source,cutoff,config),
+   /Unexpected FVG cost scenario field/,
+   'as-of replay must enforce the identical bps-only scenario schema');
+ }
+ let unknownReads=0;
+ const hostile=[0,5,15];
+ Object.defineProperty(hostile,'brokerCertifiedCosts',{get(){
+  unknownReads++;
+  throw Error('unsupported broker-cost getter must never execute');
+ }});
+ assert.throws(()=>studyHourlyFvgMidpoint(bars,source,{
+  hypotheticalRoundTripCostsBps:hostile,
+ }),/Unexpected FVG cost scenario field/);
+ assert.equal(unknownReads,0,'unknown cost metadata must not be evaluated');
+ const iteratorProtected=[0,5,15];
+ Object.defineProperty(iteratorProtected,Symbol.iterator,{value(){
+  throw Error('untrusted scenario iterator must never execute');
+ }});
+ assert.deepEqual(studyHourlyFvgMidpoint(bars,source,{
+  hypotheticalRoundTripCostsBps:iteratorProtected,
+ }),baseline,'index-only valid bps scenarios retain the existing research output');
+ assert.deepEqual(studyHourlyFvgMidpointAsOf(bars,source,cutoff,{
+  hypotheticalRoundTripCostsBps:iteratorProtected,
+ }),studyHourlyFvgMidpointAsOf(bars,source,cutoff),
+ 'as-of replay retains the same valid bps-only scenarios');
 });
