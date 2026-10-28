@@ -267,3 +267,70 @@ def test_duplicate_ohlc_revision_changes_receipt_digest_not_policy_digest():
     assert baseline["receipt_inventory_sha256"] != revised["receipt_inventory_sha256"]
     assert baseline["declared_audit_policy_sha256"] == revised["declared_audit_policy_sha256"]
     assert revised["changed_duplicate_numeric_ohlc_rows"] == 1
+
+
+def test_unique_interior_gap_excludes_late_backfill():
+    # Source-order jump observes a gap, but a later delivered candle fills it.
+    rows = [row(T, event="first"),
+            row(T + 120, event="jump", received=T + 182),
+            row(T + 60, event="backfill", received=T + 183)]
+    report = audit(rows)
+    assert report["observed_gap_minutes_not_proven_missing"] == 1
+    assert report["distinct_interior_unobserved_minutes_not_proven_missing"] == 0
+    assert report["distinct_interior_gap_runs_not_proven_missing"] == 0
+    assert report["largest_interior_gap_run_minutes_not_proven_missing"] == 0
+    assert report["backward_candle_events"] == 1
+    assert report["structurally_clean"] is False
+
+
+def test_unique_interior_gap_ignores_replayed_minute_identity():
+    rows = [row(T, event="first"),
+            row(T + 120, event="jump", received=T + 182),
+            row(T, event="replay", received=T + 183)]
+    report = audit(rows)
+    assert report["duplicate_minute_rows"] == 1
+    assert report["observed_gap_minutes_not_proven_missing"] == 1
+    assert report["distinct_interior_unobserved_minutes_not_proven_missing"] == 1
+    assert report["distinct_interior_gap_runs_not_proven_missing"] == 1
+    assert report["largest_interior_gap_run_minutes_not_proven_missing"] == 1
+    assert report["may_execute_order"] is False
+
+
+def test_unique_interior_gap_runs_and_longest_are_distinct():
+    rows = [row(T, event="first"),
+            row(T + 180, event="second", received=T + 242),
+            row(T + 300, event="third", received=T + 362)]
+    report = audit_declared_completed_m1_receipts(
+        rows, provider="synthetic", instrument="XAU/USD", source_id="test:feed",
+        price_side="mid", as_of_utc=T + 500,
+    )
+    assert report["observed_gap_minutes_not_proven_missing"] == 3
+    assert report["distinct_interior_unobserved_minutes_not_proven_missing"] == 3
+    assert report["distinct_interior_gap_runs_not_proven_missing"] == 2
+    assert report["largest_interior_gap_run_minutes_not_proven_missing"] == 2
+    # A gap alone is not a verified session outage.
+    assert report["session_calendar_verified"] is False
+
+
+def test_unique_interior_gap_is_independent_of_declared_calendar():
+    rows = [row(T, event="first"),
+            row(T + 120, event="second", received=T + 182)]
+    without = audit(rows)
+    with_calendar = audit(rows, expected_utc_minutes=[T, T + 60, T + 120])
+    for key in (
+        "distinct_interior_unobserved_minutes_not_proven_missing",
+        "distinct_interior_gap_runs_not_proven_missing",
+        "largest_interior_gap_run_minutes_not_proven_missing",
+    ):
+        assert without[key] == with_calendar[key] == 1
+    assert without["missing_declared_expected_minutes"] is None
+    assert with_calendar["missing_declared_expected_minutes"] == 1
+    assert with_calendar["structurally_clean"] is False
+
+
+def test_unique_interior_gap_empty_for_single_and_contiguous_rows():
+    for rows in ([row()], [row(), row(T + 60, event="next", received=T + 123)]):
+        report = audit(rows)
+        assert report["distinct_interior_unobserved_minutes_not_proven_missing"] == 0
+        assert report["distinct_interior_gap_runs_not_proven_missing"] == 0
+        assert report["largest_interior_gap_run_minutes_not_proven_missing"] == 0
