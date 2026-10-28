@@ -10,7 +10,8 @@ from decimal import Decimal
 _HORIZONS = ("5", "15", "30", "60")
 _DIRECTIONS = ("up", "down")
 _SPIKES = ("up", "down", "both", "none")
-_MISSING = ("missing_pre_event_minutes", "missing_first_five_minutes")
+_MISSING = ("missing_pre_event_minutes", "missing_first_five_minutes",
+            "pending_first_five_completion")
 _POSITIONS = ("above_pre_high", "below_pre_low", "inside_pre_range")
 
 
@@ -73,10 +74,15 @@ def audit_news_spike_attrition(report):
         if status in _MISSING:
             if spike is not None or horizons is not None:
                 raise ValueError("Quarantined event has fabricated outcome")
+            mature = at + timedelta(minutes=5) <= as_of
+            if (status == "pending_first_five_completion" and mature) or (status == "missing_first_five_minutes" and not mature):
+                raise ValueError("First-five status contradicts completion cutoff")
             populations[status] += 1
             continue
         if status != "observed" or spike not in _SPIKES:
             raise ValueError("Unexpected event status or spike")
+        if at + timedelta(minutes=5) > as_of:
+            raise ValueError("Observed spike precedes first-five completion")
         populations[spike] += 1
         if not isinstance(horizons, dict) or set(horizons) != set(_HORIZONS):
             raise ValueError("Incomplete horizon census")
