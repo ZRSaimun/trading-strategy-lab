@@ -94,3 +94,21 @@ This is a read-only audit, not an authentication or sending gate. A caller can
 still omit records, supply a false as_of, or lack independent expected-bar
 inventory. It never turns historical BID candles into live quotes, authorizes
 notification delivery, places paper/live orders or proves profitable returns.
+
+## Self-attested ACK reconciliation inventory (28 October 2026)
+
+The read-only census now exposes `unverifiedAckKeys` as a sorted list of
+`[sessionId, forecastId]` identities for **every**
+`ACK_RECORDED_UNVERIFIED` outbox state, including timely ACKs with no age or
+expiry warning. Its length equals the existing
+`counts.ACK_RECORDED_UNVERIFIED`. This makes the pending independent
+provider/recipient reconciliation population visible to operators rather than
+requiring them to reconstruct identities from raw persisted records.
+
+`unverifiedAckKeys` is deliberately **separate** from `warningKeys`: a timely
+self-attested ACK is not automatically a latency incident, and existing health
+status semantics are unchanged. An ACK at or after expiry appears in both lists.
+The inventory is caller-declared and neither proves acceptance nor delivery;
+there is no automatic retry, notification authority, paper fill, broker order,
+route, or production activation. Synthetic tests cover mixed and reordered
+populations, timely ACKs, expired ACKs and empty ACK inventories.
