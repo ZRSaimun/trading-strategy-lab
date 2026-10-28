@@ -13,3 +13,22 @@ Run: `cd backend && PYTHONPATH=. pytest -q tests/test_forecast_prospective_score
 ## Loop 1 handoff
 
 Provide entitled authenticated completed-candle observations with exact provider/venue/instrument/side, trusted server receipt times, session-aware closure/gap policy and independently verifiable source receipts. Validate durable journal replay, PostgreSQL process-kill recovery, and independently verifiable alert delivery before enabling operational prospective forecasting. To measure paper P&L, independently capture authenticated bid **and** ask plus fees, slippage, financing, positions and order/fill timestamps; do not use historical BID bars as executable prices. Require a tested restore, rollback and health checks before deployment.
+
+
+## Fail-closed issuance chronology cross-check (28 October 2026)
+
+The disconnected scorecard now independently checks the caller-declared
+`maxLagSeconds` (integer 0–3600) and each forecast's completed-candle
+issuance window. A base candle must have a nonnegative, UTC-duration-aligned
+start; issuance must be at or after its close, strictly before the following
+candle's close, and no later than the declared maximum receipt lag. The
+target candle arithmetic and 2^53−1 epoch bounds are also checked. This
+defends against fabricated or malformed scorecard input bypassing the
+validated event-store loader; it does **not** authenticate the caller,
+source, clock, event signatures or actual receipt timestamps.
+
+Fourteen additional synthetic parameterized cases cover invalid lag
+declarations, pre-close, stale, misaligned and overflowed timestamps,
+and an allowed late-within-window issuance. The guard does not infer
+unissued forecasts, provider gaps or broker fills. Do not use its passing
+status to enable alerts or live trading. All release gates above remain.
