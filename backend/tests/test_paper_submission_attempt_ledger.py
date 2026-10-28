@@ -1163,7 +1163,9 @@ def test_zero_digest_is_not_valid_declared_reconciliation_evidence(db):
     prep(db)
     attempt(db)
     with pytest.raises(ValueError, match='nonzero lowercase SHA-256'):
-        reconcile(db, evidence_sha256='0' * 64)
+        record_declared_reconciliation(
+            db, recorded_at_ms=102, evidence_sha256='0' * 64,
+            outcome='FILLED', **{k: v for k, v in KEY.items() if k != 'intent_sha256'})
     assert inspect_ledger(db)['orders'][0]['status'] == 'ATTEMPT_UNKNOWN'
     assert inspect_ledger(db)['event_count'] == 2
 
