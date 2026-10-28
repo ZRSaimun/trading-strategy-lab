@@ -82,6 +82,7 @@ def test_multiple_horizons_and_models_are_not_pooled():
         forecast["id"] += "b"
         forecast["horizon"] = 3
         forecast["targetStart"] = forecast["baseStart"] + 180
+        forecast["resolvedAt"] = forecast["targetStart"] + 60
         forecast["modelVersion"] = "model-b"
     s["events"].extend(t["events"])
     s["forecasts"].extend(t["forecasts"])
@@ -162,3 +163,45 @@ def test_valid_completed_candle_issuance_inside_declared_window():
     s["forecasts"][0]["issuedAt"] = s["events"][0]["receivedAt"] = 60 + 60 + 59
     # A later issuedAt remains before the already-declared settlement receipt.
     assert group(s)["settled"] == 30
+
+
+@pytest.mark.parametrize("resolved,accepted", [
+    (179, False),          # Target starts at 120; cannot settle before close at 180.
+    (180, True),           # Exact target close is chronologically eligible.
+    (181, True),           # Later declared settlement is possible.
+    (True, False),         # Booleans must not masquerade as epoch integers.
+    (2**53, False),        # Exceeds the bounded timestamp representation.
+])
+def test_settled_receipt_must_follow_target_close(resolved, accepted):
+    s = snapshot()
+    s["forecasts"][0]["resolvedAt"] = resolved
+    if accepted:
+        assert group(s)["settled"] == 30
+    else:
+        with pytest.raises(ValueError, match="resolution"):
+            summarize_forecast_snapshot(s)
+
+
+def test_horizon_three_settlement_must_wait_for_its_own_target_close():
+    s = snapshot()
+    row, event = s["forecasts"][0], s["events"][0]
+    row["horizon"] = event["horizon"] = 3
+    row["targetStart"] = row["baseStart"] + 3 * IDENTITY["seconds"]
+    row["resolvedAt"] = row["targetStart"] + IDENTITY["seconds"] - 1
+    with pytest.raises(ValueError, match="resolution"):
+        summarize_forecast_snapshot(s)
+    row["resolvedAt"] += 1
+    assert sum(g["settled"] for g in summarize_forecast_snapshot(s)["groups"]) == 30
+
+
+def test_gap_void_may_be_known_before_future_target_close():
+    s = snapshot()
+    row, event = s["forecasts"][0], s["events"][0]
+    row["horizon"] = event["horizon"] = 3
+    row["targetStart"] = row["baseStart"] + 3 * IDENTITY["seconds"]
+    row.update(status="VOID_GAP", outcomeUp=None, resolvedAt=row["targetStart"])
+    groups = summarize_forecast_snapshot(s)["groups"]
+    assert sum(g["voidGap"] for g in groups) == 1
+    row["resolvedAt"] = 2**53
+    with pytest.raises(ValueError, match="resolution"):
+        summarize_forecast_snapshot(s)
