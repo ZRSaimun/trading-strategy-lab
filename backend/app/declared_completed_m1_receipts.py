@@ -191,6 +191,19 @@ def audit_declared_completed_m1_receipts(
                 run_length += 1
             longest_missing_run = max(longest_missing_run, run_length)
             previous_missing = minute
+    # An expected minute may still be inside its declared finalization and
+    # transport budgets. Separate such pending gaps from overdue declarations
+    # without treating either as authenticated missed provider issuance.
+    overdue_missing = pending_missing = overdue_sample = None
+    if missing_minutes is not None:
+        overdue_minutes = [
+            minute for minute in missing_minutes
+            if now > (minute + 60 + max_finalization_lag_seconds
+                      + max_transport_lag_seconds)
+        ]
+        overdue_missing = len(overdue_minutes)
+        pending_missing = len(missing_minutes) - overdue_missing
+        overdue_sample = overdue_minutes[:12]
     # A source-order forward jump is not a unique missing-minute census:
     # delayed backfills and replayed ranges can inflate that observation.
     # Count interior holes once across distinct UTC minute identities. These
@@ -243,6 +256,9 @@ def audit_declared_completed_m1_receipts(
         "extra_declared_expected_minute_sample_utc": (
             extra_minutes[:12] if extra_minutes is not None else None
         ),
+        "declared_overdue_missing_expected_minutes": overdue_missing,
+        "declared_pending_missing_expected_minutes": pending_missing,
+        "overdue_declared_expected_minute_sample_utc": overdue_sample,
         "latest_candle_end_age_seconds": latest_candle_age,
         "latest_receipt_age_seconds": latest_receipt_age,
         "declared_freshness_within_budget": (
