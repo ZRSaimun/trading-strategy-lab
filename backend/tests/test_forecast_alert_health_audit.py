@@ -54,6 +54,29 @@ def test_uncertain_claim_never_safe_to_retry():
     assert result["maySendNotification"] is False
 
 
+def test_fresh_uncertain_claim_is_actionable_before_delay_threshold():
+    result = check(state("IN_FLIGHT_UNCERTAIN"), now=130)
+    assert result["counts"]["UNCERTAIN_DELAY_WARNING"] == 0
+    assert result["counts"]["EXPIRED_IN_FLIGHT_UNCERTAIN"] == 0
+    assert result["status"] == "OPERATOR_REVIEW_REQUIRED"
+    assert result["warningKeys"] == [["s1", "f1"]]
+    assert result["maySendNotification"] is False
+
+
+def test_fresh_uncertain_review_keys_are_sorted_and_deduplicated():
+    records = [
+        {"sessionId": "s2", "state": state("IN_FLIGHT_UNCERTAIN", forecastId="f2")},
+        {"sessionId": "s1", "state": state("IN_FLIGHT_UNCERTAIN")},
+        {"sessionId": "s1", "state": state(forecastId="f3")},
+    ]
+    expected = [("s1", "f3"), ("s2", "f2"), ("s1", "f1")]
+    result = check(records=records, expected=expected, now=130)
+    assert result["counts"]["IN_FLIGHT_UNCERTAIN"] == 2
+    assert result["counts"]["UNCERTAIN_DELAY_WARNING"] == 0
+    assert result["warningKeys"] == [["s1", "f1"], ["s2", "f2"]]
+    assert result["status"] == "OPERATOR_REVIEW_REQUIRED"
+
+
 def test_old_uncertain_claim_warning():
     result = check(state("IN_FLIGHT_UNCERTAIN"), now=160)
     assert result["oldestUncertainSeconds"] == 30
