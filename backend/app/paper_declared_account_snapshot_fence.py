@@ -153,6 +153,14 @@ def inspect_declared_account_snapshot_fence(
     quote_observed, quote_received = q["observed_at_ms"], q["received_at_ms"]
     if not quote_observed <= quote_received <= now:
         failures.add("invalid_quote_chronology")
+    # Account/quote skew alone does not enforce quote freshness: a quote can
+    # trail a fresh account by the entire allowed skew. Apply the same strict
+    # age and transport ceilings to the bound quote, independently of any
+    # caller-declared multi-feed or order-risk diagnostic.
+    if quote_observed > now or now - quote_observed > p["max_account_age_ms"]:
+        failures.add("stale_or_future_risk_quote")
+    if quote_received < quote_observed or quote_received - quote_observed > p["max_account_transport_lag_ms"]:
+        failures.add("risk_quote_transport_lag")
     if abs(quote_observed - observed) > p["max_quote_account_skew_ms"]:
         failures.add("quote_account_time_skew")
     for label in ("positions", "orders"):
