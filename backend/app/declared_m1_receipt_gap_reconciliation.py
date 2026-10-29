@@ -41,6 +41,23 @@ def audit_declared_m1_receipt_gap_reconciliation(
         manifest, [row["bar_start_utc"] for row in receipts],
         sample_limit=sample_limit,
     )
+    # Preserve the caller's declared receipt arrival order. A bar-start-sorted
+    # list can hide a receipt-clock reversal even when all bars are present.
+    # These are untrusted timestamps: a reversal is a review signal, not proof
+    # of clock tampering or an authenticated append-only feed.
+    backward_receipt_times = 0
+    backward_receipt_time_samples: list[dict[str, int]] = []
+    previous_receipt_utc: int | None = None
+    for row in receipts:
+        received_utc = row["received_at_utc"]
+        if previous_receipt_utc is not None and received_utc < previous_receipt_utc:
+            backward_receipt_times += 1
+            if len(backward_receipt_time_samples) < sample_limit:
+                backward_receipt_time_samples.append({
+                    "previous_received_at_utc": previous_receipt_utc,
+                    "received_at_utc": received_utc,
+                })
+        previous_receipt_utc = received_utc
     equalities = (
         (census["calendar_manifest_sha256"], gaps["calendar_manifest_sha256"]),
         (census["expected_minutes"], gaps["expected_minutes"]),
@@ -55,6 +72,7 @@ def audit_declared_m1_receipt_gap_reconciliation(
     clean = (
         census["status"] == "INTERNAL_CENSUS_ONLY_NOT_LIVE"
         and gaps["status"] == "DECLARED_COVERAGE_COMPLETE_UNVERIFIED"
+        and backward_receipt_times == 0
     )
     return {
         "protocol": "declared-m1-receipt-gap-reconciliation-v1",
@@ -68,6 +86,8 @@ def audit_declared_m1_receipt_gap_reconciliation(
         "unexpected_unique_minutes": gaps["unexpected_unique_minutes"],
         "duplicate_receipt_rows": gaps["duplicate_observation_rows"],
         "backward_timestamp_transitions": gaps["backward_timestamp_transitions"],
+        "backward_receipt_time_transitions": backward_receipt_times,
+        "backward_receipt_time_samples": backward_receipt_time_samples,
         "declared_session_coverage": gaps["declared_session_coverage"],
         "receipt_census": census,
         "session_gap_audit": gaps,
