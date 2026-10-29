@@ -195,7 +195,7 @@ def test_prior_order_identity_schema_invalid_fails_closed(edit):
         inspect_declared_inventory_continuity(e, p, c, NOW)
 
 
-def test_prior_distinct_order_identities_still_unverified():
+def test_prior_disappeared_order_holds():
     e, p, c = sample()
     another = deepcopy(p["pages"][0]["orders"][0])
     another["client_order_id"] = "order2"
@@ -203,7 +203,8 @@ def test_prior_distinct_order_identities_still_unverified():
     another["fills"][0]["fill_id"] = "fill2"
     p["pages"][0]["orders"].append(another)
     result = inspect_declared_inventory_continuity(e, p, c, NOW)
-    assert result["status"] == "DECLARED_INVENTORY_CONTINUITY_UNVERIFIED"
+    assert result["status"] == "HOLD_INVENTORY_CONTINUITY"
+    assert "previous_order_disappeared" in result["failed_checks"]
     assert result["prior_checkpoint_authenticated"] is False
     assert result["may_clear_unknown"] is False
 
@@ -274,7 +275,13 @@ def test_previous_order_status_mismatch_holds():
 
 def test_previous_partial_fill_is_consistent_but_unverified():
     e, p, c = sample()
-    p["pages"][0]["orders"][0].update(status="PARTIAL", quantity="2")
+    prior = p["pages"][0]["orders"][0]
+    prior.update(status="PARTIAL", filled_quantity="0.5")
+    prior["fills"][0]["quantity"] = "0.5"
+    current = c["pages"][0]["orders"][0]
+    current["fills"][0]["quantity"] = "0.5"
+    current["fills"].append({"fill_id": "fill2", "quantity": "0.5",
+                             "filled_at_ms": NOW - 1000})
     result = inspect_declared_inventory_continuity(e, p, c, NOW)
     assert result["status"] == "DECLARED_INVENTORY_CONTINUITY_UNVERIFIED"
     assert result["failed_checks"] == []
