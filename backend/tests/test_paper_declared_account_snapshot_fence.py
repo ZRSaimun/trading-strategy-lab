@@ -230,3 +230,51 @@ def test_quote_payload_and_source_checks_do_not_mutate_inputs():
     before = deepcopy(args)
     assert inspect(args)["status"] == "HOLD_ACCOUNT_SNAPSHOT_REVIEW"
     assert args == before
+
+
+@pytest.mark.parametrize("mutate,expected", [
+    ("breaker_reset", "circuit_breaker_reset_requires_external_evidence"),
+    ("unresolved_reduction", "unknown_attempt_reduction_requires_external_evidence"),
+    ("reconciliation_release", "reconciliation_release_requires_external_evidence"),
+    ("position_notional_without_revision", "positions_changed_without_revision"),
+    ("position_risk_without_revision", "positions_changed_without_revision"),
+    ("attempt_count_without_revision", "unknown_attempts_changed_without_orders_revision"),
+])
+def test_standalone_snapshot_rejects_unverified_safety_release(mutate, expected):
+    args = fixture()
+    prior = args[3]
+    current = args[2]
+    if mutate == "breaker_reset":
+        prior["account"]["circuit_breaker_open"] = True
+    elif mutate == "unresolved_reduction":
+        prior["unresolved_attempts"] = 2
+    elif mutate == "reconciliation_release":
+        prior["reconciliation_complete"] = False
+    elif mutate == "position_notional_without_revision":
+        prior["positions_revision"] = current["positions_revision"]
+        prior["account"]["open_notional"] = "900"
+    elif mutate == "position_risk_without_revision":
+        prior["positions_revision"] = current["positions_revision"]
+        prior["account"]["open_risk"] = "40"
+    elif mutate == "attempt_count_without_revision":
+        prior["orders_revision"] = current["orders_revision"]
+        prior["unresolved_attempts"] = 1
+    before = deepcopy(args)
+    result = inspect(args)
+    assert result["status"] == "HOLD_ACCOUNT_SNAPSHOT_REVIEW"
+    assert expected in result["failed_checks"]
+    assert result["may_submit_paper_order"] is False
+    assert result["may_submit_real_order"] is False
+    assert args == before
+
+
+def test_standalone_snapshot_accepts_declared_monotonic_safety_state():
+    args = fixture()
+    args[3]["unresolved_attempts"] = 0
+    args[3]["reconciliation_complete"] = True
+    args[3]["account"]["circuit_breaker_open"] = False
+    result = inspect(args)
+    assert result["status"] == "DECLARED_ACCOUNT_SNAPSHOT_UNVERIFIED"
+    assert result["failed_checks"] == []
+    assert result["broker_authenticated"] is False
+    assert result["may_submit_real_order"] is False
