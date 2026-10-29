@@ -86,3 +86,32 @@ Every result continues to prohibit paper and real order submission, and live
 orders always require separately recorded owner approval and secure broker
 credentials. Do not infer a guaranteed stop fill, margin availability or
 profitable trading from a clean diagnostic.
+
+
+## Inventory payload / synchronization consistency (29 October 2026)
+
+For the same declared account session, an increase in the positions revision
+is **not** sufficient evidence that changed `open_notional` or `open_risk`
+came from a newer inventory. If the financial exposure changes but
+`positions_synced_at_ms` has not advanced beyond the previous snapshot,
+the validator returns `positions_changed_without_new_sync`. Similarly,
+an increased orders revision paired with a changed unresolved-attempt count
+and a non-advancing `orders_synced_at_ms` produces
+`unknown_attempts_changed_without_new_orders_sync`.
+
+Numeric exposure comparisons use decimal values, so harmless changes in
+decimal-string formatting do not alone imply a changed position inventory.
+The existing hold on changed exposure **without** a positions revision, and
+the existing hold on changed unresolved attempts **without** an orders
+revision, still apply. An updated sync timestamp removes only this
+particular inconsistency; it never proves the snapshot is genuine. A new
+session still requires external reconciliation regardless of these checks.
+
+These are fail-closed, read-only checks over **caller-declared** data.
+They cannot prove provider timestamp semantics, independent receipt
+authenticity, durable order reconciliation, atomic reservations, stop fills
+or account entitlements. Paper and real-order submission remain disabled
+by the diagnostic. Never use a clean result as authorization; every
+live order requires secure broker credentials and separately confirmed
+owner approval. Merge/deployment still require independently verified
+production recovery and authenticated health checks.
