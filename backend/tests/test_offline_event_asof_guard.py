@@ -663,3 +663,133 @@ def test_corrections_invalid_future_revision_fails_closed():
     rows[2]["forecast"] = "999"
     with pytest.raises(ValueError, match="match latest schedule"):
         corrections(rows, "2026-10-28T18:02:00Z")
+
+
+# Declared first economic-result receipt latency, synthetic only.
+from app.offline_event_asof_guard import audit_declared_first_receipt_latency_asof
+
+
+def latency(rows, decision="2026-10-28T18:05:00Z", source="synthetic-calendar",
+            maximum=5):
+    return audit_declared_first_receipt_latency_asof(
+        rows, decision_utc=decision, source_id=source,
+        max_observed_delay_minutes=maximum,
+    )
+
+
+def test_latency_empty_and_schedule_only_never_claim_timely_result():
+    empty = latency([])
+    assert empty["visible_event_count"] == 0
+    assert empty["visible_first_result_count"] == 0
+    assert empty["trade_authorized"] is False
+    only = latency([row()])
+    assert only["unknown_first_result_count"] == 1
+    assert only["observations"][0]["status"] == "NO_VISIBLE_RESULT"
+    assert only["observations"][0]["exceeds_declared_delay_limit"] is None
+    assert only["receipt_provenance_verified"] is False
+
+
+def test_latency_exact_receipt_minute_invisible_until_next_minute():
+    rows = correction_rows()
+    at = latency(rows, decision="2026-10-28T18:01:00Z")
+    assert at["observations"][0]["first_result_revision"] is None
+    after = latency(rows, decision="2026-10-28T18:02:00Z")
+    first = after["observations"][0]
+    assert first["first_result_revision"] == 2
+    assert first["first_published_utc"] == "2026-10-28T18:00:00+00:00"
+    assert first["first_observed_utc"] == "2026-10-28T18:01:00+00:00"
+    assert first["earliest_research_visibility_utc"] == "2026-10-28T18:02:00+00:00"
+    assert first["observation_delay_minutes"] == 1
+    assert first["publication_to_observation_minutes"] == 1
+
+
+def test_latency_inclusive_declared_limit_and_zero_limit():
+    rows = correction_rows()
+    within = latency(rows, maximum=1)
+    delayed = latency(rows, maximum=0)
+    assert within["observations"][0]["status"] == "DECLARED_DELAY_WITHIN_LIMIT"
+    assert within["delayed_first_result_count"] == 0
+    assert delayed["observations"][0]["status"] == "DECLARED_DELAY_EXCEEDS_LIMIT"
+    assert delayed["delayed_first_result_count"] == 1
+
+
+def test_latency_distinguishes_publication_and_transport_lag():
+    rows = [row(), row(2, "result", published="2026-10-28T18:02:00Z",
+                       observed="2026-10-28T18:04:00Z", actual="3.7")]
+    first = latency(rows)["observations"][0]
+    assert first["publication_delay_minutes"] == 2
+    assert first["publication_to_observation_minutes"] == 2
+    assert first["observation_delay_minutes"] == 4
+    assert first["earliest_research_visibility_utc"] == "2026-10-28T18:05:00+00:00"
+
+
+def test_latency_corrections_cannot_rewrite_first_receipt():
+    rows = correction_rows()
+    first = latency(rows, decision="2026-10-28T18:02:00Z")
+    corrected = latency(rows, decision="2026-10-28T18:05:00Z")
+    a, b = first["observations"][0], corrected["observations"][0]
+    assert a == b
+    assert corrected["visible_first_result_count"] == 1
+    assert corrected["research_envelope_v2_sha256"] != first["research_envelope_v2_sha256"]
+
+
+def test_latency_future_revision_and_order_invariance():
+    rows = correction_rows()
+    cutoff = "2026-10-28T18:02:00Z"
+    before = latency(rows[:2], decision=cutoff)
+    assert latency(rows, decision=cutoff) == before
+    assert latency(list(reversed(rows)), decision=cutoff) == before
+
+
+@pytest.mark.parametrize("maximum", [True, -1, 1441, 0.5, "5", None])
+def test_latency_invalid_delay_policy_fails_closed(maximum):
+    with pytest.raises(ValueError, match="max_observed_delay_minutes"):
+        latency([row()], maximum=maximum)
+
+
+def test_latency_source_cutoff_and_limit_bound_digest():
+    rows = correction_rows()
+    original = latency(rows)
+    assert latency(rows, source="different")["first_receipt_latency_audit_sha256"] != (
+        original["first_receipt_latency_audit_sha256"]
+    )
+    assert latency(rows, decision="2026-10-28T18:06:00Z")[
+        "first_receipt_latency_audit_sha256"
+    ] != original["first_receipt_latency_audit_sha256"]
+    assert latency(rows, maximum=0)["first_receipt_latency_audit_sha256"] != (
+        original["first_receipt_latency_audit_sha256"]
+    )
+
+
+def test_latency_digest_independent_reconstruction():
+    import hashlib
+    import json
+    report = latency(correction_rows())
+    payload = {
+        "schema_version": 1,
+        "research_envelope_v2_sha256": report["research_envelope_v2_sha256"],
+        "max_observed_delay_minutes": report["max_observed_delay_minutes"],
+        "observations": report["observations"],
+    }
+    canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"),
+                           ensure_ascii=True)
+    assert report["first_receipt_latency_audit_sha256"] == hashlib.sha256(
+        canonical.encode("utf-8")
+    ).hexdigest()
+
+
+def test_latency_rejects_invalid_future_revision_even_when_not_visible():
+    rows = correction_rows()
+    rows[-1]["forecast"] = "9"
+    with pytest.raises(ValueError, match="latest schedule"):
+        latency(rows, decision="2026-10-28T18:02:00Z")
+
+
+def test_latency_does_not_mutate_rows_or_infer_broker_execution():
+    rows = correction_rows()
+    original = deepcopy(rows)
+    report = latency(rows)
+    assert rows == original
+    assert report["authenticated_calendar"] is False
+    assert report["coverage_verified"] is False
+    assert report["trade_authorized"] is False
