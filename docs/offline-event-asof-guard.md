@@ -123,3 +123,54 @@ No historical calendar or market archive replay, executable BID/ASK spread,
 slippage, financing, independent holdout, production route, paid feed or broker
 order is introduced. Authenticate vendor receipt times and join source-isolated
 market candles before making any costed trading-performance claim.
+
+
+## 29 October 2026: first-release publication and receipt latency census
+
+The additive offline audit_declared_first_receipt_latency_asof reports
+the **first** declared economic-result publication and observation timestamps,
+without substituting later corrected releases. It calls the strict as-of
+revision validator first, including validation of not-yet-visible revisions.
+For every visible scheduled event it returns:
+
+- NO_VISIBLE_RESULT with **null**, not zero/false, delay and limit fields
+  when no first result was observed strictly before the decision minute.
+- The first result's declared publication delay from scheduled release,
+  observation delay from scheduled release, and publication-to-observation
+  lag, all in whole minutes.
+- A conservative earliest_research_visibility_utc equal to the first
+  observed minute **plus one minute**, respecting the existing strict
+  observed_utc < decision_utc rule.
+- DECLARED_DELAY_WITHIN_LIMIT or DECLARED_DELAY_EXCEEDS_LIMIT based on
+  the caller's explicit max_observed_delay_minutes (integer 0–1440,
+  inclusive at the boundary). This is a **declared-data quality diagnostic**,
+  not a market-access or trade-readiness signal.
+
+The output counts unknown, first-visible and above-limit events, with a
+deterministic first_receipt_latency_audit_sha256 binding the complete
+as-of-visible revision-history v2 envelope, limit and per-event observations.
+Source identity, decision cutoff and late invisible revisions are handled
+by the existing as-of guard. Results are order-independent and inputs are
+not modified.
+
+**Important limitations:** All clocks, source identities, and values are
+caller-declared, unauthenticated and minute-granular. A reported zero-minute
+lag does **not** prove instantaneous vendor publication, signed receipts,
+complete calendar coverage, market-data availability, executable BID/ASK,
+broker latency or order eligibility. earliest_research_visibility_utc
+is merely a conservative historical feature cutoff, **not** a fill timestamp.
+An empty/missing calendar or missing result must never be interpreted as
+safe trading conditions. The output always denies authentication, verified
+receipt provenance, coverage and trade permission. Do not use these fields
+to authorize demo or live orders. A source-licensed, immutable original
+receipt with independently recorded UTC custody is still required before
+joining to source-isolated historical M1 candles or evaluating frozen
+costed news/CRT/ICT hypotheses.
+
+Synthetic regressions exercise missingness, same-minute exclusion, earliest
+visibility, separated publication/receipt delays, inclusive limits,
+correction invariance, future-data exclusion, input validation,
+source/cutoff/policy digest binding and fail-closed malformed revisions.
+No authenticated economic-calendar replay, independent holdout, costed
+backtest, broker connection, production change or profitability claim
+is included.
