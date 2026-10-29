@@ -70,7 +70,7 @@ def _reject_constant(_value: str) -> None:
 
 
 _JSON_CONTENT_TYPE = re.compile(
-    r'application/json(?:\\s*;\\s*charset\\s*=\\s*(?:utf-8|"utf-8"))?',
+    r'application/json(?:\s*;\s*charset\s*=\s*(?:utf-8|"utf-8"))?',
     re.IGNORECASE,
 )
 
