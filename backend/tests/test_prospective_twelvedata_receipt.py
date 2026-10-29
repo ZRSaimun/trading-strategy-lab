@@ -192,7 +192,7 @@ def test_invalid_key_rejected_before_request(monkeypatch):
 
 
 @pytest.mark.parametrize("invalid_key", [
-    "key\\u2603", "key\\xe9", "key\\x80", "bad\\nkey",
+    "key\u2603", "key\xe9", "key\x80", "bad\nkey",
     "x" * 513, type("DerivedString", (str,), {})("ascii-key"),
 ])
 def test_invalid_credential_rejected_before_nonrefundable_credit_reservation(
