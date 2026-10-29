@@ -679,7 +679,7 @@ test('research report rejects extra source fields without leaking caller private
  const report=studyHourlyFvgMidpoint(fixture(),source);
  assert.deepEqual(report.source,source);
  assert.deepEqual(Object.keys(report.source).sort(),Object.keys(source).sort());
- assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v77');
+ assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v78');
 });
 test('ambiguous source labels and contradictory volume evidence fail closed',()=>{
  // These are declared metadata, not independent vendor authentication.
@@ -754,7 +754,7 @@ test('v61 source labels reject lone surrogates and Unicode noncharacters in both
  assert.deepEqual(studyHourlyFvgMidpoint(bars,valid).source,valid);
  assert.deepEqual(studyHourlyFvgMidpointAsOf(bars,valid,cutoff).source,valid);
  assert.equal(studyHourlyFvgMidpoint(bars,valid).version,
-  'hourly-fvg-first-midpoint-touch-v77');
+  'hourly-fvg-first-midpoint-touch-v78');
 });
 test('v63 source labels reject Unicode space lookalikes without banning ASCII spaces',()=>{
  const bars=fixture(),cutoff=BASE+37*H;
@@ -771,7 +771,7 @@ test('v63 source labels reject Unicode space lookalikes without banning ASCII sp
  assert.deepEqual(studyHourlyFvgMidpoint(bars,legitimate).source,legitimate);
  assert.deepEqual(studyHourlyFvgMidpointAsOf(bars,legitimate,cutoff).source,legitimate);
  assert.equal(studyHourlyFvgMidpoint(bars,legitimate).version,
-  'hourly-fvg-first-midpoint-touch-v77');
+  'hourly-fvg-first-midpoint-touch-v78');
 });
 test('first bullish midpoint touch has a hypothetical blind limit and later next-open rejection markout',()=>{
  const x=target(fixture());
@@ -1116,7 +1116,7 @@ test('an overflowing next-open comparator suppresses both matched markouts',()=>
 });
 test('completed hourly timestamps are safe and numeric rule changes have a new version',()=>{
  const report=studyHourlyFvgMidpoint(fixture(),source);
- assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v77');
+ assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v78');
  const lastSafeAlignedOpen=Math.floor(Number.MAX_SAFE_INTEGER/H)*H;
  assert.equal(Number.isSafeInteger(lastSafeAlignedOpen),true);
  assert.equal(Number.isSafeInteger(lastSafeAlignedOpen+H),false);
@@ -3321,4 +3321,31 @@ test('v77 stable accessor-backed declarations retain exact historical and as-of 
   studyHourlyFvgMidpoint(fixture().slice(0,34),source,{
    maxTouchWaitBars:12,hypotheticalRoundTripCostsBps:[0,5,15],
   }));
+});
+
+test('v78 as-of rejects retroactive future timestamp rewrites without future OHLC reads',()=>{
+ const cutoff=BASE+33*H;
+ const baseline=studyHourlyFvgMidpoint(fixture().slice(0,33),source);
+ for(const kind of ['self','earlier'] as const){
+  const bars=fixture();
+  const original=bars[34].time;
+  Object.defineProperty(bars[34],'time',{enumerable:true,configurable:true,get(){
+   if(kind==='self')Object.defineProperty(bars[34],'time',{
+    value:original+H,enumerable:true,configurable:true,writable:true,
+   });
+   else bars[33].time=BASE+39*H;
+   return original;
+  }});
+  for(let index=33;index<bars.length;index++){
+   for(const field of ['open','high','low','close','volume','observed_minutes'])
+    Object.defineProperty(bars[index],field,{get(){
+     throw Error('future '+field+' must remain unread');
+    }});
+  }
+  assert.throws(()=>studyHourlyFvgMidpointAsOf(bars,source,cutoff),
+   /FVG as-of timestamp field changed during declaration snapshot/);
+ }
+ const stable=fixture();
+ Object.defineProperty(stable[34],'time',{get(){return BASE+34*H;}});
+ assert.deepEqual(studyHourlyFvgMidpointAsOf(stable,source,cutoff),baseline);
 });

@@ -7,7 +7,7 @@
  */
 import type {Bar} from './research.ts';
 
-export const HOURLY_FVG_VERSION='hourly-fvg-first-midpoint-touch-v77';
+export const HOURLY_FVG_VERSION='hourly-fvg-first-midpoint-touch-v78';
 export type Evidence='PASS'|'FAIL'|'INSUFFICIENT_DATA';
 // First-touch volume evidence is not independent broker/source authentication.
 export type VolumeEvidenceReason='NOT_EVALUATED'|'SOURCE_UNVERIFIED'|
@@ -1393,6 +1393,9 @@ export function studyHourlyFvgMidpointAsOf(
  const prefix:Bar[]=[];
  const completedRows:Bar[]=[];
  const completedFields:PropertyDescriptor[][]=[];
+ // A future timestamp getter must not silently rewrite an already observed
+ // time field. Capture only timestamp descriptors, never future OHLC/volume.
+ const timestampFields:{row:Bar;descriptor:PropertyDescriptor}[]=[];
  let previousTime:number|null=null;
  for(let index=0;index<barCount;index++){
   // Even a future timestamp must be backed by an actual archive slot;
@@ -1402,6 +1405,9 @@ export function studyHourlyFvgMidpointAsOf(
   const bar=suppliedBars[index];
   if(!bar||typeof bar!=='object'||!hasOwnField(bar,'time'))
    throw Error('Hourly as-of timestamp lacks own field evidence');
+  const timestampDescriptor=Object.getOwnPropertyDescriptor(bar,'time');
+  if(!timestampDescriptor)throw Error('Hourly as-of timestamp lacks own field evidence');
+  timestampFields.push({row:bar,descriptor:timestampDescriptor});
   // Check every supplied timestamp, including future timestamps, to reject
   // out-of-order/duplicate archives that could otherwise silently truncate
   // an eligible historical prefix at the first misplaced future candle.
@@ -1433,6 +1439,11 @@ export function studyHourlyFvgMidpointAsOf(
  // candle schemas. Recheck only completed rows; future OHLC stays unread.
  validateBarArraySchema(suppliedBars,barCount);
  assertArchiveSlotsUnchanged(suppliedBars,archiveSlots);
+ // Recheck all timestamp descriptors, including future-only rows. A getter
+ // changing its own time or an earlier future time after its one permitted
+ // read would otherwise leave a plausible but internally revised archive.
+ for(const {row,descriptor} of timestampFields)
+  assertFrozenFieldDescriptors(row,['time'],[descriptor],'as-of timestamp');
  for(const [index,row] of completedRows.entries()){
   if(!CANDLE_FIELDS.every(field=>hasOwnField(row,field))||
    Reflect.ownKeys(row).some(key=>!CANDLE_FIELDS.some(field=>field===key)))
