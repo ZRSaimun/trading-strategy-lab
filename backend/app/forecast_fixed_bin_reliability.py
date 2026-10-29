@@ -70,6 +70,20 @@ def audit_fixed_bin_reliability(pairs, *, min_per_occupied_bin=30):
                 stressed.append((weighted_gap - old +
                                  abs(probability_sums[index] - (up_counts[index] + 1))) / len(pairs))
         flip_best, flip_worst = min(stressed), max(stressed)
+    # Remove each predeclared occupied probability bin in turn. Require two
+    # supported bins to remain; a one-bin score is not calibration coverage.
+    # Descriptive population fragility only, never an alternate model score.
+    leave_status = ("RELIABILITY_WITHHELD" if status != "DESCRIPTIVE_ONLY" else
+                    "INSUFFICIENT_REMAINING_BINS" if occupied < 3 else
+                    "DESCRIPTIVE_ONLY")
+    leave_best = leave_worst = None
+    if leave_status == "DESCRIPTIVE_ONLY":
+        omitted = [
+            (weighted_gap - abs(probability_sums[i] - up_counts[i])) /
+            (len(pairs) - n)
+            for i, n in enumerate(counts) if n > 0
+        ]
+        leave_best, leave_worst = min(omitted), max(omitted)
     return {
         "status": status, "binEdges": list(_EDGES),
         "minPerOccupiedBin": min_per_occupied_bin,
@@ -79,6 +93,9 @@ def audit_fixed_bin_reliability(pairs, *, min_per_occupied_bin=30):
             weighted_gap / len(pairs) if status == "DESCRIPTIVE_ONLY" else None),
         "singleOutcomeFlipBestCaseWeightedGap": flip_best,
         "singleOutcomeFlipWorstCaseWeightedGap": flip_worst,
+        "leaveOneBinOutStatus": leave_status,
+        "leaveOneBinOutBestCaseWeightedGap": leave_best,
+        "leaveOneBinOutWorstCaseWeightedGap": leave_worst,
         "sourceAuthenticated": False, "independentHoldoutVerified": False,
         "maySendNotification": False, "mayExecutePaperOrder": False,
         "mayExecuteLiveOrder": False,
