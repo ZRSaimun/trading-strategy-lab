@@ -26,6 +26,8 @@ def audit_declared_holdout_fold_isolation(folds):
     previous_max_label = None
     min_label_embargo_slack = None
     tightest_label_embargo_transition_index = None
+    min_selection_gap = None
+    tightest_selection_gap_index = None
     study_id = candidate_id = candidate_sha = source_signature = None
     summaries = []
     for index, fold in enumerate(folds):
@@ -55,6 +57,12 @@ def audit_declared_holdout_fold_isolation(folds):
                 raise ValueError("Overlapping or out-of-order holdout windows")
             if manifest["selected_at_utc"] < previous_end:
                 raise ValueError("Later fold candidate selection overlaps previous holdout")
+            # Independent of label maturity, expose how close the next
+            # candidate selection was to the previous declared holdout end.
+            selection_gap = manifest["selected_at_utc"] - previous_end
+            if min_selection_gap is None or selection_gap < min_selection_gap:
+                min_selection_gap = selection_gap
+                tightest_selection_gap_index = index
             label_embargo_slack = (manifest["selected_at_utc"] -
                                    previous_max_label - manifest["embargo_seconds"])
             if label_embargo_slack < 0:
@@ -86,6 +94,8 @@ def audit_declared_holdout_fold_isolation(folds):
         "observation_count": len(seen_rows),
         "min_declared_label_embargo_slack_seconds": min_label_embargo_slack,
         "tightest_declared_label_embargo_later_fold_index": tightest_label_embargo_transition_index,
+        "min_declared_interfold_selection_gap_seconds": min_selection_gap,
+        "tightest_declared_selection_gap_later_fold_index": tightest_selection_gap_index,
         "folds": summaries,
         "source_bytes_independently_authenticated": False,
         "holdout_untouched_independently_verified": False,
