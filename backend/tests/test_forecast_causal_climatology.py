@@ -437,3 +437,32 @@ def test_chronological_regret_run_not_reselected_by_unadmitted_status():
     s["forecasts"][299].update(status="PENDING", resolvedAt=None, outcomeUp=None)
     changed = run(s)["groups"][0]["chronologicalRegretRuns"]
     assert baseline == changed
+
+
+def test_block_omission_integrated_only_on_complete_causal_census():
+    # The disjoint census is fixed before labels; 500 issued observations
+    # provide at least 150 baseline-eligible, nonoverlapping scores.
+    row = run(fixture(n=500))["groups"][0]
+    assert row["status"] == "DESCRIPTIVE_ONLY"
+    assert row["blockRegretSensitivityStatus"] == "DESCRIPTIVE_ONLY"
+    report = row["blockRegretSensitivity"]
+    assert report["scored"] == row["scored"]
+    assert len(report["omittedBlockRanges"]) == 5
+    assert sum(b["omittedCount"] for b in report["omittedBlockRanges"]) == row["scored"]
+    assert not report["maySendNotification"]
+    assert not report["mayExecutePaperOrder"]
+
+
+def test_block_omission_withheld_for_insufficient_or_missing_eligible_outcomes():
+    row = run(fixture(n=240))["groups"][0]
+    assert row["status"] == "DESCRIPTIVE_ONLY"
+    assert row["blockRegretSensitivityStatus"] == "INSUFFICIENT_CONTIGUOUS_BLOCK_SUPPORT"
+    assert row["blockRegretSensitivity"]["omittedBlockRanges"] is None
+    s = fixture(n=500)
+    # The second-to-last row belongs to the preselected disjoint census.
+    s["forecasts"][-2].update(status="PENDING", resolvedAt=None, outcomeUp=None)
+    row = run(s)["groups"][0]
+    assert row["status"] == "DESCRIPTIVE_ONLY"
+    assert row["unavailable"] == 1
+    assert row["blockRegretSensitivityStatus"] == "MISSING_ELIGIBLE_OUTCOMES"
+    assert row["blockRegretSensitivity"] is None
