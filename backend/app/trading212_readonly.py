@@ -6,6 +6,7 @@ credentials, account eligibility, permissions and any data usage rights.
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from time import monotonic_ns
 import hashlib
 import json
 import math
@@ -115,6 +116,10 @@ def fetch_trading212_readonly(
         raise ReadOnlyBrokerError("Invalid key pair shape")
 
     url = _HOSTS[environment] + _PATHS[endpoint]
+    # Local receipt bounds are recorded by this process, not by the broker.
+    # A monotonic interval remains meaningful if the wall clock is adjusted.
+    receipt_started_at_utc = datetime.now(timezone.utc).isoformat()
+    receipt_started_monotonic_ns = monotonic_ns()
     try:
         with httpx.Client(transport=transport, timeout=8.0, follow_redirects=False,
                           trust_env=False) as client:
@@ -148,6 +153,8 @@ def fetch_trading212_readonly(
                     raw = b"".join(chunks)
     except httpx.HTTPError:
         raise ReadOnlyBrokerError("Broker transport unavailable") from None
+    receipt_elapsed_monotonic_ms = max(0, monotonic_ns() - receipt_started_monotonic_ns) / 1_000_000
+    receipt_completed_at_utc = datetime.now(timezone.utc).isoformat()
 
     # Content-Length, when present, describes the exact identity-encoded
     # response body. Reject a declared length that disagrees with the bytes
@@ -166,7 +173,11 @@ def fetch_trading212_readonly(
     return {
         "provider": "Trading 212", "environment": environment,
         "account_type_declared": account_type, "account_type_verified": False,
-        "endpoint": endpoint, "received_at_utc": datetime.now(timezone.utc).isoformat(),
+        "endpoint": endpoint, "received_at_utc": receipt_completed_at_utc,
+        "receipt_started_at_utc": receipt_started_at_utc,
+        "receipt_completed_at_utc": receipt_completed_at_utc,
+        "receipt_elapsed_monotonic_ms": receipt_elapsed_monotonic_ms,
+        "receipt_clock_attested": False,
         "response_sha256": hashlib.sha256(raw).hexdigest(), "data": payload,
         "rate_limit_observation": quota_observation,
         "server_clock_attested": False, "market_data_feed": False,
