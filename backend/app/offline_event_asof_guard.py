@@ -268,9 +268,12 @@ def audit_declared_surprise_asof(revisions, *, decision_utc, source_id):
             # The default 28-digit context would round a 30-place surprise.
             with localcontext() as ctx:
                 ctx.prec = 128
-                difference = _decimal(format(
-                    Decimal(actual) - Decimal(forecast), "f"
-                ))
+                raw = Decimal(actual) - Decimal(forecast)
+                difference = format(raw, "f")
+                if "." in difference:
+                    difference = difference.rstrip("0").rstrip(".")
+                if raw.is_zero():
+                    difference = "0"
             status = "DECLARED_RAW_DIFFERENCE"
         observations.append({
             "event_id": event["event_id"],
