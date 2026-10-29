@@ -125,10 +125,11 @@ def audit_declared_holdout_row_cost_stress(
             net = None if withheld else Decimal(baseline["net_cash"]) - extra
             worst_row = drawdown = adverse_drawdown = None
             baseline_losing = stressed_losing = cost_induced_losing = None
-            stressed_gross_loss = None
+            stressed_gross_loss = cost_induced_gross_loss = None
+            largest_stressed_loss = Decimal(0)
             if not withheld:
                 baseline_losing = stressed_losing = cost_induced_losing = 0
-                stressed_gross_loss = Decimal(0)
+                stressed_gross_loss = cost_induced_gross_loss = Decimal(0)
                 stressed_nets = {}
                 for outcome in outcomes:
                     key = outcome["observation_id"]
@@ -149,8 +150,10 @@ def audit_declared_holdout_row_cost_stress(
                     if stressed_row_net < 0:
                         stressed_losing += 1
                         stressed_gross_loss -= stressed_row_net
+                        largest_stressed_loss = max(largest_stressed_loss, -stressed_row_net)
                         if baseline_row_net >= 0:
                             cost_induced_losing += 1
+                            cost_induced_gross_loss -= stressed_row_net
                 if stressed_losing < baseline_losing:
                     raise AssertionError("Adverse costs cannot reduce losing row count")
                 if sum(stressed_nets.values(), Decimal(0)) != net:
@@ -178,6 +181,13 @@ def audit_declared_holdout_row_cost_stress(
                 "additional_cost_induced_losing_observation_count": cost_induced_losing,
                 "stressed_gross_loss_cash":
                     None if withheld else format(stressed_gross_loss, ".4f"),
+                "additional_cost_induced_gross_loss_cash":
+                    None if withheld else format(cost_induced_gross_loss, ".4f"),
+                "max_single_stressed_loss_share_bps": (
+                    None if withheld or stressed_gross_loss == 0 else
+                    int((largest_stressed_loss * Decimal(10000) /
+                         stressed_gross_loss).to_integral_value(rounding=ROUND_FLOOR))
+                ),
                 "extra_cost_by_component_cash": {
                     field: None if withheld else format(totals[field], ".4f")
                     for field in _COSTS
