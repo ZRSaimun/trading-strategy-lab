@@ -41,15 +41,15 @@ Use v2 for **new offline research artifacts** requiring a declared full-visible-
 
 ## 29 October 2026: Declared as-of news-window census
 
-The additive \`audit_declared_event_window(revisions, *, decision_utc, source_id, before_minutes=30, after_minutes=15)\` performs a **read-only, offline research census** of visible scheduled economic announcements within a symmetric-or-asymmetric event proximity interval. It calls the strict as-of revision guard first; future calendar changes, exact-decision-minute receipts and post-release forecast rewrites are never used to determine a historical event window. A rescheduled event moves its research window **only after** the new schedule was observed before the decision minute. Each matched event records signed \`minutes_until_event\` (positive before, zero at event, negative after). Boundaries are inclusive, and both integer widths must be 0–1440 minutes; bools, floats and negative values are rejected.
+The additive `audit_declared_event_window(revisions, *, decision_utc, source_id, before_minutes=30, after_minutes=15)` performs a **read-only, offline research census** of visible scheduled economic announcements within a symmetric-or-asymmetric event proximity interval. It calls the strict as-of revision guard first; future calendar changes, exact-decision-minute receipts and post-release forecast rewrites are never used to determine a historical event window. A rescheduled event moves its research window **only after** the new schedule was observed before the decision minute. Each matched event records signed `minutes_until_event` (positive before, zero at event, negative after). Boundaries are inclusive, and both integer widths must be 0–1440 minutes; bools, floats and negative values are rejected.
 
-The returned \`within_declared_event_window\` means **only** that at least one *declared and visible* event falls inside the supplied interval. A false value is **not** proof of an event-free market, safe trading conditions or sufficient source coverage. In particular, an empty or incomplete calendar can produce zero matches. The output explicitly sets \`coverage_verified=False\`, \`authenticated_calendar=False\`, \`trade_authorized=False\`, and \`research_only=True\` in every case. Never use the false value to bypass a production news risk gate or to authorize a real-money or demo order. The scope is **source-isolated**; multiple providers cannot be silently merged.
+The returned `within_declared_event_window` means **only** that at least one *declared and visible* event falls inside the supplied interval. A false value is **not** proof of an event-free market, safe trading conditions or sufficient source coverage. In particular, an empty or incomplete calendar can produce zero matches. The output explicitly sets `coverage_verified=False`, `authenticated_calendar=False`, `trade_authorized=False`, and `research_only=True` in every case. Never use the false value to bypass a production news risk gate or to authorize a real-money or demo order. The scope is **source-isolated**; multiple providers cannot be silently merged.
 
-\`window_audit_sha256\` deterministically binds the as-of v2 research envelope, the two window widths and matched events. It is a reproducibility checksum, not vendor receipt attestation. Synthetic tests cover inclusive pre/post windows, minute-boundary exclusion, later schedule revisions, result observations, empty inventories, parameter rejection, row-order stability, and source-bound hashing. No impact classification, event completeness proof, live feed, strategy performance, executable quote, broker connection or production integration is supplied.
+`window_audit_sha256` deterministically binds the as-of v2 research envelope, the two window widths and matched events. It is a reproducibility checksum, not vendor receipt attestation. Synthetic tests cover inclusive pre/post windows, minute-boundary exclusion, later schedule revisions, result observations, empty inventories, parameter rejection, row-order stability, and source-bound hashing. No impact classification, event completeness proof, live feed, strategy performance, executable quote, broker connection or production integration is supplied.
 
 Example research-only usage:
 
-\`\`\`python
+```python
 from app.offline_event_asof_guard import audit_declared_event_window
 
 report = audit_declared_event_window(
@@ -60,4 +60,4 @@ report = audit_declared_event_window(
     after_minutes=15,
 )
 # report["within_declared_event_window"] is NOT a trade clearance.
-\`\`\`
+```
