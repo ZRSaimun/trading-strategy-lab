@@ -61,3 +61,35 @@ report = audit_declared_event_window(
 )
 # report["within_declared_event_window"] is NOT a trade clearance.
 ```
+
+
+## 29 October 2026: Declared raw economic surprise audit
+
+`audit_declared_surprise_asof(revisions, *, decision_utc, source_id)` is an
+**offline, source-isolated research helper**. It uses the strict calendar
+as-of snapshot and computes `actual - forecast` only after the actual result
+has been observed **strictly before** the decision minute and a declared
+forecast exists. Missing results return `ACTUAL_NOT_VISIBLE`; a visible
+result without forecast returns `FORECAST_MISSING`. Neither case fabricates
+a zero surprise. Both values must be declared decimal strings and are
+subtracted with sufficient Decimal precision to avoid 28-digit rounding.
+
+The `DECLARED_RAW_DIFFERENCE` status is not a normalized surprise, market
+direction, magnitude significance, event-impact score, or trading signal.
+The code has no event units, scale, consensus sample, previous-release
+revision history authentication, source completeness or independently
+timestamped receipts. Differences across unlike indicators must not be
+ranked or compared. The output always marks
+`authenticated_calendar=False`, `coverage_verified=False`,
+`comparable_units_verified=False`, `trade_authorized=False`, and
+`research_only=True`. A nonzero declared difference never authorizes
+a paper or live order.
+
+The deterministic `surprise_audit_sha256` binds observations to the
+source/cutoff/full-visible-revision v2 envelope. It is a self-declared
+reproducibility checksum, not source attestation. Synthetic regression
+cases cover strict receipt boundaries, missing forecasts, exact 30-place
+arithmetic, negative/zero results, future-data noninterference, source
+identity, ordering and independently recomputed digest. No external
+calendar data, protected historical holdout, executable-cost evaluation,
+production integration or broker connection was added.
