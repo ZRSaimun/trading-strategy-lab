@@ -118,7 +118,28 @@ def test_malformed_or_unsafe_policy_raises(position, key, value):
 def test_bool_int_type_confusion_detected():
     args = fixture()
     args[0]["circuit_breaker_open"] = 0
-    assert "risk_account_snapshot_mismatch" in inspect(args)["failed_checks"]
+    with pytest.raises(ValueError):
+        inspect(args)
+
+
+def test_circuit_breaker_holds():
+    args = fixture()
+    args[0]["circuit_breaker_open"] = True
+    args[2]["account"]["circuit_breaker_open"] = True
+    assert "account_circuit_breaker_open" in inspect(args)["failed_checks"]
+
+
+@pytest.mark.parametrize("position,key,value", [
+    (0, "equity", "NaN"), (0, "equity", "0"),
+    (0, "free_margin", -1), (0, "broker", "UNSUPPORTED-CFD"),
+    (1, "bid", "0"), (1, "ask", "99"),
+    (1, "source", ""), (1, "observed_at_ms", True),
+])
+def test_malformed_account_quote_rejected(position, key, value):
+    args = fixture()
+    args[position][key] = value
+    with pytest.raises(ValueError):
+        inspect(args)
 
 
 def test_quote_observed_after_received_holds():
