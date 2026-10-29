@@ -7,7 +7,7 @@
  */
 import type {Bar} from './research.ts';
 
-export const HOURLY_FVG_VERSION='hourly-fvg-first-midpoint-touch-v80';
+export const HOURLY_FVG_VERSION='hourly-fvg-first-midpoint-touch-v81';
 export type Evidence='PASS'|'FAIL'|'INSUFFICIENT_DATA';
 // First-touch volume evidence is not independent broker/source authentication.
 export type VolumeEvidenceReason='NOT_EVALUATED'|'SOURCE_UNVERIFIED'|
@@ -206,6 +206,10 @@ export type FvgCohort={
 export type FvgCoverage={
  firstBarOpenAt:number|null;lastBarClosedAt:number|null;
  observedBars:number;unobservedHourSlots:number;gapIntervals:number;
+ // Rolling three-row windows are an observed-row denominator, not a
+ // complete exchange-session calendar or evidence of unobserved setups.
+ observedThreeBarWindows:number;completeThreeBarWindows:number;
+ skippedThreeBarWindowsWithGaps:number;
 };
 export type FvgStudy={
  version:typeof HOURLY_FVG_VERSION;source:FvgSource;coverage:FvgCoverage;
@@ -1071,13 +1075,19 @@ function summarizeCohort(observations:readonly FvgObservation[],costs:readonly n
 // feed errors or filling those slots with invented candles.
 function summarizeCoverage(bars:readonly Bar[]):FvgCoverage{
  let unobservedHourSlots=0,gapIntervals=0;
+ const observedThreeBarWindows=Math.max(0,bars.length-2);
+ let completeThreeBarWindows=0;
+ for(let i=2;i<bars.length;i++)if(bars[i-1].time-bars[i-2].time===HOUR&&
+   bars[i].time-bars[i-1].time===HOUR)completeThreeBarWindows++;
+ const skippedThreeBarWindowsWithGaps=observedThreeBarWindows-completeThreeBarWindows;
  for(let i=1;i<bars.length;i++){
   const unobserved=(bars[i].time-bars[i-1].time)/HOUR-1;
   if(unobserved>0){unobservedHourSlots+=unobserved;gapIntervals++;}
  }
  return {firstBarOpenAt:bars.length?bars[0].time:null,
   lastBarClosedAt:bars.length?bars[bars.length-1].time+HOUR:null,
-  observedBars:bars.length,unobservedHourSlots,gapIntervals};
+  observedBars:bars.length,unobservedHourSlots,gapIntervals,
+  observedThreeBarWindows,completeThreeBarWindows,skippedThreeBarWindowsWithGaps};
 }
 export function studyHourlyFvgMidpoint(
  suppliedBars:readonly Bar[],source:FvgSource,config:FvgConfig={},
@@ -1454,9 +1464,13 @@ export function studyHourlyFvgMidpoint(
    blindMidpointTouch:blind,confirmedNextOpen:confirmed,
    eligibleForLiveTrading:false});
  }
+ // A formed FVG must originate from a complete observed three-bar window.
+ const coverage=summarizeCoverage(bars);
+ if(observations.length>coverage.completeThreeBarWindows)
+  throw Error('FVG formation population exceeds complete observed triplets');
  // The report and volume gates share the same validated allowlisted snapshot.
  return {version:HOURLY_FVG_VERSION,source:declaredSource,
-   coverage:summarizeCoverage(bars),
+   coverage,
   config:{maxTouchWaitBars,markoutBars,minimumRejectionWickFraction,
    volumeMultiple,hypotheticalRoundTripCostsBps:[...costs]},
   observations,cohort:summarizeCohort(observations,costs,maxTouchWaitBars),
