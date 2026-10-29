@@ -7,7 +7,7 @@
  */
 import type {Bar} from './research.ts';
 
-export const HOURLY_FVG_VERSION='hourly-fvg-first-midpoint-touch-v87';
+export const HOURLY_FVG_VERSION='hourly-fvg-first-midpoint-touch-v88';
 export type Evidence='PASS'|'FAIL'|'INSUFFICIENT_DATA';
 // First-touch volume evidence is not independent broker/source authentication.
 export type VolumeEvidenceReason='NOT_EVALUATED'|'SOURCE_UNVERIFIED'|
@@ -133,8 +133,20 @@ export type PairedCrossStrictOverlapCensus={
 export type PairedMaximumDisjointCensus={
  all:number;strictPass:number;strictFail:number;strictUnknown:number;
 };
+// Descriptive finite-population bounds on an observed first midpoint intersection.
+// Gap-through and incomplete windows are unresolved, never broker fills.
+export type FirstTouchOpportunityBound={
+ formations:number;observedTouches:number;observedNoTouches:number;
+ unresolvedGapThrough:number;unresolvedIncomplete:number;
+ lowerObservedTouchFraction:number|null;upperPossibleTouchFraction:number|null;
+};
 export type FvgCohort={
  formations:number;firstTouchOutcome:Record<FirstTouchOutcome,number>;
+ // Worst/best possible observed midpoint-intersection fraction over ALL
+ // formations. These are logical censoring bounds, not confidence intervals
+ // or executable limit-fill probabilities. Null for an empty population.
+ firstTouchOpportunityBounds:{all:FirstTouchOpportunityBound;
+  byDirection:Record<Side,FirstTouchOpportunityBound>};
  // Index zero is the first completed post-formation hour. Only timestamped
  // TOUCH, OPEN_GAP_THROUGH and completed NO_TOUCH outcomes are counted.
  // Missing-hour and right-censored windows cannot become observed negatives.
@@ -957,6 +969,46 @@ function summarizeCohort(observations:readonly FvgObservation[],costs:readonly n
     [observation.gates.strictCandidate][observation.markoutCensorReason]++;
   }
  }
+ // Keep unknown first-touch windows in the formation denominator. The
+ // lower bound counts only observed contiguous first touches; the upper
+ // allows every gap-through or censored first-touch window to have touched.
+ // Neither bound says whether a broker could execute a limit order.
+ const touchBounds=(population:readonly FvgObservation[]):FirstTouchOpportunityBound=>{
+  const countOutcome=(outcome:FirstTouchOutcome)=>population.filter(o=>
+   o.firstTouchOutcome===outcome).length;
+  const formations=population.length;
+  const observedTouches=countOutcome('TOUCH');
+  const observedNoTouches=countOutcome('NO_TOUCH');
+  const unresolvedGapThrough=countOutcome('OPEN_GAP_THROUGH');
+  const unresolvedIncomplete=countOutcome('INCOMPLETE_WINDOW');
+  if(observedTouches+observedNoTouches+unresolvedGapThrough+
+     unresolvedIncomplete!==formations)
+   throw Error('FVG first-touch opportunity bounds do not reconcile');
+  return {formations,observedTouches,observedNoTouches,
+   unresolvedGapThrough,unresolvedIncomplete,
+   lowerObservedTouchFraction:formations?observedTouches/formations:null,
+   upperPossibleTouchFraction:formations?
+    (observedTouches+unresolvedGapThrough+unresolvedIncomplete)/formations:null};
+ };
+ const firstTouchOpportunityBounds={
+  all:touchBounds(observations),
+  byDirection:{
+   BULLISH:touchBounds(observations.filter(o=>o.direction==='BULLISH')),
+   BEARISH:touchBounds(observations.filter(o=>o.direction==='BEARISH')),
+  },
+ };
+ for(const key of ['formations','observedTouches','observedNoTouches',
+  'unresolvedGapThrough','unresolvedIncomplete'] as const){
+  if(firstTouchOpportunityBounds.all[key]!==
+     firstTouchOpportunityBounds.byDirection.BULLISH[key]+
+     firstTouchOpportunityBounds.byDirection.BEARISH[key])
+   throw Error('Directional FVG first-touch opportunity bounds do not reconcile');
+ }
+ if(firstTouchOpportunityBounds.all.observedTouches!==firstTouchOutcome.TOUCH||
+    firstTouchOpportunityBounds.all.observedNoTouches!==firstTouchOutcome.NO_TOUCH||
+    firstTouchOpportunityBounds.all.unresolvedGapThrough!==firstTouchOutcome.OPEN_GAP_THROUGH||
+    firstTouchOpportunityBounds.all.unresolvedIncomplete!==firstTouchOutcome.INCOMPLETE_WINDOW)
+  throw Error('FVG first-touch opportunity census does not reconcile');
  if(firstTouchMissingHourSeverity.single+firstTouchMissingHourSeverity.multiple!==
     incompleteWindowByReason.MISSING_HOUR||
     markoutMissingHourSeverity.single+markoutMissingHourSeverity.multiple!==
@@ -1091,7 +1143,8 @@ function summarizeCohort(observations:readonly FvgObservation[],costs:readonly n
   }
  }
  return {
-  formations:observations.length,firstTouchOutcome,firstDispositionWaitBarCounts,
+  formations:observations.length,firstTouchOutcome,firstTouchOpportunityBounds,
+  firstDispositionWaitBarCounts,
   firstDispositionWaitBarCountsByDirection,firstTouchStrictCandidateByWait,
   firstTouchStrictCandidateByWaitByDirection,
   firstTouchPairedByWaitAndStrictCandidate,

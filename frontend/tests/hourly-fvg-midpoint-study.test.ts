@@ -697,7 +697,7 @@ test('research report rejects extra source fields without leaking caller private
  const report=studyHourlyFvgMidpoint(fixture(),source);
  assert.deepEqual(report.source,source);
  assert.deepEqual(Object.keys(report.source).sort(),Object.keys(source).sort());
- assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v87');
+ assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v88');
 });
 test('ambiguous source labels and contradictory volume evidence fail closed',()=>{
  // These are declared metadata, not independent vendor authentication.
@@ -772,7 +772,7 @@ test('v61 source labels reject lone surrogates and Unicode noncharacters in both
  assert.deepEqual(studyHourlyFvgMidpoint(bars,valid).source,valid);
  assert.deepEqual(studyHourlyFvgMidpointAsOf(bars,valid,cutoff).source,valid);
  assert.equal(studyHourlyFvgMidpoint(bars,valid).version,
-  'hourly-fvg-first-midpoint-touch-v87');
+  'hourly-fvg-first-midpoint-touch-v88');
 });
 test('v63 source labels reject Unicode space lookalikes without banning ASCII spaces',()=>{
  const bars=fixture(),cutoff=BASE+37*H;
@@ -789,7 +789,7 @@ test('v63 source labels reject Unicode space lookalikes without banning ASCII sp
  assert.deepEqual(studyHourlyFvgMidpoint(bars,legitimate).source,legitimate);
  assert.deepEqual(studyHourlyFvgMidpointAsOf(bars,legitimate,cutoff).source,legitimate);
  assert.equal(studyHourlyFvgMidpoint(bars,legitimate).version,
-  'hourly-fvg-first-midpoint-touch-v87');
+  'hourly-fvg-first-midpoint-touch-v88');
 });
 test('first bullish midpoint touch has a hypothetical blind limit and later next-open rejection markout',()=>{
  const x=target(fixture());
@@ -1134,7 +1134,7 @@ test('an overflowing next-open comparator suppresses both matched markouts',()=>
 });
 test('completed hourly timestamps are safe and numeric rule changes have a new version',()=>{
  const report=studyHourlyFvgMidpoint(fixture(),source);
- assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v87');
+ assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v88');
  const lastSafeAlignedOpen=Math.floor(Number.MAX_SAFE_INTEGER/H)*H;
  assert.equal(Number.isSafeInteger(lastSafeAlignedOpen),true);
  assert.equal(Number.isSafeInteger(lastSafeAlignedOpen+H),false);
@@ -3690,7 +3690,7 @@ test('v85 candle getters cannot rewrite preflighted source, settings or costs',(
   hypotheticalRoundTripCostsBps:costs,
  }),/FVG cost scenario field changed during declaration snapshot/);
  assert.equal(studyHourlyFvgMidpoint(fixture(),source).version,
-  'hourly-fvg-first-midpoint-touch-v87');
+  'hourly-fvg-first-midpoint-touch-v88');
 });
 
 test('v85 future timestamp accessors cannot rewrite as-of provenance or cost axis',()=>{
@@ -3781,4 +3781,67 @@ test('v87 as-of cost-array getter is rejected before reading future timestamps',
  assert.deepEqual(studyHourlyFvgMidpointAsOf(fixture(),source,cutoff,{
   hypotheticalRoundTripCostsBps:costs,
  }),studyHourlyFvgMidpointAsOf(fixture(),source,cutoff));
+});
+
+test('v88 first-touch censor bounds keep no-touch, gap-through and unknown formation denominators',()=>{
+ const formation=[
+  candle(0,99,100,98,99),candle(1,101,102,100,101),
+  candle(2,105,106,104,105),
+ ];
+ const variants=[
+  {name:'tail',post:null,outcome:'INCOMPLETE_WINDOW',formed:1,lower:0,upper:1},
+  {name:'touch',post:candle(3,104,105,101,104),outcome:'TOUCH',formed:1,lower:1,upper:1},
+  {name:'gap-through',post:candle(3,101,103,100,102),outcome:'OPEN_GAP_THROUGH',formed:1,lower:0,upper:1},
+  {name:'missing-hour',post:candle(4,104,105,101,104),outcome:'INCOMPLETE_WINDOW',formed:1,lower:0,upper:1},
+  {name:'no-touch',post:candle(3,105,106,104,105),outcome:'NO_TOUCH',formed:2,lower:0,upper:0.5},
+ ] as const;
+ const flip=(bar:Bar):Bar=>({...bar,open:220-bar.open,
+  high:220-bar.low,low:220-bar.high,close:220-bar.close});
+ for(const bearish of [false,true]){
+  const side=bearish?'BEARISH':'BULLISH';
+  const other=bearish?'BULLISH':'BEARISH';
+  for(const sample of variants){
+   const raw=sample.post?[...formation,sample.post]:formation;
+   const bars=bearish?raw.map(flip):raw;
+   const report=studyHourlyFvgMidpoint(bars,source,{maxTouchWaitBars:1});
+   assert.equal(report.observations[0].firstTouchOutcome,sample.outcome,
+    sample.name+' '+side);
+   const bound=report.cohort.firstTouchOpportunityBounds;
+   assert.equal(bound.all.formations,sample.formed,sample.name+' '+side);
+   assert.equal(bound.all.lowerObservedTouchFraction,sample.lower);
+   assert.equal(bound.all.upperPossibleTouchFraction,sample.upper);
+   assert.deepEqual(bound.byDirection[side],bound.all);
+   assert.deepEqual(bound.byDirection[other],{
+    formations:0,observedTouches:0,observedNoTouches:0,
+    unresolvedGapThrough:0,unresolvedIncomplete:0,
+    lowerObservedTouchFraction:null,upperPossibleTouchFraction:null,
+   });
+   const counts=report.cohort.firstTouchOutcome;
+   assert.equal(bound.all.observedTouches,counts.TOUCH);
+   assert.equal(bound.all.observedNoTouches,counts.NO_TOUCH);
+   assert.equal(bound.all.unresolvedGapThrough,counts.OPEN_GAP_THROUGH);
+   assert.equal(bound.all.unresolvedIncomplete,counts.INCOMPLETE_WINDOW);
+  }
+ }
+ const empty=studyHourlyFvgMidpoint([],source).cohort.firstTouchOpportunityBounds;
+ assert.equal(empty.all.formations,0);
+ assert.equal(empty.all.lowerObservedTouchFraction,null);
+ assert.equal(empty.all.upperPossibleTouchFraction,null);
+ // Causal replay cannot use the next bar's prices to reduce an unknown
+ // upper bound before that hour has completed.
+ const future=[...formation,candle(3,104,105,101,104)];
+ Object.defineProperty(future[3],'high',{get(){throw Error('future high read');}});
+ const asOf=studyHourlyFvgMidpointAsOf(future,source,BASE+3*H,{maxTouchWaitBars:1});
+ assert.equal(asOf.cohort.firstTouchOpportunityBounds.all.lowerObservedTouchFraction,0);
+ assert.equal(asOf.cohort.firstTouchOpportunityBounds.all.upperPossibleTouchFraction,1);
+ assert.deepEqual(asOf,studyHourlyFvgMidpoint(formation,source,{maxTouchWaitBars:1}));
+ const bull=[...formation,candle(3,104,105,101,104)];
+ const bear=[...formation,candle(3,101,103,100,102)]
+  .map(b=>({...flip(b),time:b.time+10*H}));
+ const mixed=studyHourlyFvgMidpoint([...bull,...bear],source,{maxTouchWaitBars:1});
+ assert.equal(mixed.cohort.firstTouchOpportunityBounds.all.formations,2);
+ assert.equal(mixed.cohort.firstTouchOpportunityBounds.all.lowerObservedTouchFraction,0.5);
+ assert.equal(mixed.cohort.firstTouchOpportunityBounds.all.upperPossibleTouchFraction,1);
+ assert.equal(mixed.cohort.firstTouchOpportunityBounds.byDirection.BULLISH.observedTouches,1);
+ assert.equal(mixed.cohort.firstTouchOpportunityBounds.byDirection.BEARISH.unresolvedGapThrough,1);
 });
