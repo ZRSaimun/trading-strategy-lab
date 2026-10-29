@@ -7,7 +7,7 @@
  */
 import type {Bar} from './research.ts';
 
-export const HOURLY_FVG_VERSION='hourly-fvg-first-midpoint-touch-v72';
+export const HOURLY_FVG_VERSION='hourly-fvg-first-midpoint-touch-v73';
 export type Evidence='PASS'|'FAIL'|'INSUFFICIENT_DATA';
 // First-touch volume evidence is not independent broker/source authentication.
 export type VolumeEvidenceReason='NOT_EVALUATED'|'SOURCE_UNVERIFIED'|
@@ -912,7 +912,8 @@ export function studyHourlyFvgMidpoint(
  // while the exported report appears to represent the caller's experiment.
  // Reflect.ownKeys catches nonenumerable and symbol fields without reading
  // their potentially hostile values or invoking property getters.
- for(const key of Reflect.ownKeys(config)){
+ const initialConfigKeys=Reflect.ownKeys(config);
+ for(const key of initialConfigKeys){
   if(!CONFIG_FIELDS.some(field=>field===key))
    throw Error('Unexpected FVG study setting outside frozen protocol');
  }
@@ -1000,6 +1001,14 @@ export function studyHourlyFvgMidpoint(
   priceSide:source.priceSide,volumeType:source.volumeType,
   volumeVerified:source.volumeVerified,
  };
+ // Source and setting accessors can attach undeclared broker evidence after
+ // initial allowlist validation. Reject schema drift without rereading values.
+ if(!SOURCE_FIELDS.every(field=>hasOwnField(source,field))||
+  Reflect.ownKeys(source).some(key=>!SOURCE_FIELDS.some(field=>field===key)))
+  throw Error('FVG source declaration schema changed during snapshot');
+ if(initialConfigKeys.some(key=>!hasOwnField(config,key))||
+  Reflect.ownKeys(config).some(key=>!initialConfigKeys.includes(key)))
+  throw Error('FVG study setting schema changed during snapshot');
  // RegExp#test coerces objects via toString/Symbol.toPrimitive. A forged
  // object could pass a hash-shaped check then leak into exported provenance.
  // Require primitive strings before testing the exact lowercase SHA form.

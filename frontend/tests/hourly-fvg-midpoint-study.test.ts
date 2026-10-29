@@ -667,7 +667,7 @@ test('research report rejects extra source fields without leaking caller private
  const report=studyHourlyFvgMidpoint(fixture(),source);
  assert.deepEqual(report.source,source);
  assert.deepEqual(Object.keys(report.source).sort(),Object.keys(source).sort());
- assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v72');
+ assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v73');
 });
 test('ambiguous source labels and contradictory volume evidence fail closed',()=>{
  // These are declared metadata, not independent vendor authentication.
@@ -742,7 +742,7 @@ test('v61 source labels reject lone surrogates and Unicode noncharacters in both
  assert.deepEqual(studyHourlyFvgMidpoint(bars,valid).source,valid);
  assert.deepEqual(studyHourlyFvgMidpointAsOf(bars,valid,cutoff).source,valid);
  assert.equal(studyHourlyFvgMidpoint(bars,valid).version,
-  'hourly-fvg-first-midpoint-touch-v72');
+  'hourly-fvg-first-midpoint-touch-v73');
 });
 test('v63 source labels reject Unicode space lookalikes without banning ASCII spaces',()=>{
  const bars=fixture(),cutoff=BASE+37*H;
@@ -759,7 +759,7 @@ test('v63 source labels reject Unicode space lookalikes without banning ASCII sp
  assert.deepEqual(studyHourlyFvgMidpoint(bars,legitimate).source,legitimate);
  assert.deepEqual(studyHourlyFvgMidpointAsOf(bars,legitimate,cutoff).source,legitimate);
  assert.equal(studyHourlyFvgMidpoint(bars,legitimate).version,
-  'hourly-fvg-first-midpoint-touch-v72');
+  'hourly-fvg-first-midpoint-touch-v73');
 });
 test('first bullish midpoint touch has a hypothetical blind limit and later next-open rejection markout',()=>{
  const x=target(fixture());
@@ -1104,7 +1104,7 @@ test('an overflowing next-open comparator suppresses both matched markouts',()=>
 });
 test('completed hourly timestamps are safe and numeric rule changes have a new version',()=>{
  const report=studyHourlyFvgMidpoint(fixture(),source);
- assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v72');
+ assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v73');
  const lastSafeAlignedOpen=Math.floor(Number.MAX_SAFE_INTEGER/H)*H;
  assert.equal(Number.isSafeInteger(lastSafeAlignedOpen),true);
  assert.equal(Number.isSafeInteger(lastSafeAlignedOpen+H),false);
@@ -3025,5 +3025,46 @@ test('v72 source/config getter cannot resize the bounded historical candle popul
    /array length changed during declaration snapshot/,
    'historical source population must be fixed before settings are inspected');
   assert.equal(reads,1);
+ }
+});
+
+test('v73 rejects source getter injecting broker metadata after preflight',()=>{
+ for(const asOf of [false,true]){
+  const src:FvgSource={...source};
+  const provider=src.provider;
+  let reads=0;
+  Object.defineProperty(src,'provider',{enumerable:true,configurable:true,get(){
+   reads++;
+   Object.defineProperty(src,'brokerAskQuote',{value:101,configurable:true});
+   return provider;
+  }});
+  assert.throws(()=>asOf?
+   studyHourlyFvgMidpointAsOf(fixture(),src,BASE+34*H):
+   studyHourlyFvgMidpoint(fixture(),src),
+   /source declaration schema changed during snapshot/);
+  assert.equal(reads,1);
+ }
+});
+
+test('v73 rejects setting schema injection from settings or source getters',()=>{
+ for(const asOf of [false,true])for(const actor of ['config','source'] as const){
+  const src:FvgSource={...source};
+  const config:FvgConfig={volumeMultiple:1.5};
+  if(actor==='config'){
+   Object.defineProperty(config,'volumeMultiple',{enumerable:true,configurable:true,get(){
+    Object.defineProperty(config,'brokerCommissionBps',{value:2,configurable:true});
+    return 1.5;
+   }});
+  }else{
+   const provider=src.provider;
+   Object.defineProperty(src,'provider',{enumerable:true,configurable:true,get(){
+    Object.defineProperty(config,'brokerCommissionBps',{value:2,configurable:true});
+    return provider;
+   }});
+  }
+  assert.throws(()=>asOf?
+   studyHourlyFvgMidpointAsOf(fixture(),src,BASE+34*H,config):
+   studyHourlyFvgMidpoint(fixture(),src,config),
+   /study setting schema changed during snapshot/);
  }
 });
