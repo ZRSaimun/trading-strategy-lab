@@ -190,6 +190,34 @@ def test_invalid_key_rejected_before_request(monkeypatch):
     assert calls == []
 
 
+
+@pytest.mark.parametrize("invalid_key", [
+    "key\\u2603", "key\\xe9", "key\\x80", "bad\\nkey",
+    "x" * 513, type("DerivedString", (str,), {})("ascii-key"),
+])
+def test_invalid_credential_rejected_before_nonrefundable_credit_reservation(
+    monkeypatch, invalid_key,
+):
+    # The lower-level retrieve() rejects non-ASCII and str subclasses.
+    # The one-shot bridge must reject the same inputs BEFORE reserving a
+    # durable, nonrefundable API credit, not merely before the HTTP request.
+    requests = fixture(monkeypatch)
+
+    def unexpected_reservation(*args, **kwargs):
+        raise AssertionError("Invalid key consumed a credit reservation")
+
+    monkeypatch.setattr(adapter, "reserve_one_credit", unexpected_reservation)
+    with pytest.raises(adapter.ProspectiveReceiptError, match="Invalid credential shape"):
+        asyncio.run(adapter.review_twelvedata_completed_m1(
+            api_key=invalid_key, manifest=manifest(),
+            owner_approved_api_credit_use=True,
+            owner_asserted_data_rights=True,
+            budget_db_path="/tmp/test-only-budget",
+            budget_request_id="a" * 32,
+        ))
+    assert requests == []
+
+
 def test_snapshot_tampering_rejected_and_sanitized(monkeypatch):
     fixture(monkeypatch, raw=b'{"meta":{},"values":[]}')
     with pytest.raises(adapter.ProspectiveReceiptError, match="Provider receipt rejected") as exc:
