@@ -154,3 +154,54 @@ def test_prior_aggregate_population_bound():
                        "orders": deepcopy(p["pages"][0]["orders"][:1])})
     with pytest.raises(ValueError, match="Previous order population exceeds bound"):
         inspect_declared_inventory_continuity(e, p, c, NOW)
+
+
+@pytest.mark.parametrize("field", ["client_order_id", "broker_order_id"])
+def test_prior_duplicate_order_identity_holds(field):
+    e, p, c = sample()
+    repeated = deepcopy(p["pages"][0]["orders"][0])
+    if field == "client_order_id":
+        repeated["broker_order_id"] = "another-broker-order"
+    else:
+        repeated["client_order_id"] = "another-client-order"
+    p["pages"][0]["orders"].append(repeated)
+    result = inspect_declared_inventory_continuity(e, p, c, NOW)
+    assert result["status"] == "HOLD_INVENTORY_CONTINUITY"
+    assert "previous_duplicate_order_identity" in result["failed_checks"]
+    assert result["may_clear_unknown"] is False
+    assert result["may_submit_real_order"] is False
+
+
+def test_prior_duplicate_identity_across_pages_holds():
+    e, p, c = sample()
+    p["pages"][0]["total_pages"] = 2
+    p["pages"].append({"snapshot_id": "prior", "index": 1,
+                       "total_pages": 2, "complete": True,
+                       "orders": deepcopy(p["pages"][0]["orders"])})
+    result = inspect_declared_inventory_continuity(e, p, c, NOW)
+    assert "previous_duplicate_order_identity" in result["failed_checks"]
+    assert result["status"] == "HOLD_INVENTORY_CONTINUITY"
+
+
+@pytest.mark.parametrize("edit", [
+    lambda order: order.update(broker_order_id="invalid id with spaces"),
+    lambda order: order.update(client_order_id=True),
+    lambda order: order.update(unexpected="field"),
+])
+def test_prior_order_identity_schema_invalid_fails_closed(edit):
+    e, p, c = sample()
+    edit(p["pages"][0]["orders"][0])
+    with pytest.raises(ValueError):
+        inspect_declared_inventory_continuity(e, p, c, NOW)
+
+
+def test_prior_distinct_order_identities_still_unverified():
+    e, p, c = sample()
+    another = deepcopy(p["pages"][0]["orders"][0])
+    another["client_order_id"] = "order2"
+    another["broker_order_id"] = "broker2"
+    p["pages"][0]["orders"].append(another)
+    result = inspect_declared_inventory_continuity(e, p, c, NOW)
+    assert result["status"] == "DECLARED_INVENTORY_CONTINUITY_UNVERIFIED"
+    assert result["prior_checkpoint_authenticated"] is False
+    assert result["may_clear_unknown"] is False
