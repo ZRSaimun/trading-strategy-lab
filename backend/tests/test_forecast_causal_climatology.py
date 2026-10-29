@@ -275,7 +275,7 @@ def test_later_outcome_does_not_rewrite_earlier_temporal_split():
 
 
 def test_temporal_calibration_gap_is_signed_and_disjoint():
-    row = run(fixture())["groups"][0]
+    row = run(fixture(n=300))["groups"][0]
     assert row["temporalSplitStatus"] == "DESCRIPTIVE_ONLY"
     assert row["temporalSplitEarlyCount"] == row["temporalSplitLateCount"] == 60
     assert row["temporalSplitMeanIssuedProbabilityEarlyHalf"] == pytest.approx(.7)
@@ -288,8 +288,8 @@ def test_temporal_calibration_gap_is_signed_and_disjoint():
 
 
 def test_temporal_calibration_detects_late_outcome_shift_without_rewriting_early():
-    s = fixture()
-    for index in range(120, 240, 2):
+    s = fixture(n=300)
+    for index in range(180, 300, 2):
         s["forecasts"][index]["outcomeUp"] = False
     row = run(s)["groups"][0]
     assert row["temporalSplitObservedUpFractionEarlyHalf"] == pytest.approx(1)
@@ -300,8 +300,8 @@ def test_temporal_calibration_detects_late_outcome_shift_without_rewriting_early
 
 
 def test_temporal_calibration_detects_issued_probability_shift():
-    s = fixture()
-    for event, row in zip(s["events"][120:], s["forecasts"][120:]):
+    s = fixture(n=300)
+    for event, row in zip(s["events"][180:], s["forecasts"][180:]):
         event["probability"] = row["probability"] = .3
     result = run(s)["groups"][0]
     assert result["temporalSplitMeanIssuedProbabilityEarlyHalf"] == pytest.approx(.7)
