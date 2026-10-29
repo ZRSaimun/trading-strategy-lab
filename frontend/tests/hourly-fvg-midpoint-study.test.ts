@@ -697,7 +697,7 @@ test('research report rejects extra source fields without leaking caller private
  const report=studyHourlyFvgMidpoint(fixture(),source);
  assert.deepEqual(report.source,source);
  assert.deepEqual(Object.keys(report.source).sort(),Object.keys(source).sort());
- assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v84');
+ assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v85');
 });
 test('ambiguous source labels and contradictory volume evidence fail closed',()=>{
  // These are declared metadata, not independent vendor authentication.
@@ -772,7 +772,7 @@ test('v61 source labels reject lone surrogates and Unicode noncharacters in both
  assert.deepEqual(studyHourlyFvgMidpoint(bars,valid).source,valid);
  assert.deepEqual(studyHourlyFvgMidpointAsOf(bars,valid,cutoff).source,valid);
  assert.equal(studyHourlyFvgMidpoint(bars,valid).version,
-  'hourly-fvg-first-midpoint-touch-v84');
+  'hourly-fvg-first-midpoint-touch-v85');
 });
 test('v63 source labels reject Unicode space lookalikes without banning ASCII spaces',()=>{
  const bars=fixture(),cutoff=BASE+37*H;
@@ -789,7 +789,7 @@ test('v63 source labels reject Unicode space lookalikes without banning ASCII sp
  assert.deepEqual(studyHourlyFvgMidpoint(bars,legitimate).source,legitimate);
  assert.deepEqual(studyHourlyFvgMidpointAsOf(bars,legitimate,cutoff).source,legitimate);
  assert.equal(studyHourlyFvgMidpoint(bars,legitimate).version,
-  'hourly-fvg-first-midpoint-touch-v84');
+  'hourly-fvg-first-midpoint-touch-v85');
 });
 test('first bullish midpoint touch has a hypothetical blind limit and later next-open rejection markout',()=>{
  const x=target(fixture());
@@ -1134,7 +1134,7 @@ test('an overflowing next-open comparator suppresses both matched markouts',()=>
 });
 test('completed hourly timestamps are safe and numeric rule changes have a new version',()=>{
  const report=studyHourlyFvgMidpoint(fixture(),source);
- assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v84');
+ assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v85');
  const lastSafeAlignedOpen=Math.floor(Number.MAX_SAFE_INTEGER/H)*H;
  assert.equal(Number.isSafeInteger(lastSafeAlignedOpen),true);
  assert.equal(Number.isSafeInteger(lastSafeAlignedOpen+H),false);
@@ -3692,4 +3692,48 @@ test('v84 candidate-specific first-touch and exit gap severity is causal',()=>{
  assert.ok(censored);
  assert.equal(censored.firstTouchCensorMissingHourSlots,2);
  assert.equal(censored.firstTouchCensorObservedAt,cutoff);
+});
+
+test('v85 candle getters cannot rewrite preflighted source, settings or costs',()=>{
+ const provenance={...source},provenanceBars=fixture();
+ Object.defineProperty(provenanceBars[0],'open',{configurable:true,enumerable:true,
+  get(){provenance.volumeVerified=false;return 100;}});
+ assert.throws(()=>studyHourlyFvgMidpoint(provenanceBars,provenance),
+  /FVG source declaration field changed during declaration snapshot/);
+ const settings:FvgConfig={maxTouchWaitBars:12},settingBars=fixture();
+ Object.defineProperty(settingBars[0],'close',{configurable:true,enumerable:true,
+  get(){settings.maxTouchWaitBars=1;return 100;}});
+ assert.throws(()=>studyHourlyFvgMidpoint(settingBars,source,settings),
+  /FVG study setting field changed during declaration snapshot/);
+ const costs=[0,5,15],costBars=fixture();
+ Object.defineProperty(costBars[0],'volume',{configurable:true,enumerable:true,
+  get(){costs[0]=1;return 100;}});
+ assert.throws(()=>studyHourlyFvgMidpoint(costBars,source,{
+  hypotheticalRoundTripCostsBps:costs,
+ }),/FVG cost scenario field changed during declaration snapshot/);
+ assert.equal(studyHourlyFvgMidpoint(fixture(),source).version,
+  'hourly-fvg-first-midpoint-touch-v85');
+});
+
+test('v85 future timestamp accessors cannot rewrite as-of provenance or cost axis',()=>{
+ const cutoff=BASE+37*H,provenance={...source},future=fixture();
+ Object.defineProperty(future[39],'time',{configurable:true,enumerable:true,
+  get(){provenance.volumeVerified=false;return BASE+39*H;}});
+ Object.defineProperty(future[39],'volume',{configurable:true,enumerable:true,
+  get(){throw Error('Future volume must never be inspected');}});
+ assert.throws(()=>studyHourlyFvgMidpointAsOf(future,provenance,cutoff),
+  /FVG source declaration field changed during declaration snapshot/);
+ const settings:FvgConfig={maxTouchWaitBars:12},futureSettings=fixture();
+ Object.defineProperty(futureSettings[39],'time',{configurable:true,enumerable:true,
+  get(){settings.maxTouchWaitBars=1;return BASE+39*H;}});
+ assert.throws(()=>studyHourlyFvgMidpointAsOf(futureSettings,source,cutoff,settings),
+  /FVG study setting field changed during declaration snapshot/);
+ const costs=[0,5,15],futureCosts=fixture();
+ Object.defineProperty(futureCosts[39],'time',{configurable:true,enumerable:true,
+  get(){costs[0]=1;return BASE+39*H;}});
+ assert.throws(()=>studyHourlyFvgMidpointAsOf(futureCosts,source,cutoff,{
+  hypotheticalRoundTripCostsBps:costs,
+ }),/FVG cost scenario field changed during declaration snapshot/);
+ assert.deepEqual(studyHourlyFvgMidpointAsOf(fixture(),source,cutoff).observations,
+  studyHourlyFvgMidpoint(fixture().slice(0,37),source).observations);
 });
