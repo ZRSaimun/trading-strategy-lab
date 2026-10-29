@@ -52,8 +52,10 @@ async def review_twelvedata_completed_m1(
     calendar, entitlement, executable-price or live-status attestation. The
     fixed XAU/USD mapping comes from the existing historical Twelve Data client.
     """
-    if (not isinstance(api_key, str) or not 1 <= len(api_key) <= 512
-            or any(ord(ch) < 33 or ord(ch) == 127 for ch in api_key)):
+    # Match retrieve() exactly before reserving a nonrefundable API credit.
+    # Non-ASCII and str subclasses must fail before the budget ledger is touched.
+    if (type(api_key) is not str or not 1 <= len(api_key) <= 512
+            or any(not 33 <= ord(ch) <= 126 for ch in api_key)):
         raise ProspectiveReceiptError("Invalid credential shape")
     # No potentially billable vendor request without two explicit per-call
     # owner declarations. These are NOT independently verified entitlements.
