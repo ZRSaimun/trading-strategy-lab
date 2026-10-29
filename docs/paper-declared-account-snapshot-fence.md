@@ -139,3 +139,29 @@ Neither a fresh quote nor a clean caller-declared account snapshot authorizes
 paper/live submission; independently authenticated broker receipts, atomic
 risk reservations and specific positive owner approval remain prerequisites
 for any future live-order workflow.
+
+
+## Bound primary-quote age and transport ceilings (29 October 2026)
+
+A quote can be older than the configured account freshness limit while
+remaining inside the allowed account/quote observation skew. The standalone
+snapshot fence now independently checks the **bound primary quote** against
+the existing `max_account_age_ms` and `max_account_transport_lag_ms`
+ceilings. A quote older than the account age limit, or observed in the
+future, produces `stale_or_future_risk_quote`. A quote whose declared
+receipt minus observation time exceeds the account transport limit (or
+whose receipt predates observation) produces `risk_quote_transport_lag`.
+The existing `invalid_quote_chronology` and
+`quote_account_time_skew` checks remain independent. Exact policy
+boundaries are permitted, not silently tightened.
+
+This is defense-in-depth for direct callers of the standalone fence; the
+composite risk/consensus validators retain their own stricter checks and
+must not be bypassed. The account policy ceilings are reused rather than
+introducing an unaudited new quote-policy schema. These timestamps are
+caller-declared, not authenticated feed receipts or durable anti-replay
+checkpoints. A clean result still cannot authorize paper/live orders or
+guarantee a stop fill, and every live order requires secure provider
+credentials and separate positive owner confirmation. Production release
+continues to require full exact-head CI and independently verified
+backup restoration, rollback and authenticated health checks.
