@@ -898,6 +898,10 @@ export function studyHourlyFvgMidpoint(
  // candle exactly once, preserving a bounded, reviewable BID-only archive.
  if(!Array.isArray(suppliedBars)||suppliedBars.length>20000)
   throw Error('Invalid or oversized hourly research window');
+ // Preserve the original bounded archive population while caller-controlled
+ // config/source getters execute; those getters cannot grow or shrink it.
+ const barCount=suppliedBars.length;
+ validateBarArraySchema(suppliedBars,barCount);
  // A research setting must be explicitly supplied or use its frozen default.
  // An inherited prototype value can silently shorten the touch window,
  // change the wick/volume threshold or replace the cost scenarios.
@@ -1018,11 +1022,14 @@ export function studyHourlyFvgMidpoint(
   costs.some((x,i)=>!Number.isFinite(x)||x<0||x>1000||
    (i>0&&x<=costs[i-1])))
   throw Error('Invalid source identity, volume provenance or frozen FVG study settings');
- // Snapshot the population size as well as each candle. A getter may append
- // or remove elements while we read them; never let the loop expand to
- // include those late arrivals or silently accept a truncated population.
- const barCount=suppliedBars.length;
+ // Recheck the original archive size and schema after source/config accessors
+ // execute. A declaration getter cannot inject extra rows or broker metadata
+ // into a previously bounded research window before the candle snapshot.
+ if(suppliedBars.length!==barCount)
+  throw Error('Hourly research candle array length changed during declaration snapshot');
  validateBarArraySchema(suppliedBars,barCount);
+ // Snapshot each candle exactly once. An observed getter may not append,
+ // remove or silently substitute an additional archive population.
  // Do not invoke a caller-controlled Symbol.iterator: a short Array can
  // otherwise yield unbounded or substituted candles despite the length cap.
  // Indexed reads keep the snapshot bounded and preserve sparse-hole rejection.
