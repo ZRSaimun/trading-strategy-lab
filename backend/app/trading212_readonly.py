@@ -230,7 +230,10 @@ def fetch_trading212_readonly(
         raise ReadOnlyBrokerError("Broker response length mismatch")
 
     try:
-        payload = json.loads(raw, object_pairs_hook=_unique_object_pairs,
+        # RFC 8259 interoperable JSON on the wire is UTF-8. Parsing bytes
+        # directly would silently accept UTF-16/UTF-32 and UTF-8 BOMs; never
+        # reinterpret malformed broker response bytes as a different charset.
+        payload = json.loads(raw.decode("utf-8"), object_pairs_hook=_unique_object_pairs,
                              parse_float=_finite_float, parse_constant=_reject_constant)
     except (ValueError, UnicodeError, RecursionError):
         raise ReadOnlyBrokerError("Invalid broker JSON") from None
