@@ -164,3 +164,47 @@ def test_no_observation_bytes_or_prices_in_report():
     r = audit([T])
     assert "open" not in r and "close" not in r
     assert r["unique_observed_expected_minutes"] == 1
+
+
+def test_trailing_missing_expected_slots_exclude_declared_closure_and_break():
+    # The excluded T+60 and the break T+180..T+300 are not missing bars.
+    report = audit([T, T+120, T+300])
+    assert report["latest_expected_minute_utc"] == T+420
+    assert report["latest_observed_expected_minute_utc"] == T+300
+    assert report["trailing_missing_expected_minutes"] == 2
+    assert report["latest_expected_minute_present"] is False
+    assert report["missing_expected_minutes"] == 2
+
+
+def test_trailing_tail_zero_when_last_expected_present_despite_interior_gap():
+    report = audit([T, T+300, T+420])
+    assert report["missing_expected_minutes"] == 2
+    assert report["trailing_missing_expected_minutes"] == 0
+    assert report["latest_observed_expected_minute_utc"] == T+420
+    assert report["latest_expected_minute_present"] is True
+
+
+def test_trailing_tail_all_missing_even_if_unexpected_outside_bars_present():
+    report = audit([T+60, T+180, T+480])
+    assert report["latest_observed_expected_minute_utc"] is None
+    assert report["trailing_missing_expected_minutes"] == 5
+    assert report["latest_expected_minute_present"] is False
+    assert report["unexpected_unique_minutes"] == 3
+    assert report["status"] == "REVIEW_REQUIRED"
+
+
+def test_trailing_tail_reconciles_across_sessions_without_wall_minute_inflation():
+    report = audit([T], sample_limit=0)
+    assert report["latest_observed_expected_minute_utc"] == T
+    # T+120 and the three expected slots in the second session.
+    assert report["trailing_missing_expected_minutes"] == 4
+    assert report["missing_expected_minutes"] == 4
+    assert report["missing_gap_samples"] == []
+
+
+def test_trailing_tail_complete_with_duplicate_unexpected_bar_is_still_review():
+    report = audit([T, T+120, T+300, T+360, T+420, T+480, T+480])
+    assert report["trailing_missing_expected_minutes"] == 0
+    assert report["latest_expected_minute_present"] is True
+    assert report["duplicate_observation_rows"] == 1
+    assert report["status"] == "REVIEW_REQUIRED"
