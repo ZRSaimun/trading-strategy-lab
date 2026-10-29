@@ -679,7 +679,7 @@ test('research report rejects extra source fields without leaking caller private
  const report=studyHourlyFvgMidpoint(fixture(),source);
  assert.deepEqual(report.source,source);
  assert.deepEqual(Object.keys(report.source).sort(),Object.keys(source).sort());
- assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v76');
+ assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v77');
 });
 test('ambiguous source labels and contradictory volume evidence fail closed',()=>{
  // These are declared metadata, not independent vendor authentication.
@@ -754,7 +754,7 @@ test('v61 source labels reject lone surrogates and Unicode noncharacters in both
  assert.deepEqual(studyHourlyFvgMidpoint(bars,valid).source,valid);
  assert.deepEqual(studyHourlyFvgMidpointAsOf(bars,valid,cutoff).source,valid);
  assert.equal(studyHourlyFvgMidpoint(bars,valid).version,
-  'hourly-fvg-first-midpoint-touch-v76');
+  'hourly-fvg-first-midpoint-touch-v77');
 });
 test('v63 source labels reject Unicode space lookalikes without banning ASCII spaces',()=>{
  const bars=fixture(),cutoff=BASE+37*H;
@@ -771,7 +771,7 @@ test('v63 source labels reject Unicode space lookalikes without banning ASCII sp
  assert.deepEqual(studyHourlyFvgMidpoint(bars,legitimate).source,legitimate);
  assert.deepEqual(studyHourlyFvgMidpointAsOf(bars,legitimate,cutoff).source,legitimate);
  assert.equal(studyHourlyFvgMidpoint(bars,legitimate).version,
-  'hourly-fvg-first-midpoint-touch-v76');
+  'hourly-fvg-first-midpoint-touch-v77');
 });
 test('first bullish midpoint touch has a hypothetical blind limit and later next-open rejection markout',()=>{
  const x=target(fixture());
@@ -1116,7 +1116,7 @@ test('an overflowing next-open comparator suppresses both matched markouts',()=>
 });
 test('completed hourly timestamps are safe and numeric rule changes have a new version',()=>{
  const report=studyHourlyFvgMidpoint(fixture(),source);
- assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v76');
+ assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v77');
  const lastSafeAlignedOpen=Math.floor(Number.MAX_SAFE_INTEGER/H)*H;
  assert.equal(Number.isSafeInteger(lastSafeAlignedOpen),true);
  assert.equal(Number.isSafeInteger(lastSafeAlignedOpen+H),false);
@@ -3247,4 +3247,78 @@ test('v76 as-of detects in-place revealed row edits from future timestamps witho
  assert.equal(timeReads,1);
  assert.deepEqual(studyHourlyFvgMidpointAsOf(fixture(),source,cutoff),
   studyHourlyFvgMidpoint(fixture().slice(0,34),source));
+});
+
+
+test('v77 source and setting getters cannot rewrite previously declared evidence in place',()=>{
+ for(const asOf of [false,true]){
+  const evaluate=(src:FvgSource,config:FvgConfig)=>asOf?
+   studyHourlyFvgMidpointAsOf(fixture(),src,BASE+34*H,config):
+   studyHourlyFvgMidpoint(fixture(),src,config);
+  const src:FvgSource={...source},config:FvgConfig={volumeMultiple:1.5};
+  const provider=src.provider;
+  Object.defineProperty(src,'provider',{enumerable:true,configurable:true,get(){
+   src.volumeVerified=false; // Same own keys, but changed certification.
+   return provider;
+  }});
+  assert.throws(()=>evaluate(src,config),
+   /source declaration field changed during declaration snapshot/);
+
+  const settings:FvgConfig={maxTouchWaitBars:12,volumeMultiple:1.5};
+  Object.defineProperty(settings,'volumeMultiple',{
+   enumerable:true,configurable:true,get(){
+    settings.maxTouchWaitBars=1; // Earlier setting was already read.
+    return 1.5;
+   },
+  });
+  assert.throws(()=>evaluate({...source},settings),
+   /study setting field changed during declaration snapshot/);
+
+  const crossSource:FvgSource={...source};
+  const crossConfig:FvgConfig={volumeMultiple:1.5};
+  Object.defineProperty(crossSource,'provider',{
+   enumerable:true,configurable:true,get(){
+    crossConfig.volumeMultiple=2; // Source getter rewrites frozen settings.
+    return provider;
+   },
+  });
+  assert.throws(()=>evaluate(crossSource,crossConfig),
+   /study setting field changed during declaration snapshot/);
+ }
+});
+
+test('v77 cost getters cannot rewrite an earlier cost stress cell in place',()=>{
+ for(const asOf of [false,true]){
+  const costs=[0,5,15];
+  Object.defineProperty(costs,1,{enumerable:true,configurable:true,get(){
+   costs[0]=7; // Same length, own indices and ascending copied values.
+   return 5;
+  }});
+  const config:FvgConfig={hypotheticalRoundTripCostsBps:costs};
+  assert.throws(()=>asOf?
+   studyHourlyFvgMidpointAsOf(fixture(),source,BASE+34*H,config):
+   studyHourlyFvgMidpoint(fixture(),source,config),
+   /cost scenario field changed during declaration snapshot/);
+ }
+});
+
+test('v77 stable accessor-backed declarations retain exact historical and as-of parity',()=>{
+ const src:FvgSource={...source};
+ Object.defineProperty(src,'provider',{enumerable:true,configurable:true,
+  get(){return source.provider;}});
+ const costs=[0,5,15];
+ Object.defineProperty(costs,1,{enumerable:true,configurable:true,
+  get(){return 5;}});
+ const config:FvgConfig={maxTouchWaitBars:12,
+  hypotheticalRoundTripCostsBps:costs};
+ Object.defineProperty(config,'maxTouchWaitBars',{enumerable:true,configurable:true,
+  get(){return 12;}});
+ assert.deepEqual(studyHourlyFvgMidpoint(fixture(),src,config),
+  studyHourlyFvgMidpoint(fixture(),source,{
+   maxTouchWaitBars:12,hypotheticalRoundTripCostsBps:[0,5,15],
+  }));
+ assert.deepEqual(studyHourlyFvgMidpointAsOf(fixture(),src,BASE+34*H,config),
+  studyHourlyFvgMidpoint(fixture().slice(0,34),source,{
+   maxTouchWaitBars:12,hypotheticalRoundTripCostsBps:[0,5,15],
+  }));
 });
