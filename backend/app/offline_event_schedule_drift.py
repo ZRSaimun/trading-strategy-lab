@@ -6,8 +6,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-from datetime import timedelta
-
 from app.offline_event_asof_guard import _utc, audit_declared_event_asof
 
 
