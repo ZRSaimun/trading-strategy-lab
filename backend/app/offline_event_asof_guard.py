@@ -135,9 +135,29 @@ def audit_declared_event_asof(revisions, *, decision_utc, source_id):
                        "forecast": latest["forecast"], "actual": actual,
                        "result_available": actual is not None})
     canonical = json.dumps(output, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+    # The legacy snapshot digest intentionally identifies only visible event
+    # content. A separate, versioned research envelope binds declared source,
+    # decision cutoff and visible revision population so identical event lists
+    # from different sources or cutoffs cannot be mistaken for the same audit.
+    visible_count = sum(
+        _utc(e["observed_utc"]) < cutoff for rows in groups.values() for e in rows
+    )
+    envelope = {
+        "schema_version": 1,
+        "source_id": source_id,
+        "decision_utc": cutoff.isoformat(),
+        "visible_revision_count": visible_count,
+        "events": output,
+    }
+    envelope_canonical = json.dumps(
+        envelope, sort_keys=True, separators=(",", ":"), ensure_ascii=True
+    )
     return {"research_only": True, "authenticated_calendar": False,
             "trade_authorized": False, "source_id": source_id,
-            "decision_utc": cutoff.isoformat(), "visible_revision_count": sum(
-                _utc(e["observed_utc"]) < cutoff for rows in groups.values() for e in rows),
+            "decision_utc": cutoff.isoformat(), "visible_revision_count": visible_count,
             "visible_event_count": len(output), "events": output,
-            "visible_snapshot_sha256": hashlib.sha256(canonical.encode()).hexdigest()}
+            "visible_snapshot_sha256": hashlib.sha256(canonical.encode()).hexdigest(),
+            "research_envelope_schema_version": 1,
+            "research_envelope_sha256": hashlib.sha256(
+                envelope_canonical.encode("utf-8")
+            ).hexdigest()}
