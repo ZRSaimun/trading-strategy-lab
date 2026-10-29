@@ -296,3 +296,50 @@ def test_backfill_hold_does_not_mutate_inputs():
     before = deepcopy((prev, curr))
     assert "appended_review_predates_prior_snapshot" in inspect(prev, curr)["failed_checks"]
     assert (prev, curr) == before
+
+
+def test_current_history_population_cannot_exceed_revision():
+    prev, curr = snapshots()
+    curr["sequence"] = 1  # Two events cannot fit in one revision.
+    result = inspect(prev, curr)
+    assert "history_population_exceeds_revision" in result["failed_checks"]
+    assert result["status"] == "HOLD_DECLARED_REVIEW_HISTORY"
+    assert result["may_submit_real_order"] is False
+
+
+def test_prior_history_population_cannot_exceed_revision():
+    prev, curr = snapshots()
+    prev["sequence"] = 0  # Even an old checkpoint must be internally consistent.
+    result = inspect(prev, curr)
+    assert "history_population_exceeds_revision" in result["failed_checks"]
+    assert result["may_submit_paper_order"] is False
+
+
+def test_revision_population_boundary_is_not_false_hold():
+    prev, curr = snapshots()
+    prev["sequence"] = 1
+    curr["sequence"] = 2
+    result = inspect(prev, curr)
+    assert result["failed_checks"] == []
+    assert result["status"] == "DECLARED_REVIEW_HISTORY_UNVERIFIED"
+    assert result["may_submit_real_order"] is False
+
+
+def test_zero_revision_empty_history_is_consistent_but_unverified():
+    prev, curr = snapshots()
+    prev["events"] = []
+    curr["events"] = []
+    prev["sequence"] = 0
+    curr["sequence"] = 0
+    result = inspect(prev, curr)
+    assert result["failed_checks"] == []
+    assert result["status"] == "DECLARED_REVIEW_HISTORY_UNVERIFIED"
+    assert result["may_submit_paper_order"] is False
+
+
+def test_revision_population_hold_does_not_mutate_snapshots():
+    prev, curr = snapshots()
+    curr["sequence"] = 1
+    original = deepcopy((prev, curr))
+    assert "history_population_exceeds_revision" in inspect(prev, curr)["failed_checks"]
+    assert (prev, curr) == original
