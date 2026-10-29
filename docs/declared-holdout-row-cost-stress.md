@@ -9,3 +9,20 @@ For released populations (30+ observations), the audit reports exact-decimal add
 Unlike the existing `declared_holdout_cost_scenarios.py` module, which applies a fixed additional cash debit to **every** observation, this module supports variable per-observation adverse costs. The new inputs are **not** market prices, percentage spreads, executable BID/ASK quotes, validated CFD overnight rates, or evidence that any historical backtest was profitable. Per-row adjustments could themselves be fitted to outcomes; a trusted external preregistration and protected holdout are still required to prevent selection bias. Source authenticity and time-zone eligibility remain blocked pending [issue #153](https://github.com/ZRSaimun/trading-strategy-lab/issues/153).
 
 Synthetic tests: `cd backend && PYTHONPATH=. python -m pytest -q tests/test_declared_holdout_row_cost_stress.py`. No production route, importer, database, licensed archive, credential, paper or live order adapter is modified. `may_execute_demo_order` and `may_execute_real_order` are always false. Do not merge or deploy without complete exact-head CI, independent backup restore, rollback rehearsal and authenticated health checks.
+
+
+## Receipt-time stressed cash risk (synthetic / declared only)
+
+Each released scenario also reconciles **per-observation stressed net cash** and
+reports the worst observation, maximum drawdown of cash totals at **receipt-second
+boundaries**, and a conservative maximum over all possible within-second receipt
+orderings. All three are null below the 30-observation withholding threshold.
+Receipt order is determined by declared observed_at_utc, not trade-decision
+order, because overlapping positions can close out of order. Scenario totals
+are independently reconciled against the sum of per-row stressed cash.
+
+The within-second ordering diagnostic can be larger than the second-end
+drawdown, but it is **not** a bound on unobserved intraperiod mark-to-market
+equity, margin liquidation, bid/ask execution, or broker financing. Both clocks
+and all costs remain caller-declared and unauthenticated. No order permissions
+are granted.
