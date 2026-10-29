@@ -49,6 +49,9 @@ def test_row_specific_components_and_maximum_reconcile():
         "extra_cost_cash": "2.0000",
         "stressed_net_cash": "52.0000",
         "max_single_observation_extra_cost_cash": "1.2500",
+        "worst_observation_stressed_net_cash": "0.6500",
+        "max_observation_end_drawdown_cash": "0.0000",
+        "max_receipt_time_ordering_drawdown_cash_upper_bound": "0.0000",
         "extra_cost_by_component_cash": {
             "spread_extra_cash": "1.2500",
             "slippage_extra_cash": "0.0000",
@@ -96,6 +99,9 @@ def test_small_holdout_withholds_all_outcome_and_cost_metrics(count):
     assert entry["extra_cost_cash"] is None
     assert entry["stressed_net_cash"] is None
     assert entry["max_single_observation_extra_cost_cash"] is None
+    assert entry["worst_observation_stressed_net_cash"] is None
+    assert entry["max_observation_end_drawdown_cash"] is None
+    assert entry["max_receipt_time_ordering_drawdown_cash_upper_bound"] is None
     assert all(value is None for value in entry["extra_cost_by_component_cash"].values())
 
 
@@ -195,3 +201,51 @@ def test_underlying_source_and_release_controls_remain_mandatory():
     data[4] = data[0]["holdout_end_at_utc"] - 1
     with pytest.raises(ValueError):
         _audit(tuple(data), [_scenario(data)])
+
+
+def test_stressed_receipt_drawdown_and_worst_row_are_exact():
+    data = _fixture()
+    stress = _scenario(data, per_row={0: {"spread_extra_cash": "5.0000"}})
+    entry = _audit(data, [stress])["scenarios"][0]
+    assert entry["stressed_net_cash"] == "49.0000"
+    assert entry["worst_observation_stressed_net_cash"] == "-3.1000"
+    assert entry["max_observation_end_drawdown_cash"] == "3.1000"
+    assert entry["max_receipt_time_ordering_drawdown_cash_upper_bound"] == "3.1000"
+
+
+def test_same_second_receipts_report_ordering_ambiguity():
+    data = _fixture()
+    # Every label is available before this declared common receipt time.
+    for outcome in data[3]:
+        outcome["observed_at_utc"] = data[4]
+    stress = _scenario(data, per_row={0: {"spread_extra_cash": "5.0000"}})
+    entry = _audit(data, [stress])["scenarios"][0]
+    assert entry["stressed_net_cash"] == "49.0000"
+    assert entry["max_observation_end_drawdown_cash"] == "0.0000"
+    assert entry["max_receipt_time_ordering_drawdown_cash_upper_bound"] == "3.1000"
+    assert entry["worst_observation_stressed_net_cash"] == "-3.1000"
+    reordered = copy.deepcopy(data)
+    reordered[3].reverse()
+    stress["adjustments"].reverse()
+    assert _audit(reordered, [stress])["scenarios"][0] == entry
+
+
+def test_cost_position_changes_receipt_drawdown_not_total():
+    data = _fixture()
+    early = _scenario(data, "early", {0: {"spread_extra_cash": "5.0000"}})
+    late = _scenario(data, "late", {1: {"spread_extra_cash": "5.0000"}})
+    reports = {r["scenario_id"]: r for r in _audit(data, [early, late])["scenarios"]}
+    assert reports["early"]["stressed_net_cash"] == reports["late"]["stressed_net_cash"]
+    assert reports["early"]["max_observation_end_drawdown_cash"] == "3.1000"
+    assert reports["late"]["max_observation_end_drawdown_cash"] == "3.3000"
+    assert reports["late"]["worst_observation_stressed_net_cash"] == "-3.3000"
+
+
+def test_stressed_cash_diagnostics_do_not_grant_execution_permission():
+    data = _fixture()
+    report = _audit(data, [_scenario(data)])
+    assert report["may_execute_demo_order"] is False
+    assert report["may_execute_real_order"] is False
+    assert report["holdout_untouched_independently_verified"] is False
+    assert report["broker_costs_verified"] is False
+    assert report["scenarios"][0]["max_observation_end_drawdown_cash"] == "0.0000"
