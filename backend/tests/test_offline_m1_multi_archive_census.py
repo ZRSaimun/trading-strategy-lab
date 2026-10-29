@@ -201,3 +201,78 @@ def test_rehashed_evaluated_count_above_bar_count_rejected():
     rehash(b)
     with pytest.raises(ValueError, match='bar count'):
         audit_m1_multi_archive_census([a, b])
+
+
+# Counter and win-fraction consistency: re-hashing cannot hide contradictions.
+@pytest.mark.parametrize('field,bad', [
+    ('timestamp_discontinuities', -1),
+    ('backward_jumps', True),
+    ('adjacent_duplicates', 1.5),
+    ('sweep_count', '2'),
+    ('ambiguous_count', -2),
+])
+def test_rehashed_invalid_diagnostic_counter_rejected(field, bad):
+    a, b = pair()
+    b[field] = bad
+    rehash(b)
+    with pytest.raises(ValueError, match='diagnostic'):
+        audit_m1_multi_archive_census([a, b])
+
+
+def test_rehashed_discontinuity_subcounts_exceed_total_rejected():
+    a, b = pair()
+    b['timestamp_discontinuities'] = 1
+    b['backward_jumps'] = 1
+    b['adjacent_duplicates'] = 1
+    rehash(b)
+    with pytest.raises(ValueError, match='discontinuity'):
+        audit_m1_multi_archive_census([a, b])
+
+
+def test_rehashed_discontinuities_exceed_possible_transitions_rejected():
+    a, b = pair()
+    b['timestamp_discontinuities'] = 100
+    rehash(b)
+    with pytest.raises(ValueError, match='discontinuity'):
+        audit_m1_multi_archive_census([a, b])
+
+
+@pytest.mark.parametrize('field,value', [
+    ('sweep_count', 101),
+    ('confirmed_count', 4),
+    ('ambiguous_count', 201),
+])
+def test_rehashed_impossible_sweep_population_rejected(field, value):
+    a, b = pair()
+    b[field] = value
+    # Keep original confirmed/evaluated population intact when testing
+    # independent scan upper bounds.
+    rehash(b)
+    with pytest.raises(ValueError, match='scan bounds'):
+        audit_m1_multi_archive_census([a, b])
+
+
+def test_rehashed_partition_win_fraction_mismatch_rejected():
+    a, b = pair()
+    b = receipt('b', 'd', count=10, mean=1)
+    b['development_exploratory']['gross_win_fraction'] = 0.7
+    rehash(b)
+    with pytest.raises(ValueError, match='gross win fractions'):
+        audit_m1_multi_archive_census([a, b])
+
+
+def test_partition_win_fraction_independent_rounding_tolerated():
+    a, b = pair()
+    b = receipt('b', 'd', count=10, mean=1)
+    b['all_exploratory']['gross_win_fraction'] = 0.500001
+    rehash(b)
+    assert audit_m1_multi_archive_census([a, b])['report_count'] == 2
+
+
+def test_source_wall_counter_bounds_accept_consistent_gaps():
+    a, b = pair()
+    b['timestamp_discontinuities'] = 3
+    b['backward_jumps'] = 1
+    b['adjacent_duplicates'] = 1
+    rehash(b)
+    assert audit_m1_multi_archive_census([a, b])['report_count'] == 2
