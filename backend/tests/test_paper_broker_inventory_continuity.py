@@ -104,6 +104,30 @@ def test_observation_gap_at_freshness_window_boundary_is_not_held():
     assert result["may_clear_unknown"] is False
 
 
+
+def test_previous_checkpoint_transport_lag_over_limit_holds():
+    e, p, c = sample()
+    p["observed_at_ms"] = NOW - 3000
+    p["received_at_ms"] = NOW - 750  # 2250 ms > declared 2000 ms
+    result = inspect_declared_inventory_continuity(e, p, c, NOW)
+    assert result["status"] == "HOLD_INVENTORY_CONTINUITY"
+    assert "previous_snapshot_transport_lag" in result["failed_checks"]
+    assert "snapshot_delivery_overlap" not in result["failed_checks"]
+    assert "snapshot_observation_gap_exceeds_freshness_window" not in result["failed_checks"]
+    assert result["may_clear_unknown"] is False
+    assert result["may_submit_real_order"] is False
+
+
+def test_previous_checkpoint_transport_lag_at_limit_remains_unverified():
+    e, p, c = sample()
+    p["observed_at_ms"] = NOW - 2750
+    p["received_at_ms"] = NOW - 750  # exactly declared 2000 ms
+    result = inspect_declared_inventory_continuity(e, p, c, NOW)
+    assert result["status"] == "DECLARED_INVENTORY_CONTINUITY_UNVERIFIED"
+    assert "previous_snapshot_transport_lag" not in result["failed_checks"]
+    assert result["may_clear_unknown"] is False
+    assert result["may_submit_paper_order"] is False
+
 def test_non_mutating_and_deterministic():
     e, p, c = sample()
     original = deepcopy((e, p, c))
