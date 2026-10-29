@@ -606,8 +606,10 @@ def test_next_queue_delay_warning_exact_boundary_and_empty_cohorts():
 
 def test_next_queue_delay_warning_respects_override_and_expiry_overlap():
     before = check(state(expiresAt=165), now=150, queue_warning_seconds=45)
-    assert before["nextQueueDelayWarningSecondsRemaining"] == 15
-    assert before["nextQueueDelayWarningKeys"] == [["s1", "f1"]]
+    # The alert expires at the exact queue-delay threshold: it can never
+    # enter QUEUE_DELAY_WARNING while queued, so no future delay is advertised.
+    assert before["nextQueueDelayWarningSecondsRemaining"] is None
+    assert before["nextQueueDelayWarningKeys"] == []
     assert before["counts"]["EXPIRING_SOON_WARNING"] == 1
     assert before["counts"]["QUEUE_DELAY_WARNING"] == 0
     assert before["status"] == "OPERATOR_REVIEW_REQUIRED"
@@ -616,3 +618,45 @@ def test_next_queue_delay_warning_respects_override_and_expiry_overlap():
     assert at_expiry["nextQueueDelayWarningSecondsRemaining"] is None
     assert at_expiry["nextQueueDelayWarningKeys"] == []
     assert at_expiry["counts"]["EXPIRED_UNCLAIMED"] == 1
+
+
+
+def test_queue_delay_deadline_preempted_by_earlier_expiry():
+    result = check(state(expiresAt=164), now=150, queue_warning_seconds=45)
+    assert result["nextQueueDelayWarningSecondsRemaining"] is None
+    assert result["nextQueueDelayWarningKeys"] == []
+    assert result["earliestQueuedExpirySecondsRemaining"] == 14
+    assert result["counts"]["EXPIRING_SOON_WARNING"] == 1
+    at_expiry = check(state(expiresAt=164), now=164, queue_warning_seconds=45)
+    assert at_expiry["counts"]["EXPIRED_UNCLAIMED"] == 1
+    assert at_expiry["counts"]["QUEUE_DELAY_WARNING"] == 0
+    assert at_expiry["nextQueueDelayWarningSecondsRemaining"] is None
+
+
+def test_queue_delay_deadline_before_expiry_is_reachable():
+    before = check(state(expiresAt=166), now=150, queue_warning_seconds=45)
+    assert before["nextQueueDelayWarningSecondsRemaining"] == 15
+    assert before["nextQueueDelayWarningKeys"] == [["s1", "f1"]]
+    at_warning = check(state(expiresAt=166), now=165, queue_warning_seconds=45)
+    assert at_warning["counts"]["QUEUE_DELAY_WARNING"] == 1
+    assert at_warning["counts"]["EXPIRED_UNCLAIMED"] == 0
+    assert at_warning["nextQueueDelayWarningSecondsRemaining"] is None
+    assert at_warning["maySendNotification"] is False
+
+
+def test_queue_delay_deadline_ignores_unreachable_earlier_candidate():
+    records = [
+        {"sessionId": "s3", "state": state(forecastId="f3", issuedAt=130, expiresAt=190)},
+        {"sessionId": "s1", "state": state(forecastId="f1", issuedAt=120, expiresAt=160)},
+        {"sessionId": "s2", "state": state(forecastId="f2", issuedAt=120, expiresAt=190)},
+    ]
+    expected = [("s1", "f1"), ("s2", "f2"), ("s3", "f3")]
+    report = check(records=records, expected=expected, now=150,
+                   queue_warning_seconds=50)
+    assert report["nextQueueDelayWarningSecondsRemaining"] == 20
+    assert report["nextQueueDelayWarningKeys"] == [["s2", "f2"]]
+    assert report == check(records=list(reversed(records)),
+                           expected=list(reversed(expected)), now=150,
+                           queue_warning_seconds=50)
+    assert report["mayExecutePaperOrder"] is False
+    assert report["mayExecuteLiveOrder"] is False
