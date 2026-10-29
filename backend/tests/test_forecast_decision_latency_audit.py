@@ -132,6 +132,14 @@ def test_empty_population_no_false_positive():
     assert r["byHorizon"] == []
 
 
+def test_empty_expected_schedule_with_unexpected_issuance_requires_review():
+    unexpected = [("m1", 1, 60)]
+    r = audit(snapshot(unexpected), IDENTITY, [], [], as_of=4000)
+    assert r["status"] == "OPERATOR_REVIEW_REQUIRED"
+    assert r["expectedCount"] == 0
+    assert r["p95DeclaredLatencySeconds"] is None
+
+
 def test_missing_sample_capped_but_counts_complete():
     expected = keys(101)
     r = audit(snapshot([]), IDENTITY, expected, [], as_of=10000)
