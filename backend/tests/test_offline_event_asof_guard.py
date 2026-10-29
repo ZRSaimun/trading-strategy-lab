@@ -133,3 +133,49 @@ def test_unbounded_or_oversized_decimal_rejected(value):
 
 def test_negative_zero_is_canonical_and_deterministic():
     assert run([row(forecast="-0.000")])["events"][0]["forecast"] == "0"
+
+
+def test_first_schedule_observed_after_event_rejected():
+    with pytest.raises(ValueError, match="before its event"):
+        run([row(published="2026-10-28T18:01:00Z",
+                 observed="2026-10-28T18:02:00Z")], "2026-10-28T19:00:00Z")
+
+
+def test_first_schedule_observed_exactly_at_event_rejected():
+    with pytest.raises(ValueError, match="before its event"):
+        run([row(published="2026-10-28T18:00:00Z",
+                 observed="2026-10-28T18:00:00Z")], "2026-10-28T19:00:00Z")
+
+
+def test_post_release_forecast_revision_rejected():
+    rows = [row(), row(2, "schedule", published="2026-10-28T18:01:00Z",
+                       observed="2026-10-28T18:02:00Z", forecast="3.8")]
+    with pytest.raises(ValueError, match="before its event"):
+        run(rows, "2026-10-28T19:00:00Z")
+
+
+def test_post_original_event_time_postponement_rejected():
+    rows = [row(), row(2, "schedule", scheduled="2026-10-28T19:00:00Z",
+                       published="2026-10-28T18:01:00Z",
+                       observed="2026-10-28T18:02:00Z")]
+    with pytest.raises(ValueError, match="prior event time"):
+        run(rows, "2026-10-28T19:30:00Z")
+
+
+def test_postponement_at_original_event_boundary_rejected():
+    rows = [row(), row(2, "schedule", scheduled="2026-10-28T19:00:00Z",
+                       published="2026-10-28T18:00:00Z",
+                       observed="2026-10-28T18:00:00Z")]
+    with pytest.raises(ValueError, match="prior event time"):
+        run(rows, "2026-10-28T19:30:00Z")
+
+
+def test_pre_event_reschedule_remains_visible_as_of():
+    rows = [row(), row(2, "schedule", scheduled="2026-10-28T19:00:00Z",
+                       published="2026-10-28T17:01:00Z",
+                       observed="2026-10-28T17:02:00Z", forecast="3.6")]
+    assert run(rows, "2026-10-28T17:01:00Z")["events"][0]["revision"] == 1
+    visible = run(rows, "2026-10-28T17:02:00Z")["events"][0]
+    assert visible["revision"] == 2
+    assert visible["forecast"] == "3.6"
+    assert visible["scheduled_utc"] == "2026-10-28T19:00:00+00:00"
