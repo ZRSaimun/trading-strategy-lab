@@ -30,6 +30,9 @@ def audit_declared_holdout_fold_isolation(folds):
     tightest_selection_gap_index = None
     max_label_tail = 0
     longest_label_tail_fold_index = None
+    total_pending_labels = 0
+    max_pending_labels = 0
+    most_pending_labels_fold_index = None
     study_id = candidate_id = candidate_sha = source_signature = None
     summaries = []
     for index, fold in enumerate(folds):
@@ -85,6 +88,16 @@ def audit_declared_holdout_fold_isolation(folds):
         # A label can mature after the decision window closes. Surface this
         # declared release-readiness risk without reading outcome values.
         label_tail = max(0, previous_max_label - previous_end)
+        # A window can close with multiple unresolved trade labels, even if
+        # their longest maturity tail is only one second. Count every row,
+        # not merely the last decision or latest available label.
+        pending_labels = sum(
+            row["label_available_at_utc"] > previous_end for row in census
+        )
+        total_pending_labels += pending_labels
+        if pending_labels > max_pending_labels:
+            max_pending_labels = pending_labels
+            most_pending_labels_fold_index = index
         if label_tail > max_label_tail:
             max_label_tail = label_tail
             longest_label_tail_fold_index = index
@@ -96,6 +109,7 @@ def audit_declared_holdout_fold_isolation(folds):
             "observation_count": len(census),
             "latest_declared_label_available_at_utc": previous_max_label,
             "declared_label_tail_beyond_window_seconds": label_tail,
+            "declared_labels_pending_at_window_end_count": pending_labels,
         })
     return {
         "protocol": "declared-holdout-fold-isolation-v1",
@@ -103,6 +117,9 @@ def audit_declared_holdout_fold_isolation(folds):
         "fold_count": len(folds),
         "max_declared_label_tail_beyond_window_seconds": max_label_tail,
         "longest_declared_label_tail_fold_index": longest_label_tail_fold_index,
+        "total_declared_labels_pending_at_window_end_count": total_pending_labels,
+        "max_declared_labels_pending_at_window_end_count": max_pending_labels,
+        "most_pending_declared_labels_fold_index": most_pending_labels_fold_index,
         "observation_count": len(seen_rows),
         "min_declared_label_embargo_slack_seconds": min_label_embargo_slack,
         "tightest_declared_label_embargo_later_fold_index": tightest_label_embargo_transition_index,
