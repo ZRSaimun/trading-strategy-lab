@@ -82,8 +82,10 @@ def test_duplicate_archive_fails_closed():
 
 def test_oversized_count_fails_closed():
     a = sample()
-    a[0]['all_exploratory']['count'] = 500001
-    a[0]['confirmed_count'] = 500001
+    # Keep the upstream 70/30 partition internally consistent so the
+    # downstream robustness-specific 500k outcome bound is actually tested.
+    a[0] = receipt('a', 'c', count=500001, mean=0)
+    a[0]['bar_count'] = 500002
     rehash(a[0])
     with pytest.raises(ValueError, match='outcome count'):
         audit_m1_archive_robustness(a)
@@ -91,9 +93,9 @@ def test_oversized_count_fails_closed():
 
 def test_unbounded_mean_fails_closed():
     a = sample()
-    a[0]['all_exploratory']['mean_gross_bps'] = 1_000_001
-    a[0]['all_exploratory']['mean_net_bps_by_roundtrip_cost'] = {str(c): 1_000_001-c for c in (0, 5, 10, 20)}
-    rehash(a[0])
+    # Preserve upstream split-mean reconciliation to exercise this auditor's
+    # independent implausible-mean rejection, not the earlier split guard.
+    a[0] = receipt('a', 'c', count=2, mean=1_000_001)
     with pytest.raises(ValueError, match='Implausibly'):
         audit_m1_archive_robustness(a)
 
