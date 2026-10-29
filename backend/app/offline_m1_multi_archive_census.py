@@ -175,7 +175,12 @@ def audit_m1_multi_archive_census(reports):
     for (instrument, provider), entries in sorted(groups.items()):
         entries.sort(key=lambda x: x[0])
         count = sum(x[1] for x in entries)
-        mean = sum((x[2] * x[1] for x in entries if x[2] is not None), Decimal(0)) / count if count else None
+        # An empty archive can be a missing-data regime, not evidence of a
+        # zero-return sample. Withhold the entire source's performance rather
+        # than silently selecting only the nonempty archives.
+        complete = all(n > 0 and gross is not None for _, n, gross in entries)
+        mean = (sum((gross * n for _, n, gross in entries), Decimal(0)) / count
+                if complete else None)
 
         def rounded(value):
             return float(value.quantize(Decimal("0.000001"), rounding=ROUND_HALF_EVEN)) if value is not None else None
@@ -183,13 +188,14 @@ def audit_m1_multi_archive_census(reports):
         result.append({
             "instrument": instrument, "provider": provider,
             "archive_count": len(entries), "evaluated_count": count,
+            "status": ("DESCRIPTIVE_EXPLORATORY_ONLY" if complete
+                       else "INCOMPLETE_ARCHIVE_COVERAGE"),
             "weighted_mean_gross_bps_rounded_receipts": rounded(mean),
             "weighted_mean_net_bps_by_illustrative_cost": {
                 str(cost): rounded(mean - cost) if mean is not None else None for cost in COSTS
             },
             "all_nonempty_archives_negative_at_5bps": (
-                all(gross is not None and gross < 5 for _, _, gross in entries)
-                if count and all(n > 0 for _, n, _ in entries) else None
+                all(gross < 5 for _, _, gross in entries) if complete else None
             ),
             "archive_sha256": [sha for sha, _, _ in entries],
         })
@@ -198,4 +204,4 @@ def audit_m1_multi_archive_census(reports):
             "research_only": True, "trade_authorized": False,
             "verified_profitability": False, "protected_holdout": False,
             "source_authenticity_verified": False, "executable_quotes_verified": False,
-            "warning": "Self-hashed declarations are not authenticated vendor evidence. Means are weighted from six-decimal rounded per-archive reports; no raw execution receipts, financing, verified UTC, protected holdout or trade permission."}
+            "warning": "Self-hashed declarations are not authenticated vendor evidence. Incomplete source cohorts withhold all performance; complete means are weighted from six-decimal rounded per-archive reports. No raw execution receipts, financing, verified UTC, protected holdout or trade permission."}
