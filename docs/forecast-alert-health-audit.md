@@ -224,3 +224,27 @@ This is a descriptive countdown using caller-declared timestamps, not a
 scheduler, delivery proof, authenticated source, send/retry permission, or
 trading signal. It does not activate workers, Telegram delivery, paper
 execution, live broker access, or production deployment.
+
+
+## Next queued-alert delay warning deadline (29 October 2026)
+
+The disconnected read-only census returns
+`nextQueueDelayWarningSecondsRemaining` and `nextQueueDelayWarningKeys`.
+For still-valid, unclaimed `QUEUED` alerts **younger** than
+`queue_warning_seconds`, these identify the nearest upcoming issuance-age
+warning and all tied sorted `[sessionId, forecastId]` identities. The
+countdown is a strictly positive integer. At the exact threshold the alert
+instead enters `QUEUE_DELAY_WARNING`; expired queued alerts, uncertain
+claims, self-attested ACKs and cancellations never enter the upcoming-deadline
+inventory. With no eligible queued alerts, the countdown is null and keys
+are empty. A separate `EXPIRING_SOON_WARNING` may already require operator
+review even when the queue-age deadline is still in the future.
+
+This metric uses only caller-declared issuance times and `as_of`. It does
+not schedule or authorize a send, authenticate completed market candles or
+recipient delivery, retry an uncertain claim, create a paper fill, or permit
+broker orders. Three synthetic regressions cover ties and record-order
+independence, mixed statuses, exact one-second/threshold/expiry boundaries,
+and configurable warning budgets. Production release still requires
+independent source and receipt evidence, recipient opt-in, and verified
+backup restoration, rollback and health checks.
