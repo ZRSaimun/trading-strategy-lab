@@ -7,6 +7,7 @@ import math
 
 from .forecast_prospective_scorecard import summarize_forecast_snapshot
 from .forecast_fixed_bin_reliability import audit_fixed_bin_reliability
+from .forecast_regret_run_audit import audit_chronological_regret_runs
 
 
 def audit_causal_climatology(snapshot, *, evaluation_as_of, min_training=30,
@@ -173,7 +174,17 @@ def audit_causal_climatology(snapshot, *, evaluation_as_of, min_training=30,
         if fixed_bin_status is None:
             fixed_bin = audit_fixed_bin_reliability(scored_calibration)
             fixed_bin_status = fixed_bin["status"]
+        # A descriptive worst run is meaningful only on a complete, frozen
+        # eligible census; do not silently omit pending/void labels.
+        run_status = ("BASELINE_SCORE_WITHHELD" if not sufficient else
+                      "MISSING_ELIGIBLE_OUTCOMES" if unavailable else None)
+        regret_runs = None
+        if run_status is None:
+            regret_runs = audit_chronological_regret_runs(scored_regrets, min_scored=min_scored)
+            run_status = regret_runs["status"]
         results.append({
+            "chronologicalRegretRunStatus": run_status,
+            "chronologicalRegretRuns": regret_runs,
             "fixedBinReliabilityStatus": fixed_bin_status,
             "fixedBinReliability": fixed_bin,
             "modelVersion": model, "horizonCandles": horizon,
