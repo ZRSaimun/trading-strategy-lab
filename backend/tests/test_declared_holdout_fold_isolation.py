@@ -939,3 +939,67 @@ def test_all_prior_validation_population_tie_prefers_earliest_later_fold():
     assert report["holdout_untouched_independently_verified"] is False
     assert report["may_execute_demo_order"] is False
     assert report["may_execute_real_order"] is False
+
+
+def test_maximum_24_disjoint_two_year_folds_remain_membership_only():
+    # 48 declared synthetic years, 960 unique observations, no market data.
+    folds = [_fold(i) for i in range(24)]
+    before = copy.deepcopy(folds)
+    report = audit_declared_holdout_fold_isolation(folds)
+    assert report["fold_count"] == 24
+    assert report["observation_count"] == 24 * 40
+    assert len(report["declared_validation_cutoff_transitions"]) == 23
+    assert len({f["archive_sha256"] for f in report["folds"]}) == 24
+    assert sum(sum(f["declared_decision_quarter_counts"]) for f in report["folds"]) == 960
+    assert report["total_declared_all_prior_labels_unavailable_at_validation_end_count"] == 0
+    assert folds == before
+    assert report["source_bytes_independently_authenticated"] is False
+    assert report["holdout_untouched_independently_verified"] is False
+    assert report["profitable_edge_verified"] is False
+    assert report["may_execute_demo_order"] is False
+    assert report["may_execute_real_order"] is False
+    assert "net_cash" not in report
+
+
+def test_more_than_24_declared_folds_rejected_before_research():
+    with pytest.raises(ValueError, match="2..24"):
+        audit_declared_holdout_fold_isolation([_fold(i) for i in range(25)])
+
+
+@pytest.mark.parametrize("field, replacement", [
+    ("provider", "AnotherSyntheticProvider"),
+    ("venue", "AnotherOfflineVenue"),
+    ("instrument", "WTIUSD-CFD"),
+    ("quote_side", "ASK"),
+    ("account_alias", "different-paper-account"),
+    ("settlement_currency", "USD"),
+])
+def test_last_of_24_folds_cannot_change_source_convention(field, replacement):
+    folds = [_fold(i) for i in range(24)]
+    folds[-1]["manifest"]["source"][field] = replacement
+    with pytest.raises(ValueError, match="Cross-fold study/candidate/source"):
+        audit_declared_holdout_fold_isolation(folds)
+
+
+def test_last_of_24_folds_rejects_cross_archive_row_identity_reuse():
+    folds = [_fold(i) for i in range(24)]
+    folds[-1]["census"][0]["row_sha256"] = folds[0]["census"][0]["row_sha256"]
+    folds[-1]["manifest"]["holdout_census_sha256"] = (
+        prepare_declared_holdout_census_sha256(folds[-1]["census"])
+    )
+    with pytest.raises(ValueError, match="Cross-fold row identity reused"):
+        audit_declared_holdout_fold_isolation(folds)
+
+
+def test_last_of_24_folds_rejects_immature_prior_label_even_with_recommitted_census():
+    folds = [_fold(i) for i in range(24)]
+    # An otherwise valid prior fold declares a late-maturing last label.
+    # Recomputing its caller-controlled digest must not bypass embargo.
+    folds[-2]["census"][-1]["label_available_at_utc"] = (
+        folds[-1]["manifest"]["selected_at_utc"]
+    )
+    folds[-2]["manifest"]["holdout_census_sha256"] = (
+        prepare_declared_holdout_census_sha256(folds[-2]["census"])
+    )
+    with pytest.raises(ValueError, match="labels not mature"):
+        audit_declared_holdout_fold_isolation(folds)
