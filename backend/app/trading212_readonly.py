@@ -5,7 +5,8 @@ credentials, account eligibility, permissions and any data usage rights.
 """
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
+from email.utils import format_datetime, parsedate_to_datetime
 from time import monotonic_ns
 import hashlib
 import json
@@ -95,6 +96,63 @@ def _rate_limit_observation(headers: httpx.Headers) -> dict:
     }
 
 
+def _http_time_header_observation(headers: httpx.Headers, completed: datetime) -> dict:
+    """Record untrusted HTTP Date/Age evidence without attesting source freshness.
+
+    A Date header is an HTTP server assertion, not a signed issuance time.
+    Age may indicate an intermediary cache. Neither can prove a live quote.
+    """
+    dates, ages = headers.get_list("date"), headers.get_list("age")
+    if len(dates) > 1 or len(ages) > 1:
+        raise ReadOnlyBrokerError("Ambiguous broker HTTP time headers")
+
+    asserted_date = None
+    if dates:
+        value = dates[0]
+        if len(value) > 40:
+            raise ReadOnlyBrokerError("Invalid broker HTTP time headers")
+        try:
+            parsed = parsedate_to_datetime(value)
+            if (parsed.tzinfo is None or parsed.utcoffset() != timedelta(0)
+                    or format_datetime(parsed.astimezone(timezone.utc), usegmt=True) != value):
+                raise ValueError("noncanonical HTTP Date")
+        except (TypeError, ValueError, OverflowError):
+            raise ReadOnlyBrokerError("Invalid broker HTTP time headers") from None
+        asserted_date = parsed.astimezone(timezone.utc)
+
+    age_seconds = None
+    if ages:
+        value = ages[0]
+        if (len(value) > 13 or not value.isascii()
+                or re.fullmatch(r"[0-9]+", value) is None):
+            raise ReadOnlyBrokerError("Invalid broker HTTP time headers")
+        age_seconds = int(value)
+
+    offset_seconds = (
+        (completed - asserted_date).total_seconds() if asserted_date is not None else None
+    )
+    disagreement = offset_seconds is not None and abs(offset_seconds) > 300
+    if asserted_date is None:
+        status = "MISSING_DATE_REVIEW_REQUIRED"
+    elif disagreement:
+        status = "LOCAL_CLOCK_DISAGREEMENT_REVIEW_REQUIRED"
+    elif age_seconds is not None and age_seconds > 0:
+        status = "AGE_HEADER_INDICATES_CACHE"
+    else:
+        status = "OBSERVED_UNVERIFIED"
+
+    return {
+        "status": status,
+        "http_date_utc": asserted_date.isoformat() if asserted_date else None,
+        "http_age_seconds": age_seconds,
+        "local_completion_minus_http_date_seconds": offset_seconds,
+        "local_clock_disagreement_over_300s": disagreement,
+        "http_date_attested": False,
+        "cache_freshness_verified": False,
+        "may_use_as_market_timestamp": False,
+    }
+
+
 def fetch_trading212_readonly(
     *, endpoint: str, api_key: str, api_secret: str,
     account_type: str, environment: str = "DEMO",
@@ -162,6 +220,7 @@ def fetch_trading212_readonly(
     receipt_wall_elapsed_ms = (receipt_completed_wall - receipt_started_wall).total_seconds() * 1000
     receipt_clock_delta_ms = receipt_wall_elapsed_ms - receipt_elapsed_monotonic_ms
     receipt_clock_anomaly_detected = (receipt_wall_elapsed_ms < 0 or abs(receipt_clock_delta_ms) > 2000)
+    http_time_observation = _http_time_header_observation(response.headers, receipt_completed_wall)
 
     # Content-Length, when present, describes the exact identity-encoded
     # response body. Reject a declared length that disagrees with the bytes
@@ -191,6 +250,7 @@ def fetch_trading212_readonly(
         "receipt_clock_attested": False,
         "response_sha256": hashlib.sha256(raw).hexdigest(), "data": payload,
         "rate_limit_observation": quota_observation,
+        "http_time_observation": http_time_observation,
         "server_clock_attested": False, "market_data_feed": False,
         "price_freshness_verified": False, "cfd_supported": False,
         "may_execute_order": False,
