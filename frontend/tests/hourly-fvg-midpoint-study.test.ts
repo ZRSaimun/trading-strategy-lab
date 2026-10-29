@@ -3009,3 +3009,21 @@ test('v72 full-history freezes source, volume status and costs before completed-
  const observed=actual.observations.find(o=>o.formationClosedAt===BASE+33*H);
  assert.equal(observed?.gates.verifiedVolume,'PASS');
 });
+
+test('v72 source/config getter cannot resize the bounded historical candle population',()=>{
+ for(const action of ['append','truncate'] as const){
+  const rows=fixture();
+  const config:FvgConfig={};
+  let reads=0;
+  Object.defineProperty(config,'volumeMultiple',{enumerable:true,get(){
+   reads++;
+   if(action==='append')rows.push(candle(40));
+   else rows.pop();
+   return 1.5;
+  }});
+  assert.throws(()=>studyHourlyFvgMidpoint(rows,source,config),
+   /array length changed during declaration snapshot/,
+   'historical source population must be fixed before settings are inspected');
+  assert.equal(reads,1);
+ }
+});
