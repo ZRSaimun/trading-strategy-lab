@@ -27,7 +27,8 @@ def test_result_only_visible_after_observed():
     rows = [row(), row(2, "result", published="2026-10-28T18:01:00Z",
                        observed="2026-10-28T18:02:00Z", actual="3.7")]
     assert run(rows, "2026-10-28T18:01:00Z")["events"][0]["actual"] is None
-    assert run(rows, "2026-10-28T18:02:00Z")["events"][0]["actual"] == "3.7"
+    assert run(rows, "2026-10-28T18:02:00Z")["events"][0]["actual"] is None
+    assert run(rows, "2026-10-28T18:03:00Z")["events"][0]["actual"] == "3.7"
 
 
 def test_future_revision_cannot_change_past_snapshot():
@@ -37,10 +38,11 @@ def test_future_revision_cannot_change_past_snapshot():
     assert run(base) == run(base+[future])
 
 
-def test_result_at_event_time_permitted():
+def test_result_in_decision_minute_is_excluded():
     rows = [row(), row(2, "result", published="2026-10-28T18:00:00Z",
                        observed="2026-10-28T18:00:00Z", actual="3.7")]
-    assert run(rows, "2026-10-28T18:00:00Z")["events"][0]["actual"] == "3.7"
+    assert run(rows, "2026-10-28T18:00:00Z")["events"][0]["actual"] is None
+    assert run(rows, "2026-10-28T18:01:00Z")["events"][0]["actual"] == "3.7"
 
 
 def test_unobserved_schedule_not_visible():
@@ -175,7 +177,29 @@ def test_pre_event_reschedule_remains_visible_as_of():
                        published="2026-10-28T17:01:00Z",
                        observed="2026-10-28T17:02:00Z", forecast="3.6")]
     assert run(rows, "2026-10-28T17:01:00Z")["events"][0]["revision"] == 1
-    visible = run(rows, "2026-10-28T17:02:00Z")["events"][0]
+    assert run(rows, "2026-10-28T17:02:00Z")["events"][0]["revision"] == 1
+    visible = run(rows, "2026-10-28T17:03:00Z")["events"][0]
     assert visible["revision"] == 2
     assert visible["forecast"] == "3.6"
     assert visible["scheduled_utc"] == "2026-10-28T19:00:00+00:00"
+
+
+def test_first_schedule_stamped_in_decision_minute_is_not_visible():
+    report = run([row()], "2026-10-28T12:01:00Z")
+    assert report["visible_revision_count"] == 0
+    assert report["visible_event_count"] == 0
+    assert report["events"] == []
+    assert run([row()], "2026-10-28T12:02:00Z")["visible_event_count"] == 1
+
+
+def test_same_minute_result_does_not_change_prior_snapshot_or_count():
+    schedule = row()
+    result = row(2, "result", published="2026-10-28T18:00:00Z",
+                 observed="2026-10-28T18:00:00Z", actual="3.7")
+    before = run([schedule], "2026-10-28T18:00:00Z")
+    same_minute = run([schedule, result], "2026-10-28T18:00:00Z")
+    assert same_minute == before
+    assert same_minute["visible_revision_count"] == 1
+    after = run([schedule, result], "2026-10-28T18:01:00Z")
+    assert after["visible_revision_count"] == 2
+    assert after["events"][0]["actual"] == "3.7"
