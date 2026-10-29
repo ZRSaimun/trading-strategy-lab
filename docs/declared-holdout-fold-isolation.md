@@ -151,3 +151,34 @@ timestamps remain caller-declared, not independently authenticated.
 Synthetic regressions distinguish 97/1/1/1 from 25/25/25/25, cover
 integer rounding, study-wide maxima, earliest-fold ties, immutable
 inputs and disabled demo/real trading permissions.
+
+
+## Cumulative earlier-fold label availability at validation cutoff
+
+The existing `declared_prior_labels_unavailable_at_validation_end_count`
+reports only the **immediately preceding** fold. That is insufficient when
+a later fold declares a validation cutoff predating two or more earlier
+holdouts: selection may still be chronologically valid, but multiple
+earlier-fold label populations would not have been observable at the
+declared validation cutoff.
+
+Each entry in `declared_validation_cutoff_transitions` now also includes
+`declared_all_prior_labels_unavailable_at_validation_end_count`, counting
+rows from **every earlier fold** whose `label_available_at_utc` is strictly
+greater than the later fold's `validation_end_at_utc`. Equality means the
+label is available. The study-wide total, maximum, and earliest later-fold
+index attaining a positive maximum are:
+`total_declared_all_prior_labels_unavailable_at_validation_end_count`,
+`max_declared_all_prior_labels_unavailable_at_validation_end_count`, and
+`most_all_prior_unavailable_at_validation_later_fold_index` (null if all
+counts are zero). Totals are **transition exposure counts**, so one earlier
+observation can be counted for multiple later validation cutoffs.
+
+These are strictly caller-declared, membership-only **diagnostics**, not
+proof that prior labels were used for validation, or that the holdout was
+independently protected. The audit deliberately preserves the previous-fold
+field for compatibility. Five synthetic regression cases cover a label
+one second after the cutoff, equality, fully matured earlier folds,
+cumulative populations, stable earliest-index ties, immutable inputs and
+disabled paper/real order permissions. No broker quotes, prices, costs or
+outcomes are read.
