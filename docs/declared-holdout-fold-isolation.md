@@ -182,3 +182,19 @@ one second after the cutoff, equality, fully matured earlier folds,
 cumulative populations, stable earliest-index ties, immutable inputs and
 disabled paper/real order permissions. No broker quotes, prices, costs or
 outcomes are read.
+
+
+## Upper-bound multi-fold synthetic regression (29 October 2026)
+
+The declared membership-only fold audit now has explicit tests at its maximum
+supported 24-fold limit: 24 consecutive, non-overlapping synthetic two-year
+windows (48 declared years) and 960 unique synthetic decisions. The tests
+verify complete census/quarter accounting, 23 transitions, source identities,
+input immutability, and permanent denial of paper/real order permissions.
+Additional negative tests reject a 25th fold, late-fold provider/venue/
+instrument/quote-side/account/currency changes, reused raw-row identities
+despite a recomputed census digest, and a prior fold's label maturing at the
+next selection timestamp without the required embargo. These tests exercise
+declared arithmetic and fail-closed behavior only; they are **not** 48 years
+of authenticated market history, independent holdout protection, executable
+transaction costs, or evidence of strategy profitability.
