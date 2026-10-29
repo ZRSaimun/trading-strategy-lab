@@ -49,6 +49,7 @@ def audit_m1_archive_robustness(reports):
             nonempty = [(sha, n, gross) for sha, n, gross in entries if n]
             total = sum(n for _, n, _ in nonempty)
             k = len(nonempty)
+            complete = k == len(entries)
             weighted_gross = sum((n * gross for _, n, gross in nonempty), Decimal(0)) / total if total else None
             balanced_gross = sum((gross for _, _, gross in nonempty), Decimal(0)) / k if k else None
             worst_gross = min((gross for _, _, gross in nonempty), default=None)
@@ -62,13 +63,14 @@ def audit_m1_archive_robustness(reports):
             for cost in COSTS:
                 dcost = Decimal(cost)
                 scenarios[str(cost)] = {
-                    "trade_weighted_net_bps": _six(weighted_gross - dcost) if total else None,
-                    "equal_archive_net_bps": _six(balanced_gross - dcost) if k else None,
-                    "worst_archive_net_bps": _six(worst_gross - dcost) if k else None,
-                    "best_archive_net_bps": _six(best_gross - dcost) if k else None,
-                    "leave_one_archive_out_min_net_bps": _six(min(deletion_gross) - dcost) if deletion_gross else None,
-                    "leave_one_archive_out_max_net_bps": _six(max(deletion_gross) - dcost) if deletion_gross else None,
-                    "archive_means_positive_after_cost": sum(gross > dcost for _, _, gross in nonempty),
+                    "trade_weighted_net_bps": _six(weighted_gross - dcost) if complete else None,
+                    "equal_archive_net_bps": _six(balanced_gross - dcost) if complete else None,
+                    "worst_archive_net_bps": _six(worst_gross - dcost) if complete else None,
+                    "best_archive_net_bps": _six(best_gross - dcost) if complete else None,
+                    "leave_one_archive_out_min_net_bps": _six(min(deletion_gross) - dcost) if complete and deletion_gross else None,
+                    "leave_one_archive_out_max_net_bps": _six(max(deletion_gross) - dcost) if complete and deletion_gross else None,
+                    "archive_means_positive_after_cost": (sum(gross > dcost for _, _, gross in nonempty)
+                                                          if complete else None),
                 }
             status = ("NO_EVALUATED_ARCHIVES" if k == 0 else
                       "INCOMPLETE_ARCHIVE_COVERAGE" if k != len(entries) else
@@ -98,5 +100,5 @@ def audit_m1_archive_robustness(reports):
         "executable_quotes_verified": False,
         "source_authenticity_verified": False,
         "statistical_significance_verified": False,
-        "warning": "Descriptive archive-level deletion stress only; archive labels are not chronology, receipts are self-hashed and rounded, archive independence is not assumed, and no uncertainty interval, authenticated data, executable costs, untouched holdout or trade permission is established.",
+        "warning": "Descriptive archive-level deletion stress only; incomplete source cohorts withhold all performance. Archive labels are not chronology, receipts are self-hashed and rounded, archive independence is not assumed, and no uncertainty interval, authenticated data, executable costs, untouched holdout or trade permission is established.",
     }
