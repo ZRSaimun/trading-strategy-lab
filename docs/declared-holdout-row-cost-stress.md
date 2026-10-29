@@ -152,3 +152,27 @@ differently as earlier costs increase. This diagnostic does not rank
 incomparable scenarios, authenticate source data, independently protect
 a holdout, prove broker-executable costs or establish profitability.
 No broker adapter or order permission is changed.
+
+## Negative receipt-batch clustering (declared-only cash diagnostic)
+
+For released populations of at least 30 observations, each scenario now
+aggregates stressed cash receipts by their declared `observed_at_utc` second,
+then reports `negative_receipt_batch_count`,
+`max_consecutive_negative_receipt_batches` and
+`max_consecutive_negative_receipt_batches_loss_cash`. The last is the
+largest sum of negative batch cash magnitudes within any uninterrupted run
+of negative batches. A zero or positive net batch breaks the run; when
+there are no negative batches the count, longest run and loss are zero.
+All three fields are `null` for smaller holdouts.
+
+**Consecutive means consecutive entries in the ordered observed-second
+batch sequence, not adjacent wall-clock seconds.** A gap of days between
+two negative receipt batches does not imply an uninterrupted account loss
+throughout those days. A same-second positive and negative receipt can
+net to a nonnegative batch, so individual losing observations need not
+equal negative receipt batches. This is a cash-posting clustering
+diagnostic only; it is not a loss-streak probability, independent-trade
+statistic, intraperiod broker-equity drawdown, margin estimate or a bound
+on unobserved execution risk. All receipt times and costs are declared,
+not independently authenticated. It grants no paper/demo or live order
+permission.
