@@ -3974,10 +3974,18 @@ test('v90 cost-width touch censor bounds retain direction and missing evidence',
 
 
 test('v91 cost-width strict first-touch evidence keeps unknown volume separate from failures',()=>{
- const pass=fixture();
- const fail=fixture().map((b,i)=>({...b,time:b.time+50*H,
+ // Isolate one known FVG per block; the generic fixture contains
+ // additional legitimate formations which would bias this test's census.
+ const template=Array.from({length:40},(_,i)=>
+  i>=34?candle(i,105,106,104,105):candle(i,100,101,99,100));
+ template[30]=candle(30,99,100,98,99);
+ template[31]=candle(31,100,102,99,101);
+ template[32]=candle(32,105,106,104,105);
+ template[33]=candle(33,105,106,101,105.5,200);
+ const pass=template;
+ const fail=template.map((b,i)=>({...b,time:b.time+50*H,
   volume:i===33?100:b.volume}));
- const unknown=fixture().map((b,i)=>({...b,time:b.time+100*H,
+ const unknown=template.map((b,i)=>({...b,time:b.time+100*H,
   open:220-b.open,high:220-b.low,low:220-b.high,close:220-b.close,
   volume:i===33?null:b.volume}));
  const bars=[...pass,...fail,...unknown];
