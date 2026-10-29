@@ -22,10 +22,18 @@ _PATHS = {
     "account_summary": "/api/v0/equity/account/summary",
 }
 _MAX_RESPONSE_BYTES = 8 * 1024 * 1024
+_MAX_TOTAL_RECEIPT_NS = 30 * 1_000_000_000
 
 
 class ReadOnlyBrokerError(ValueError):
     """Sanitized broker read error; never contains keys or response bodies."""
+
+
+def _check_total_receipt_deadline(started_monotonic_ns: int) -> None:
+    """Bound cumulative read time, not just per-operation HTTP timeouts."""
+    elapsed_ns = monotonic_ns() - started_monotonic_ns
+    if elapsed_ns < 0 or elapsed_ns > _MAX_TOTAL_RECEIPT_NS:
+        raise ReadOnlyBrokerError("Broker read exceeded total duration limit")
 
 
 def _unique_object_pairs(pairs: list[tuple[str, object]]) -> dict:
@@ -237,6 +245,7 @@ def fetch_trading212_readonly(
                                headers={"Accept": "application/json", "Accept-Encoding": "identity"}) as response:
                 if response.status_code != 200:
                     raise ReadOnlyBrokerError("Broker read refused or unavailable")
+                _check_total_receipt_deadline(receipt_started_monotonic_ns)
                 # Validate unambiguous wire framing before reading any payload.
                 # The body is always decoded as strict UTF-8, regardless of
                 # optional (matching) Content-Type charset metadata.
@@ -246,11 +255,13 @@ def fetch_trading212_readonly(
                 # streamed responses are consumed as raw, undecoded bytes.
                 if response.is_stream_consumed and transport is not None:
                     raw = response.content
+                    _check_total_receipt_deadline(receipt_started_monotonic_ns)
                     if len(raw) > _MAX_RESPONSE_BYTES:
                         raise ReadOnlyBrokerError("Broker response exceeds size limit")
                 else:
                     chunks, total = [], 0
                     for chunk in response.iter_raw(chunk_size=65536):
+                        _check_total_receipt_deadline(receipt_started_monotonic_ns)
                         total += len(chunk)
                         if total > _MAX_RESPONSE_BYTES:
                             raise ReadOnlyBrokerError("Broker response exceeds size limit")
@@ -258,6 +269,7 @@ def fetch_trading212_readonly(
                     raw = b"".join(chunks)
     except httpx.HTTPError:
         raise ReadOnlyBrokerError("Broker transport unavailable") from None
+    _check_total_receipt_deadline(receipt_started_monotonic_ns)
     receipt_elapsed_monotonic_ms = max(0, monotonic_ns() - receipt_started_monotonic_ns) / 1_000_000
     receipt_completed_wall = datetime.now(timezone.utc)
     receipt_completed_at_utc = receipt_completed_wall.isoformat()
