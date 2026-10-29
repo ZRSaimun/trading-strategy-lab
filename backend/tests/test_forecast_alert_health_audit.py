@@ -660,3 +660,58 @@ def test_queue_delay_deadline_ignores_unreachable_earlier_candidate():
                            queue_warning_seconds=50)
     assert report["mayExecutePaperOrder"] is False
     assert report["mayExecuteLiveOrder"] is False
+
+
+def test_next_expiry_soon_warning_selects_nearest_ties_and_is_order_independent():
+    records = [
+        {"sessionId": "s3", "state": state(forecastId="f3", expiresAt=270)},
+        {"sessionId": "s2", "state": state(forecastId="f2", expiresAt=240)},
+        {"sessionId": "s1", "state": state(forecastId="f1", expiresAt=240)},
+        {"sessionId": "s4", "state": state(forecastId="f4", expiresAt=150)},
+        {"sessionId": "s5", "state": state("IN_FLIGHT_UNCERTAIN", forecastId="f5")},
+        {"sessionId": "s6", "state": state("CANCELLED", forecastId="f6")},
+    ]
+    expected = [(row["sessionId"], row["state"]["forecastId"]) for row in records]
+    result = check(records=records, expected=expected, now=150)
+    assert result["nextExpirySoonWarningSecondsRemaining"] == 60
+    assert result["nextExpirySoonWarningKeys"] == [["s1", "f1"], ["s2", "f2"]]
+    assert result["earliestQueuedExpirySecondsRemaining"] == 90
+    assert result["counts"]["EXPIRED_UNCLAIMED"] == 1
+    assert result == check(records=list(reversed(records)),
+                           expected=list(reversed(expected)), now=150)
+    assert result["maySendNotification"] is False
+
+
+def test_next_expiry_soon_warning_exact_boundary_and_expiry():
+    before = check(state(expiresAt=240), now=209)
+    assert before["nextExpirySoonWarningSecondsRemaining"] == 1
+    assert before["nextExpirySoonWarningKeys"] == [["s1", "f1"]]
+    assert before["counts"]["EXPIRING_SOON_WARNING"] == 0
+    at = check(state(expiresAt=240), now=210)
+    assert at["nextExpirySoonWarningSecondsRemaining"] is None
+    assert at["nextExpirySoonWarningKeys"] == []
+    assert at["counts"]["EXPIRING_SOON_WARNING"] == 1
+    expired = check(state(expiresAt=240), now=240)
+    assert expired["nextExpirySoonWarningSecondsRemaining"] is None
+    assert expired["nextExpirySoonWarningKeys"] == []
+    assert expired["counts"]["EXPIRED_UNCLAIMED"] == 1
+
+
+def test_next_expiry_soon_warning_respects_budget_and_empty_cohorts():
+    result = check(state(expiresAt=180), now=150, expiry_warning_seconds=1)
+    assert result["nextExpirySoonWarningSecondsRemaining"] == 29
+    assert result["nextExpirySoonWarningKeys"] == [["s1", "f1"]]
+    at = check(state(expiresAt=180), now=179, expiry_warning_seconds=1)
+    assert at["counts"]["EXPIRING_SOON_WARNING"] == 1
+    assert at["nextExpirySoonWarningSecondsRemaining"] is None
+    for report in (
+        check(state(expiresAt=140), now=130),
+        check(records=[], expected=[]),
+        check(state("CANCELLED")),
+        check(state("IN_FLIGHT_UNCERTAIN")),
+        check(state("ACK_RECORDED_UNVERIFIED")),
+    ):
+        assert report["nextExpirySoonWarningSecondsRemaining"] is None
+        assert report["nextExpirySoonWarningKeys"] == []
+        assert report["mayExecutePaperOrder"] is False
+        assert report["mayExecuteLiveOrder"] is False
