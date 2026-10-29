@@ -38,6 +38,26 @@ def _unique_object_pairs(pairs: list[tuple[str, object]]) -> dict:
     return obj
 
 
+def _reject_unpaired_surrogates(value: object) -> None:
+    """Reject non-Unicode-scalar JSON strings, including nested object keys.
+
+    JSON escapes can decode to isolated UTF-16 surrogate code points even
+    when the HTTP response itself was valid UTF-8. Such values cannot be
+    faithfully encoded as UTF-8 for downstream audit or storage.
+    """
+    pending = [value]
+    while pending:
+        item = pending.pop()
+        if isinstance(item, str):
+            if any(0xD800 <= ord(char) <= 0xDFFF for char in item):
+                raise ValueError("unpaired JSON surrogate")
+        elif isinstance(item, dict):
+            pending.extend(item.keys())
+            pending.extend(item.values())
+        elif isinstance(item, list):
+            pending.extend(item)
+
+
 def _finite_float(value: str) -> float:
     result = float(value)
     if not math.isfinite(result):
@@ -239,6 +259,10 @@ def fetch_trading212_readonly(
         raise ReadOnlyBrokerError("Invalid broker JSON") from None
     if not isinstance(payload, (dict, list)):
         raise ReadOnlyBrokerError("Unexpected broker JSON shape")
+    try:
+        _reject_unpaired_surrogates(payload)
+    except ValueError:
+        raise ReadOnlyBrokerError("Invalid broker JSON") from None
     return {
         "provider": "Trading 212", "environment": environment,
         "account_type_declared": account_type, "account_type_verified": False,
