@@ -49,6 +49,8 @@ def test_row_specific_components_and_maximum_reconcile():
         "extra_cost_cash": "2.0000",
         "stressed_net_cash": "52.0000",
         "max_single_observation_extra_cost_cash": "1.2500",
+        "additional_cost_affected_observation_count": 2,
+        "max_single_observation_extra_cost_share_bps": 6250,
         "worst_observation_stressed_net_cash": "0.6500",
         "max_observation_end_drawdown_cash": "0.0000",
         "max_receipt_time_ordering_drawdown_cash_upper_bound": "0.0000",
@@ -76,6 +78,8 @@ def test_zero_costs_preserve_baseline_and_do_not_verify_edge():
     result = _audit(data, [_scenario(data)])
     assert result["scenarios"][0]["extra_cost_cash"] == "0.0000"
     assert result["scenarios"][0]["stressed_net_cash"] == "54.0000"
+    assert result["scenarios"][0]["additional_cost_affected_observation_count"] == 0
+    assert result["scenarios"][0]["max_single_observation_extra_cost_share_bps"] is None
     assert result["profitable_edge_verified"] is False
 
 
@@ -103,6 +107,8 @@ def test_small_holdout_withholds_all_outcome_and_cost_metrics(count):
     assert entry["extra_cost_cash"] is None
     assert entry["stressed_net_cash"] is None
     assert entry["max_single_observation_extra_cost_cash"] is None
+    assert entry["additional_cost_affected_observation_count"] is None
+    assert entry["max_single_observation_extra_cost_share_bps"] is None
     assert entry["worst_observation_stressed_net_cash"] is None
     assert entry["max_observation_end_drawdown_cash"] is None
     assert entry["max_receipt_time_ordering_drawdown_cash_upper_bound"] is None
@@ -318,3 +324,48 @@ def test_more_adverse_costs_cannot_reduce_losing_population():
     assert reports["severe"]["additional_cost_induced_losing_observation_count"] == 2
     assert Decimal(reports["severe"]["stressed_gross_loss_cash"]) > 0
     assert reports["severe"]["stressed_net_cash"] < reports["mild"]["stressed_net_cash"]
+
+
+def test_single_row_carries_all_additional_cost_and_reports_full_concentration():
+    data = _fixture()
+    report = _audit(data, [_scenario(data, per_row={
+        0: {"financing_extra_cash": "4.0000"},
+    })])["scenarios"][0]
+    assert report["extra_cost_cash"] == "4.0000"
+    assert report["additional_cost_affected_observation_count"] == 1
+    assert report["max_single_observation_extra_cost_share_bps"] == 10000
+
+
+def test_equal_row_costs_have_half_share_and_two_affected_observations():
+    data = _fixture()
+    report = _audit(data, [_scenario(data, per_row={
+        0: {"spread_extra_cash": "0.5000"},
+        1: {"slippage_extra_cash": "0.5000"},
+    })])["scenarios"][0]
+    assert report["additional_cost_affected_observation_count"] == 2
+    assert report["max_single_observation_extra_cost_share_bps"] == 5000
+
+
+def test_largest_row_share_uses_conservative_integer_floor_without_float():
+    data = _fixture()
+    report = _audit(data, [_scenario(data, per_row={
+        0: {"spread_extra_cash": "1.0000"},
+        1: {"slippage_extra_cash": "1.0000"},
+        2: {"commission_extra_cash": "1.0000"},
+    })])["scenarios"][0]
+    assert report["additional_cost_affected_observation_count"] == 3
+    assert report["max_single_observation_extra_cost_share_bps"] == 3333
+    assert report["extra_cost_cash"] == "3.0000"
+
+
+def test_tiny_exact_cash_cost_concentration_and_execution_disabled():
+    data = _fixture()
+    report = _audit(data, [_scenario(data, per_row={
+        0: {"fx_extra_cash": "0.0001"},
+        1: {"financing_extra_cash": "0.0002"},
+    })])
+    entry = report["scenarios"][0]
+    assert entry["additional_cost_affected_observation_count"] == 2
+    assert entry["max_single_observation_extra_cost_share_bps"] == 6666
+    assert report["may_execute_demo_order"] is False
+    assert report["may_execute_real_order"] is False
