@@ -786,3 +786,82 @@ def test_declared_decision_quarter_study_minimum_selects_sparse_final_fold():
     assert result["holdout_untouched_independently_verified"] is False
     assert result["may_execute_real_order"] is False
     assert "net_cash" not in result
+
+
+def _set_declared_quarter_population(fold, counts):
+    """Build ordered, unique synthetic decisions; no price or outcome data."""
+    assert len(counts) == 4 and all(type(n) is int and n >= 0 for n in counts)
+    assert sum(counts) > 0
+    manifest = fold["manifest"]
+    start = manifest["holdout_start_at_utc"]
+    duration = manifest["holdout_end_at_utc"] - start
+    template = fold["census"][0]
+    rows = []
+    for quarter, count in enumerate(counts):
+        quarter_start = start + (quarter * duration + 3) // 4
+        for offset in range(count):
+            decision = quarter_start + offset + 1
+            assert 4 * (decision - start) // duration == quarter
+            row = copy.deepcopy(template)
+            row["observation_id"] = f"synthetic-quarter-{len(rows):04d}"
+            row["row_sha256"] = f"{int(template['source_sha256'], 16) * 1000000 + 200000 + len(rows):064x}"
+            row["decision_at_utc"] = decision
+            row["label_available_at_utc"] = decision + 1
+            rows.append(row)
+    fold["census"] = rows
+    manifest["expected_holdout_count"] = len(rows)
+    manifest["holdout_census_sha256"] = prepare_declared_holdout_census_sha256(rows)
+
+
+@pytest.mark.parametrize("counts, expected_bp", [
+    ([97, 1, 1, 1], 9700),
+    ([25, 25, 25, 25], 2500),
+    ([2, 1, 1, 1], 4000),
+    ([1, 1, 1, 1], 2500),
+])
+def test_largest_quarter_share_distinguishes_all_quarters_active(counts, expected_bp):
+    folds = _valid()
+    _set_declared_quarter_population(folds[-1], counts)
+    before = copy.deepcopy(folds)
+    report = audit_declared_holdout_fold_isolation(folds)
+    summary = report["folds"][-1]
+    assert summary["declared_decision_quarter_counts"] == counts
+    assert summary["declared_nonempty_decision_quarter_count"] == 4
+    assert summary["declared_largest_quarter_decision_share_basis_points"] == expected_bp
+    assert report["max_declared_largest_quarter_decision_share_basis_points"] == 10000
+    assert report["most_concentrated_quarter_fold_index"] == 0
+    assert folds == before
+    assert report["source_bytes_independently_authenticated"] is False
+    assert report["holdout_untouched_independently_verified"] is False
+    assert report["may_execute_demo_order"] is False
+    assert report["may_execute_real_order"] is False
+    assert "net_cash" not in report
+
+
+def test_study_concentration_selects_later_fold_when_earlier_folds_balanced():
+    folds = _valid()
+    for fold in folds[:2]:
+        _set_declared_quarter_population(fold, [1, 1, 1, 1])
+    _set_declared_quarter_population(folds[2], [97, 1, 1, 1])
+    before = copy.deepcopy(folds)
+    report = audit_declared_holdout_fold_isolation(folds)
+    assert [f["declared_largest_quarter_decision_share_basis_points"]
+            for f in report["folds"]] == [2500, 2500, 9700]
+    assert report["max_declared_largest_quarter_decision_share_basis_points"] == 9700
+    assert report["most_concentrated_quarter_fold_index"] == 2
+    assert folds == before
+    assert report["may_execute_real_order"] is False
+
+
+def test_study_concentration_equal_share_tie_uses_earliest_fold():
+    folds = _valid()
+    for fold in folds[:2]:
+        _set_declared_quarter_population(fold, [97, 1, 1, 1])
+    _set_declared_quarter_population(folds[2], [25, 25, 25, 25])
+    before = copy.deepcopy(folds)
+    report = audit_declared_holdout_fold_isolation(folds)
+    assert report["max_declared_largest_quarter_decision_share_basis_points"] == 9700
+    assert report["most_concentrated_quarter_fold_index"] == 0
+    assert folds == before
+    assert report["may_execute_demo_order"] is False
+    assert report["may_execute_real_order"] is False
