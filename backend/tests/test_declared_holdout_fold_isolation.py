@@ -343,3 +343,50 @@ def test_tightest_declared_embargo_transition_is_traceable_and_stable(
     assert result["holdout_untouched_independently_verified"] is False
     assert "net_cash" not in result
     assert folds == before
+
+
+def test_interfold_selection_gap_tie_reports_earliest_later_fold():
+    # Default synthetic two-year windows leave exactly seven days between
+    # the previous declared holdout end and the next candidate selection.
+    folds = _valid()
+    before = copy.deepcopy(folds)
+    result = audit_declared_holdout_fold_isolation(folds)
+    assert result["min_declared_interfold_selection_gap_seconds"] == 7 * 86400
+    assert result["tightest_declared_selection_gap_later_fold_index"] == 1
+    assert result["holdout_untouched_independently_verified"] is False
+    assert result["may_execute_demo_order"] is False
+    assert result["may_execute_real_order"] is False
+    assert "net_cash" not in result
+    assert folds == before
+
+
+@pytest.mark.parametrize("later_index,gap_seconds", [
+    (1, 0), (1, 1), (2, 0), (2, 1),
+])
+def test_interfold_selection_gap_exact_boundary_and_one_second_violation(
+    later_index, gap_seconds
+):
+    # A candidate selected at the exact prior-end boundary is permitted,
+    # but one second earlier must fail, regardless of recommitted clocks.
+    folds = _valid()
+    later = folds[later_index]["manifest"]
+    prior_end = folds[later_index - 1]["manifest"]["holdout_end_at_utc"]
+    selected = prior_end + gap_seconds
+    later["selected_at_utc"] = selected
+    later["validation_end_at_utc"] = selected - later["embargo_seconds"]
+    later["registered_at_utc"] = selected + 1
+    before = copy.deepcopy(folds)
+    result = audit_declared_holdout_fold_isolation(folds)
+    assert result["min_declared_interfold_selection_gap_seconds"] == gap_seconds
+    assert result["tightest_declared_selection_gap_later_fold_index"] == later_index
+    assert result["may_execute_demo_order"] is False
+    assert result["may_execute_real_order"] is False
+    assert result["profitable_edge_verified"] is False
+    assert "net_cash" not in result
+    assert folds == before
+
+    later["selected_at_utc"] = prior_end - 1
+    later["validation_end_at_utc"] = prior_end - 1 - later["embargo_seconds"]
+    later["registered_at_utc"] = prior_end
+    with pytest.raises(ValueError, match="candidate selection overlaps previous holdout"):
+        audit_declared_holdout_fold_isolation(folds)
