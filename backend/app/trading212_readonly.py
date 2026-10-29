@@ -118,7 +118,8 @@ def fetch_trading212_readonly(
     url = _HOSTS[environment] + _PATHS[endpoint]
     # Local receipt bounds are recorded by this process, not by the broker.
     # A monotonic interval remains meaningful if the wall clock is adjusted.
-    receipt_started_at_utc = datetime.now(timezone.utc).isoformat()
+    receipt_started_wall = datetime.now(timezone.utc)
+    receipt_started_at_utc = receipt_started_wall.isoformat()
     receipt_started_monotonic_ns = monotonic_ns()
     try:
         with httpx.Client(transport=transport, timeout=8.0, follow_redirects=False,
@@ -154,7 +155,13 @@ def fetch_trading212_readonly(
     except httpx.HTTPError:
         raise ReadOnlyBrokerError("Broker transport unavailable") from None
     receipt_elapsed_monotonic_ms = max(0, monotonic_ns() - receipt_started_monotonic_ns) / 1_000_000
-    receipt_completed_at_utc = datetime.now(timezone.utc).isoformat()
+    receipt_completed_wall = datetime.now(timezone.utc)
+    receipt_completed_at_utc = receipt_completed_wall.isoformat()
+    # Compare local wall-clock and monotonic elapsed time. This only detects
+    # conspicuous local clock jumps; it cannot attest clock correctness.
+    receipt_wall_elapsed_ms = (receipt_completed_wall - receipt_started_wall).total_seconds() * 1000
+    receipt_clock_delta_ms = receipt_wall_elapsed_ms - receipt_elapsed_monotonic_ms
+    receipt_clock_anomaly_detected = (receipt_wall_elapsed_ms < 0 or abs(receipt_clock_delta_ms) > 2000)
 
     # Content-Length, when present, describes the exact identity-encoded
     # response body. Reject a declared length that disagrees with the bytes
@@ -177,6 +184,10 @@ def fetch_trading212_readonly(
         "receipt_started_at_utc": receipt_started_at_utc,
         "receipt_completed_at_utc": receipt_completed_at_utc,
         "receipt_elapsed_monotonic_ms": receipt_elapsed_monotonic_ms,
+        "receipt_wall_elapsed_ms": receipt_wall_elapsed_ms,
+        "receipt_wall_vs_monotonic_delta_ms": receipt_clock_delta_ms,
+        "receipt_clock_anomaly_detected": receipt_clock_anomaly_detected,
+        "receipt_clock_anomaly_threshold_ms": 2000,
         "receipt_clock_attested": False,
         "response_sha256": hashlib.sha256(raw).hexdigest(), "data": payload,
         "rate_limit_observation": quota_observation,
