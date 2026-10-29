@@ -43,3 +43,33 @@ a one-second tail can affect many observations. All are bounded by the
 validated census population and are **not** independent evidence of
 actual source receipts, trade outcomes, holdout integrity or release
 eligibility. They do not enable any trading permission.
+
+
+## Prior-fold label availability at the next validation cutoff
+
+A later fold may select its candidate **after** all earlier labels have matured
+and still have a validation cutoff at which some earlier labels were not
+observable. The membership audit now reports
+`declared_validation_cutoff_transitions`: one entry per consecutive fold pair
+with the zero-based `later_fold_index` and
+`declared_prior_labels_unavailable_at_validation_end_count`.
+For each transition it counts **all** previous-fold rows whose declared
+`label_available_at_utc` is strictly later than the later fold's
+`validation_end_at_utc`; equality is available. Study-level total, maximum
+and earliest-later-fold tie index are reported as
+`total_declared_prior_labels_unavailable_at_validation_end_count`,
+`max_declared_prior_labels_unavailable_at_validation_end_count` and
+`most_unavailable_at_validation_later_fold_index` (null when all counts
+are zero). This is distinct from selection-time label embargo and from
+labels pending at the *previous window's* close.
+
+**Interpretation:** A positive count is a *potential data-lineage audit
+question*, **not** proof of look-ahead leakage. A later validation may
+legitimately use entirely separate training/validation data and never touch
+previous holdout labels. A zero count likewise cannot prove no leakage.
+These are caller-declared clocks, not authenticated observation receipts,
+source access logs, an independently protected holdout or evidence of profit.
+No outcomes, cost estimates or order permissions are accessed or enabled.
+Synthetic regressions cover exact cutoff equality, one-second unavailability,
+populations, deterministic ties and validation ending before the earlier
+holdout window closes.
