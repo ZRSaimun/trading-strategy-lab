@@ -66,7 +66,7 @@ def test_duplicate_observed_model_horizon_base_fails_closed():
     [("model-a", 1, 61)],
     [("model-a", 1, 300)],
     [("model-a", 1, -60)],
-    [("model\\nspoof", 1, 60)],
+    [("model\nspoof", 1, 60)],
     [["model-a", 1]],
     ["bad"],
     {},
