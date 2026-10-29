@@ -34,6 +34,32 @@ def _number(value):
     return result
 
 
+def _check_summary(summary):
+    """Validate every original v1 split, including empty/unknown results."""
+    expected_keys = {"count", "mean_gross_bps", "mean_net_bps_by_roundtrip_cost", "gross_win_fraction"}
+    if not isinstance(summary, dict) or set(summary) != expected_keys:
+        raise ValueError("Invalid exploratory summary fields")
+    n = summary["count"]
+    if type(n) is not int or n < 0:
+        raise ValueError("Invalid exploratory summary population")
+    net = summary["mean_net_bps_by_roundtrip_cost"]
+    if not isinstance(net, dict) or set(net) != {str(cost) for cost in COSTS}:
+        raise ValueError("Incomplete cost scenarios")
+    if n == 0:
+        if (summary["mean_gross_bps"] is not None or summary["gross_win_fraction"] is not None
+                or any(value is not None for value in net.values())):
+            raise ValueError("Empty exploratory summary must have unknown performance")
+        return 0, None
+    gross = _number(summary["mean_gross_bps"])
+    win = _number(summary["gross_win_fraction"])
+    if not Decimal(0) <= win <= Decimal(1):
+        raise ValueError("Invalid gross win fraction")
+    for cost in COSTS:
+        if abs(_number(net[str(cost)]) - (gross - cost)) > Decimal("0.000002"):
+            raise ValueError("Net cost scenario does not reconcile")
+    return n, gross
+
+
 def _check(report):
     if not isinstance(report, dict) or type(report.get("research_schema_version")) is not int or report["research_schema_version"] != 1:
         raise ValueError("Expected original M1 research schema v1")
@@ -66,25 +92,24 @@ def _check(report):
     counts = ("bar_count", "confirmed_count", "censored_gap_or_end", "excluded_overlap")
     if any(type(report.get(k)) is not int or report[k] < 0 for k in counts) or report["bar_count"] == 0:
         raise ValueError("Invalid population counts")
-    s = report.get("all_exploratory")
-    if not isinstance(s, dict) or type(s.get("count")) is not int or s["count"] < 0:
-        raise ValueError("Invalid evaluated population")
-    if s["count"] + report["censored_gap_or_end"] + report["excluded_overlap"] != report["confirmed_count"]:
+    all_count, gross = _check_summary(report.get("all_exploratory"))
+    dev_count, dev_gross = _check_summary(report.get("development_exploratory"))
+    later_count, later_gross = _check_summary(report.get("later_exploratory_not_holdout"))
+    if all_count + report["censored_gap_or_end"] + report["excluded_overlap"] != report["confirmed_count"]:
         raise ValueError("Signal population does not reconcile")
-    if s["count"] == 0:
-        if s.get("mean_gross_bps") is not None or any(
-            s.get("mean_net_bps_by_roundtrip_cost", {}).get(str(c)) is not None for c in COSTS
-        ):
-            raise ValueError("Empty receipt must have unknown performance")
-        return src, 0, None
-    gross = _number(s.get("mean_gross_bps"))
-    net = s.get("mean_net_bps_by_roundtrip_cost")
-    if not isinstance(net, dict) or set(net) != {str(c) for c in COSTS}:
-        raise ValueError("Incomplete cost scenarios")
-    for cost in COSTS:
-        if abs(_number(net[str(cost)]) - (gross - cost)) > Decimal("0.000002"):
-            raise ValueError("Net cost scenario does not reconcile")
-    return src, s["count"], gross
+    if all_count > report["bar_count"]:
+        raise ValueError("Evaluated outcomes exceed original bar count")
+    if dev_count != all_count * 7 // 10 or later_count != all_count - dev_count:
+        raise ValueError("Exploratory 70/30 partition population does not reconcile")
+    if all_count:
+        # Each source mean is independently rounded to six decimals.
+        # Bound the weighted discrepancy instead of demanding false precision.
+        expected = (dev_gross * dev_count + later_gross * later_count) / all_count if dev_count and later_count else (
+            dev_gross if dev_count else later_gross
+        )
+        if abs(gross - expected) > Decimal("0.000002"):
+            raise ValueError("Exploratory partition gross means do not reconcile")
+    return src, all_count, gross
 
 
 def audit_m1_multi_archive_census(reports):
