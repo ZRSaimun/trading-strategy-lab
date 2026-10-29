@@ -7,7 +7,7 @@
  */
 import type {Bar} from './research.ts';
 
-export const HOURLY_FVG_VERSION='hourly-fvg-first-midpoint-touch-v82';
+export const HOURLY_FVG_VERSION='hourly-fvg-first-midpoint-touch-v83';
 export type Evidence='PASS'|'FAIL'|'INSUFFICIENT_DATA';
 // First-touch volume evidence is not independent broker/source authentication.
 export type VolumeEvidenceReason='NOT_EVALUATED'|'SOURCE_UNVERIFIED'|
@@ -206,6 +206,9 @@ export type FvgCohort={
 export type FvgCoverage={
  firstBarOpenAt:number|null;lastBarClosedAt:number|null;
  observedBars:number;unobservedHourSlots:number;gapIntervals:number;
+ // Distinguish isolated missing hours from longer unclassified closures.
+ singleMissingHourGapIntervals:number;multiMissingHourGapIntervals:number;
+ longestUnobservedHourRun:number;
  // Rolling three-row windows are an observed-row denominator, not a
  // complete exchange-session calendar or evidence of unobserved setups.
  observedThreeBarWindows:number;completeThreeBarWindows:number;
@@ -1078,6 +1081,8 @@ function summarizeCohort(observations:readonly FvgObservation[],costs:readonly n
 // feed errors or filling those slots with invented candles.
 function summarizeCoverage(bars:readonly Bar[]):FvgCoverage{
  let unobservedHourSlots=0,gapIntervals=0;
+ let singleMissingHourGapIntervals=0,multiMissingHourGapIntervals=0;
+ let longestUnobservedHourRun=0;
  const observedThreeBarWindows=Math.max(0,bars.length-2);
  let completeThreeBarWindows=0;
  let skippedThreeBarWindowsWithOneGapEdge=0;
@@ -1095,12 +1100,18 @@ function summarizeCoverage(bars:readonly Bar[]):FvgCoverage{
   throw Error('FVG observed formation-triplet gap census does not reconcile');
  for(let i=1;i<bars.length;i++){
   const unobserved=(bars[i].time-bars[i-1].time)/HOUR-1;
-  if(unobserved>0){unobservedHourSlots+=unobserved;gapIntervals++;}
+  if(unobserved>0){
+   unobservedHourSlots+=unobserved;gapIntervals++;
+   if(unobserved===1)singleMissingHourGapIntervals++;
+   else multiMissingHourGapIntervals++;
+   longestUnobservedHourRun=Math.max(longestUnobservedHourRun,unobserved);
+  }
  }
  return {firstBarOpenAt:bars.length?bars[0].time:null,
   lastBarClosedAt:bars.length?bars[bars.length-1].time+HOUR:null,
   observedBars:bars.length,unobservedHourSlots,gapIntervals,
-  observedThreeBarWindows,completeThreeBarWindows,skippedThreeBarWindowsWithGaps,
+  singleMissingHourGapIntervals,multiMissingHourGapIntervals,
+  longestUnobservedHourRun,observedThreeBarWindows,completeThreeBarWindows,skippedThreeBarWindowsWithGaps,
   skippedThreeBarWindowsWithOneGapEdge,skippedThreeBarWindowsWithTwoGapEdges};
 }
 export function studyHourlyFvgMidpoint(

@@ -1,7 +1,9 @@
-# Hourly FVG first-touch midpoint rejection versus blind limit (research v82)
+# Hourly FVG first-touch midpoint rejection versus blind limit (research v83)
 
 **Status: proposed, deterministic, read-only hypothesis.** This standalone TypeScript library is not yet wired to the terminal UI, production broker, archive query or cloud service. No actual BID/ASK executions, licensed news data, verified performance, live trades or profitability claims are included. It deliberately does **not** duplicate PR #24's sweep/MSS/FVG confluence risk-path experiment or PR #33's 4H CRT/15m confirmation screen.
 
+
+**Version 83: gap-interval severity and longest unobserved run.** The historical 1H BID coverage report now separates intervals with exactly one unobserved UTC hour from intervals spanning multiple unobserved hours, and exposes the longest such run. These counts reconcile to the existing observed-gap interval census and use only completed-prefix timestamps in causal as-of replay. A long gap may be a scheduled market closure, not necessarily a bad feed; no missing prices, sessions, trades, fills, or volume are inferred. Synthetic tests cover isolated and multi-hour gaps, no-gap archives, and future OHLC/volume read protection. Frozen rule: `hourly-fvg-first-midpoint-touch-v83`.
 
 **Version 82: one-gap versus two-gap formation-triplet attrition.** The observed three-row formation denominator now distinguishes a window interrupted at exactly one adjacent hourly boundary from a window interrupted at both boundaries. Complete + one-gap-edge + two-gap-edge counts reconcile to the observed rolling-window total; the two skipped groups reconcile to the existing missing-history attrition count. Synthetic tests independently reconstruct the counts for empty, short, isolated-gap and adjacent-gap archives and verify as-of parity without reading future OHLC/volume. These are source-coverage diagnostics, not exchange-session classifications, fabricated candles, negative trades, broker fills or profitable strategy evidence. Frozen rule: `hourly-fvg-first-midpoint-touch-v82`.
 

@@ -695,7 +695,7 @@ test('research report rejects extra source fields without leaking caller private
  const report=studyHourlyFvgMidpoint(fixture(),source);
  assert.deepEqual(report.source,source);
  assert.deepEqual(Object.keys(report.source).sort(),Object.keys(source).sort());
- assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v82');
+ assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v83');
 });
 test('ambiguous source labels and contradictory volume evidence fail closed',()=>{
  // These are declared metadata, not independent vendor authentication.
@@ -770,7 +770,7 @@ test('v61 source labels reject lone surrogates and Unicode noncharacters in both
  assert.deepEqual(studyHourlyFvgMidpoint(bars,valid).source,valid);
  assert.deepEqual(studyHourlyFvgMidpointAsOf(bars,valid,cutoff).source,valid);
  assert.equal(studyHourlyFvgMidpoint(bars,valid).version,
-  'hourly-fvg-first-midpoint-touch-v82');
+  'hourly-fvg-first-midpoint-touch-v83');
 });
 test('v63 source labels reject Unicode space lookalikes without banning ASCII spaces',()=>{
  const bars=fixture(),cutoff=BASE+37*H;
@@ -787,7 +787,7 @@ test('v63 source labels reject Unicode space lookalikes without banning ASCII sp
  assert.deepEqual(studyHourlyFvgMidpoint(bars,legitimate).source,legitimate);
  assert.deepEqual(studyHourlyFvgMidpointAsOf(bars,legitimate,cutoff).source,legitimate);
  assert.equal(studyHourlyFvgMidpoint(bars,legitimate).version,
-  'hourly-fvg-first-midpoint-touch-v82');
+  'hourly-fvg-first-midpoint-touch-v83');
 });
 test('first bullish midpoint touch has a hypothetical blind limit and later next-open rejection markout',()=>{
  const x=target(fixture());
@@ -1132,7 +1132,7 @@ test('an overflowing next-open comparator suppresses both matched markouts',()=>
 });
 test('completed hourly timestamps are safe and numeric rule changes have a new version',()=>{
  const report=studyHourlyFvgMidpoint(fixture(),source);
- assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v82');
+ assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v83');
  const lastSafeAlignedOpen=Math.floor(Number.MAX_SAFE_INTEGER/H)*H;
  assert.equal(Number.isSafeInteger(lastSafeAlignedOpen),true);
  assert.equal(Number.isSafeInteger(lastSafeAlignedOpen+H),false);
@@ -1192,6 +1192,7 @@ test('coverage counts unobserved hours without leaking future gaps into as-of re
  assert.deepEqual(full.coverage,{
   firstBarOpenAt:BASE,lastBarClosedAt:BASE+40*H,
   observedBars:38,unobservedHourSlots:2,gapIntervals:1,
+  singleMissingHourGapIntervals:0,multiMissingHourGapIntervals:1,longestUnobservedHourRun:2,
    observedThreeBarWindows:36,completeThreeBarWindows:34,
    skippedThreeBarWindowsWithGaps:2,
    skippedThreeBarWindowsWithOneGapEdge:2,
@@ -1201,6 +1202,7 @@ test('coverage counts unobserved hours without leaking future gaps into as-of re
  assert.deepEqual(before.coverage,{
   firstBarOpenAt:BASE,lastBarClosedAt:BASE+20*H,
   observedBars:20,unobservedHourSlots:0,gapIntervals:0,
+  singleMissingHourGapIntervals:0,multiMissingHourGapIntervals:0,longestUnobservedHourRun:0,
    observedThreeBarWindows:18,completeThreeBarWindows:18,
    skippedThreeBarWindowsWithGaps:0,
    skippedThreeBarWindowsWithOneGapEdge:0,
@@ -1210,6 +1212,7 @@ test('coverage counts unobserved hours without leaking future gaps into as-of re
  assert.deepEqual(after.coverage,{
   firstBarOpenAt:BASE,lastBarClosedAt:BASE+24*H,
   observedBars:22,unobservedHourSlots:2,gapIntervals:1,
+  singleMissingHourGapIntervals:0,multiMissingHourGapIntervals:1,longestUnobservedHourRun:2,
    observedThreeBarWindows:20,completeThreeBarWindows:18,
    skippedThreeBarWindowsWithGaps:2,
    skippedThreeBarWindowsWithOneGapEdge:2,
@@ -1219,6 +1222,7 @@ test('coverage counts unobserved hours without leaking future gaps into as-of re
  assert.deepEqual(empty.coverage,{
   firstBarOpenAt:null,lastBarClosedAt:null,
   observedBars:0,unobservedHourSlots:0,gapIntervals:0,
+  singleMissingHourGapIntervals:0,multiMissingHourGapIntervals:0,longestUnobservedHourRun:0,
    observedThreeBarWindows:0,completeThreeBarWindows:0,
    skippedThreeBarWindowsWithGaps:0,
    skippedThreeBarWindowsWithOneGapEdge:0,
@@ -3593,4 +3597,38 @@ test('v82 one/two gap-edge triplet census is causal and reconciles',()=>{
  const asOf=studyHourlyFvgMidpointAsOf(protectedFuture,source,cutoff);
  assert.deepEqual(asOf,studyHourlyFvgMidpoint(doubleGap.filter(b=>b.time+H<=cutoff),source));
  assert.equal(asOf.coverage.skippedThreeBarWindowsWithTwoGapEdges,1);
+});
+
+
+// Distinguish isolated missing hours from longer unclassified gaps without
+// asserting a weekend, an exchange session or a market-data outage.
+test('v83 gap severity census is causal and never reads future prices',()=>{
+ const bars=[candle(0),candle(2),candle(3),candle(7),candle(8),candle(11)];
+ const full=studyHourlyFvgMidpoint(bars,source).coverage;
+ assert.equal(full.observedBars,6);
+ assert.equal(full.unobservedHourSlots,6);
+ assert.equal(full.gapIntervals,3);
+ assert.equal(full.singleMissingHourGapIntervals,1);
+ assert.equal(full.multiMissingHourGapIntervals,2);
+ assert.equal(full.longestUnobservedHourRun,3);
+ assert.equal(full.singleMissingHourGapIntervals+full.multiMissingHourGapIntervals,
+  full.gapIntervals);
+ const noGaps=studyHourlyFvgMidpoint([candle(0),candle(1),candle(2)],source).coverage;
+ assert.equal(noGaps.gapIntervals,0);
+ assert.equal(noGaps.longestUnobservedHourRun,0);
+ const protectedFuture=bars.map(b=>({...b}));
+ const cutoff=BASE+9*H;
+ for(const bar of protectedFuture)if(bar.time+H>cutoff)
+  for(const field of ['open','high','low','close','volume','observed_minutes'])
+   Object.defineProperty(bar,field,{get(){throw Error('future '+field+' read');}});
+ const early=studyHourlyFvgMidpointAsOf(protectedFuture,source,BASE+4*H);
+ assert.equal(early.coverage.singleMissingHourGapIntervals,1);
+ assert.equal(early.coverage.multiMissingHourGapIntervals,0);
+ assert.equal(early.coverage.longestUnobservedHourRun,1);
+ const asOf=studyHourlyFvgMidpointAsOf(protectedFuture,source,cutoff);
+ assert.deepEqual(asOf,studyHourlyFvgMidpoint(bars.filter(b=>b.time+H<=cutoff),source));
+ assert.equal(asOf.coverage.unobservedHourSlots,4);
+ assert.equal(asOf.coverage.singleMissingHourGapIntervals,1);
+ assert.equal(asOf.coverage.multiMissingHourGapIntervals,1);
+ assert.equal(asOf.coverage.longestUnobservedHourRun,3);
 });
