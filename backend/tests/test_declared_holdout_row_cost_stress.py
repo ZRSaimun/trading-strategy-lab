@@ -56,6 +56,9 @@ def test_row_specific_components_and_maximum_reconcile():
         "worst_observation_stressed_net_cash": "0.6500",
         "max_observation_end_drawdown_cash": "0.0000",
         "max_receipt_time_ordering_drawdown_cash_upper_bound": "0.0000",
+        "negative_receipt_batch_count": 0,
+        "max_consecutive_negative_receipt_batches": 0,
+        "max_consecutive_negative_receipt_batches_loss_cash": "0.0000",
         "baseline_losing_observation_count": 0,
         "stressed_losing_observation_count": 0,
         "additional_cost_induced_losing_observation_count": 0,
@@ -622,3 +625,54 @@ def test_pairwise_cost_dominance_is_withheld_for_small_holdout():
     assert report["scenario_cost_incomparable_pair_count"] is None
     assert report["may_execute_demo_order"] is False
     assert report["may_execute_real_order"] is False
+
+
+def test_negative_receipt_batch_streak_tracks_clustered_adverse_costs():
+    data = _fixture()
+    scenario = _scenario(data, per_row={
+        0: {"spread_extra_cash": "3.0000"},
+        1: {"slippage_extra_cash": "3.0000"},
+        3: {"commission_extra_cash": "4.0000"},
+        4: {"financing_extra_cash": "3.0000"},
+        5: {"fx_extra_cash": "3.0000"},
+    })
+    entry = _audit(data, [scenario])["scenarios"][0]
+    # Receipt batches: -1.1, -1.3, +1.9, -2.3, -1.1, -1.3, ...
+    assert entry["negative_receipt_batch_count"] == 5
+    assert entry["max_consecutive_negative_receipt_batches"] == 3
+    assert entry["max_consecutive_negative_receipt_batches_loss_cash"] == "4.7000"
+    assert entry["stressed_losing_observation_count"] == 5
+
+
+def test_mixed_sign_same_second_is_one_net_receipt_batch():
+    data = _fixture()
+    # Row 0 (+1.9) and row 1 (-0.8) share a receipt second: +1.1.
+    data[3][0]["observed_at_utc"] = data[3][1]["observed_at_utc"]
+    scenario = _scenario(data, per_row={
+        1: {"spread_extra_cash": "2.5000"},
+        2: {"spread_extra_cash": "2.0000"},
+        3: {"spread_extra_cash": "2.0000"},
+    })
+    entry = _audit(data, [scenario])["scenarios"][0]
+    assert entry["stressed_losing_observation_count"] == 3
+    assert entry["negative_receipt_batch_count"] == 2
+    assert entry["max_consecutive_negative_receipt_batches"] == 2
+    assert entry["max_consecutive_negative_receipt_batches_loss_cash"] == "0.4000"
+
+
+def test_receipt_batch_streaks_are_withheld_below_thirty():
+    data = _fixture(29)
+    entry = _audit(data, [_scenario(data, per_row={
+        0: {"spread_extra_cash": "3.0000"},
+    })])["scenarios"][0]
+    assert entry["negative_receipt_batch_count"] is None
+    assert entry["max_consecutive_negative_receipt_batches"] is None
+    assert entry["max_consecutive_negative_receipt_batches_loss_cash"] is None
+
+
+def test_nonnegative_receipt_batches_have_no_loss_streak():
+    data = _fixture()
+    entry = _audit(data, [_scenario(data)])["scenarios"][0]
+    assert entry["negative_receipt_batch_count"] == 0
+    assert entry["max_consecutive_negative_receipt_batches"] == 0
+    assert entry["max_consecutive_negative_receipt_batches_loss_cash"] == "0.0000"
