@@ -33,6 +33,13 @@ The JSON wire body must decode as **strict UTF-8 without a byte-order mark**.
 Python's default `json.loads(bytes)` can silently accept UTF-16/UTF-32 or a
 UTF-8 BOM; this adapter now rejects those encodings and invalid UTF-8 with a
 sanitized `Invalid broker JSON` error. Valid non-ASCII UTF-8 remains supported.
+
+The JSON parser also rejects isolated UTF-16 surrogate escapes in nested
+string values or object keys. Python can otherwise accept such invalid Unicode
+scalar values from otherwise valid UTF-8 JSON and later fail to serialize them
+safely for audit or storage. Valid paired surrogate escapes and literal UTF-8
+supplementary characters remain supported. All failures are sanitized, and
+this check makes no additional provider requests or freshness claims.
 This is format integrity only, not broker authentication, price freshness or
 market-data entitlement; no network calls or write capabilities are added.
 When a `Content-Length` header is supplied, the adapter now verifies that
