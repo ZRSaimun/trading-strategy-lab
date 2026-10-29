@@ -24,3 +24,22 @@ A positive tail is not itself leakage or proof of an invalid split.
 The existing next-selection embargo validation still rejects immature
 earlier labels. These values use only caller-declared timestamps; they
 cannot verify actual source clocks, observation receipts or independence.
+
+
+## Declared unresolved-label population at window close
+
+The audit also counts **all** census rows whose caller-declared
+`label_available_at_utc` is strictly later than that fold's
+`holdout_end_at_utc`. The per-fold
+`declared_labels_pending_at_window_end_count` and study-wide
+`total_declared_labels_pending_at_window_end_count` quantify how many
+labels remain unobservable at the declared decision-window close.
+`max_declared_labels_pending_at_window_end_count` and
+`most_pending_declared_labels_fold_index` identify the largest per-fold
+population, breaking ties toward the earliest zero-based fold; the index
+is `null` when none are pending. Labels maturing exactly at window end
+are not pending. Counts are separate from the longest maturity *duration*:
+a one-second tail can affect many observations. All are bounded by the
+validated census population and are **not** independent evidence of
+actual source receipts, trade outcomes, holdout integrity or release
+eligibility. They do not enable any trading permission.
