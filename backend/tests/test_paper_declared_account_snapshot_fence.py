@@ -278,3 +278,64 @@ def test_standalone_snapshot_accepts_declared_monotonic_safety_state():
     assert result["failed_checks"] == []
     assert result["broker_authenticated"] is False
     assert result["may_submit_real_order"] is False
+
+
+@pytest.mark.parametrize("kind", ["notional", "risk", "orders"])
+def test_changed_inventory_requires_advanced_sync(kind):
+    args = fixture()
+    if kind == "notional":
+        args[0]["open_notional"] = "1200"
+        args[2]["account"]["open_notional"] = "1200"
+        expected = "positions_changed_without_new_sync"
+    elif kind == "risk":
+        args[0]["open_risk"] = "60"
+        args[2]["account"]["open_risk"] = "60"
+        expected = "positions_changed_without_new_sync"
+    else:
+        args[2]["unresolved_attempts"] = 1
+        expected = "unknown_attempts_changed_without_new_orders_sync"
+    before = deepcopy(args)
+    result = inspect(args)
+    assert result["status"] == "HOLD_ACCOUNT_SNAPSHOT_REVIEW"
+    assert expected in result["failed_checks"]
+    assert result["may_submit_paper_order"] is False
+    assert result["may_submit_real_order"] is False
+    assert args == before
+
+
+@pytest.mark.parametrize("kind", ["positions", "orders"])
+def test_changed_inventory_with_advanced_sync_does_not_raise_sync_hold(kind):
+    args = fixture()
+    if kind == "positions":
+        args[0]["open_notional"] = "1200"
+        args[2]["account"]["open_notional"] = "1200"
+        args[2]["positions_synced_at_ms"] += 1
+        expected = "positions_changed_without_new_sync"
+    else:
+        args[2]["unresolved_attempts"] = 1
+        args[2]["orders_synced_at_ms"] += 1
+        expected = "unknown_attempts_changed_without_new_orders_sync"
+    result = inspect(args)
+    assert expected not in result["failed_checks"]
+    assert result["may_submit_real_order"] is False
+
+
+def test_equal_numeric_exposure_with_different_decimal_spelling_is_not_new_inventory():
+    args = fixture()
+    args[0]["open_notional"] = "1000.0"
+    args[2]["account"]["open_notional"] = "1000.0"
+    result = inspect(args)
+    assert "positions_changed_without_new_sync" not in result["failed_checks"]
+    assert result["status"] == "DECLARED_ACCOUNT_SNAPSHOT_UNVERIFIED"
+    assert result["may_submit_real_order"] is False
+
+
+def test_sync_guard_is_session_scoped_and_session_change_still_holds():
+    args = fixture()
+    args[2]["session_epoch"] += 1
+    args[0]["open_risk"] = "60"
+    args[2]["account"]["open_risk"] = "60"
+    result = inspect(args)
+    assert "positions_changed_without_new_sync" not in result["failed_checks"]
+    assert "session_change_requires_external_reconciliation" in result["failed_checks"]
+    assert result["may_submit_real_order"] is False
