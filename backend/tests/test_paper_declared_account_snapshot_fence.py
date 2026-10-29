@@ -379,3 +379,62 @@ def test_equal_numeric_exposure_without_new_revision_is_not_inventory_mutation(f
     assert "positions_changed_without_new_sync" not in result["failed_checks"]
     assert result["status"] == "DECLARED_ACCOUNT_SNAPSHOT_UNVERIFIED"
     assert result["may_submit_real_order"] is False
+
+
+def test_bound_quote_age_must_satisfy_account_freshness_independently_of_skew():
+    args = fixture()
+    args[3] = None  # Isolate current quote freshness from prior-snapshot replay.
+    args[2].update(observed_at_ms=NOW-950, received_at_ms=NOW-900,
+                   positions_synced_at_ms=NOW-980, orders_synced_at_ms=NOW-990)
+    args[1].update(observed_at_ms=NOW-1100, received_at_ms=NOW-1000)
+    args[2]["risk_quote"].update(args[1])
+    before = deepcopy(args)
+    result = inspect(args)
+    assert result["status"] == "HOLD_ACCOUNT_SNAPSHOT_REVIEW"
+    assert "stale_or_future_risk_quote" in result["failed_checks"]
+    assert "quote_account_time_skew" not in result["failed_checks"]
+    assert "risk_quote_transport_lag" not in result["failed_checks"]
+    assert result["may_submit_paper_order"] is False
+    assert result["may_submit_real_order"] is False
+    assert args == before
+
+
+def test_bound_quote_transport_lag_must_satisfy_account_ceiling():
+    args = fixture()
+    args[3] = None
+    args[2].update(observed_at_ms=NOW-450, received_at_ms=NOW-400,
+                   positions_synced_at_ms=NOW-500, orders_synced_at_ms=NOW-520)
+    args[1].update(observed_at_ms=NOW-700, received_at_ms=NOW-100)
+    args[2]["risk_quote"].update(args[1])
+    before = deepcopy(args)
+    result = inspect(args)
+    assert result["status"] == "HOLD_ACCOUNT_SNAPSHOT_REVIEW"
+    assert "risk_quote_transport_lag" in result["failed_checks"]
+    assert "stale_or_future_risk_quote" not in result["failed_checks"]
+    assert "quote_account_time_skew" not in result["failed_checks"]
+    assert result["may_submit_real_order"] is False
+    assert args == before
+
+
+def test_quote_freshness_and_transport_at_exact_policy_boundaries():
+    args = fixture()
+    args[3] = None
+    args[2].update(observed_at_ms=NOW-800, received_at_ms=NOW-700,
+                   positions_synced_at_ms=NOW-850, orders_synced_at_ms=NOW-860)
+    args[1].update(observed_at_ms=NOW-1000, received_at_ms=NOW-500)
+    args[2]["risk_quote"].update(args[1])
+    result = inspect(args)
+    assert result["status"] == "DECLARED_ACCOUNT_SNAPSHOT_UNVERIFIED"
+    assert result["failed_checks"] == []
+    assert result["may_submit_real_order"] is False
+
+
+def test_quote_future_chronology_is_not_treated_as_fresh():
+    args = fixture()
+    args[3] = None
+    args[1].update(observed_at_ms=NOW+1, received_at_ms=NOW+2)
+    args[2]["risk_quote"].update(args[1])
+    result = inspect(args)
+    assert "invalid_quote_chronology" in result["failed_checks"]
+    assert "stale_or_future_risk_quote" in result["failed_checks"]
+    assert result["may_submit_real_order"] is False
