@@ -63,3 +63,25 @@ measured market costs, tail probabilities, broker equity, expected drawdown,
 or a profitability result. A high concentration may be deliberate; it is a
 research-review flag rather than an automatic model rejection. The metric
 never grants demo or real order permissions.
+
+
+## Cost-induced loss severity and stressed-loss concentration
+
+For released populations (30+ observations), each scenario also reports
+`additional_cost_induced_gross_loss_cash`: the exact sum of negative stressed
+row-net cash magnitudes **only for rows that were nonnegative before stress**.
+This measures how much declared gross loss arose on newly losing rows; it does
+not treat further deterioration of an already losing row as a newly induced
+loss. It must be no greater than `stressed_gross_loss_cash`.
+
+`max_single_stressed_loss_share_bps` is the largest individual stressed
+negative row-net magnitude divided by the scenario's total stressed gross
+loss, expressed as a floor-rounded integer number of basis points. When no
+rows lose money, the share is `null` (undefined), not zero. Both metrics
+remain `null` below the 30-observation release threshold. They are
+independent of input row order and use exact-decimal cash arithmetic.
+
+These are **caller-declared loss-severity diagnostics**, not an estimate of
+value at risk, independent trades, executable slippage, broker equity, or a
+profitable edge. A high share may simply reflect a single constructed stress
+row. No demo or real order permissions are enabled.
