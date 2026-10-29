@@ -55,6 +55,27 @@ def test_duplicate_and_closed_minutes_are_review_only():
     assert report["status"] == "REVIEW_REQUIRED"
 
 
+def test_unexpected_minutes_attributed_to_exclusion_or_outside_session():
+    rows = [T, T+60, T+60, T+120, T+180, T+240, T+480, T+540]
+    report = audit(rows, sample_limit=2)
+    assert report["unexpected_unique_minutes"] == 5
+    assert report["observed_in_declared_exclusions_unique_minutes"] == 1
+    assert report["observed_outside_declared_sessions_unique_minutes"] == 4
+    assert report["observed_in_declared_exclusions_samples"] == [T+60]
+    assert report["observed_outside_declared_sessions_samples"] == [T+180, T+240]
+    assert report["duplicate_observation_rows"] == 1
+    assert report["status"] == "REVIEW_REQUIRED"
+
+
+def test_unexpected_attribution_zero_samples_preserves_exact_counts():
+    report = audit([T+60, T+180, T+480], sample_limit=0)
+    assert report["unexpected_unique_minutes"] == 3
+    assert report["observed_in_declared_exclusions_unique_minutes"] == 1
+    assert report["observed_outside_declared_sessions_unique_minutes"] == 2
+    assert report["observed_in_declared_exclusions_samples"] == []
+    assert report["observed_outside_declared_sessions_samples"] == []
+
+
 def test_gap_run_is_split_by_present_minute():
     report = audit([T, T+300, T+420])
     assert report["missing_expected_minutes"] == 2
