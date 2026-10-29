@@ -145,6 +145,15 @@ def inspect_declared_owner_review_history_fence(
         if appended:
             if curr["sequence"] != prev["sequence"] + 1:
                 failures.add("history_revision_not_advanced_once")
+            # One review event per revision; batches could hide intermediate
+            # approvals or rejections from checkpoint-based replay detection.
+            if appended != 1:
+                failures.add("multiple_reviews_appended_in_single_revision")
+            # A newly visible event cannot have been recorded at/before the
+            # prior complete snapshot without an independently proven backfill.
+            # A delayed/rewritten caller-declared log is quarantined.
+            if any(e["recorded_at_ms"] <= prev["observed_at_ms"] for e in new[len(old):]):
+                failures.add("appended_review_predates_prior_snapshot")
             if old and new[len(old)]["recorded_at_ms"] <= old[-1]["recorded_at_ms"]:
                 failures.add("appended_review_time_not_advanced")
         elif curr["sequence"] != prev["sequence"]:
