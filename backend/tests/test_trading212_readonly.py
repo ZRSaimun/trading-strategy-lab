@@ -197,3 +197,56 @@ def test_broker_json_accepts_valid_supplementary_unicode(body):
     assert result["data"] == {"symbol": "🚀"}
     assert result["market_data_feed"] is False
     assert result["may_execute_order"] is False
+
+
+@pytest.mark.parametrize("headers", [
+    {"content-type": "application/json; charset=latin1"},
+    {"content-type": "application/json; charset=utf-16"},
+    {"content-type": "application/json; charset=utf-8; foo=bar"},
+    {"content-type": "application/json; charset=utf-8; charset=utf-8"},
+    {"content-type": "application/json, application/json"},
+    [("content-type", "application/json"), ("content-type", "application/json")],
+])
+def test_broker_rejects_ambiguous_or_non_utf8_json_media(headers):
+    with pytest.raises(ReadOnlyBrokerError, match="content type"):
+        call(lambda _: httpx.Response(200, content=b"{}", headers=headers))
+
+
+@pytest.mark.parametrize("headers", [
+    {"content-encoding": "gzip"},
+    {"content-encoding": "identity, gzip"},
+    [("content-encoding", "identity"), ("content-encoding", "identity")],
+])
+def test_broker_rejects_ambiguous_or_unsupported_content_coding(headers):
+    headers = list(headers.items()) if isinstance(headers, dict) else headers
+    headers.append(("content-type", "application/json"))
+    with pytest.raises(ReadOnlyBrokerError, match="Compressed or ambiguous"):
+        call(lambda _: httpx.Response(200, content=b"{}", headers=headers))
+
+
+@pytest.mark.parametrize("headers", [
+    [("content-length", "2"), ("content-length", "2")],
+    [("content-length", "2"), ("content-length", "3")],
+    {"content-length": "2, 2"},
+])
+def test_broker_rejects_duplicate_or_comma_joined_content_lengths(headers):
+    headers = list(headers.items()) if isinstance(headers, dict) else headers
+    headers.append(("content-type", "application/json"))
+    with pytest.raises(ReadOnlyBrokerError, match="length|size limit"):
+        call(lambda _: httpx.Response(200, content=b"{}", headers=headers))
+
+
+@pytest.mark.parametrize("media", [
+    "application/json",
+    "application/json; charset=utf-8",
+    'application/json; charset="UTF-8"',
+    "Application/JSON ; charset = UTF-8",
+])
+def test_broker_accepts_unambiguous_utf8_json_media(media):
+    result = call(lambda _: httpx.Response(
+        200, content=b'{"ticker":"TEST"}',
+        headers={"content-type": media, "content-encoding": "identity"},
+    ))
+    assert result["data"] == {"ticker": "TEST"}
+    assert result["market_data_feed"] is False
+    assert result["may_execute_order"] is False
