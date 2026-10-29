@@ -528,3 +528,122 @@ def test_pending_label_count_stable_tie_and_study_total():
     assert result["may_execute_demo_order"] is False
     assert result["may_execute_real_order"] is False
     assert "net_cash" not in result
+
+
+def test_declared_validation_cutoff_availability_is_zero_for_default_windows():
+    folds = _valid()
+    before = copy.deepcopy(folds)
+    result = audit_declared_holdout_fold_isolation(folds)
+    assert result["declared_validation_cutoff_transitions"] == [
+        {"later_fold_index": 1,
+         "declared_prior_labels_unavailable_at_validation_end_count": 0},
+        {"later_fold_index": 2,
+         "declared_prior_labels_unavailable_at_validation_end_count": 0},
+    ]
+    assert result["total_declared_prior_labels_unavailable_at_validation_end_count"] == 0
+    assert result["max_declared_prior_labels_unavailable_at_validation_end_count"] == 0
+    assert result["most_unavailable_at_validation_later_fold_index"] is None
+    assert folds == before
+    assert result["may_execute_demo_order"] is False
+    assert result["may_execute_real_order"] is False
+    assert "net_cash" not in result
+
+
+@pytest.mark.parametrize("later_index", [1, 2])
+def test_prior_label_validation_cutoff_equality_vs_one_second_late(later_index):
+    folds = _valid()
+    previous, later = folds[later_index - 1], folds[later_index]
+    cutoff = later["manifest"]["validation_end_at_utc"]
+    previous["census"][0]["label_available_at_utc"] = cutoff
+    previous["manifest"]["holdout_census_sha256"] = (
+        prepare_declared_holdout_census_sha256(previous["census"])
+    )
+    assert audit_declared_holdout_fold_isolation(folds)[
+        "declared_validation_cutoff_transitions"
+    ][later_index - 1]["declared_prior_labels_unavailable_at_validation_end_count"] == 0
+
+    previous["census"][0]["label_available_at_utc"] = cutoff + 1
+    previous["manifest"]["holdout_census_sha256"] = (
+        prepare_declared_holdout_census_sha256(previous["census"])
+    )
+    before = copy.deepcopy(folds)
+    result = audit_declared_holdout_fold_isolation(folds)
+    assert result["declared_validation_cutoff_transitions"][later_index - 1][
+        "declared_prior_labels_unavailable_at_validation_end_count"
+    ] == 1
+    assert result["total_declared_prior_labels_unavailable_at_validation_end_count"] == 1
+    assert result["most_unavailable_at_validation_later_fold_index"] == later_index
+    # A label can miss validation yet satisfy the later selection embargo.
+    assert result["min_declared_label_embargo_slack_seconds"] >= 0
+    assert result["holdout_untouched_independently_verified"] is False
+    assert result["may_execute_demo_order"] is False
+    assert result["may_execute_real_order"] is False
+    assert folds == before
+    assert "net_cash" not in result
+
+
+@pytest.mark.parametrize("unavailable_count", [1, 2, 5])
+def test_validation_cutoff_population_counts_all_previous_rows(unavailable_count):
+    folds = _valid()
+    previous, later = folds[1], folds[2]
+    cutoff = later["manifest"]["validation_end_at_utc"]
+    for row in previous["census"][:unavailable_count]:
+        row["label_available_at_utc"] = cutoff + 1
+    previous["manifest"]["holdout_census_sha256"] = (
+        prepare_declared_holdout_census_sha256(previous["census"])
+    )
+    before = copy.deepcopy(folds)
+    result = audit_declared_holdout_fold_isolation(folds)
+    assert result["declared_validation_cutoff_transitions"][-1][
+        "declared_prior_labels_unavailable_at_validation_end_count"
+    ] == unavailable_count
+    assert result["total_declared_prior_labels_unavailable_at_validation_end_count"] == unavailable_count
+    assert result["max_declared_prior_labels_unavailable_at_validation_end_count"] == unavailable_count
+    assert result["most_unavailable_at_validation_later_fold_index"] == 2
+    assert folds == before
+    assert result["may_execute_demo_order"] is False
+    assert result["may_execute_real_order"] is False
+    assert "net_cash" not in result
+
+
+def test_validation_cutoff_population_tie_selects_earliest_later_fold():
+    folds = _valid()
+    for previous, later in zip(folds, folds[1:]):
+        cutoff = later["manifest"]["validation_end_at_utc"]
+        for row in previous["census"][:3]:
+            row["label_available_at_utc"] = cutoff + 1
+        previous["manifest"]["holdout_census_sha256"] = (
+            prepare_declared_holdout_census_sha256(previous["census"])
+        )
+    before = copy.deepcopy(folds)
+    result = audit_declared_holdout_fold_isolation(folds)
+    assert [t["declared_prior_labels_unavailable_at_validation_end_count"]
+            for t in result["declared_validation_cutoff_transitions"]] == [3, 3]
+    assert result["total_declared_prior_labels_unavailable_at_validation_end_count"] == 6
+    assert result["max_declared_prior_labels_unavailable_at_validation_end_count"] == 3
+    assert result["most_unavailable_at_validation_later_fold_index"] == 1
+    assert folds == before
+    assert result["may_execute_demo_order"] is False
+    assert result["may_execute_real_order"] is False
+    assert "net_cash" not in result
+
+
+def test_validation_cutoff_can_precede_prior_window_end_without_claiming_leakage():
+    folds = _valid()
+    previous, later = folds[0], folds[1]
+    previous_end = previous["manifest"]["holdout_end_at_utc"]
+    later["manifest"]["validation_end_at_utc"] = previous_end - 1
+    previous["census"][0]["label_available_at_utc"] = previous_end
+    previous["manifest"]["holdout_census_sha256"] = (
+        prepare_declared_holdout_census_sha256(previous["census"])
+    )
+    result = audit_declared_holdout_fold_isolation(folds)
+    assert result["declared_validation_cutoff_transitions"][0][
+        "declared_prior_labels_unavailable_at_validation_end_count"
+    ] == 1
+    assert result["min_declared_label_embargo_slack_seconds"] >= 0
+    assert result["source_bytes_independently_authenticated"] is False
+    assert result["holdout_untouched_independently_verified"] is False
+    assert result["may_execute_demo_order"] is False
+    assert result["may_execute_real_order"] is False
+    assert "net_cash" not in result
