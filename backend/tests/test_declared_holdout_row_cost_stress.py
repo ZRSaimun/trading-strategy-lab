@@ -541,3 +541,84 @@ def test_erased_positive_metrics_withheld_below_thirty():
     })])["scenarios"][0]
     assert entry["additional_cost_erased_positive_observation_count"] is None
     assert entry["positive_observation_cash_eroded_by_stress"] is None
+
+
+def test_rowwise_cost_dominance_tracks_monotonic_adverse_outcomes():
+    data = _fixture()
+    mild = _scenario(data, "mild", {
+        0: {"spread_extra_cash": "1.8999"},
+    })
+    severe = _scenario(data, "severe", {
+        0: {"slippage_extra_cash": "1.9001"},
+        1: {"financing_extra_cash": "2.0000"},
+    })
+    report = _audit(data, [severe, mild])
+    assert report["scenario_cost_dominance_pairs"] == [{
+        "lower_or_equal_cost_scenario_id": "mild",
+        "higher_or_equal_cost_scenario_id": "severe",
+        "identical_per_row_total_costs": False,
+    }]
+    assert report["scenario_cost_incomparable_pair_count"] == 0
+    rows = {r["scenario_id"]: r for r in report["scenarios"]}
+    assert rows["mild"]["stressed_losing_observation_count"] == 0
+    assert rows["severe"]["stressed_losing_observation_count"] == 2
+    assert Decimal(rows["severe"]["stressed_net_cash"]) < Decimal(rows["mild"]["stressed_net_cash"])
+
+
+def test_equal_per_row_total_costs_have_lexical_dominance_tie():
+    data = _fixture()
+    a = _scenario(data, "alpha", {
+        0: {"spread_extra_cash": "0.3000"},
+    })
+    z = _scenario(data, "zeta", {
+        0: {"financing_extra_cash": "0.3000"},
+    })
+    report = _audit(data, [z, a])
+    assert report["scenario_cost_dominance_pairs"] == [{
+        "lower_or_equal_cost_scenario_id": "alpha",
+        "higher_or_equal_cost_scenario_id": "zeta",
+        "identical_per_row_total_costs": True,
+    }]
+    assert report["scenario_cost_incomparable_pair_count"] == 0
+    assert report["scenarios"][0]["stressed_net_cash"] == report["scenarios"][1]["stressed_net_cash"]
+
+
+def test_equal_aggregate_costs_with_different_rows_are_incomparable():
+    data = _fixture()
+    first = _scenario(data, "first", {
+        0: {"spread_extra_cash": "2.0000"},
+    })
+    second = _scenario(data, "second", {
+        1: {"spread_extra_cash": "2.0000"},
+    })
+    report = _audit(data, [first, second])
+    assert report["scenario_cost_dominance_pairs"] == []
+    assert report["scenario_cost_incomparable_pair_count"] == 1
+    assert report["scenarios"][0]["extra_cost_cash"] == report["scenarios"][1]["extra_cost_cash"]
+
+
+def test_zero_cost_scenario_dominates_all_adverse_scenarios():
+    data = _fixture()
+    zero = _scenario(data, "zero")
+    adverse = _scenario(data, "adverse", {
+        0: {"fx_extra_cash": "0.0001"},
+    })
+    report = _audit(data, [zero, adverse])
+    assert report["scenario_cost_dominance_pairs"] == [{
+        "lower_or_equal_cost_scenario_id": "zero",
+        "higher_or_equal_cost_scenario_id": "adverse",
+        "identical_per_row_total_costs": False,
+    }]
+
+
+def test_pairwise_cost_dominance_is_withheld_for_small_holdout():
+    data = _fixture(29)
+    report = _audit(data, [
+        _scenario(data, "zero"),
+        _scenario(data, "adverse", {0: {"fx_extra_cash": "0.0001"}}),
+    ])
+    assert report["outcome_metrics_withheld"] is True
+    assert report["scenario_cost_dominance_pairs"] is None
+    assert report["scenario_cost_incomparable_pair_count"] is None
+    assert report["may_execute_demo_order"] is False
+    assert report["may_execute_real_order"] is False
