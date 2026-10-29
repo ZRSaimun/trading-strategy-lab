@@ -109,6 +109,8 @@ def audit_forecast_alert_health(records, expected_keys, *, as_of,
     oldest_queued = 0
     earliest_queued_expiry = None
     earliest_queued_keys = []
+    next_expiry_warning = None
+    next_expiry_warning_keys = []
     next_queue_delay_warning = None
     next_queue_delay_keys = []
     oldest_uncertain = 0
@@ -173,9 +175,18 @@ def audit_forecast_alert_health(records, expected_keys, *, as_of,
                         next_queue_delay_keys.append(key)
                 # Short-lived alerts may approach expiry before the normal
                 # queue-age threshold. Surface them for operator review early.
-                if state["expiresAt"] - as_of <= expiry_warning_seconds:
+                if remaining <= expiry_warning_seconds:
                     counts["EXPIRING_SOON_WARNING"] += 1
                     warn(key, "EXPIRING_SOON_WARNING")
+                else:
+                    # The warning starts strictly before expiry. Exclude
+                    # alerts already warning or expired from future deadlines.
+                    until_warning = remaining - expiry_warning_seconds
+                    if next_expiry_warning is None or until_warning < next_expiry_warning:
+                        next_expiry_warning = until_warning
+                        next_expiry_warning_keys = [key]
+                    elif until_warning == next_expiry_warning:
+                        next_expiry_warning_keys.append(key)
         elif status == "IN_FLIGHT_UNCERTAIN":
             counts[status] += 1
             # Every uncertain send requires reconciliation, even before its
@@ -238,6 +249,8 @@ def audit_forecast_alert_health(records, expected_keys, *, as_of,
             "oldestQueuedSeconds": oldest_queued,
             "earliestQueuedExpirySecondsRemaining": earliest_queued_expiry,
             "earliestQueuedExpiryKeys": [list(key) for key in sorted(earliest_queued_keys)],
+            "nextExpirySoonWarningSecondsRemaining": next_expiry_warning,
+            "nextExpirySoonWarningKeys": [list(key) for key in sorted(next_expiry_warning_keys)],
             "nextQueueDelayWarningSecondsRemaining": next_queue_delay_warning,
             "nextQueueDelayWarningKeys": [list(key) for key in sorted(next_queue_delay_keys)],
             "oldestUncertainSeconds": oldest_uncertain,
