@@ -98,3 +98,30 @@ authenticated timestamps, broker fill availability or profitability.
 Synthetic regressions cover 40 early daily decisions, a one-observation
 fold, and a last decision two seconds before the final window closes.
 Trading permissions remain disabled.
+
+
+## Declared decision distribution by window quarter
+
+Each fold now divides its caller-declared half-open holdout interval
+`[holdout_start_at_utc, holdout_end_at_utc)` into **four equal-duration
+quarters**, not calendar quarters. A decision exactly on a quarter boundary
+belongs to the *later* quarter; the final window endpoint is excluded by
+the existing census validator. `declared_decision_quarter_counts` is a
+four-element list of nonnegative integer decision counts, whose sum equals
+the validated fold population. `declared_nonempty_decision_quarter_count`
+ranges from 1 to 4. At study level,
+`min_declared_nonempty_decision_quarter_count` and
+`sparsest_declared_decision_quarters_fold_index` expose the sparsest
+fold, with earliest-fold tie handling. This complements the longest
+interdecision gap and trailing inactive interval: a declared two-year
+window with forty decisions in its first few weeks has counts
+`[40, 0, 0, 0]`, **not** evidence of two years of observed trading.
+
+These are **strategy-decision counts**, not candle-coverage counts or
+source-data completeness tests. Empty quarters can be entirely legitimate
+for an inactive strategy. All timestamps and archive identities are
+caller-declared and unauthenticated; the audit does not evaluate returns,
+realized transaction costs, untouched-holdout integrity or profitable
+performance. Synthetic regressions cover exact quarter boundaries,
+1–4 populated quarters, stable ties, input immutability and disabled
+demo/real order permissions.
