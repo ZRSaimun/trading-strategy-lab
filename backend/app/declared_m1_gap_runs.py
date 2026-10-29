@@ -51,6 +51,12 @@ def audit_declared_m1_gap_runs(
     expected = set(manifest.expected_minutes)
     unexpected = seen - expected
     exclusions = {t for start, end in manifest.exclusions_utc for t in range(start, end, 60)}
+    # Keep closure-minute observations distinct from observations outside all
+    # declared sessions. Neither category authenticates a market calendar.
+    observed_in_exclusions = unexpected & exclusions
+    observed_outside_sessions = unexpected - observed_in_exclusions
+    if len(observed_in_exclusions) + len(observed_outside_sessions) != len(unexpected):
+        raise ValueError("Unexpected-minute attribution failed")
     runs: list[tuple[int, int]] = []
     for start, end in manifest.sessions_utc:
         run_start = None
@@ -91,6 +97,10 @@ def audit_declared_m1_gap_runs(
         "duplicate_observation_rows": duplicate_rows,
         "unexpected_unique_minutes": len(unexpected),
         "unexpected_minute_samples": sorted(unexpected)[:sample_limit],
+        "observed_in_declared_exclusions_unique_minutes": len(observed_in_exclusions),
+        "observed_outside_declared_sessions_unique_minutes": len(observed_outside_sessions),
+        "observed_in_declared_exclusions_samples": sorted(observed_in_exclusions)[:sample_limit],
+        "observed_outside_declared_sessions_samples": sorted(observed_outside_sessions)[:sample_limit],
         "declared_excluded_minutes": len(exclusions),
         "declared_session_intervals": len(manifest.sessions_utc),
         "expected_calendar_verified": False,
