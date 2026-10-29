@@ -20,6 +20,8 @@ def test_all_favorable_scores_have_zero_adverse_run():
     assert result["maxCumulativeBrierUnderperformanceExcursion"] == 0
     assert result["maxCumulativeLogLossUnderperformanceExcursion"] == 0
     assert result["longestConsecutiveBrierUnderperformance"] == 0
+    assert result["maxCumulativeBrierExcursionStartIndex"] is None
+    assert result["longestConsecutiveLogLossEndIndex"] is None
 
 
 def test_long_run_cannot_be_disguised_by_low_average():
@@ -35,6 +37,8 @@ def test_population_gate_withholds_all_run_metrics():
     assert result["status"] == "INSUFFICIENT_DISJOINT_SCORES"
     assert result["maxCumulativeBrierUnderperformanceExcursion"] is None
     assert result["longestConsecutiveBrierUnderperformance"] is None
+    assert result["maxCumulativeBrierExcursionStartIndex"] is None
+    assert result["longestConsecutiveLogLossEndIndex"] is None
 
 
 def test_input_immutable_and_order_matters():
@@ -45,6 +49,44 @@ def test_input_immutable_and_order_matters():
     assert a["maxCumulativeBrierUnderperformanceExcursion"] == pytest.approx(7.5)
     alt = audit_chronological_regret_runs([(0.5, 0.5), (-0.5, -0.5)] * 15)
     assert alt["maxCumulativeBrierUnderperformanceExcursion"] == pytest.approx(0.5)
+
+
+
+def test_excursion_spans_include_recovery_and_start_after_favorable_prefix():
+    seq = [(-.5, -5), (.2, 1), (.3, 2), (-.1, -1), (.4, 5), (-.9, -9)] * 5
+    r = audit_chronological_regret_runs(seq)
+    assert (r["maxCumulativeBrierExcursionStartIndex"],
+            r["maxCumulativeBrierExcursionEndIndex"]) == (1, 4)
+    assert (r["maxCumulativeLogLossExcursionStartIndex"],
+            r["maxCumulativeLogLossExcursionEndIndex"]) == (1, 4)
+    assert (r["longestConsecutiveBrierStartIndex"],
+            r["longestConsecutiveBrierEndIndex"]) == (1, 2)
+    assert (r["longestConsecutiveLogLossStartIndex"],
+            r["longestConsecutiveLogLossEndIndex"]) == (1, 2)
+
+
+def test_earliest_tied_spans_win_for_both_scoring_rules():
+    seq = [(0.5, 2), (0, 0), (-1, -10), (-0.5, -2)] * 8
+    r = audit_chronological_regret_runs(seq)
+    assert (r["maxCumulativeBrierExcursionStartIndex"],
+            r["maxCumulativeBrierExcursionEndIndex"]) == (0, 0)
+    assert (r["maxCumulativeLogLossExcursionStartIndex"],
+            r["maxCumulativeLogLossExcursionEndIndex"]) == (0, 0)
+    assert (r["longestConsecutiveBrierStartIndex"],
+            r["longestConsecutiveBrierEndIndex"]) == (0, 0)
+
+
+def test_different_scoring_rules_can_localize_different_bad_periods():
+    seq = [(0.4, -2)] * 15 + [(-0.8, 3)] * 15
+    r = audit_chronological_regret_runs(seq)
+    assert (r["maxCumulativeBrierExcursionStartIndex"],
+            r["maxCumulativeBrierExcursionEndIndex"]) == (0, 14)
+    assert (r["maxCumulativeLogLossExcursionStartIndex"],
+            r["maxCumulativeLogLossExcursionEndIndex"]) == (15, 29)
+    assert (r["longestConsecutiveBrierStartIndex"],
+            r["longestConsecutiveBrierEndIndex"]) == (0, 14)
+    assert (r["longestConsecutiveLogLossStartIndex"],
+            r["longestConsecutiveLogLossEndIndex"]) == (15, 29)
 
 
 @pytest.mark.parametrize("bad,kwargs", [
