@@ -8,6 +8,7 @@ import math
 from .forecast_prospective_scorecard import summarize_forecast_snapshot
 from .forecast_fixed_bin_reliability import audit_fixed_bin_reliability
 from .forecast_regret_run_audit import audit_chronological_regret_runs
+from .forecast_block_regret_sensitivity import audit_block_regret_sensitivity
 
 
 def audit_causal_climatology(snapshot, *, evaluation_as_of, min_training=30,
@@ -182,7 +183,17 @@ def audit_causal_climatology(snapshot, *, evaluation_as_of, min_training=30,
         if run_status is None:
             regret_runs = audit_chronological_regret_runs(scored_regrets, min_scored=min_scored)
             run_status = regret_runs["status"]
+        # Fixed chronological five-block omission is a descriptive fragility
+        # stress, never a significance test. Missing labels forbid its release.
+        block_status = ("BASELINE_SCORE_WITHHELD" if not sufficient else
+                        "MISSING_ELIGIBLE_OUTCOMES" if unavailable else None)
+        block_sensitivity = None
+        if block_status is None:
+            block_sensitivity = audit_block_regret_sensitivity(scored_regrets)
+            block_status = block_sensitivity["status"]
         results.append({
+            "blockRegretSensitivityStatus": block_status,
+            "blockRegretSensitivity": block_sensitivity,
             "chronologicalRegretRunStatus": run_status,
             "chronologicalRegretRuns": regret_runs,
             "fixedBinReliabilityStatus": fixed_bin_status,
