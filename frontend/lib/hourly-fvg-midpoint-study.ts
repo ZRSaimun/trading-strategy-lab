@@ -7,7 +7,7 @@
  */
 import type {Bar} from './research.ts';
 
-export const HOURLY_FVG_VERSION='hourly-fvg-first-midpoint-touch-v76';
+export const HOURLY_FVG_VERSION='hourly-fvg-first-midpoint-touch-v77';
 export type Evidence='PASS'|'FAIL'|'INSUFFICIENT_DATA';
 // First-touch volume evidence is not independent broker/source authentication.
 export type VolumeEvidenceReason='NOT_EVALUATED'|'SOURCE_UNVERIFIED'|
@@ -292,6 +292,25 @@ function assertCompletedFieldsUnchanged(row:Bar,initial:readonly PropertyDescrip
    (data?before.value!==after.value||before.writable!==after.writable:
     before.get!==after.get||before.set!==after.set))
    throw Error('Hourly research completed candle field changed during snapshot');
+ });
+}
+// Detect in-place rewrites of previously declared source, setting and cost
+// data fields while other caller-controlled getters are being evaluated.
+// Descriptor reads do not invoke accessors or read any future OHLC/volume.
+// A stateful accessor's private return value still cannot be authenticated.
+function assertFrozenFieldDescriptors(
+ value:object,fields:readonly PropertyKey[],
+ initial:readonly (PropertyDescriptor|undefined)[],kind:string,
+){
+ fields.forEach((field,index)=>{
+  const before=initial[index],after=Object.getOwnPropertyDescriptor(value,field);
+  if(!before||!after)throw Error('FVG '+kind+' field changed during declaration snapshot');
+  const data='value' in before;
+  if(before.configurable!==after.configurable||
+   before.enumerable!==after.enumerable||data!==('value' in after)||
+   (data?!Object.is(before.value,after.value)||before.writable!==after.writable:
+    before.get!==after.get||before.set!==after.set))
+   throw Error('FVG '+kind+' field changed during declaration snapshot');
  });
 }
 function validateBars(bars:readonly Bar[]){
@@ -981,6 +1000,11 @@ export function studyHourlyFvgMidpoint(
  const barCount=suppliedBars.length;
  validateBarArraySchema(suppliedBars,barCount);
  const archiveSlots=captureArchiveSlots(suppliedBars,barCount);
+ // Capture source data descriptors before any settings getter can rewrite
+ // volume certification or provider identity. Missing source fields still
+ // fail through the existing strict source validation below.
+ const initialSourceDescriptors=source&&typeof source==='object'?
+  SOURCE_FIELDS.map(field=>Object.getOwnPropertyDescriptor(source,field)):[];
  // A research setting must be explicitly supplied or use its frozen default.
  // An inherited prototype value can silently shorten the touch window,
  // change the wick/volume threshold or replace the cost scenarios.
@@ -996,6 +1020,8 @@ export function studyHourlyFvgMidpoint(
   if(!CONFIG_FIELDS.some(field=>field===key))
    throw Error('Unexpected FVG study setting outside frozen protocol');
  }
+ const initialConfigDescriptors=initialConfigKeys.map(key=>
+  Object.getOwnPropertyDescriptor(config,key));
  const readOwnSetting=<K extends keyof FvgConfig>(field:K):FvgConfig[K]|undefined=>{
   if(!hasOwnField(config,field)){
    if(field in config)
@@ -1032,7 +1058,10 @@ export function studyHourlyFvgMidpoint(
  // spreads, financing or certification fields. Inspect own keys without
  // evaluating unknown accessors. A custom iterator is ignored, not invoked:
  // index-only snapshots preserve the existing bounded-array contract.
- const allowedCostIndices=new Set(Array.from({length:costCount},(_,i)=>String(i)));
+ const costIndexKeys=Array.from({length:costCount},(_,i)=>String(i));
+ const allowedCostIndices=new Set(costIndexKeys);
+ const initialCostDescriptors=costIndexKeys.map(key=>
+  Object.getOwnPropertyDescriptor(suppliedCosts,key));
  for(const key of Reflect.ownKeys(suppliedCosts)){
   if(key==='length'||key===Symbol.iterator||
      (typeof key==='string'&&allowedCostIndices.has(key)))continue;
@@ -1058,6 +1087,10 @@ export function studyHourlyFvgMidpoint(
   if(!hasOwnField(suppliedCosts,index))
    throw Error('Hypothetical CFD cost array schema changed during snapshot');
  }
+ // Earlier cost cells cannot be rewritten by a later cost getter while
+ // retaining the same schema and producing a mixed cost-stress population.
+ assertFrozenFieldDescriptors(suppliedCosts,costIndexKeys,
+  initialCostDescriptors,'cost scenario');
  // Snapshot the seven allowlisted source fields exactly once. A mutable or
  // accessor-backed declaration must not pass validation as one identity,
  // qualify volume under another, then export a third identity.
@@ -1088,6 +1121,12 @@ export function studyHourlyFvgMidpoint(
  if(initialConfigKeys.some(key=>!hasOwnField(config,key))||
   Reflect.ownKeys(config).some(key=>!initialConfigKeys.includes(key)))
   throw Error('FVG study setting schema changed during snapshot');
+ // A getter must not rewrite an earlier declared data property in place:
+ // schema-only rechecks cannot detect this source/cost/config drift.
+ assertFrozenFieldDescriptors(source,SOURCE_FIELDS,
+  initialSourceDescriptors,'source declaration');
+ assertFrozenFieldDescriptors(config,initialConfigKeys,
+  initialConfigDescriptors,'study setting');
  // RegExp#test coerces objects via toString/Symbol.toPrimitive. A forged
  // object could pass a hash-shaped check then leak into exported provenance.
  // Require primitive strings before testing the exact lowercase SHA form.
