@@ -314,3 +314,25 @@ def test_rehashed_bar_population_above_original_engine_limit_rejected():
     rehash(b)
     with pytest.raises(ValueError, match='bar count'):
         audit_m1_multi_archive_census([a, b])
+
+def test_incomplete_source_withholds_weighted_performance_not_just_success_flag():
+    # A favorable nonempty archive must not turn a missing archive into
+    # a seemingly favorable source-level research result.
+    a = receipt('a', 'c', count=0)
+    b = receipt('b', 'd', count=4, mean=30)
+    g = audit_m1_multi_archive_census([a, b])['groups'][0]
+    assert g['status'] == 'INCOMPLETE_ARCHIVE_COVERAGE'
+    assert g['evaluated_count'] == 4
+    assert g['weighted_mean_gross_bps_rounded_receipts'] is None
+    assert all(v is None for v in g['weighted_mean_net_bps_by_illustrative_cost'].values())
+    assert g['all_nonempty_archives_negative_at_5bps'] is None
+
+
+def test_incomplete_one_source_does_not_hide_complete_other_source():
+    a = receipt('a', 'c', count=0)
+    b = receipt('b', 'd', count=2, mean=30)
+    c = receipt('e', 'f', count=2, mean=-2, instrument='XAUUSD')
+    x = audit_m1_multi_archive_census([a, b, c])
+    assert x['groups'][0]['weighted_mean_gross_bps_rounded_receipts'] is None
+    assert x['groups'][1]['weighted_mean_gross_bps_rounded_receipts'] == -2
+    assert x == audit_m1_multi_archive_census([c, b, a])
