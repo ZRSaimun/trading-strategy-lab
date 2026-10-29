@@ -55,6 +55,39 @@ def test_duplicate_and_closed_minutes_are_review_only():
     assert report["status"] == "REVIEW_REQUIRED"
 
 
+def test_backward_transition_quarantines_otherwise_complete_coverage():
+    report = audit([T+120, T, T+300, T+360, T+420])
+    assert report["missing_expected_minutes"] == 0
+    assert report["duplicate_observation_rows"] == 0
+    assert report["unexpected_unique_minutes"] == 0
+    assert report["backward_timestamp_transitions"] == 1
+    assert report["backward_timestamp_samples"] == [
+        {"previous_utc": T+120, "observed_utc": T}
+    ]
+    assert report["status"] == "REVIEW_REQUIRED"
+
+
+def test_equal_timestamp_is_duplicate_not_backward():
+    report = audit([T, T, T+120, T+300, T+360, T+420])
+    assert report["duplicate_observation_rows"] == 1
+    assert report["backward_timestamp_transitions"] == 0
+    assert report["backward_timestamp_samples"] == []
+
+
+def test_backward_transition_samples_are_bounded_without_losing_counts():
+    rows = [T+420, T+360, T+300, T+120, T]
+    report = audit(rows, sample_limit=2)
+    assert report["backward_timestamp_transitions"] == 4
+    assert report["backward_timestamp_samples"] == [
+        {"previous_utc": T+420, "observed_utc": T+360},
+        {"previous_utc": T+360, "observed_utc": T+300},
+    ]
+    assert report["missing_expected_minutes"] == 0
+    zero = audit(rows, sample_limit=0)
+    assert zero["backward_timestamp_transitions"] == 4
+    assert zero["backward_timestamp_samples"] == []
+
+
 def test_unexpected_minutes_attributed_to_exclusion_or_outside_session():
     rows = [T, T+60, T+60, T+120, T+180, T+240, T+480, T+540]
     report = audit(rows, sample_limit=2)
