@@ -73,6 +73,50 @@ def test_backward_receipt_bar_order_requires_review_despite_full_coverage():
     assert report["status"] == "REVIEW_REQUIRED"
 
 
+def test_backward_declared_receipt_time_requires_review_even_when_census_clean():
+    # Bar starts are ordered and complete, but the declared receipt clock
+    # moves backwards by five seconds between the first and second rows.
+    rows = [
+        bar(T, received_at_utc=T + 250),
+        bar(T + 180, received_at_utc=T + 245),
+        bar(T + 240, received_at_utc=T + 305),
+    ]
+    report = audit(rows, max_receipt_lag_seconds=200)
+    assert report["receipt_census"]["status"] == "INTERNAL_CENSUS_ONLY_NOT_LIVE"
+    assert report["session_gap_audit"]["status"] == "DECLARED_COVERAGE_COMPLETE_UNVERIFIED"
+    assert report["backward_timestamp_transitions"] == 0
+    assert report["backward_receipt_time_transitions"] == 1
+    assert report["backward_receipt_time_samples"] == [
+        {"previous_received_at_utc": T + 250, "received_at_utc": T + 245}
+    ]
+    assert report["status"] == "REVIEW_REQUIRED"
+    assert report["forecast_ready"] is False and report["may_execute_order"] is False
+
+
+def test_equal_declared_receipt_times_are_not_backward_transitions():
+    rows = [
+        bar(T, received_at_utc=T + 245),
+        bar(T + 180, received_at_utc=T + 245),
+        bar(T + 240, received_at_utc=T + 305),
+    ]
+    report = audit(rows, max_receipt_lag_seconds=200)
+    assert report["status"] == "DECLARED_RECONCILED_UNVERIFIED"
+    assert report["backward_receipt_time_transitions"] == 0
+    assert report["backward_receipt_time_samples"] == []
+
+
+def test_backward_receipt_time_count_survives_zero_sample_limit():
+    rows = [
+        bar(T, received_at_utc=T + 250),
+        bar(T + 180, received_at_utc=T + 245),
+        bar(T + 240, received_at_utc=T + 305),
+    ]
+    report = audit(rows, max_receipt_lag_seconds=200, sample_limit=0)
+    assert report["backward_receipt_time_transitions"] == 1
+    assert report["backward_receipt_time_samples"] == []
+    assert report["status"] == "REVIEW_REQUIRED"
+
+
 def test_duplicates_and_revisions_never_silently_pass():
     report = audit([bar(T), bar(T), bar(T + 180), bar(T + 240)])
     assert report["duplicate_receipt_rows"] == 1
