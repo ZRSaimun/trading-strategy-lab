@@ -414,3 +414,46 @@ def test_valid_risk_envelope_cannot_be_replayed_under_another_account(setup):
     with setup[1]() as db:
         assert len(db.scalars(select(Audit)).all()) == before
     assert s.load("paper-acct-0001")["kill_switch"] is False
+
+
+@pytest.mark.parametrize("mutations", [
+    {"kill_switch": False, "limit_cash": "100"},
+    {"kill_switch": True, "limit_cash": "100"},
+    {"emergency_latched": True},
+])
+def test_zero_revision_state_cannot_claim_policy_or_emergency_latch(setup, mutations):
+    """A recomputed checksum cannot invent a policy or emergency event at revision 0."""
+    import hashlib
+    s = store(setup)
+    assert s.initialize("paper-acct-0001")
+    key = s._key("paper-acct-0001")
+    with setup[1].begin() as db:
+        record = db.get(Record, key)
+        envelope = json.loads(record.value)
+        assert envelope["state"]["revision"] == 0
+        envelope["state"].update(mutations)
+        canonical = json.dumps(envelope["state"], sort_keys=True, separators=(",", ":"))
+        envelope["sha256"] = hashlib.sha256(canonical.encode()).hexdigest()
+        record.value = json.dumps(envelope)
+    with setup[1]() as db:
+        audit_before = len(db.scalars(select(Audit)).all())
+    for action in (
+        lambda: s.load("paper-acct-0001"),
+        lambda: s.set_policy("paper-acct-0001", 0, limit_cash="100",
+                             kill_switch=False, owner_reviewed=True),
+        lambda: s.reserve("paper-acct-0001", 0,
+                          client_order_id="order-00001", risk_cash="1"),
+        lambda: s.engage_kill_switch("paper-acct-0001"),
+    ):
+        with pytest.raises(ValueError, match="corrupt"):
+            action()
+    with setup[1]() as db:
+        assert len(db.scalars(select(Audit)).all()) == audit_before
+
+def test_legitimate_initial_revision_still_allows_first_policy_transition(setup):
+    s = store(setup)
+    assert s.initialize("paper-acct-0001")
+    assert s.load("paper-acct-0001")["revision"] == 0
+    assert s.set_policy("paper-acct-0001", 0, limit_cash="100",
+                        kill_switch=False, owner_reviewed=True)
+    assert s.load("paper-acct-0001")["revision"] == 1

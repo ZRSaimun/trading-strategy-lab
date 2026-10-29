@@ -71,6 +71,14 @@ def _validate(state):
     # A snapshot with more IDs than committed revisions is impossible here.
     if len(reservations) > state["revision"]:
         raise ValueError("Paper reservation count exceeds state revision")
+    # Revision zero is created only by initialize(): no policy, reservation,
+    # or emergency transition can legitimately exist before revision one.
+    # Reject checksum-recomputed imports that invent a pre-policy cash cap.
+    if state["revision"] == 0 and (
+        not state["kill_switch"] or state["emergency_latched"]
+        or state["limit_cash"] != "0" or reservations
+    ):
+        raise ValueError("Invalid initial paper risk-state snapshot")
     reserved = Decimal(0)
     for digest, amount in reservations.items():
         if not isinstance(digest, str) or not re.fullmatch(r"[0-9a-f]{64}", digest):
