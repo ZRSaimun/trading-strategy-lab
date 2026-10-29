@@ -7,13 +7,17 @@
  */
 import type {Bar} from './research.ts';
 
-export const HOURLY_FVG_VERSION='hourly-fvg-first-midpoint-touch-v92';
+export const HOURLY_FVG_VERSION='hourly-fvg-first-midpoint-touch-v93';
 export type Evidence='PASS'|'FAIL'|'INSUFFICIENT_DATA';
 // First-touch volume evidence is not independent broker/source authentication.
 export type VolumeEvidenceReason='NOT_EVALUATED'|'SOURCE_UNVERIFIED'|
  'PRIOR20_UNAVAILABLE'|'PRIOR20_GAP'|'MISSING_OR_NONPOSITIVE_VOLUME'|
  'THRESHOLD_NOT_MET'|'THRESHOLD_EXCEEDED';
 export type Side='BULLISH'|'BEARISH';
+// Observed first-touch wick evidence crossed with source-declared volume
+// reasons; neither axis is an authenticated broker fill or volume receipt.
+export type WickVolumeReasonCensus=Record<'PASS'|'FAIL',
+ Record<VolumeEvidenceReason,number>>;
 export type FvgSource={
  datasetId:string;archiveSha256:string;instrument:string;provider:string;
  priceSide:'bid';volumeType:'exchange'|'tick'|'none'|'unverified';
@@ -268,6 +272,15 @@ export type FvgStudy={
    byDirection:Record<Side,{
     noWiderThanCost:Record<VolumeEvidenceReason,number>;
     widerThanCost:Record<VolumeEvidenceReason,number>}>;
+  };
+  // Distinguish wick rejection from prior-20 volume rejection/unknown.
+  // These are the SAME observed touches, not extra independent trades.
+  observedTouchWickAndVolumeByCostWidth:{
+   noWiderThanCost:WickVolumeReasonCensus;
+   widerThanCost:WickVolumeReasonCensus;
+   byDirection:Record<Side,{
+    noWiderThanCost:WickVolumeReasonCensus;
+    widerThanCost:WickVolumeReasonCensus}>;
   };
  }[];
  warning:string;
@@ -551,6 +564,20 @@ function observedTouchVolumeReasons(population:readonly FvgObservation[]):
   counts[observation.volumeEvidenceReason]++;
  }
  return counts;
+}
+// Never assign an opening gap-through, completed no-touch, or censored
+// formation to a wick/volume evidence cell. A first touch has a completed
+// wick PASS/FAIL, but volume may remain unknown.
+function observedTouchWickAndVolume(population:readonly FvgObservation[]):
+ WickVolumeReasonCensus{
+ const touched=population.filter(o=>o.firstTouchOutcome==='TOUCH');
+ if(touched.some(o=>o.gates.wickRejection!=='PASS'&&
+  o.gates.wickRejection!=='FAIL'))
+  throw Error('Observed FVG first touch lacks closed-bar wick evidence');
+ return {
+  PASS:observedTouchVolumeReasons(touched.filter(o=>o.gates.wickRejection==='PASS')),
+  FAIL:observedTouchVolumeReasons(touched.filter(o=>o.gates.wickRejection==='FAIL')),
+ };
 }
 
 function summarizeCohort(observations:readonly FvgObservation[],costs:readonly number[],
@@ -1762,6 +1789,20 @@ export function studyHourlyFvgMidpoint(
      },
     },
    };
+   const observedTouchWickAndVolumeByCostWidth={
+    noWiderThanCost:observedTouchWickAndVolume(noWider),
+    widerThanCost:observedTouchWickAndVolume(wider),
+    byDirection:{
+     BULLISH:{
+      noWiderThanCost:observedTouchWickAndVolume(noWider.filter(o=>o.direction==='BULLISH')),
+      widerThanCost:observedTouchWickAndVolume(wider.filter(o=>o.direction==='BULLISH')),
+     },
+     BEARISH:{
+      noWiderThanCost:observedTouchWickAndVolume(noWider.filter(o=>o.direction==='BEARISH')),
+      widerThanCost:observedTouchWickAndVolume(wider.filter(o=>o.direction==='BEARISH')),
+     },
+    },
+   };
    for(const group of ['noWiderThanCost','widerThanCost'] as const){
     const counts=observedTouchVolumeReasonsByCostWidth[group];
     const observed=group==='noWiderThanCost'?noWiderThanCost:widerThanCost;
@@ -1792,6 +1833,44 @@ export function studyHourlyFvgMidpoint(
       throw Error('FVG directional cost-width volume reason census does not reconcile');
     }
    }
+   // Cross-check each wick/volume joint cell against both independent
+   // evidence axes, including the FAIL-over-unknown strict-gate precedence.
+   const jointToStrict=(joint:WickVolumeReasonCensus):EvidenceCounts=>{
+    const wickFail=Object.values(joint.FAIL).reduce((sum,n)=>sum+n,0);
+    const wickPass=Object.values(joint.PASS).reduce((sum,n)=>sum+n,0);
+    return {PASS:joint.PASS.THRESHOLD_EXCEEDED,
+     FAIL:wickFail+joint.PASS.THRESHOLD_NOT_MET,
+     INSUFFICIENT_DATA:wickPass-joint.PASS.THRESHOLD_EXCEEDED-
+      joint.PASS.THRESHOLD_NOT_MET};
+   };
+   for(const group of ['noWiderThanCost','widerThanCost'] as const){
+    const joint=observedTouchWickAndVolumeByCostWidth[group];
+    const strict=strictObservedTouchEvidenceByCostWidth[group];
+    const expectedReasons=observedTouchVolumeReasonsByCostWidth[group];
+    for(const reason of Object.keys(expectedReasons) as VolumeEvidenceReason[]){
+     if(joint.PASS[reason]+joint.FAIL[reason]!==expectedReasons[reason])
+      throw Error('FVG joint wick/volume reasons do not reconcile');
+     for(const side of ['BULLISH','BEARISH'] as const){
+      const directional=observedTouchWickAndVolumeByCostWidth.byDirection[side][group];
+      if(directional.PASS[reason]+directional.FAIL[reason]!==
+       observedTouchVolumeReasonsByCostWidth.byDirection[side][group][reason])
+       throw Error('FVG directional joint wick/volume reasons do not reconcile');
+      for(const wick of ['PASS','FAIL'] as const)
+       if(observedTouchWickAndVolumeByCostWidth.byDirection.BULLISH[group][wick][reason]+
+          observedTouchWickAndVolumeByCostWidth.byDirection.BEARISH[group][wick][reason]!==
+          joint[wick][reason])
+        throw Error('FVG joint direction/volume/wick partition does not reconcile');
+     }
+    }
+    for(const evidence of ['PASS','FAIL','INSUFFICIENT_DATA'] as const){
+     if(jointToStrict(joint)[evidence]!==strict[evidence])
+      throw Error('FVG joint wick/volume strict gate does not reconcile');
+     for(const side of ['BULLISH','BEARISH'] as const)
+      if(jointToStrict(observedTouchWickAndVolumeByCostWidth.byDirection[side][group])[evidence]!==
+       strictObservedTouchEvidenceByCostWidth.byDirection[side][group][evidence])
+       throw Error('FVG directional joint wick/volume strict gate does not reconcile');
+    }
+   }
    const countEvidence=(counts:EvidenceCounts)=>
     counts.PASS+counts.FAIL+counts.INSUFFICIENT_DATA;
    for(const group of ['noWiderThanCost','widerThanCost'] as const){
@@ -1820,7 +1899,8 @@ export function studyHourlyFvgMidpoint(
    return {scenarioIndex:scenario.scenarioIndex,costBps:scenario.costBps,
     noWiderThanCost,widerThanCost,byDirection,
     strictObservedTouchEvidenceByCostWidth,
-    observedTouchVolumeReasonsByCostWidth};
+    observedTouchVolumeReasonsByCostWidth,
+    observedTouchWickAndVolumeByCostWidth};
   });
  return {version:HOURLY_FVG_VERSION,source:declaredSource,
    coverage,

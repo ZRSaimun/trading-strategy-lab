@@ -710,7 +710,7 @@ test('research report rejects extra source fields without leaking caller private
  const report=studyHourlyFvgMidpoint(fixture(),source);
  assert.deepEqual(report.source,source);
  assert.deepEqual(Object.keys(report.source).sort(),Object.keys(source).sort());
- assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v92');
+ assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v93');
 });
 test('ambiguous source labels and contradictory volume evidence fail closed',()=>{
  // These are declared metadata, not independent vendor authentication.
@@ -785,7 +785,7 @@ test('v61 source labels reject lone surrogates and Unicode noncharacters in both
  assert.deepEqual(studyHourlyFvgMidpoint(bars,valid).source,valid);
  assert.deepEqual(studyHourlyFvgMidpointAsOf(bars,valid,cutoff).source,valid);
  assert.equal(studyHourlyFvgMidpoint(bars,valid).version,
-  'hourly-fvg-first-midpoint-touch-v92');
+  'hourly-fvg-first-midpoint-touch-v93');
 });
 test('v63 source labels reject Unicode space lookalikes without banning ASCII spaces',()=>{
  const bars=fixture(),cutoff=BASE+37*H;
@@ -802,7 +802,7 @@ test('v63 source labels reject Unicode space lookalikes without banning ASCII sp
  assert.deepEqual(studyHourlyFvgMidpoint(bars,legitimate).source,legitimate);
  assert.deepEqual(studyHourlyFvgMidpointAsOf(bars,legitimate,cutoff).source,legitimate);
  assert.equal(studyHourlyFvgMidpoint(bars,legitimate).version,
-  'hourly-fvg-first-midpoint-touch-v92');
+  'hourly-fvg-first-midpoint-touch-v93');
 });
 test('first bullish midpoint touch has a hypothetical blind limit and later next-open rejection markout',()=>{
  const x=target(fixture());
@@ -1147,7 +1147,7 @@ test('an overflowing next-open comparator suppresses both matched markouts',()=>
 });
 test('completed hourly timestamps are safe and numeric rule changes have a new version',()=>{
  const report=studyHourlyFvgMidpoint(fixture(),source);
- assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v92');
+ assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v93');
  const lastSafeAlignedOpen=Math.floor(Number.MAX_SAFE_INTEGER/H)*H;
  assert.equal(Number.isSafeInteger(lastSafeAlignedOpen),true);
  assert.equal(Number.isSafeInteger(lastSafeAlignedOpen+H),false);
@@ -3703,7 +3703,7 @@ test('v85 candle getters cannot rewrite preflighted source, settings or costs',(
   hypotheticalRoundTripCostsBps:costs,
  }),/FVG cost scenario field changed during declaration snapshot/);
  assert.equal(studyHourlyFvgMidpoint(fixture(),source).version,
-  'hourly-fvg-first-midpoint-touch-v92');
+  'hourly-fvg-first-midpoint-touch-v93');
 });
 
 test('v85 future timestamp accessors cannot rewrite as-of provenance or cost axis',()=>{
@@ -4081,4 +4081,66 @@ test('v92 cost-width volume reasons preserve prior-20 gaps, missing data and unv
  }));
  for(const scenario of asOf.firstTouchOpportunityBoundsByCostScenario)
   assert.equal(scenario.observedTouchVolumeReasonsByCostWidth.widerThanCost.NOT_EVALUATED,0);
+});
+
+test('v93 first-touch wick versus volume joint census preserves strict FAIL precedence',()=>{
+ const template=Array.from({length:40},(_,i)=>
+  i>=34?candle(i,105,106,104,105):candle(i,100,101,99,100));
+ template[30]=candle(30,99,100,98,99);
+ template[31]=candle(31,100,102,99,101);
+ template[32]=candle(32,105,106,104,105);
+ template[33]=candle(33,105,106,101,105.5,200);
+ const make=(offset:number,bearish:boolean,wickPass:boolean,volume:number|null)=>
+  template.map((bar,i)=>{
+   const b={...bar,time:bar.time+offset*H,
+    ...(i===33?{close:wickPass?105.5:104.5,volume}:{})};
+   return bearish?{...b,open:220-b.open,high:220-b.low,
+    low:220-b.high,close:220-b.close}:b;
+  });
+ const bars=[
+  ...make(0,false,true,200),     // wick PASS, volume PASS -> strict PASS
+  ...make(50,true,false,200),    // wick FAIL, volume PASS -> strict FAIL
+  ...make(100,false,true,null),  // wick PASS, unknown -> strict unknown
+  ...make(150,true,false,null),  // wick FAIL, unknown -> strict FAIL
+ ];
+ const config:FvgConfig={hypotheticalRoundTripCostsBps:[0,1000]};
+ const report=studyHourlyFvgMidpoint(bars,source,config);
+ assert.equal(report.observations.length,4);
+ assert.deepEqual(report.observations.map(o=>o.gates.strictCandidate),
+  ['PASS','FAIL','INSUFFICIENT_DATA','FAIL']);
+ for(const [index,scenario] of report.firstTouchOpportunityBoundsByCostScenario.entries()){
+  const group=index===0?'widerThanCost':'noWiderThanCost';
+  const other=index===0?'noWiderThanCost':'widerThanCost';
+  const joint=scenario.observedTouchWickAndVolumeByCostWidth;
+  assert.equal(joint[group].PASS.THRESHOLD_EXCEEDED,1);
+  assert.equal(joint[group].FAIL.THRESHOLD_EXCEEDED,1);
+  assert.equal(joint[group].PASS.MISSING_OR_NONPOSITIVE_VOLUME,1);
+  assert.equal(joint[group].FAIL.MISSING_OR_NONPOSITIVE_VOLUME,1);
+  assert.equal(Object.values(joint[other].PASS).reduce((a,b)=>a+b,0),0);
+  assert.equal(Object.values(joint[other].FAIL).reduce((a,b)=>a+b,0),0);
+  assert.equal(joint.byDirection.BULLISH[group].PASS.THRESHOLD_EXCEEDED,1);
+  assert.equal(joint.byDirection.BULLISH[group].PASS.MISSING_OR_NONPOSITIVE_VOLUME,1);
+  assert.equal(joint.byDirection.BEARISH[group].FAIL.THRESHOLD_EXCEEDED,1);
+  assert.equal(joint.byDirection.BEARISH[group].FAIL.MISSING_OR_NONPOSITIVE_VOLUME,1);
+  assert.deepEqual(scenario.strictObservedTouchEvidenceByCostWidth[group],
+   {PASS:1,FAIL:2,INSUFFICIENT_DATA:1});
+ }
+ // Before the last touch closes, its wick and volume remain unread and
+ // cannot appear as a completed joint first-touch observation.
+ const cutoff=BASE+183*H;
+ const protectedRows=bars.map(b=>({...b}));
+ const future=protectedRows.find(b=>b.time===BASE+183*H);
+ assert.ok(future);
+ Object.defineProperty(future,'low',{get(){throw Error('future low read');}});
+ Object.defineProperty(future,'volume',{get(){throw Error('future volume read');}});
+ const asOf=studyHourlyFvgMidpointAsOf(protectedRows,source,cutoff,config);
+ const prefix=bars.filter(b=>b.time+H<=cutoff);
+ assert.deepEqual(asOf,studyHourlyFvgMidpoint(prefix,source,config));
+ for(const scenario of asOf.firstTouchOpportunityBoundsByCostScenario){
+  const group=scenario.observedTouchWickAndVolumeByCostWidth;
+  const total=['noWiderThanCost','widerThanCost'] as const;
+  assert.equal(total.reduce((sum,k)=>sum+
+   Object.values(group[k].PASS).reduce((a,b)=>a+b,0)+
+   Object.values(group[k].FAIL).reduce((a,b)=>a+b,0),0),3);
+ }
 });
