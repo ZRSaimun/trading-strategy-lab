@@ -172,3 +172,13 @@ def test_inputs_immutable():
     before = deepcopy(args)
     inspect(args)
     assert args == before
+
+
+def test_inventory_sync_rollback_propagates_through_composed_review():
+    args = fixture()
+    args[8]["orders_synced_at_ms"] = NOW-221
+    result = inspect(args)
+    assert "account_snapshot_fence_hold" in result["failed_checks"]
+    assert "orders_sync_time_rollback" in result["account_snapshot_failed_checks"]
+    assert result["may_submit_paper_order"] is False
+    assert result["may_submit_real_order"] is False
