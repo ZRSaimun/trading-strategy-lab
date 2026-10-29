@@ -1,4 +1,5 @@
 """Bounded, explicit, historical one-minute adapter. No live polling or fallback symbols."""
+import asyncio
 import csv
 from email.utils import format_datetime, parsedate_to_datetime
 import hashlib
@@ -13,6 +14,9 @@ from ..market import parse_csv
 ENDPOINT='https://api.twelvedata.com/time_series'
 MAPPINGS={'XAUUSD-TD':{'symbol':'XAU/USD','name':'Gold · Twelve Data XAU/USD','volume_type':'none'}}
 MAX_BYTES=3_000_000
+# httpx's per-read timeout resets for each arriving chunk. Bound the entire
+# optional provider transaction, including response headers and body streaming.
+MAX_REQUEST_SECONDS=30
 
 def _credit_header_observation(headers):
     """Sanitize provider quota headers; never log or return arbitrary headers.
@@ -223,7 +227,7 @@ async def retrieve(key,instrument,limit,end,now,transport=None, *, include_wire_
     params={'symbol':MAPPINGS[instrument]['symbol'],'interval':'1min','timezone':'UTC','order':'ASC','outputsize':str(limit),
             'end_date':end_date}
     try:
-        async with httpx.AsyncClient(timeout=20,follow_redirects=False,transport=transport,trust_env=False) as client:
+        async with asyncio.timeout(MAX_REQUEST_SECONDS), httpx.AsyncClient(timeout=20,follow_redirects=False,transport=transport,trust_env=False) as client:
             async with client.stream('GET',ENDPOINT,params=params,headers={'Authorization':'apikey '+key, 'Accept-Encoding':'identity'}) as response:
                 if response.status_code in (401,403):raise ProviderError('Provider rejected the credential or entitlement.',403)
                 if response.status_code==429:raise ProviderError('Provider quota exceeded.',429)
@@ -294,6 +298,8 @@ async def retrieve(key,instrument,limit,end,now,transport=None, *, include_wire_
                                    parse_constant=_reject_nonstandard_response_constant,
                                    parse_float=_reject_nonfinite_response_float)
                 _reject_non_scalar_json_strings(payload)
+    except TimeoutError:
+        raise ProviderError('Provider request exceeded cumulative deadline; no data imported.') from None
     except (httpx.HTTPError,ValueError,RecursionError):
         # Excessively nested but size-bounded JSON may raise RecursionError.
         # Fail closed with a sanitized provider error rather than a server 500.
