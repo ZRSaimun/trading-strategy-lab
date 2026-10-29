@@ -11,6 +11,8 @@ def audit_chronological_regret_runs(paired_regrets, *, min_scored=30):
 
     The caller must freeze a chronological nonoverlapping cohort before labels,
     establish causal baselines and verify no eligible outcomes are missing.
+    Reported spans are zero-based inclusive indices into that frozen cohort,
+    not wall-clock timestamps or independent market observations.
     """
     if type(min_scored) is not int or not 30 <= min_scored <= 5000:
         raise ValueError("Invalid minimum scored population")
@@ -36,6 +38,14 @@ def audit_chronological_regret_runs(paired_regrets, *, min_scored=30):
         "maxCumulativeLogLossUnderperformanceExcursion": None,
         "longestConsecutiveBrierUnderperformance": None,
         "longestConsecutiveLogLossUnderperformance": None,
+        "maxCumulativeBrierExcursionStartIndex": None,
+        "maxCumulativeBrierExcursionEndIndex": None,
+        "maxCumulativeLogLossExcursionStartIndex": None,
+        "maxCumulativeLogLossExcursionEndIndex": None,
+        "longestConsecutiveBrierStartIndex": None,
+        "longestConsecutiveBrierEndIndex": None,
+        "longestConsecutiveLogLossStartIndex": None,
+        "longestConsecutiveLogLossEndIndex": None,
         "sourceAuthenticated": False, "independentHoldoutVerified": False,
         "maySendNotification": False, "mayExecutePaperOrder": False,
         "mayExecuteLiveOrder": False,
@@ -46,17 +56,42 @@ def audit_chronological_regret_runs(paired_regrets, *, min_scored=30):
     def worst_run(values):
         # Largest contiguous sum of positive *net* regret; gains inside a run
         # reduce the excursion. Zero is the floor when no bad interval exists.
+        # Strict improvements retain the earliest interval when scores tie.
         current = worst = 0.0
+        current_start = 0
+        worst_span = None
         consecutive = longest = 0
-        for value in values:
-            current = max(0.0, current + value)
-            worst = max(worst, current)
-            consecutive = consecutive + 1 if value > 0 else 0
-            longest = max(longest, consecutive)
-        return worst, longest
+        consecutive_start = 0
+        longest_span = None
+        for index, value in enumerate(values):
+            candidate = current + value
+            if candidate <= 0:
+                current = 0.0
+                current_start = index + 1
+            else:
+                current = candidate
+                if current > worst:
+                    worst = current
+                    worst_span = (current_start, index)
+            if value > 0:
+                if consecutive == 0:
+                    consecutive_start = index
+                consecutive += 1
+                if consecutive > longest:
+                    longest = consecutive
+                    longest_span = (consecutive_start, index)
+            else:
+                consecutive = 0
+        return worst, longest, worst_span, longest_span
 
-    result["maxCumulativeBrierUnderperformanceExcursion"], result[
-        "longestConsecutiveBrierUnderperformance"] = worst_run(brier)
-    result["maxCumulativeLogLossUnderperformanceExcursion"], result[
-        "longestConsecutiveLogLossUnderperformance"] = worst_run(log_loss)
+    for label, values in (("Brier", brier), ("LogLoss", log_loss)):
+        worst, longest, excursion_span, consecutive_span = worst_run(values)
+        result[f"maxCumulative{label}UnderperformanceExcursion"] = worst
+        result[f"longestConsecutive{label}Underperformance"] = longest
+        if excursion_span is not None:
+            result[f"maxCumulative{label}ExcursionStartIndex"] = excursion_span[0]
+            result[f"maxCumulative{label}ExcursionEndIndex"] = excursion_span[1]
+        if consecutive_span is not None:
+            result[f"longestConsecutive{label}StartIndex"] = consecutive_span[0]
+            result[f"longestConsecutive{label}EndIndex"] = consecutive_span[1]
     return result
