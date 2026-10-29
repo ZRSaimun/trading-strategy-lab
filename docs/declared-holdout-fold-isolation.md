@@ -198,3 +198,25 @@ next selection timestamp without the required embargo. These tests exercise
 declared arithmetic and fail-closed behavior only; they are **not** 48 years
 of authenticated market history, independent holdout protection, executable
 transaction costs, or evidence of strategy profitability.
+
+
+## Cumulative validation-cutoff unavailability share (integer basis points)
+
+A raw count of earlier-fold labels unavailable at a later validation cutoff
+can obscure population size: four unavailable out of four earlier rows is a
+larger **fraction** than forty out of forty-four. Each transition now also
+reports
+`declared_all_prior_labels_unavailable_at_validation_end_share_basis_points`,
+computed as `floor(10000 * all_prior_unavailable / total_prior_census_rows)`.
+The study-wide
+`max_declared_all_prior_labels_unavailable_at_validation_end_share_basis_points`
+and `highest_all_prior_unavailable_share_later_fold_index` identify the
+largest fraction, with the earliest later-fold index on ties and `null`
+when all fractions are zero. These rates are **not additive** across
+transitions; an earlier row can appear in several denominators. They use
+integer arithmetic and caller-declared census clocks only. A positive
+fraction is a question for lineage review, **not proof of leaked outcomes**;
+zero does not certify independent holdout protection. The audit still
+accepts no outcomes, calls no broker and enables no trading permission.
+Synthetic tests cover 1/40 exact-second boundaries, 4/4 versus 40/44,
+equal-rate ties, immutable inputs and disabled trading permissions.
