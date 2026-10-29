@@ -28,6 +28,8 @@ def audit_declared_holdout_fold_isolation(folds):
     tightest_label_embargo_transition_index = None
     min_selection_gap = None
     tightest_selection_gap_index = None
+    max_label_tail = 0
+    longest_label_tail_fold_index = None
     study_id = candidate_id = candidate_sha = source_signature = None
     summaries = []
     for index, fold in enumerate(folds):
@@ -80,17 +82,27 @@ def audit_declared_holdout_fold_isolation(folds):
         seen_manifest_hashes.add(digest)
         previous_end = manifest["holdout_end_at_utc"]
         previous_max_label = max(row["label_available_at_utc"] for row in census)
+        # A label can mature after the decision window closes. Surface this
+        # declared release-readiness risk without reading outcome values.
+        label_tail = max(0, previous_max_label - previous_end)
+        if label_tail > max_label_tail:
+            max_label_tail = label_tail
+            longest_label_tail_fold_index = index
         summaries.append({
             "manifest_sha256": digest,
             "archive_sha256": archive,
             "holdout_start_at_utc": manifest["holdout_start_at_utc"],
             "holdout_end_at_utc": previous_end,
             "observation_count": len(census),
+            "latest_declared_label_available_at_utc": previous_max_label,
+            "declared_label_tail_beyond_window_seconds": label_tail,
         })
     return {
         "protocol": "declared-holdout-fold-isolation-v1",
         "status": "DECLARED_MEMBERSHIP_ONLY",
         "fold_count": len(folds),
+        "max_declared_label_tail_beyond_window_seconds": max_label_tail,
+        "longest_declared_label_tail_fold_index": longest_label_tail_fold_index,
         "observation_count": len(seen_rows),
         "min_declared_label_embargo_slack_seconds": min_label_embargo_slack,
         "tightest_declared_label_embargo_later_fold_index": tightest_label_embargo_transition_index,
