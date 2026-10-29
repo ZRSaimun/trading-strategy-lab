@@ -7,7 +7,7 @@
  */
 import type {Bar} from './research.ts';
 
-export const HOURLY_FVG_VERSION='hourly-fvg-first-midpoint-touch-v78';
+export const HOURLY_FVG_VERSION='hourly-fvg-first-midpoint-touch-v79';
 export type Evidence='PASS'|'FAIL'|'INSUFFICIENT_DATA';
 // First-touch volume evidence is not independent broker/source authentication.
 export type VolumeEvidenceReason='NOT_EVALUATED'|'SOURCE_UNVERIFIED'|
@@ -109,6 +109,9 @@ export type PairedNetSignCostCensus={
  // Each net-sign cell is also stratified by formation direction; this is
  // the same matched population, not additional independent observations.
  byDirection:PairedNetSignByDirectionCensus;
+ // Matched, matured first touches by elapsed waiting hour and strict evidence.
+ // Missing exits and failed wicks are NOT treated as cost-adjusted losses.
+ byFirstTouchWaitAndStrictCandidate:Record<Evidence,readonly PairedNetSignCells[]>;
 };
 // Overlap is measured only between matured hypothetical confirmed-entry-to-exit
 // windows. It is a dependence warning, not an effective sample-size estimate.
@@ -679,6 +682,11 @@ function summarizeCohort(observations:readonly FvgObservation[],costs:readonly n
    BULLISH:{all:empty(),strict:empty(),strictFail:empty(),strictUnknown:empty()},
    BEARISH:{all:empty(),strict:empty(),strictFail:empty(),strictUnknown:empty()},
   };
+  const byFirstTouchWaitAndStrictCandidate:Record<Evidence,PairedNetSignCells[]>={
+   PASS:Array.from({length:maxTouchWaitBars},empty),
+   FAIL:Array.from({length:maxTouchWaitBars},empty),
+   INSUFFICIENT_DATA:Array.from({length:maxTouchWaitBars},empty),
+  };
   for(const observation of observations){
    if(!paired(observation))continue;
    const blind=observation.blindMidpointTouch!.netBpsByCost[scenarioIndex];
@@ -697,6 +705,13 @@ function summarizeCohort(observations:readonly FvgObservation[],costs:readonly n
     confirmedPositive?'bothPositive':'blindOnlyPositive':
     confirmedPositive?'confirmedOnlyPositive':'neitherPositive';
    all[cell]++;
+   if(observation.firstTouchOutcome!=='TOUCH'||
+      !Number.isSafeInteger(observation.firstTouchObservedWaitBars)||
+      observation.firstTouchObservedWaitBars<1||
+      observation.firstTouchObservedWaitBars>maxTouchWaitBars)
+    throw Error('Matched FVG first-touch waiting hour is inconsistent');
+   byFirstTouchWaitAndStrictCandidate[observation.gates.strictCandidate]
+    [observation.firstTouchObservedWaitBars-1][cell]++;
    const directional=byDirection[observation.direction];
    directional.all[cell]++;
    if(observation.gates.strictCandidate==='PASS'){
@@ -717,7 +732,22 @@ function summarizeCohort(observations:readonly FvgObservation[],costs:readonly n
      throw Error('Directional FVG paired net-sign population does not reconcile');
    }
   }
-  return {scenarioIndex,costBps,all,strict,strictFail,strictUnknown,byDirection};
+  // Each matured matched pair contributes once to exactly one wait/status
+  // cell for each declared illustrative cost, never to a censored tail.
+  const strictByStatus:Record<Evidence,PairedNetSignCells>={
+   PASS:strict,FAIL:strictFail,INSUFFICIENT_DATA:strictUnknown,
+  };
+  for(const status of ['PASS','FAIL','INSUFFICIENT_DATA'] as const){
+   for(const cell of ['bothPositive','blindOnlyPositive',
+    'confirmedOnlyPositive','neitherPositive'] as const){
+    const sum=byFirstTouchWaitAndStrictCandidate[status]
+     .reduce((total,wait)=>total+wait[cell],0);
+    if(sum!==strictByStatus[status][cell])
+     throw Error('FVG cost-sign wait/status population does not reconcile');
+   }
+  }
+  return {scenarioIndex,costBps,all,strict,strictFail,strictUnknown,byDirection,
+   byFirstTouchWaitAndStrictCandidate};
  });
  const firstTouchOutcome:Record<FirstTouchOutcome,number>={
   TOUCH:0,NO_TOUCH:0,OPEN_GAP_THROUGH:0,INCOMPLETE_WINDOW:0,
@@ -935,6 +965,19 @@ function summarizeCohort(observations:readonly FvgObservation[],costs:readonly n
     firstTouchObservedExposureByWaitByDirection[side][wait-1]-sidePriorDispositions;
    if(sideUnresolved-sideCensored!==sideExposure)
     throw Error('Directional FVG waiting exposure and censor attrition do not reconcile');
+  }
+ }
+ // Cost-sign wait cohorts must use the same matured paired population as
+ // first-touch attrition; unmatched or unobserved exits never enter.
+ for(const scenario of pairedNetSignByCost){
+  for(const status of ['PASS','FAIL','INSUFFICIENT_DATA'] as const){
+   for(let wait=0;wait<maxTouchWaitBars;wait++){
+    const cells=scenario.byFirstTouchWaitAndStrictCandidate[status][wait];
+    const matched=cells.bothPositive+cells.blindOnlyPositive+
+     cells.confirmedOnlyPositive+cells.neitherPositive;
+    if(matched!==firstTouchPairedByWaitAndStrictCandidate[status][wait])
+     throw Error('FVG cost-sign waiting cohort and matched attrition disagree');
+   }
   }
  }
  return {

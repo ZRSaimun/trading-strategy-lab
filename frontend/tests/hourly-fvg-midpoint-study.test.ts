@@ -454,6 +454,16 @@ test('formation census preserves unknown outcomes and distinguishes paired from 
    strict:{bothPositive:0,blindOnlyPositive:0,confirmedOnlyPositive:0,neitherPositive:0},
    strictFail:{bothPositive:0,blindOnlyPositive:0,confirmedOnlyPositive:0,neitherPositive:0},
    strictUnknown:{bothPositive:1,blindOnlyPositive:0,confirmedOnlyPositive:0,neitherPositive:0},
+   byFirstTouchWaitAndStrictCandidate:{
+    PASS:Array.from({length:12},()=>({bothPositive:0,blindOnlyPositive:0,
+     confirmedOnlyPositive:0,neitherPositive:0})),
+    FAIL:Array.from({length:12},()=>({bothPositive:0,blindOnlyPositive:0,
+     confirmedOnlyPositive:0,neitherPositive:0})),
+    INSUFFICIENT_DATA:[{bothPositive:1,blindOnlyPositive:0,
+     confirmedOnlyPositive:0,neitherPositive:0},
+     ...Array.from({length:11},()=>({bothPositive:0,blindOnlyPositive:0,
+      confirmedOnlyPositive:0,neitherPositive:0}))],
+   },
    byDirection:{
     BULLISH:{
      all:{bothPositive:1,blindOnlyPositive:0,confirmedOnlyPositive:0,neitherPositive:0},
@@ -679,7 +689,7 @@ test('research report rejects extra source fields without leaking caller private
  const report=studyHourlyFvgMidpoint(fixture(),source);
  assert.deepEqual(report.source,source);
  assert.deepEqual(Object.keys(report.source).sort(),Object.keys(source).sort());
- assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v78');
+ assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v79');
 });
 test('ambiguous source labels and contradictory volume evidence fail closed',()=>{
  // These are declared metadata, not independent vendor authentication.
@@ -3348,4 +3358,77 @@ test('v78 as-of rejects retroactive future timestamp rewrites without future OHL
  const stable=fixture();
  Object.defineProperty(stable[34],'time',{get(){return BASE+34*H;}});
  assert.deepEqual(studyHourlyFvgMidpointAsOf(stable,source,cutoff),baseline);
+});
+
+test('v79 matched net-cost signs reconcile by first-touch wait and strict evidence without future exits',()=>{
+ const mirror=(rows:Bar[])=>rows.map(b=>({...b,
+  open:220-b.open,high:220-b.low,low:220-b.high,close:220-b.close}));
+ const delayed=fixture();
+ delayed[33]=candle(33,105,106,103,105);
+ delayed[34]=candle(34,105,106,101,105.5,200);
+ delayed[35]=candle(35,105.5,107,105,106);
+ delayed[36]=candle(36,106,108,105,107);
+ delayed[37]=candle(37,107,111,106,110);
+ const failed=fixture();
+ failed[33]=candle(33,105,106,101,102.5,200);
+ const samples=[
+  {bars:fixture(),src:source},
+  {bars:fixture().slice(0,35),src:source},
+  {bars:failed,src:source},
+  {bars:fixture(),src:{...source,volumeVerified:false}},
+  {bars:delayed,src:source},
+  {bars:mirror(delayed),src:source},
+ ];
+ const statuses=['PASS','FAIL','INSUFFICIENT_DATA'] as const;
+ const check=(report:ReturnType<typeof studyHourlyFvgMidpoint>)=>{
+  const n=report.config.maxTouchWaitBars;
+  for(const [scenarioIndex,scenario] of report.cohort.pairedNetSignByCost.entries()){
+   const expected=Object.fromEntries(statuses.map(status=>[
+    status,Array.from({length:n},()=>({
+     bothPositive:0,blindOnlyPositive:0,confirmedOnlyPositive:0,neitherPositive:0,
+    })),
+   ])) as typeof scenario.byFirstTouchWaitAndStrictCandidate;
+   for(const o of report.observations){
+    if(o.blindMidpointTouch===null||o.confirmedNextOpen===null)continue;
+    assert.equal(o.firstTouchOutcome,'TOUCH');
+    const wait=o.firstTouchObservedWaitBars-1;
+    assert.ok(wait>=0&&wait<n);
+    const blind=o.blindMidpointTouch.netBpsByCost[scenarioIndex].netBps>0;
+    const confirmed=o.confirmedNextOpen.netBpsByCost[scenarioIndex].netBps>0;
+    const cell=blind?(confirmed?'bothPositive':'blindOnlyPositive'):
+     (confirmed?'confirmedOnlyPositive':'neitherPositive');
+    expected[o.gates.strictCandidate][wait][cell]++;
+   }
+   assert.deepEqual(scenario.byFirstTouchWaitAndStrictCandidate,expected);
+   for(const status of statuses)for(let wait=0;wait<n;wait++){
+    const cells=scenario.byFirstTouchWaitAndStrictCandidate[status][wait];
+    assert.equal(Object.values(cells).reduce((sum,count)=>sum+count,0),
+     report.cohort.firstTouchPairedByWaitAndStrictCandidate[status][wait]);
+   }
+  }
+ };
+ for(const {bars,src} of samples){
+  const config={hypotheticalRoundTripCostsBps:[0,5,15,120]};
+  const full=studyHourlyFvgMidpoint(bars,src,config);
+  check(full);
+  const asOf=studyHourlyFvgMidpointAsOf(bars,src,
+   bars[bars.length-1].time+H,config);
+  check(asOf);
+  assert.deepEqual(asOf,full);
+ }
+ const before=studyHourlyFvgMidpointAsOf(delayed,source,BASE+37*H);
+ const after=studyHourlyFvgMidpointAsOf(delayed,source,BASE+38*H);
+ check(before);check(after);
+ for(const scenario of before.cohort.pairedNetSignByCost)
+  assert.equal(Object.values(scenario.byFirstTouchWaitAndStrictCandidate)
+   .flat().flatMap(cells=>Object.values(cells))
+   .reduce((sum,n)=>sum+n,0),0);
+ assert.equal(after.cohort.pairedNetSignByCost[0]
+  .byFirstTouchWaitAndStrictCandidate.PASS[1].bothPositive,1);
+ const bullish=studyHourlyFvgMidpoint(fixture(),source);
+ const bearish=studyHourlyFvgMidpoint(mirror(fixture()),source);
+ assert.equal(bullish.cohort.pairedNetSignByCost[0]
+  .byFirstTouchWaitAndStrictCandidate.PASS[0].bothPositive,1);
+ assert.equal(bearish.cohort.pairedNetSignByCost[0]
+  .byFirstTouchWaitAndStrictCandidate.PASS[0].bothPositive,1);
 });
