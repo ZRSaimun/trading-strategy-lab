@@ -9,6 +9,8 @@ from decimal import Decimal
 
 import pytest
 
+from app.declared_holdout_cost_attribution import audit_declared_holdout_cost_attribution
+
 from app.declared_holdout_release_gate import (
     audit_declared_holdout_release,
     prepare_declared_holdout_census_sha256,
@@ -204,3 +206,43 @@ def test_multiyear_cost_stress_rejects_negative_execution_charges(fold_index, fi
     invalid[3][0][field] = "-0.0001"
     with pytest.raises(ValueError, match="cash sign"):
         audit_declared_holdout_release(*invalid)
+
+
+@pytest.mark.parametrize("fold_index", range(len(_WINDOWS)))
+def test_multiyear_cost_attribution_reconciles_all_components(fold_index):
+    """Three separate invented two-year sources; no broker or holdout proof."""
+    data = _fold(fold_index)
+    before = copy.deepcopy(data)
+    report = audit_declared_holdout_cost_attribution(*data)
+    assert report["observation_count"] == 60
+    assert report["gross_cash"] == "30.0000"
+    assert report["nonfinancing_charges_cash"] == "37.5000"
+    assert report["financing_cash"] == "0.0000"
+    assert report["financing_debit_cash"] == "7.5000"
+    assert report["financing_credit_cash"] == "7.5000"
+    assert report["net_cost_cash"] == "37.5000"
+    assert report["net_cash"] == "-7.5000"
+    assert data == before
+
+    stressed = copy.deepcopy(data)
+    for row in stressed[3]:
+        row["spread_cash"] = "1.2500"
+        row["slippage_cash"] = "0.6250"
+        row["financing_cash"] = (
+            "0.5000" if row["financing_cash"] == "0.2500" else "0.0000"
+        )
+    adverse = audit_declared_holdout_cost_attribution(*stressed)
+    assert adverse["nonfinancing_charges_cash"] == "127.5000"
+    assert adverse["financing_cash"] == "15.0000"
+    assert adverse["financing_debit_cash"] == "15.0000"
+    assert adverse["financing_credit_cash"] == "0.0000"
+    assert adverse["net_cost_cash"] == "142.5000"
+    assert adverse["net_cash"] == "-112.5000"
+    assert Decimal(report["net_cash"]) - Decimal(adverse["net_cash"]) == Decimal("105.0000")
+    for item in (report, adverse):
+        assert item["source_bytes_independently_authenticated"] is False
+        assert item["holdout_untouched_independently_verified"] is False
+        assert item["broker_costs_verified"] is False
+        assert item["profitable_edge_verified"] is False
+        assert item["may_execute_demo_order"] is False
+        assert item["may_execute_real_order"] is False
