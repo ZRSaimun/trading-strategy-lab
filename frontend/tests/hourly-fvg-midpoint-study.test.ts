@@ -3327,7 +3327,8 @@ test('v77 cost getters cannot rewrite an earlier cost stress cell in place',()=>
   assert.throws(()=>asOf?
    studyHourlyFvgMidpointAsOf(fixture(),source,BASE+34*H,config):
    studyHourlyFvgMidpoint(fixture(),source,config),
-   /cost scenario field changed during declaration snapshot/);
+   asOf?/FVG as-of cost scenarios require own data-property cells/:
+    /cost scenario field changed during declaration snapshot/);
  }
 });
 
@@ -3346,7 +3347,14 @@ test('v77 stable accessor-backed declarations retain exact historical and as-of 
   studyHourlyFvgMidpoint(fixture(),source,{
    maxTouchWaitBars:12,hypotheticalRoundTripCostsBps:[0,5,15],
   }));
- assert.deepEqual(studyHourlyFvgMidpointAsOf(fixture(),src,BASE+34*H,config),
+ // Full-history accepts a stable indexed getter; v94 as-of replay instead
+ // requires direct data-property cells, while other stable getters remain OK.
+ const asOfConfig:FvgConfig={maxTouchWaitBars:12,
+  hypotheticalRoundTripCostsBps:[0,5,15]};
+ Object.defineProperty(asOfConfig,'maxTouchWaitBars',{
+  enumerable:true,configurable:true,get(){return 12;},
+ });
+ assert.deepEqual(studyHourlyFvgMidpointAsOf(fixture(),src,BASE+34*H,asOfConfig),
   studyHourlyFvgMidpoint(fixture().slice(0,34),source,{
    maxTouchWaitBars:12,hypotheticalRoundTripCostsBps:[0,5,15],
   }));
