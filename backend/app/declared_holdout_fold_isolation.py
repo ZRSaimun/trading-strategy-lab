@@ -40,7 +40,11 @@ def audit_declared_holdout_fold_isolation(folds):
     sparsest_decision_quarters_fold_index = None
     longest_last_decision_gap_fold_index = None
     previous_census = None
+    prior_censuses = []
     validation_cutoff_transitions = []
+    total_all_prior_labels_unavailable_at_validation = 0
+    max_all_prior_labels_unavailable_at_validation = 0
+    most_all_prior_unavailable_at_validation_later_fold_index = None
     total_prior_labels_unavailable_at_validation = 0
     max_prior_labels_unavailable_at_validation = 0
     most_unavailable_at_validation_later_fold_index = None
@@ -81,11 +85,26 @@ def audit_declared_holdout_fold_isolation(folds):
                 row["label_available_at_utc"] > manifest["validation_end_at_utc"]
                 for row in previous_census
             )
+            # The immediately previous fold is not necessarily the only
+            # earlier holdout with labels unavailable at this validation
+            # cutoff. Validation clocks may precede multiple earlier folds,
+            # even though every later *selection* satisfies the embargo.
+            all_prior_unavailable = sum(
+                row["label_available_at_utc"] > manifest["validation_end_at_utc"]
+                for earlier_census in prior_censuses
+                for row in earlier_census
+            )
             validation_cutoff_transitions.append({
                 "later_fold_index": index,
                 "declared_prior_labels_unavailable_at_validation_end_count":
                     unavailable_at_validation,
+                "declared_all_prior_labels_unavailable_at_validation_end_count":
+                    all_prior_unavailable,
             })
+            total_all_prior_labels_unavailable_at_validation += all_prior_unavailable
+            if all_prior_unavailable > max_all_prior_labels_unavailable_at_validation:
+                max_all_prior_labels_unavailable_at_validation = all_prior_unavailable
+                most_all_prior_unavailable_at_validation_later_fold_index = index
             total_prior_labels_unavailable_at_validation += unavailable_at_validation
             if unavailable_at_validation > max_prior_labels_unavailable_at_validation:
                 max_prior_labels_unavailable_at_validation = unavailable_at_validation
@@ -114,6 +133,7 @@ def audit_declared_holdout_fold_isolation(folds):
         previous_end = manifest["holdout_end_at_utc"]
         previous_max_label = max(row["label_available_at_utc"] for row in census)
         previous_census = census
+        prior_censuses.append(census)
         # A label can mature after the decision window closes. Surface this
         # declared release-readiness risk without reading outcome values.
         label_tail = max(0, previous_max_label - previous_end)
@@ -202,6 +222,12 @@ def audit_declared_holdout_fold_isolation(folds):
         "longest_declared_last_decision_gap_fold_index":
             longest_last_decision_gap_fold_index,
         "declared_validation_cutoff_transitions": validation_cutoff_transitions,
+        "total_declared_all_prior_labels_unavailable_at_validation_end_count":
+            total_all_prior_labels_unavailable_at_validation,
+        "max_declared_all_prior_labels_unavailable_at_validation_end_count":
+            max_all_prior_labels_unavailable_at_validation,
+        "most_all_prior_unavailable_at_validation_later_fold_index":
+            most_all_prior_unavailable_at_validation_later_fold_index,
         "total_declared_prior_labels_unavailable_at_validation_end_count":
             total_prior_labels_unavailable_at_validation,
         "max_declared_prior_labels_unavailable_at_validation_end_count":
@@ -220,7 +246,7 @@ def audit_declared_holdout_fold_isolation(folds):
         "may_execute_demo_order": False,
         "may_execute_real_order": False,
         "warning": "Only caller-declared manifests and membership were checked. "
-                   "Embargo slack and validation-cutoff availability use unverified declared clocks; "
+                   "Embargo slack and cumulative validation-cutoff availability use unverified declared clocks; "
                    "a positive validation count does not prove outcome reuse or leakage. "
                    "Distinct archive digests do not prove independent market data. "
                    "Decision-time gaps, empty quarters and concentration do not establish missing source coverage. "
