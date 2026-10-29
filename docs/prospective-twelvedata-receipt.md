@@ -165,3 +165,16 @@ ambiguous encodings, duplicate/invalid lengths, and oversized actual bodies:
 `cd backend && PYTHONPATH=. pytest -q tests/test_twelvedata_transport_bounds.py`.
 No provider credit, broker order, or live feed is activated. The same release,
 rights, backup, rollback and staging blockers continue to apply.
+
+## Strict pre-reservation credential shape (29 October 2026)
+
+The one-shot observation bridge now enforces the same exact built-in string,
+printable ASCII and 1–512 character credential constraints as the underlying
+Twelve Data HTTP client **before** its durable, nonrefundable credit reservation.
+Previously a Unicode key or `str` subclass could pass the bridge's preflight,
+consume a local reservation, and then be rejected by the lower-level client
+without any vendor request. Synthetic regressions verify that malformed keys
+neither reserve credits nor invoke the provider. This is a local quota-accounting
+safeguard, not an entitlement check or a new network integration.
+
+No real API call, paid credit, broker access, order or deployment is involved.
