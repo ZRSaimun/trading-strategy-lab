@@ -160,6 +160,10 @@ def inspect_declared_owner_review_history_fence(
             # A delayed/rewritten caller-declared log is quarantined.
             if any(e["recorded_at_ms"] <= prev["observed_at_ms"] for e in new[len(old):]):
                 failures.add("appended_review_predates_prior_snapshot")
+            # Issuance predating a complete prior checkpoint is a delayed
+            # or retroactive review claim, even if it was recorded later.
+            if any(e["issued_at_ms"] <= prev["observed_at_ms"] for e in new[len(old):]):
+                failures.add("appended_review_issued_before_prior_snapshot")
             if old and new[len(old)]["recorded_at_ms"] <= old[-1]["recorded_at_ms"]:
                 failures.add("appended_review_time_not_advanced")
         elif curr["sequence"] != prev["sequence"]:
