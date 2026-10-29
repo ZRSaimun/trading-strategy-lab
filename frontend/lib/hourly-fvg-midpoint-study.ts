@@ -7,7 +7,7 @@
  */
 import type {Bar} from './research.ts';
 
-export const HOURLY_FVG_VERSION='hourly-fvg-first-midpoint-touch-v73';
+export const HOURLY_FVG_VERSION='hourly-fvg-first-midpoint-touch-v74';
 export type Evidence='PASS'|'FAIL'|'INSUFFICIENT_DATA';
 // First-touch volume evidence is not independent broker/source authentication.
 export type VolumeEvidenceReason='NOT_EVALUATED'|'SOURCE_UNVERIFIED'|
@@ -144,6 +144,10 @@ export type FvgCohort={
  // These are descriptive attrition counts, never imputed broker fills.
  firstTouchPairedByWaitAndStrictCandidate:Record<Evidence,readonly number[]>;
  firstTouchUnpairedByWaitAndStrictCandidate:Record<Evidence,readonly number[]>;
+ // Retain direction at the SAME first-touch waiting hour for matched and
+ // unmatched fixed-exit comparisons; neither population implies broker fills.
+ firstTouchPairedByWaitAndStrictCandidateByDirection:Record<Side,Record<Evidence,readonly number[]>>;
+ firstTouchUnpairedByWaitAndStrictCandidateByDirection:Record<Side,Record<Evidence,readonly number[]>>;
  // Per-wait observed risk set: unresolved at hour start AND completed hour
  // actually present. Censored/missing hours contribute no invented exposure.
  firstTouchObservedExposureByWait:readonly number[];
@@ -683,6 +687,12 @@ function summarizeCohort(observations:readonly FvgObservation[],costs:readonly n
  const firstTouchStrictCandidateByWait=emptyStrictWaitCounts();
  const firstTouchPairedByWaitAndStrictCandidate=emptyStrictWaitCounts();
  const firstTouchUnpairedByWaitAndStrictCandidate=emptyStrictWaitCounts();
+ const firstTouchPairedByWaitAndStrictCandidateByDirection:Record<Side,Record<Evidence,number[]>>={
+  BULLISH:emptyStrictWaitCounts(),BEARISH:emptyStrictWaitCounts(),
+ };
+ const firstTouchUnpairedByWaitAndStrictCandidateByDirection:Record<Side,Record<Evidence,number[]>>={
+  BULLISH:emptyStrictWaitCounts(),BEARISH:emptyStrictWaitCounts(),
+ };
  const firstTouchStrictCandidateByWaitByDirection:Record<Side,
   Record<Evidence,number[]>>={
    BULLISH:emptyStrictWaitCounts(),BEARISH:emptyStrictWaitCounts(),
@@ -729,6 +739,9 @@ function summarizeCohort(observations:readonly FvgObservation[],costs:readonly n
      [observation.gates.strictCandidate][wait-1]++;
     firstTouchStrictCandidateByWaitByDirection[observation.direction]
      [observation.gates.strictCandidate][wait-1]++;
+    (paired(observation)?firstTouchPairedByWaitAndStrictCandidateByDirection:
+     firstTouchUnpairedByWaitAndStrictCandidateByDirection)
+     [observation.direction][observation.gates.strictCandidate][wait-1]++;
    }
   }
   if(observation.firstTouchOutcome==='INCOMPLETE_WINDOW'){
@@ -802,6 +815,19 @@ function summarizeCohort(observations:readonly FvgObservation[],costs:readonly n
     firstTouchStrictCandidateByWaitByDirection.BEARISH[status][wait];
    if(directional!==firstTouchStrictCandidateByWait[status][wait])
     throw Error('Directional FVG first-touch strict evidence does not reconcile');
+   const matchedByDirection=firstTouchPairedByWaitAndStrictCandidateByDirection.BULLISH[status][wait]+
+    firstTouchPairedByWaitAndStrictCandidateByDirection.BEARISH[status][wait];
+   const unmatchedByDirection=firstTouchUnpairedByWaitAndStrictCandidateByDirection.BULLISH[status][wait]+
+    firstTouchUnpairedByWaitAndStrictCandidateByDirection.BEARISH[status][wait];
+   if(matchedByDirection!==firstTouchPairedByWaitAndStrictCandidate[status][wait]||
+      unmatchedByDirection!==firstTouchUnpairedByWaitAndStrictCandidate[status][wait])
+    throw Error('Directional FVG matched first-touch attrition does not reconcile');
+   for(const side of ['BULLISH','BEARISH'] as const){
+    if(firstTouchPairedByWaitAndStrictCandidateByDirection[side][status][wait]+
+       firstTouchUnpairedByWaitAndStrictCandidateByDirection[side][status][wait]!==
+       firstTouchStrictCandidateByWaitByDirection[side][status][wait])
+     throw Error('Directional FVG first-touch evidence attrition does not reconcile');
+   }
   }
   for(const side of ['BULLISH','BEARISH'] as const){
    const classified=(['PASS','FAIL','INSUFFICIENT_DATA'] as const)
@@ -848,6 +874,8 @@ function summarizeCohort(observations:readonly FvgObservation[],costs:readonly n
   firstTouchStrictCandidateByWaitByDirection,
   firstTouchPairedByWaitAndStrictCandidate,
   firstTouchUnpairedByWaitAndStrictCandidate,
+  firstTouchPairedByWaitAndStrictCandidateByDirection,
+  firstTouchUnpairedByWaitAndStrictCandidateByDirection,
   firstTouchObservedExposureByWait,firstTouchObservedExposureByWaitByDirection,
   firstTouchCensoredAfterWaitByReason,firstTouchCensoredAfterWaitByReasonByDirection,
   incompleteWindowByReason,
