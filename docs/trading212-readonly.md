@@ -185,3 +185,31 @@ account payloads. Synthetic tests cover missing, aged, stale, malformed and
 duplicate header cases. It does not enable CFD access: Trading 212's official
 public API remains Invest/Stocks ISA only (checked 29 October 2026):
 https://docs.trading212.com/api.
+
+
+## Strict JSON wire framing (mock-tested, not source authentication)
+
+The optional GET-only adapter rejects ambiguous or unsupported HTTP response
+metadata **before** consuming account data:
+
+- Exactly one `Content-Type` must declare `application/json`; an optional
+  `charset=utf-8` (including quoted UTF-8) is accepted. Other charset
+  declarations, unsupported media parameters and duplicate media fields fail
+  closed. The body is always decoded as strict UTF-8.
+- An absent or single `identity` `Content-Encoding` is accepted. Compressed,
+  comma-joined or duplicate coding declarations fail closed; decompression is
+  never attempted.
+- At most one decimal `Content-Length` is accepted, with the existing 8 MiB
+  maximum. Duplicate or comma-joined lengths are rejected even when identical.
+  If declared, the length must match the actual raw response bytes.
+
+This reduces ambiguity between declared transport framing and the bytes hashed
+in `response_sha256`. It does **not** verify broker signatures, TLS endpoints
+beyond the normal client validation, market prices, timestamps, rights,
+account eligibility or trading permissions. The adapter remains disconnected
+and never retries, polls, stores credentials or sends orders.
+
+Synthetic header regressions cover invalid/duplicate declarations and valid
+UTF-8 variants. No real Trading 212 account or provider feed was accessed.
+Official API scope checked 29 October 2026:
+https://docs.trading212.com/api (Invest/Stocks ISA, not CFDs).
