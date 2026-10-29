@@ -5,7 +5,7 @@ does not fetch quotes, modify outcomes, access brokers or authorize orders.
 """
 from __future__ import annotations
 
-from decimal import Decimal, localcontext
+from decimal import Decimal, ROUND_FLOOR, localcontext
 
 from .declared_holdout_cost_attribution import audit_declared_holdout_cost_attribution
 from .declared_holdout_release_gate import _exact, _id, _money
@@ -91,6 +91,7 @@ def audit_declared_holdout_row_cost_stress(
             extra_by_id = {}
             totals = {field: Decimal(0) for field in _COSTS}
             maximum = Decimal(0)
+            stressed_observations = 0
             for adjustment in adjustments:
                 _exact(adjustment, _ROW, "row-cost adjustment")
                 key = adjustment["observation_id"]
@@ -106,11 +107,21 @@ def audit_declared_holdout_row_cost_stress(
                     totals[field] += amount
                     per_row += amount
                 maximum = max(maximum, per_row)
+                if per_row > 0:
+                    stressed_observations += 1
                 extra_by_id[key] = per_row
             if seen != set(by_id):
                 raise ValueError("Incomplete row-cost population")
             withheld = baseline["outcome_metrics_withheld"]
             extra = sum(totals.values(), Decimal(0))
+            # Input concentration is diagnostic, not an executable-cost estimate.
+            # Zero total additional cost has no defined largest-row share.
+            max_share_bps = (
+                None if withheld or extra == 0 else
+                int((maximum * Decimal(10000) / extra).to_integral_value(
+                    rounding=ROUND_FLOOR
+                ))
+            )
             net = None if withheld else Decimal(baseline["net_cash"]) - extra
             worst_row = drawdown = adverse_drawdown = None
             baseline_losing = stressed_losing = cost_induced_losing = None
@@ -153,6 +164,9 @@ def audit_declared_holdout_row_cost_stress(
                 "stressed_net_cash": None if withheld else format(net, ".4f"),
                 "max_single_observation_extra_cost_cash":
                     None if withheld else format(maximum, ".4f"),
+                "additional_cost_affected_observation_count":
+                    None if withheld else stressed_observations,
+                "max_single_observation_extra_cost_share_bps": max_share_bps,
                 "worst_observation_stressed_net_cash":
                     None if withheld else format(worst_row, ".4f"),
                 "max_observation_end_drawdown_cash":
@@ -197,6 +211,6 @@ def audit_declared_holdout_row_cost_stress(
                    "Full-row coverage is not broker calibration or independent "
                    "holdout protection. No executable quotes, financing, margin "
                    "or intraperiod equity risk are verified. Receipt-second cash "
-                   "drawdowns and losing-observation counts do not bound "
+                   "drawdowns, cost concentration and losing-observation counts do not bound "
                    "unobserved broker-equity losses.",
     }
