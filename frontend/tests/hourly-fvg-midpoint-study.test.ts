@@ -679,7 +679,7 @@ test('research report rejects extra source fields without leaking caller private
  const report=studyHourlyFvgMidpoint(fixture(),source);
  assert.deepEqual(report.source,source);
  assert.deepEqual(Object.keys(report.source).sort(),Object.keys(source).sort());
- assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v75');
+ assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v76');
 });
 test('ambiguous source labels and contradictory volume evidence fail closed',()=>{
  // These are declared metadata, not independent vendor authentication.
@@ -754,7 +754,7 @@ test('v61 source labels reject lone surrogates and Unicode noncharacters in both
  assert.deepEqual(studyHourlyFvgMidpoint(bars,valid).source,valid);
  assert.deepEqual(studyHourlyFvgMidpointAsOf(bars,valid,cutoff).source,valid);
  assert.equal(studyHourlyFvgMidpoint(bars,valid).version,
-  'hourly-fvg-first-midpoint-touch-v75');
+  'hourly-fvg-first-midpoint-touch-v76');
 });
 test('v63 source labels reject Unicode space lookalikes without banning ASCII spaces',()=>{
  const bars=fixture(),cutoff=BASE+37*H;
@@ -771,7 +771,7 @@ test('v63 source labels reject Unicode space lookalikes without banning ASCII sp
  assert.deepEqual(studyHourlyFvgMidpoint(bars,legitimate).source,legitimate);
  assert.deepEqual(studyHourlyFvgMidpointAsOf(bars,legitimate,cutoff).source,legitimate);
  assert.equal(studyHourlyFvgMidpoint(bars,legitimate).version,
-  'hourly-fvg-first-midpoint-touch-v75');
+  'hourly-fvg-first-midpoint-touch-v76');
 });
 test('first bullish midpoint touch has a hypothetical blind limit and later next-open rejection markout',()=>{
  const x=target(fixture());
@@ -1116,7 +1116,7 @@ test('an overflowing next-open comparator suppresses both matched markouts',()=>
 });
 test('completed hourly timestamps are safe and numeric rule changes have a new version',()=>{
  const report=studyHourlyFvgMidpoint(fixture(),source);
- assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v75');
+ assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v76');
  const lastSafeAlignedOpen=Math.floor(Number.MAX_SAFE_INTEGER/H)*H;
  assert.equal(Number.isSafeInteger(lastSafeAlignedOpen),true);
  assert.equal(Number.isSafeInteger(lastSafeAlignedOpen+H),false);
@@ -3207,6 +3207,44 @@ test('v75 as-of rejects future-timestamp replacement of revealed rows without re
  }});
  assert.throws(()=>studyHourlyFvgMidpointAsOf(declarationRows,declared,cutoff),
   /row identity changed during snapshot/);
+ assert.deepEqual(studyHourlyFvgMidpointAsOf(fixture(),source,cutoff),
+  studyHourlyFvgMidpoint(fixture().slice(0,34),source));
+});
+
+test('v76 rejects in-place completed candle mutations after a historical field snapshot',()=>{
+ const rows=fixture(),secondTime=rows[1].time;
+ Object.defineProperty(rows[1],'time',{enumerable:true,configurable:true,get(){
+  rows[0].close=101; // Same object, same schema and array slot identity.
+  return secondTime;
+ }});
+ assert.throws(()=>studyHourlyFvgMidpoint(rows,source),
+  /completed candle field changed during snapshot/);
+
+ const within=fixture(),firstHigh=within[0].high;
+ Object.defineProperty(within[0],'high',{enumerable:true,configurable:true,get(){
+  within[0].low=99; // Valid BID row after mutation; not a valid frozen snapshot.
+  return firstHigh;
+ }});
+ assert.throws(()=>studyHourlyFvgMidpoint(within,source),
+  /completed candle field changed during snapshot/);
+ assert.deepEqual(studyHourlyFvgMidpoint(fixture(),source).source,source);
+});
+
+test('v76 as-of detects in-place revealed row edits from future timestamps without future price reads',()=>{
+ const rows=fixture(),cutoff=BASE+34*H,future=rows[35],futureTime=future.time;
+ let timeReads=0;
+ Object.defineProperty(future,'time',{enumerable:true,configurable:true,get(){
+  timeReads++;
+  rows[0].volume=999; // A completed row changed in place.
+  return futureTime;
+ }});
+ for(const field of ['open','high','low','close','volume','observed_minutes'])
+  Object.defineProperty(future,field,{get(){
+   throw Error('future '+field+' must remain unread');
+  }});
+ assert.throws(()=>studyHourlyFvgMidpointAsOf(rows,source,cutoff),
+  /completed candle field changed during snapshot/);
+ assert.equal(timeReads,1);
  assert.deepEqual(studyHourlyFvgMidpointAsOf(fixture(),source,cutoff),
   studyHourlyFvgMidpoint(fixture().slice(0,34),source));
 });
