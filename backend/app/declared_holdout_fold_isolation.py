@@ -45,6 +45,8 @@ def audit_declared_holdout_fold_isolation(folds):
     total_all_prior_labels_unavailable_at_validation = 0
     max_all_prior_labels_unavailable_at_validation = 0
     most_all_prior_unavailable_at_validation_later_fold_index = None
+    max_all_prior_unavailable_share_bp = 0
+    highest_all_prior_unavailable_share_later_fold_index = None
     total_prior_labels_unavailable_at_validation = 0
     max_prior_labels_unavailable_at_validation = 0
     most_unavailable_at_validation_later_fold_index = None
@@ -94,8 +96,17 @@ def audit_declared_holdout_fold_isolation(folds):
                 for earlier_census in prior_censuses
                 for row in earlier_census
             )
+            # Raw counts cannot compare unequal earlier-fold populations.
+            # Use exact integer basis points, never unverified market P&L.
+            prior_population = sum(len(earlier) for earlier in prior_censuses)
+            unavailable_share_bp = 10000 * all_prior_unavailable // prior_population
+            if unavailable_share_bp > max_all_prior_unavailable_share_bp:
+                max_all_prior_unavailable_share_bp = unavailable_share_bp
+                highest_all_prior_unavailable_share_later_fold_index = index
             validation_cutoff_transitions.append({
                 "later_fold_index": index,
+                "declared_all_prior_labels_unavailable_at_validation_end_share_basis_points":
+                    unavailable_share_bp,
                 "declared_prior_labels_unavailable_at_validation_end_count":
                     unavailable_at_validation,
                 "declared_all_prior_labels_unavailable_at_validation_end_count":
@@ -226,6 +237,10 @@ def audit_declared_holdout_fold_isolation(folds):
             total_all_prior_labels_unavailable_at_validation,
         "max_declared_all_prior_labels_unavailable_at_validation_end_count":
             max_all_prior_labels_unavailable_at_validation,
+        "max_declared_all_prior_labels_unavailable_at_validation_end_share_basis_points":
+            max_all_prior_unavailable_share_bp,
+        "highest_all_prior_unavailable_share_later_fold_index":
+            highest_all_prior_unavailable_share_later_fold_index,
         "most_all_prior_unavailable_at_validation_later_fold_index":
             most_all_prior_unavailable_at_validation_later_fold_index,
         "total_declared_prior_labels_unavailable_at_validation_end_count":
