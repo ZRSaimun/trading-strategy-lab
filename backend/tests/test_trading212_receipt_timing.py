@@ -53,7 +53,8 @@ def test_monotonic_elapsed_survives_backwards_wall_clock_adjustment(monkeypatch)
             return next(wall)
 
     monkeypatch.setattr(adapter, "datetime", AdjustedClock)
-    monkeypatch.setattr(adapter, "monotonic_ns", lambda: next(ticks))
+    # Additional deadline checks sample the same frozen end tick.
+    monkeypatch.setattr(adapter, "monotonic_ns", lambda: next(ticks, 9_345_678_901))
     result = _read(httpx.MockTransport(
         lambda _request: httpx.Response(
             200, content=b"[]", headers={"content-type": "application/json"}
@@ -87,7 +88,8 @@ def test_local_clock_consistency_is_only_a_diagnostic(
             return next(wall)
 
     monkeypatch.setattr(adapter, "datetime", MockWallClock)
-    monkeypatch.setattr(adapter, "monotonic_ns", lambda: next(ticks))
+    # Additional deadline checks sample the same frozen end tick.
+    monkeypatch.setattr(adapter, "monotonic_ns", lambda: next(ticks, 1_200_000_000))
     result = _read(httpx.MockTransport(
         lambda _request: httpx.Response(
             200, content=b"[]", headers={"content-type": "application/json"}
