@@ -92,6 +92,45 @@ def test_utc_minute_window_is_bounded_and_atomic(tmp_path, monkeypatch):
         reserve(path, 3)
 
 
+def test_rolling_cooldown_rejects_adjacent_utc_minute_buckets(tmp_path, monkeypatch):
+    path = ledger(tmp_path, monkeypatch, cap=3)
+    monkeypatch.setattr(budget, "time", SimpleNamespace(time=lambda: NOW + 59))
+    reserve(path, 1)
+    # Two different minute buckets, only one second apart.
+    monkeypatch.setattr(budget, "time", SimpleNamespace(time=lambda: NOW + 60))
+    with pytest.raises(budget.CreditBudgetError, match="Per-minute"):
+        reserve(path, 2)
+    # The exact 60-second boundary is permitted.
+    monkeypatch.setattr(budget, "time", SimpleNamespace(time=lambda: NOW + 119))
+    assert reserve(path, 2)["remaining_credits"] == 1
+
+
+def test_rolling_cooldown_carries_across_utc_midnight(tmp_path, monkeypatch):
+    path = ledger(tmp_path, monkeypatch, cap=3)
+    midnight = int(datetime(2026, 9, 22, tzinfo=timezone.utc).timestamp())
+    budget.provision_daily_budget(
+        path, utc_day="2026-09-22", max_credits=3,
+        entitlement_evidence_sha256=HASH,
+        rights_evidence_sha256=RIGHTS, owner_confirmed=True,
+    )
+    monkeypatch.setattr(budget, "time", SimpleNamespace(time=lambda: midnight - 1))
+    reserve(path, 1)
+    monkeypatch.setattr(budget, "time", SimpleNamespace(time=lambda: midnight))
+    with pytest.raises(budget.CreditBudgetError, match="Per-minute"):
+        reserve(path, 2)
+    monkeypatch.setattr(budget, "time", SimpleNamespace(time=lambda: midnight + 59))
+    assert reserve(path, 2)["remaining_credits"] == 2
+
+
+def test_clock_rollback_cannot_bypass_recent_reservation(tmp_path, monkeypatch):
+    path = ledger(tmp_path, monkeypatch, cap=3)
+    monkeypatch.setattr(budget, "time", SimpleNamespace(time=lambda: NOW + 120))
+    reserve(path, 1)
+    monkeypatch.setattr(budget, "time", SimpleNamespace(time=lambda: NOW + 60))
+    with pytest.raises(budget.CreditBudgetError, match="Per-minute"):
+        reserve(path, 2)
+
+
 def test_request_replay_denied_without_refund(tmp_path, monkeypatch):
     path = ledger(tmp_path, monkeypatch)
     reserve(path, 1)
