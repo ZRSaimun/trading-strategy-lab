@@ -232,3 +232,43 @@ def test_counterfactual_regret_bounds_withheld_when_not_sufficient():
                    "pairedLogLossRegretBestCaseEligibleCensus",
                    "pairedLogLossRegretWorstCaseEligibleCensus"):
         assert row[metric] is None
+
+
+def test_disjoint_temporal_split_reports_descriptive_regime_change_only():
+    row = run(fixture())["groups"][0]
+    assert row["temporalSplitStatus"] == "DESCRIPTIVE_ONLY"
+    assert row["temporalSplitEarlyCount"] + row["temporalSplitLateCount"] == row["scored"]
+    assert row["temporalSplitEarlyCount"] >= 30
+    assert row["temporalSplitLateCount"] >= 30
+    assert row["pairedBrierRegretLateMinusEarly"] == pytest.approx(
+        row["pairedBrierRegretLateHalf"] - row["pairedBrierRegretEarlyHalf"])
+    assert row["pairedLogLossRegretLateMinusEarly"] == pytest.approx(
+        row["pairedLogLossRegretLateHalf"] - row["pairedLogLossRegretEarlyHalf"])
+
+
+def test_temporal_split_withheld_for_missing_eligible_label_even_if_primary_scored():
+    s = fixture()
+    s["forecasts"][238].update(status="PENDING", resolvedAt=None, outcomeUp=None)
+    row = run(s)["groups"][0]
+    assert row["status"] == "DESCRIPTIVE_ONLY"
+    assert row["temporalSplitStatus"] == "MISSING_ELIGIBLE_OUTCOMES"
+    assert row["pairedBrierRegretEarlyHalf"] is None
+    assert row["pairedLogLossRegretLateMinusEarly"] is None
+    assert row["temporalSplitEarlyCount"] is None
+
+
+def test_temporal_split_requires_thirty_disjoint_scores_per_half():
+    row = run(fixture(n=130))["groups"][0]
+    assert row["status"] == "DESCRIPTIVE_ONLY"
+    assert row["temporalSplitStatus"] == "INSUFFICIENT_TEMPORAL_SPLIT_SAMPLE"
+    assert row["pairedBrierRegretLateMinusEarly"] is None
+
+
+def test_later_outcome_does_not_rewrite_earlier_temporal_split():
+    s = fixture()
+    earlier = run(s)["groups"][0]
+    s["forecasts"][238]["outcomeUp"] = False
+    later = run(s)["groups"][0]
+    assert earlier["pairedBrierRegretEarlyHalf"] == later["pairedBrierRegretEarlyHalf"]
+    assert earlier["pairedLogLossRegretEarlyHalf"] == later["pairedLogLossRegretEarlyHalf"]
+    assert earlier["pairedBrierRegretLateHalf"] != later["pairedBrierRegretLateHalf"]
