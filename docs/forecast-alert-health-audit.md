@@ -271,3 +271,28 @@ reachable deadlines, mixed populations and order independence.
 These are caller-declared timestamps, not a trusted scheduler or provider
 delivery evidence. The correction grants no notification, retry, paper-order
 or live-order authority and requires no production activation.
+
+
+## Next queued pre-expiry warning deadline (29 October 2026)
+
+The disconnected, read-only health report now exposes
+`nextExpirySoonWarningSecondsRemaining` and `nextExpirySoonWarningKeys`.
+For each still-valid, unclaimed `QUEUED` alert whose expiry-warning threshold
+is **in the future**, the candidate deadline is
+`expiresAt - expiry_warning_seconds - as_of`. The report selects the smallest
+strictly positive countdown and all tied, sorted `[sessionId, forecastId]`
+identities. Once `remaining <= expiry_warning_seconds`, the alert enters
+the existing `EXPIRING_SOON_WARNING` classification instead of appearing as
+an upcoming warning. Expired, cancelled, uncertain and acknowledged alerts
+are excluded. With no eligible queued alerts the countdown is null and the
+key inventory is empty. This is separate from the actual earliest expiry and
+the queue-age delay warning: those deadlines can occur in either order.
+
+Three synthetic regressions cover nearest ties, record-order independence,
+one-second and exact warning/expiry boundaries, configurable warning budgets,
+and empty/mixed cohorts. All timestamps and the expected population are
+**caller-declared**. These fields do not schedule notifications, authenticate
+market data or provider receipts, grant permission to send/retry, create paper
+fills, authorize live orders, or establish profitable forecasts. Operational
+activation still requires independently verified completed-candle provenance,
+recipient opt-in, durable one-attempt reconciliation, and release-safety checks.
