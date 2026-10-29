@@ -146,3 +146,37 @@ def test_quote_observed_after_received_holds():
     args = fixture()
     args[1]["observed_at_ms"] = NOW-50
     assert "invalid_quote_chronology" in inspect(args)["failed_checks"]
+
+
+@pytest.mark.parametrize("field,rollback,check", [
+    ("positions_synced_at_ms", NOW-201, "positions_sync_time_rollback"),
+    ("orders_synced_at_ms", NOW-221, "orders_sync_time_rollback"),
+])
+def test_fresh_inventory_sync_timestamp_rollback_holds(field, rollback, check):
+    args = fixture()
+    args[2][field] = rollback
+    result = inspect(args)
+    assert result["status"] == "HOLD_ACCOUNT_SNAPSHOT_REVIEW"
+    assert check in result["failed_checks"]
+    assert result["may_submit_real_order"] is False
+
+
+@pytest.mark.parametrize("field,new_prior,check", [
+    ("observed_at_ms", NOW-140, "quote_observation_time_rollback"),
+    ("received_at_ms", NOW-90, "quote_receipt_time_rollback"),
+])
+def test_fresh_primary_quote_timestamp_rollback_holds(field, new_prior, check):
+    args = fixture()
+    args[3]["risk_quote"][field] = new_prior
+    result = inspect(args)
+    assert result["status"] == "HOLD_ACCOUNT_SNAPSHOT_REVIEW"
+    assert check in result["failed_checks"]
+    assert result["may_submit_paper_order"] is False
+
+
+def test_repeated_inventory_sync_and_quote_timestamps_do_not_alone_hold():
+    # Identical fresh inventory/quote timestamps can represent no change;
+    # this is still only a caller-declared diagnostic, never authorization.
+    result = inspect(fixture())
+    assert result["failed_checks"] == []
+    assert result["may_submit_real_order"] is False
