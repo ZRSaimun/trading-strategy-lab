@@ -170,6 +170,23 @@ def inspect_declared_account_snapshot_fence(
             s["account"]["account_alias"], prior["account"]["account_alias"]
         ):
             failures.add("account_identity_changed")
+        # A newer caller-declared envelope must not erase unresolved risk or
+        # release a safety latch without independently verified reconciliation.
+        # This also applies to callers using the standalone snapshot fence.
+        if prior["account"]["circuit_breaker_open"] and not a["circuit_breaker_open"]:
+            failures.add("circuit_breaker_reset_requires_external_evidence")
+        if prior["unresolved_attempts"] > s["unresolved_attempts"]:
+            failures.add("unknown_attempt_reduction_requires_external_evidence")
+        if not prior["reconciliation_complete"] and s["reconciliation_complete"]:
+            failures.add("reconciliation_release_requires_external_evidence")
+        if s["session_epoch"] == prior["session_epoch"]:
+            if (s["positions_revision"] == prior["positions_revision"]
+                    and any(a[k] != prior["account"][k]
+                            for k in ("open_notional", "open_risk"))):
+                failures.add("positions_changed_without_revision")
+            if (s["orders_revision"] == prior["orders_revision"]
+                    and s["unresolved_attempts"] != prior["unresolved_attempts"]):
+                failures.add("unknown_attempts_changed_without_orders_revision")
         if s["session_epoch"] < prior["session_epoch"]:
             failures.add("session_epoch_rollback")
         elif s["session_epoch"] > prior["session_epoch"]:
