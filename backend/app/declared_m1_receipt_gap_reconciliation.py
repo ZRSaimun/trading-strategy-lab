@@ -79,6 +79,10 @@ def audit_declared_m1_receipt_gap_reconciliation(
         }
         for start, end in manifest.sessions_utc
     ]
+    # Row counts alone can mask a duplicate burst that contributes no new
+    # minute coverage. Reconcile unique expected minutes per session against
+    # the independently computed session-gap population.
+    seen_expected_by_session: list[set[int]] = [set() for _ in manifest.sessions_utc]
     unexpected_receipt_rows = 0
     late_unexpected_receipt_rows = 0
     for row in receipts:
@@ -89,12 +93,31 @@ def audit_declared_m1_receipt_gap_reconciliation(
             late_unexpected_receipt_rows += lag > max_receipt_lag_seconds
             continue
         bucket = session_receipt_lag[session_index]
+        seen_expected_by_session[session_index].add(row["bar_start_utc"])
         bucket["expected_receipt_rows"] += 1
         bucket["late_expected_receipt_rows"] += lag > max_receipt_lag_seconds
         previous_max = bucket["max_declared_receipt_lag_seconds"]
         bucket["max_declared_receipt_lag_seconds"] = (
             lag if previous_max is None else max(previous_max, lag)
         )
+    for index, bucket in enumerate(session_receipt_lag):
+        unique_count = len(seen_expected_by_session[index])
+        bucket["unique_expected_minutes_with_receipts"] = unique_count
+        bucket["duplicate_expected_receipt_rows"] = (
+            bucket["expected_receipt_rows"] - unique_count
+        )
+        if unique_count != gaps["declared_session_coverage"][index]["observed_expected_minutes"]:
+            raise ValueError("Declared session unique-minute reconciliation failed")
+    duplicate_unexpected_receipt_rows = (
+        unexpected_receipt_rows - gaps["unexpected_unique_minutes"]
+    )
+    if (duplicate_unexpected_receipt_rows < 0
+            or sum(row["unique_expected_minutes_with_receipts"]
+                   for row in session_receipt_lag) != gaps["unique_observed_expected_minutes"]
+            or sum(row["duplicate_expected_receipt_rows"]
+                   for row in session_receipt_lag) + duplicate_unexpected_receipt_rows
+                   != census["duplicate_receipt_rows"]):
+        raise ValueError("Declared receipt duplicate population reconciliation failed")
     if (sum(row["expected_receipt_rows"] for row in session_receipt_lag)
             + unexpected_receipt_rows != census["receipt_rows"]
             or sum(row["late_expected_receipt_rows"] for row in session_receipt_lag)
@@ -134,6 +157,7 @@ def audit_declared_m1_receipt_gap_reconciliation(
         "declared_session_receipt_lag": session_receipt_lag,
         "unexpected_receipt_rows": unexpected_receipt_rows,
         "late_unexpected_receipt_rows": late_unexpected_receipt_rows,
+        "duplicate_unexpected_receipt_rows": duplicate_unexpected_receipt_rows,
         "receipt_census": census,
         "session_gap_audit": gaps,
         "independent_calendar_verified": False,
