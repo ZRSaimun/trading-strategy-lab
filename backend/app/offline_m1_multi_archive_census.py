@@ -34,6 +34,22 @@ def _number(value):
     return result
 
 
+def _integer_wins(count, fraction):
+    """Recover the only feasible integer win count from a six-decimal v1 rate.
+
+    Original v1 summaries are round(winners / count, 6), not arbitrary
+    continuous estimates. A slightly conservative half-unit tolerance
+    accommodates float rounding at six decimal places. Counts in original
+    M1 archives are bounded to 500,000, so two distinct integers cannot
+    both fit within this tolerance.
+    """
+    candidate = int((fraction * count).to_integral_value(rounding=ROUND_HALF_EVEN))
+    if (not 0 <= candidate <= count
+            or abs(fraction - Decimal(candidate) / Decimal(count)) > Decimal("0.00000051")):
+        raise ValueError("Gross win fraction impossible for integer outcomes")
+    return candidate
+
+
 def _check_summary(summary):
     """Validate every original v1 split, including empty/unknown results."""
     expected_keys = {"count", "mean_gross_bps", "mean_net_bps_by_roundtrip_cost", "gross_win_fraction"}
@@ -49,7 +65,7 @@ def _check_summary(summary):
         if (summary["mean_gross_bps"] is not None or summary["gross_win_fraction"] is not None
                 or any(value is not None for value in net.values())):
             raise ValueError("Empty exploratory summary must have unknown performance")
-        return 0, None
+        return 0, None, 0
     gross = _number(summary["mean_gross_bps"])
     win = _number(summary["gross_win_fraction"])
     if not Decimal(0) <= win <= Decimal(1):
@@ -57,7 +73,7 @@ def _check_summary(summary):
     for cost in COSTS:
         if abs(_number(net[str(cost)]) - (gross - cost)) > Decimal("0.000002"):
             raise ValueError("Net cost scenario does not reconcile")
-    return n, gross
+    return n, gross, _integer_wins(n, win)
 
 
 def _check(report):
@@ -107,15 +123,17 @@ def _check(report):
             or report["confirmed_count"] > report["sweep_count"]
             or report["ambiguous_count"] > 2 * report["bar_count"]):
         raise ValueError("Sweep/confirmation population exceeds original scan bounds")
-    all_count, gross = _check_summary(report.get("all_exploratory"))
-    dev_count, dev_gross = _check_summary(report.get("development_exploratory"))
-    later_count, later_gross = _check_summary(report.get("later_exploratory_not_holdout"))
+    all_count, gross, all_wins = _check_summary(report.get("all_exploratory"))
+    dev_count, dev_gross, dev_wins = _check_summary(report.get("development_exploratory"))
+    later_count, later_gross, later_wins = _check_summary(report.get("later_exploratory_not_holdout"))
     if all_count + report["censored_gap_or_end"] + report["excluded_overlap"] != report["confirmed_count"]:
         raise ValueError("Signal population does not reconcile")
     if all_count > report["bar_count"]:
         raise ValueError("Evaluated outcomes exceed original bar count")
     if dev_count != all_count * 7 // 10 or later_count != all_count - dev_count:
         raise ValueError("Exploratory 70/30 partition population does not reconcile")
+    if all_wins != dev_wins + later_wins:
+        raise ValueError("Exploratory partition integer win counts do not reconcile")
     if all_count:
         # Each source mean is independently rounded to six decimals.
         # Bound the weighted discrepancy instead of demanding false precision.
