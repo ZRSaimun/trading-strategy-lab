@@ -7,7 +7,7 @@
  */
 import type {Bar} from './research.ts';
 
-export const HOURLY_FVG_VERSION='hourly-fvg-first-midpoint-touch-v88';
+export const HOURLY_FVG_VERSION='hourly-fvg-first-midpoint-touch-v89';
 export type Evidence='PASS'|'FAIL'|'INSUFFICIENT_DATA';
 // First-touch volume evidence is not independent broker/source authentication.
 export type VolumeEvidenceReason='NOT_EVALUATED'|'SOURCE_UNVERIFIED'|
@@ -242,6 +242,13 @@ export type FvgStudy={
  // Every formed BID gap, including censored and no-touch observations.
  formationGapNoWiderThanCostByScenario:readonly {
   scenarioIndex:number;costBps:number;all:number;byDirection:Record<Side,number>;
+ }[];
+ // Descriptive touch censor bounds stratified by cost-to-gap geometry.
+ // These cohorts partition ALL formations, not only observed/matured trades.
+ firstTouchOpportunityBoundsByCostScenario:readonly {
+  scenarioIndex:number;costBps:number;
+  noWiderThanCost:FirstTouchOpportunityBound;
+  widerThanCost:FirstTouchOpportunityBound;
  }[];
  warning:string;
 };
@@ -483,6 +490,24 @@ function positiveNetAfterCost(entry:number,exit:number,direction:Side,costBps:nu
 // Account for the full observed formation population, not just attractive
 // confirmed returns. Unknown outcomes remain unknown, and blind-only markouts
 // must not be presented as matched wick-versus-limit comparisons.
+function touchBounds(population:readonly FvgObservation[]):FirstTouchOpportunityBound{
+  const countOutcome=(outcome:FirstTouchOutcome)=>population.filter(o=>
+   o.firstTouchOutcome===outcome).length;
+  const formations=population.length;
+  const observedTouches=countOutcome('TOUCH');
+  const observedNoTouches=countOutcome('NO_TOUCH');
+  const unresolvedGapThrough=countOutcome('OPEN_GAP_THROUGH');
+  const unresolvedIncomplete=countOutcome('INCOMPLETE_WINDOW');
+  if(observedTouches+observedNoTouches+unresolvedGapThrough+
+     unresolvedIncomplete!==formations)
+   throw Error('FVG first-touch opportunity bounds do not reconcile');
+  return {formations,observedTouches,observedNoTouches,
+   unresolvedGapThrough,unresolvedIncomplete,
+   lowerObservedTouchFraction:formations?observedTouches/formations:null,
+   upperPossibleTouchFraction:formations?
+    (observedTouches+unresolvedGapThrough+unresolvedIncomplete)/formations:null};
+}
+
 function summarizeCohort(observations:readonly FvgObservation[],costs:readonly number[],
  maxTouchWaitBars:number):FvgCohort{
  const count=(gate:'midpointTouch'|'strictCandidate'|'markout'):EvidenceCounts=>{
@@ -973,23 +998,6 @@ function summarizeCohort(observations:readonly FvgObservation[],costs:readonly n
  // lower bound counts only observed contiguous first touches; the upper
  // allows every gap-through or censored first-touch window to have touched.
  // Neither bound says whether a broker could execute a limit order.
- const touchBounds=(population:readonly FvgObservation[]):FirstTouchOpportunityBound=>{
-  const countOutcome=(outcome:FirstTouchOutcome)=>population.filter(o=>
-   o.firstTouchOutcome===outcome).length;
-  const formations=population.length;
-  const observedTouches=countOutcome('TOUCH');
-  const observedNoTouches=countOutcome('NO_TOUCH');
-  const unresolvedGapThrough=countOutcome('OPEN_GAP_THROUGH');
-  const unresolvedIncomplete=countOutcome('INCOMPLETE_WINDOW');
-  if(observedTouches+observedNoTouches+unresolvedGapThrough+
-     unresolvedIncomplete!==formations)
-   throw Error('FVG first-touch opportunity bounds do not reconcile');
-  return {formations,observedTouches,observedNoTouches,
-   unresolvedGapThrough,unresolvedIncomplete,
-   lowerObservedTouchFraction:formations?observedTouches/formations:null,
-   upperPossibleTouchFraction:formations?
-    (observedTouches+unresolvedGapThrough+unresolvedIncomplete)/formations:null};
- };
  const firstTouchOpportunityBounds={
   all:touchBounds(observations),
   byDirection:{
@@ -1641,12 +1649,35 @@ export function studyHourlyFvgMidpoint(
   if(formationGapNoWiderThanCostByScenario[k].all<
      formationGapNoWiderThanCostByScenario[k-1].all)
    throw Error('FVG formation cost/geometry census is not monotonic');
+ const cohort=summarizeCohort(observations,costs,maxTouchWaitBars);
+ const firstTouchOpportunityBoundsByCostScenario=
+  formationGapNoWiderThanCostByScenario.map(scenario=>{
+   const noWider: FvgObservation[]=[];
+   const wider: FvgObservation[]=[];
+   for(const observation of observations){
+    (formationGapNoWiderThanCost(observation.gapLow,observation.gapHigh,
+      observation.midpoint,scenario.costBps)?noWider:wider).push(observation);
+   }
+   const noWiderThanCost=touchBounds(noWider);
+   const widerThanCost=touchBounds(wider);
+   if(noWiderThanCost.formations!==scenario.all||
+      widerThanCost.formations+scenario.all!==cohort.formations)
+    throw Error('FVG cost-width touch-bound population does not reconcile');
+   for(const key of ['observedTouches','observedNoTouches',
+    'unresolvedGapThrough','unresolvedIncomplete'] as const)
+    if(noWiderThanCost[key]+widerThanCost[key]!==
+       cohort.firstTouchOpportunityBounds.all[key])
+     throw Error('FVG cost-width touch-bound outcomes do not reconcile');
+   return {scenarioIndex:scenario.scenarioIndex,costBps:scenario.costBps,
+    noWiderThanCost,widerThanCost};
+  });
  return {version:HOURLY_FVG_VERSION,source:declaredSource,
    coverage,
   config:{maxTouchWaitBars,markoutBars,minimumRejectionWickFraction,
    volumeMultiple,hypotheticalRoundTripCostsBps:[...costs]},
-  observations,cohort:summarizeCohort(observations,costs,maxTouchWaitBars),
+  observations,cohort,
   formationGapNoWiderThanCostByScenario,
+  firstTouchOpportunityBoundsByCostScenario,
   warning:'Read-only hourly BID OHLC research. Midpoint touch is a hypothetical blind limit, not an executable fill. Rejection entry uses only the next observed hourly open. Markouts omit intrabar stops, spreads, financing, news, slippage and broker contracts; bps costs are illustrative, not measured. No strategy edge or live execution is established.'};
 }
 

@@ -3858,3 +3858,57 @@ test('v88 first-touch censor bounds keep no-touch, gap-through and unknown forma
  assert.equal(mixed.cohort.firstTouchOpportunityBounds.byDirection.BULLISH.observedTouches,1);
  assert.equal(mixed.cohort.firstTouchOpportunityBounds.byDirection.BEARISH.unresolvedGapThrough,1);
 });
+
+test('v89 cost-width first-touch bounds preserve censored and known-negative formations',()=>{
+ const wide=[
+  candle(0,99,100,98,99),candle(1,101,102,100,101),
+  candle(2,105,106,104,105),candle(3,104,105,101,104),
+ ];
+ const narrow=[
+  candle(10,99,100,98,99),candle(11,101,102,100,101),
+  candle(12,101.5,102.5,101,101.5),candle(13,101.5,103,101,102),
+ ];
+ const censored=[
+  candle(20,99,100,98,99),candle(21,101,102,100,101),
+  candle(22,105,106,104,105),
+ ];
+ const bars=[...wide,...narrow,...censored];
+ const config:FvgConfig={maxTouchWaitBars:1,hypotheticalRoundTripCostsBps:[0,200,600]};
+ const report=studyHourlyFvgMidpoint(bars,source,config);
+ assert.equal(report.observations.length,3);
+ assert.deepEqual(report.observations.map(o=>o.firstTouchOutcome),
+  ['TOUCH','NO_TOUCH','INCOMPLETE_WINDOW']);
+ const census=report.firstTouchOpportunityBoundsByCostScenario;
+ assert.equal(census.length,3);
+ assert.deepEqual(census.map(s=>s.noWiderThanCost.formations),[0,1,3]);
+ assert.deepEqual(census.map(s=>s.widerThanCost.formations),[3,2,0]);
+ assert.deepEqual(census.map(s=>s.noWiderThanCost.lowerObservedTouchFraction),
+  [null,0,1/3]);
+ assert.deepEqual(census.map(s=>s.noWiderThanCost.upperPossibleTouchFraction),
+  [null,0,2/3]);
+ assert.deepEqual(census.map(s=>s.widerThanCost.lowerObservedTouchFraction),
+  [1/3,1/2,null]);
+ assert.deepEqual(census.map(s=>s.widerThanCost.upperPossibleTouchFraction),
+  [2/3,1,null]);
+ for(const s of census){
+  assert.equal(s.noWiderThanCost.formations+s.widerThanCost.formations,
+   report.cohort.formations);
+  for(const key of ['observedTouches','observedNoTouches',
+   'unresolvedGapThrough','unresolvedIncomplete'] as const)
+   assert.equal(s.noWiderThanCost[key]+s.widerThanCost[key],
+    report.cohort.firstTouchOpportunityBounds.all[key]);
+ }
+ const empty=studyHourlyFvgMidpoint([],source,config);
+ for(const s of empty.firstTouchOpportunityBoundsByCostScenario){
+  assert.equal(s.noWiderThanCost.lowerObservedTouchFraction,null);
+  assert.equal(s.widerThanCost.upperPossibleTouchFraction,null);
+ }
+ // A future hourly candle cannot retrospectively turn the censored cohort
+ // into an observed touch before that candle closes.
+ const future=[...bars,candle(23,104,105,101,104)];
+ Object.defineProperty(future[future.length-1],'low',{
+  get(){throw Error('future low must not be inspected');},
+ });
+ const replay=studyHourlyFvgMidpointAsOf(future,source,BASE+23*H,config);
+ assert.deepEqual(replay,report);
+});
