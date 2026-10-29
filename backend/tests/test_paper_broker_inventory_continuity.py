@@ -200,6 +200,7 @@ def test_prior_distinct_order_identities_still_unverified():
     another = deepcopy(p["pages"][0]["orders"][0])
     another["client_order_id"] = "order2"
     another["broker_order_id"] = "broker2"
+    another["fills"][0]["fill_id"] = "fill2"
     p["pages"][0]["orders"].append(another)
     result = inspect_declared_inventory_continuity(e, p, c, NOW)
     assert result["status"] == "DECLARED_INVENTORY_CONTINUITY_UNVERIFIED"
