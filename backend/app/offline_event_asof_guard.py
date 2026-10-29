@@ -56,6 +56,8 @@ def audit_declared_event_asof(revisions, *, decision_utc, source_id):
     time no later than observation. Result values are only available once the
     event has occurred AND the result revision was observed by the cutoff.
     Later revisions cannot rewrite the earlier decision snapshot.
+    Because receipt clocks are minute-granular, observations stamped in the
+    decision minute are excluded: their within-minute order is unknown.
     """
     if not isinstance(source_id, str) or not source_id.strip() or len(source_id) > 128:
         raise ValueError("Bounded source identity required")
@@ -122,7 +124,7 @@ def audit_declared_event_asof(revisions, *, decision_utc, source_id):
                 # schedule or forecast used to measure economic surprise.
                 raise ValueError("Result must match latest schedule and forecast")
             seen_result |= entry["kind"] == "result"
-        eligible = [e for e in entries if _utc(e["observed_utc"]) <= cutoff]
+        eligible = [e for e in entries if _utc(e["observed_utc"]) < cutoff]
         if not eligible:
             continue
         latest = eligible[-1]
@@ -136,6 +138,6 @@ def audit_declared_event_asof(revisions, *, decision_utc, source_id):
     return {"research_only": True, "authenticated_calendar": False,
             "trade_authorized": False, "source_id": source_id,
             "decision_utc": cutoff.isoformat(), "visible_revision_count": sum(
-                _utc(e["observed_utc"]) <= cutoff for rows in groups.values() for e in rows),
+                _utc(e["observed_utc"]) < cutoff for rows in groups.values() for e in rows),
             "visible_event_count": len(output), "events": output,
             "visible_snapshot_sha256": hashlib.sha256(canonical.encode()).hexdigest()}
