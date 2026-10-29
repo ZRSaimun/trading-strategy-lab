@@ -145,7 +145,7 @@ def audit_provider_credit_ledger(
             # A bounded ledger can still contain many rows; stream rather than
             # loading identities or evidence into memory or the audit report.
             used = {pday: 0 for pday in caps}
-            last_minute = None
+            last_reservation_at = None
             cursor = conn.execute(
                 "SELECT request_id, utc_day, manifest_sha256, reserved_at_utc, cost "
                 "FROM credit_reservation ORDER BY reserved_at_utc, request_id"
@@ -162,14 +162,14 @@ def audit_provider_credit_ledger(
                     raise CreditLedgerAuditError("Invalid credit reservation time") from None
                 if stamp_day != rday:
                     raise CreditLedgerAuditError("Reservation timestamp/day mismatch")
-                # The one-shot adapter permits at most one attempt in each
-                # UTC minute, even when daily credits remain. Sorting by
-                # timestamp makes repeated minute buckets adjacent without
-                # storing any request identities in memory.
-                minute = stamp // 60
-                if minute == last_minute:
-                    raise CreditLedgerAuditError("Multiple reservations in one UTC minute")
-                last_minute = minute
+                # The live reservation gate requires a rolling 60-second
+                # separation, not merely different UTC calendar minutes.
+                # Sorting by timestamp makes any violating pair adjacent,
+                # including across UTC midnight and daily policy boundaries.
+                if (last_reservation_at is not None
+                        and stamp - last_reservation_at < 60):
+                    raise CreditLedgerAuditError("Reservations less than 60 seconds apart")
+                last_reservation_at = stamp
                 used[rday] += 1
                 if used[rday] > caps[rday]:
                     raise CreditLedgerAuditError("Credit reservation exceeds daily cap")
