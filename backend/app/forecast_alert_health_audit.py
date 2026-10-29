@@ -159,10 +159,11 @@ def audit_forecast_alert_health(records, expected_keys, *, as_of,
                 if age >= queue_warning_seconds:
                     counts["QUEUE_DELAY_WARNING"] += 1
                     warn(key, "QUEUE_DELAY_WARNING")
-                else:
-                    # Only unbreached, still-queued alerts have a future
-                    # issuance-age delay deadline. Already warned and
-                    # expired alerts must not appear as upcoming incidents.
+                elif state["issuedAt"] + queue_warning_seconds < state["expiresAt"]:
+                    # A queued alert that expires at/before its age threshold
+                    # can NEVER reach QUEUE_DELAY_WARNING: expiry wins at the
+                    # exact boundary. Do not advertise an impossible future
+                    # incident deadline in the operator timeline.
                     remaining_delay = queue_warning_seconds - age
                     if (next_queue_delay_warning is None or
                             remaining_delay < next_queue_delay_warning):
