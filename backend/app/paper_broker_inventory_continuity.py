@@ -22,7 +22,7 @@ _SNAPSHOT_FIELDS = {"broker", "account_alias", "snapshot_id", "sequence",
 _PAGE_FIELDS = {"snapshot_id", "index", "total_pages", "complete", "orders"}
 
 
-def _prior_metadata(previous: Any, now: int) -> tuple[dict, set[str]]:
+def _prior_metadata(previous: Any, now: int, max_transport_lag_ms: int) -> tuple[dict, set[str]]:
     """Validate bounded checkpoint metadata, not authenticity or order contents."""
     prev = _object(previous, _SNAPSHOT_FIELDS, "previous snapshot")
     for key in ("broker", "account_alias", "snapshot_id"):
@@ -38,6 +38,10 @@ def _prior_metadata(previous: Any, now: int) -> tuple[dict, set[str]]:
     failures: set[str] = set()
     if not observed <= received <= now:
         failures.add("previous_snapshot_clock_invalid")
+    elif received - observed > max_transport_lag_ms:
+        # A complete-looking earlier checkpoint can still be delayed beyond
+        # the same caller-declared transport policy used for current evidence.
+        failures.add("previous_snapshot_transport_lag")
     total_orders = 0
     for index, raw in enumerate(pages):
         page = _object(raw, _PAGE_FIELDS, "previous page")
@@ -70,7 +74,9 @@ def inspect_declared_inventory_continuity(
     if previous is None:
         failures.add("missing_prior_inventory_checkpoint")
     else:
-        prev, prior_failures = _prior_metadata(previous, now)
+        prev, prior_failures = _prior_metadata(
+            previous, now, expected["max_transport_lag_ms"]
+        )
         failures.update(prior_failures)
         if (prev["broker"], prev["account_alias"]) != (
             expected["broker"], expected["account_alias"]
