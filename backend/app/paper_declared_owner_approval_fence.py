@@ -13,8 +13,8 @@ from typing import Any
 from app.paper_declared_order_risk_preview import inspect_declared_order_risk_preview
 
 _MAX_MS = 8_640_000_000_000_000
-_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:/+-]{0,79}\\Z")
-_SHA = re.compile(r"[0-9a-f]{64}\\Z")
+_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:/+-]{0,79}\Z")
+_SHA = re.compile(r"[0-9a-f]{64}\Z")
 _APPROVAL_FIELDS = frozenset({
     "approval_id", "approver_alias", "decision", "preview_digest", "order_intent_sha",
     "client_order_id", "broker", "account_alias", "quote_source", "quote_observed_at_ms",
