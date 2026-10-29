@@ -7,7 +7,7 @@
  */
 import type {Bar} from './research.ts';
 
-export const HOURLY_FVG_VERSION='hourly-fvg-first-midpoint-touch-v93';
+export const HOURLY_FVG_VERSION='hourly-fvg-first-midpoint-touch-v94';
 export type Evidence='PASS'|'FAIL'|'INSUFFICIENT_DATA';
 // First-touch volume evidence is not independent broker/source authentication.
 export type VolumeEvidenceReason='NOT_EVALUATED'|'SOURCE_UNVERIFIED'|
@@ -1935,6 +1935,20 @@ export function studyHourlyFvgMidpointAsOf(
    'hypotheticalRoundTripCostsBps');
   if(costDeclaration&&!('value' in costDeclaration))
    throw Error('FVG as-of cost scenarios require an own data property');
+ // An own array property alone is not enough: an accessor-backed indexed
+ // cell can return a different bps cost after a future timestamp getter runs,
+ // while its descriptor remains unchanged. Reject these unstable as-of
+ // declarations before invoking any cost-cell or future-time getters.
+ // Full-history snapshots still support a single accessor-backed cell read.
+ if(costDeclaration&&'value' in costDeclaration&&
+  Array.isArray(costDeclaration.value)&&costDeclaration.value.length<=10){
+  const declaredCosts=costDeclaration.value;
+  for(let index=0;index<declaredCosts.length;index++){
+   const cell=Object.getOwnPropertyDescriptor(declaredCosts,String(index));
+   if(!cell||!('value' in cell))
+    throw Error('FVG as-of cost scenarios require own data-property cells');
+  }
+ }
  }
  // Freeze source identity, declared volume provenance and study settings
  // BEFORE reading any future timestamp accessors. Otherwise a future bar's
