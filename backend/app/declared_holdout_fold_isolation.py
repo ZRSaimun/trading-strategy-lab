@@ -33,6 +33,11 @@ def audit_declared_holdout_fold_isolation(folds):
     total_pending_labels = 0
     max_pending_labels = 0
     most_pending_labels_fold_index = None
+    previous_census = None
+    validation_cutoff_transitions = []
+    total_prior_labels_unavailable_at_validation = 0
+    max_prior_labels_unavailable_at_validation = 0
+    most_unavailable_at_validation_later_fold_index = None
     study_id = candidate_id = candidate_sha = source_signature = None
     summaries = []
     for index, fold in enumerate(folds):
@@ -62,6 +67,23 @@ def audit_declared_holdout_fold_isolation(folds):
                 raise ValueError("Overlapping or out-of-order holdout windows")
             if manifest["selected_at_utc"] < previous_end:
                 raise ValueError("Later fold candidate selection overlaps previous holdout")
+            # A later fold's validation cutoff can precede the availability
+            # of previous-fold labels, even when selection-time embargo passes.
+            # This is diagnostic only: the later validation may legitimately
+            # exclude those labels, and membership does not prove data lineage.
+            unavailable_at_validation = sum(
+                row["label_available_at_utc"] > manifest["validation_end_at_utc"]
+                for row in previous_census
+            )
+            validation_cutoff_transitions.append({
+                "later_fold_index": index,
+                "declared_prior_labels_unavailable_at_validation_end_count":
+                    unavailable_at_validation,
+            })
+            total_prior_labels_unavailable_at_validation += unavailable_at_validation
+            if unavailable_at_validation > max_prior_labels_unavailable_at_validation:
+                max_prior_labels_unavailable_at_validation = unavailable_at_validation
+                most_unavailable_at_validation_later_fold_index = index
             # Independent of label maturity, expose how close the next
             # candidate selection was to the previous declared holdout end.
             selection_gap = manifest["selected_at_utc"] - previous_end
@@ -85,6 +107,7 @@ def audit_declared_holdout_fold_isolation(folds):
         seen_manifest_hashes.add(digest)
         previous_end = manifest["holdout_end_at_utc"]
         previous_max_label = max(row["label_available_at_utc"] for row in census)
+        previous_census = census
         # A label can mature after the decision window closes. Surface this
         # declared release-readiness risk without reading outcome values.
         label_tail = max(0, previous_max_label - previous_end)
@@ -121,6 +144,13 @@ def audit_declared_holdout_fold_isolation(folds):
         "max_declared_labels_pending_at_window_end_count": max_pending_labels,
         "most_pending_declared_labels_fold_index": most_pending_labels_fold_index,
         "observation_count": len(seen_rows),
+        "declared_validation_cutoff_transitions": validation_cutoff_transitions,
+        "total_declared_prior_labels_unavailable_at_validation_end_count":
+            total_prior_labels_unavailable_at_validation,
+        "max_declared_prior_labels_unavailable_at_validation_end_count":
+            max_prior_labels_unavailable_at_validation,
+        "most_unavailable_at_validation_later_fold_index":
+            most_unavailable_at_validation_later_fold_index,
         "min_declared_label_embargo_slack_seconds": min_label_embargo_slack,
         "tightest_declared_label_embargo_later_fold_index": tightest_label_embargo_transition_index,
         "min_declared_interfold_selection_gap_seconds": min_selection_gap,
@@ -133,7 +163,8 @@ def audit_declared_holdout_fold_isolation(folds):
         "may_execute_demo_order": False,
         "may_execute_real_order": False,
         "warning": "Only caller-declared manifests and membership were checked. "
-                   "Embargo slack is computed from unverified declared clocks, not proof of leakage prevention. "
+                   "Embargo slack and validation-cutoff availability use unverified declared clocks; "
+                   "a positive validation count does not prove outcome reuse or leakage. "
                    "Distinct archive digests do not prove independent market data. "
                    "No holdout outcomes, executable costs or trading permissions are evaluated."
     }
