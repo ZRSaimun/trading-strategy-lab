@@ -7,7 +7,7 @@
  */
 import type {Bar} from './research.ts';
 
-export const HOURLY_FVG_VERSION='hourly-fvg-first-midpoint-touch-v81';
+export const HOURLY_FVG_VERSION='hourly-fvg-first-midpoint-touch-v82';
 export type Evidence='PASS'|'FAIL'|'INSUFFICIENT_DATA';
 // First-touch volume evidence is not independent broker/source authentication.
 export type VolumeEvidenceReason='NOT_EVALUATED'|'SOURCE_UNVERIFIED'|
@@ -210,6 +210,9 @@ export type FvgCoverage={
  // complete exchange-session calendar or evidence of unobserved setups.
  observedThreeBarWindows:number;completeThreeBarWindows:number;
  skippedThreeBarWindowsWithGaps:number;
+ // Disjoint gap-edge counts in observed rolling triplets, not session hours.
+ skippedThreeBarWindowsWithOneGapEdge:number;
+ skippedThreeBarWindowsWithTwoGapEdges:number;
 };
 export type FvgStudy={
  version:typeof HOURLY_FVG_VERSION;source:FvgSource;coverage:FvgCoverage;
@@ -1077,9 +1080,19 @@ function summarizeCoverage(bars:readonly Bar[]):FvgCoverage{
  let unobservedHourSlots=0,gapIntervals=0;
  const observedThreeBarWindows=Math.max(0,bars.length-2);
  let completeThreeBarWindows=0;
- for(let i=2;i<bars.length;i++)if(bars[i-1].time-bars[i-2].time===HOUR&&
-   bars[i].time-bars[i-1].time===HOUR)completeThreeBarWindows++;
- const skippedThreeBarWindowsWithGaps=observedThreeBarWindows-completeThreeBarWindows;
+ let skippedThreeBarWindowsWithOneGapEdge=0;
+ let skippedThreeBarWindowsWithTwoGapEdges=0;
+ for(let i=2;i<bars.length;i++){
+  const gapEdges=Number(bars[i-1].time-bars[i-2].time!==HOUR)+
+   Number(bars[i].time-bars[i-1].time!==HOUR);
+  if(gapEdges===0)completeThreeBarWindows++;
+  else if(gapEdges===1)skippedThreeBarWindowsWithOneGapEdge++;
+  else skippedThreeBarWindowsWithTwoGapEdges++;
+ }
+ const skippedThreeBarWindowsWithGaps=skippedThreeBarWindowsWithOneGapEdge+
+  skippedThreeBarWindowsWithTwoGapEdges;
+ if(completeThreeBarWindows+skippedThreeBarWindowsWithGaps!==observedThreeBarWindows)
+  throw Error('FVG observed formation-triplet gap census does not reconcile');
  for(let i=1;i<bars.length;i++){
   const unobserved=(bars[i].time-bars[i-1].time)/HOUR-1;
   if(unobserved>0){unobservedHourSlots+=unobserved;gapIntervals++;}
@@ -1087,7 +1100,8 @@ function summarizeCoverage(bars:readonly Bar[]):FvgCoverage{
  return {firstBarOpenAt:bars.length?bars[0].time:null,
   lastBarClosedAt:bars.length?bars[bars.length-1].time+HOUR:null,
   observedBars:bars.length,unobservedHourSlots,gapIntervals,
-  observedThreeBarWindows,completeThreeBarWindows,skippedThreeBarWindowsWithGaps};
+  observedThreeBarWindows,completeThreeBarWindows,skippedThreeBarWindowsWithGaps,
+  skippedThreeBarWindowsWithOneGapEdge,skippedThreeBarWindowsWithTwoGapEdges};
 }
 export function studyHourlyFvgMidpoint(
  suppliedBars:readonly Bar[],source:FvgSource,config:FvgConfig={},
