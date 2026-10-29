@@ -267,3 +267,80 @@ def test_empty_event_envelope_still_binds_declared_source():
     )
     assert a["visible_event_count"] == b["visible_event_count"] == 0
     assert a["research_envelope_sha256"] != b["research_envelope_sha256"]
+
+
+def test_v2_history_distinguishes_different_intermediate_forecasts():
+    # Both histories have the same latest visible record and revision count.
+    # The v1 event and envelope hashes cannot distinguish them.
+    first = [row(), row(2, observed="2026-10-28T13:01:00Z",
+                        published="2026-10-28T13:00:00Z", forecast="3.6"),
+             row(3, observed="2026-10-28T14:01:00Z",
+                 published="2026-10-28T14:00:00Z", forecast="3.7")]
+    second = deepcopy(first)
+    second[1]["forecast"] = "3.8"
+    a, b = run(first), run(second)
+    assert a["events"] == b["events"]
+    assert a["visible_revision_count"] == b["visible_revision_count"] == 3
+    assert a["visible_snapshot_sha256"] == b["visible_snapshot_sha256"]
+    assert a["research_envelope_sha256"] == b["research_envelope_sha256"]
+    assert a["visible_revision_history_sha256"] != b["visible_revision_history_sha256"]
+    assert a["research_envelope_v2_sha256"] != b["research_envelope_v2_sha256"]
+
+
+def test_v2_history_excludes_future_and_same_minute_revisions():
+    first = row()
+    future = row(2, "schedule", scheduled="2026-10-28T19:00:00Z",
+                 published="2026-10-28T17:00:00Z",
+                 observed="2026-10-28T17:01:00Z", forecast="3.6")
+    baseline = run([first])
+    assert run([first, future]) == baseline
+    assert run([first, future], "2026-10-28T17:01:00Z")["visible_revision_history_sha256"] == baseline["visible_revision_history_sha256"]
+    later = run([first, future], "2026-10-28T17:02:00Z")
+    assert later["visible_revision_history_sha256"] != baseline["visible_revision_history_sha256"]
+
+
+def test_v2_history_is_row_order_independent_and_does_not_mutate():
+    rows = [row(event_id="B"), row(event_id="A"),
+            row(2, event_id="A", published="2026-10-28T13:00:00Z",
+                observed="2026-10-28T13:01:00Z", forecast="3.6")]
+    original = deepcopy(rows)
+    assert run(rows) == run(list(reversed(rows)))
+    assert rows == original
+
+
+def test_v2_envelope_matches_independent_canonical_reconstruction():
+    import hashlib
+    import json
+
+    rows = [row(), row(2, published="2026-10-28T13:00:00Z",
+                       observed="2026-10-28T13:01:00Z", forecast="3.6")]
+    report = run(rows)
+    visible = [
+        dict(event_id=r["event_id"], revision=r["revision"], kind=r["kind"],
+             scheduled_utc="2026-10-28T18:00:00+00:00",
+             published_utc=r["published_utc"].replace("Z", "+00:00"),
+             observed_utc=r["observed_utc"].replace("Z", "+00:00"),
+             forecast=r["forecast"], actual=None)
+        for r in rows
+    ]
+    history = json.dumps(visible, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+    history_sha = hashlib.sha256(history.encode("utf-8")).hexdigest()
+    assert report["visible_revision_history_sha256"] == history_sha
+    envelope = {
+        "schema_version": 2, "source_id": report["source_id"],
+        "decision_utc": report["decision_utc"],
+        "visible_revision_count": 2,
+        "visible_revision_history_sha256": history_sha, "events": report["events"],
+    }
+    expected = json.dumps(envelope, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+    assert report["research_envelope_v2_schema_version"] == 2
+    assert report["research_envelope_v2_sha256"] == hashlib.sha256(expected.encode("utf-8")).hexdigest()
+
+
+def test_v2_empty_history_binds_source_and_cutoff():
+    a = audit_declared_event_asof([], decision_utc="2026-10-28T17:00:00Z", source_id="A")
+    b = audit_declared_event_asof([], decision_utc="2026-10-28T17:00:00Z", source_id="B")
+    c = audit_declared_event_asof([], decision_utc="2026-10-28T17:01:00Z", source_id="A")
+    assert a["visible_revision_history_sha256"] == b["visible_revision_history_sha256"]
+    assert a["research_envelope_v2_sha256"] != b["research_envelope_v2_sha256"]
+    assert a["research_envelope_v2_sha256"] != c["research_envelope_v2_sha256"]
