@@ -97,3 +97,25 @@ never silently dropped to construct favorable-looking regime halves.
 The fixed disjoint census is unchanged, and no future label enters a
 past causal baseline. This offline diagnostic neither authenticates
 market data nor authorizes notifications, paper fills or broker orders.
+
+
+### Chronological signed calibration drift (29 October 2026)
+
+The same frozen, nonoverlapping chronological scored census used for paired
+regret now reports early/late mean issued UP probability, early/late observed
+UP fraction, and the **signed calibration gap** (mean issued UP probability
+minus observed UP fraction). A positive gap means the model predicted UP more
+often than UP occurred in that half; a negative gap means the opposite.
+`temporalSplitSignedCalibrationGapLateMinusEarly` is the late signed gap
+minus the early signed gap. It is a descriptive change, **not** a confidence
+interval, drift hypothesis test, or calibrated trading signal.
+
+These seven fields are withheld (null) unless the existing causal baseline
+evaluation passes, the fixed eligible census has **zero missing outcomes**,
+and each chronological half has at least **30 disjoint scored forecasts**.
+The probability and outcome aggregates use exactly the same preselected
+members, without selecting favorable statuses or retroactively changing
+issued probabilities. The underlying journal and cutoff remain
+unauthenticated, so apparent calibration changes are not independently
+verified forward results. No notification, paper order or live execution
+permission is granted.
