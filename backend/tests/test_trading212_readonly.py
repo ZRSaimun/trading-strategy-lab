@@ -220,8 +220,12 @@ def test_broker_rejects_ambiguous_or_non_utf8_json_media(headers):
 def test_broker_rejects_ambiguous_or_unsupported_content_coding(headers):
     headers = list(headers.items()) if isinstance(headers, dict) else headers
     headers.append(("content-type", "application/json"))
-    with pytest.raises(ReadOnlyBrokerError, match="Compressed or ambiguous"):
-        call(lambda _: httpx.Response(200, content=b"{}", headers=headers))
+    with pytest.raises(ReadOnlyBrokerError, match="Compressed|Ambiguous"):
+        # An already-buffered httpx.Response eagerly decompresses and raises
+        # before the adapter can inspect headers. Keep bytes streaming so
+        # this test exercises the adapter's own fail-closed header gate.
+        call(lambda _: httpx.Response(
+            200, stream=httpx.ByteStream(b"{}"), headers=headers))
 
 
 @pytest.mark.parametrize("headers", [
