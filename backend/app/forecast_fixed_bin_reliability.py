@@ -52,6 +52,24 @@ def audit_fixed_bin_reliability(pairs, *, min_per_occupied_bin=30):
     status = ("INSUFFICIENT_BIN_SUPPORT" if sparse else
               "LIMITED_PROBABILITY_COVERAGE" if occupied < 2 else
               "DESCRIPTIVE_ONLY")
+    # Stress the already-observed cohort without rewriting any settled label:
+    # enumerate all possible *single* binary-outcome flips, retaining each
+    # issued probability, fixed bin, and denominator. These are hypothetical
+    # data-quality sensitivities, not confidence intervals or corrections.
+    flip_best = flip_worst = None
+    if status == "DESCRIPTIVE_ONLY":
+        stressed = []
+        for index, n in enumerate(counts):
+            if not n:
+                continue
+            old = abs(probability_sums[index] - up_counts[index])
+            if up_counts[index] > 0:
+                stressed.append((weighted_gap - old +
+                                 abs(probability_sums[index] - (up_counts[index] - 1))) / len(pairs))
+            if up_counts[index] < n:
+                stressed.append((weighted_gap - old +
+                                 abs(probability_sums[index] - (up_counts[index] + 1))) / len(pairs))
+        flip_best, flip_worst = min(stressed), max(stressed)
     return {
         "status": status, "binEdges": list(_EDGES),
         "minPerOccupiedBin": min_per_occupied_bin,
@@ -59,6 +77,8 @@ def audit_fixed_bin_reliability(pairs, *, min_per_occupied_bin=30):
         "bins": bins,
         "weightedAbsoluteCalibrationGap": (
             weighted_gap / len(pairs) if status == "DESCRIPTIVE_ONLY" else None),
+        "singleOutcomeFlipBestCaseWeightedGap": flip_best,
+        "singleOutcomeFlipWorstCaseWeightedGap": flip_worst,
         "sourceAuthenticated": False, "independentHoldoutVerified": False,
         "maySendNotification": False, "mayExecutePaperOrder": False,
         "mayExecuteLiveOrder": False,
