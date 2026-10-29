@@ -7,7 +7,7 @@
  */
 import type {Bar} from './research.ts';
 
-export const HOURLY_FVG_VERSION='hourly-fvg-first-midpoint-touch-v75';
+export const HOURLY_FVG_VERSION='hourly-fvg-first-midpoint-touch-v76';
 export type Evidence='PASS'|'FAIL'|'INSUFFICIENT_DATA';
 // First-touch volume evidence is not independent broker/source authentication.
 export type VolumeEvidenceReason='NOT_EVALUATED'|'SOURCE_UNVERIFIED'|
@@ -273,6 +273,27 @@ function assertArchiveSlotsUnchanged(bars:readonly Bar[],slots:readonly Property
  }
 }
 
+// Preserve the declared fields of each completed candle across later getters.
+// A getter cannot silently edit an earlier snapshotted row in place. Property
+// descriptors avoid invoking getters again or reading future candle OHLC.
+function captureCompletedFields(row:Bar):PropertyDescriptor[]{
+ return CANDLE_FIELDS.map(field=>{
+  const descriptor=Object.getOwnPropertyDescriptor(row,field);
+  if(!descriptor)throw Error('Hourly research candle lacks own field evidence');
+  return descriptor;
+ });
+}
+function assertCompletedFieldsUnchanged(row:Bar,initial:readonly PropertyDescriptor[]){
+ CANDLE_FIELDS.forEach((field,index)=>{
+  const before=initial[index],after=Object.getOwnPropertyDescriptor(row,field);
+  const data='value' in before;
+  if(!after||before.configurable!==after.configurable||
+   before.enumerable!==after.enumerable||data!==('value' in after)||
+   (data?before.value!==after.value||before.writable!==after.writable:
+    before.get!==after.get||before.set!==after.set))
+   throw Error('Hourly research completed candle field changed during snapshot');
+ });
+}
 function validateBars(bars:readonly Bar[]){
  if(!Array.isArray(bars)||bars.length>20000)
   throw Error('Invalid or oversized hourly research window');
@@ -1103,6 +1124,7 @@ export function studyHourlyFvgMidpoint(
  // Indexed reads keep the snapshot bounded and preserve sparse-hole rejection.
  const bars:Bar[]=[];
  const originalRows:Bar[]=[];
+ const originalFields:PropertyDescriptor[][]=[];
  for(let index=0;index<barCount;index++){
   // A hole may resolve through Array.prototype or a custom prototype to a
   // plausible candle. That is not an observed archive row: fail closed.
@@ -1118,6 +1140,7 @@ export function studyHourlyFvgMidpoint(
    if(!CANDLE_FIELDS.some(field=>field===key))
     throw Error('Unexpected FVG candle field outside frozen archive schema');
   }
+  originalFields.push(captureCompletedFields(b));
   bars.push({
    time:b.time,open:b.open,high:b.high,low:b.low,close:b.close,
    volume:b.volume,observed_minutes:b.observed_minutes,
@@ -1131,10 +1154,11 @@ export function studyHourlyFvgMidpoint(
  // rereading any candle values or caller-controlled iterators.
  validateBarArraySchema(suppliedBars,barCount);
  assertArchiveSlotsUnchanged(suppliedBars,archiveSlots);
- for(const row of originalRows){
+ for(const [index,row] of originalRows.entries()){
   if(!CANDLE_FIELDS.every(field=>hasOwnField(row,field))||
    Reflect.ownKeys(row).some(key=>!CANDLE_FIELDS.some(field=>field===key)))
    throw Error('Hourly research candle schema changed during snapshot');
+  assertCompletedFieldsUnchanged(row,originalFields[index]);
  }
  validateBars(bars);
  const observations:FvgObservation[]=[];
@@ -1329,6 +1353,7 @@ export function studyHourlyFvgMidpointAsOf(
  const frozenDeclaration=studyHourlyFvgMidpoint([],source,config);
  const prefix:Bar[]=[];
  const completedRows:Bar[]=[];
+ const completedFields:PropertyDescriptor[][]=[];
  let previousTime:number|null=null;
  for(let index=0;index<barCount;index++){
   // Even a future timestamp must be backed by an actual archive slot;
@@ -1358,6 +1383,7 @@ export function studyHourlyFvgMidpointAsOf(
    if(!CANDLE_FIELDS.some(field=>field===key))
     throw Error('Unexpected FVG candle field outside frozen archive schema');
   }
+  completedFields.push(captureCompletedFields(bar));
   prefix.push({time,open:bar.open,high:bar.high,low:bar.low,
    close:bar.close,volume:bar.volume,observed_minutes:bar.observed_minutes});
   completedRows.push(bar);
@@ -1368,10 +1394,11 @@ export function studyHourlyFvgMidpointAsOf(
  // candle schemas. Recheck only completed rows; future OHLC stays unread.
  validateBarArraySchema(suppliedBars,barCount);
  assertArchiveSlotsUnchanged(suppliedBars,archiveSlots);
- for(const row of completedRows){
+ for(const [index,row] of completedRows.entries()){
   if(!CANDLE_FIELDS.every(field=>hasOwnField(row,field))||
    Reflect.ownKeys(row).some(key=>!CANDLE_FIELDS.some(field=>field===key)))
    throw Error('Hourly as-of completed candle schema changed during snapshot');
+  assertCompletedFieldsUnchanged(row,completedFields[index]);
  }
  return studyHourlyFvgMidpoint(prefix,frozenDeclaration.source,frozenDeclaration.config);
 }
