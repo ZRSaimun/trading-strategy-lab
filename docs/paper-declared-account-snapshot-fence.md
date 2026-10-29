@@ -29,3 +29,28 @@ caller-declared snapshots can be fabricated together, and real broker data
 requires authenticated, persisted, source-bound monotonic checkpoints before
 any atomic risk reservation. Neither a clean diagnostic nor a fresh quote
 authorizes a paper or real-money order.
+
+
+## Same-observation price and primary-feed continuity (29 October 2026)
+
+A later declared account revision cannot make a **same-source, same-instrument**
+quote with an unchanged observation timestamp carry a different bid or ask.
+That produces `quote_payload_changed_without_new_observation`. Reusing
+an identical, still-fresh quote remains permitted; a changed price with a
+genuinely later declared observation timestamp is not rejected by this
+particular check.
+
+A change of declared primary quote source for the **same instrument** in the
+same declared session produces
+`quote_source_change_requires_external_evidence`, even if the new feed's
+timestamps appear fresh. This deliberately prevents a source-label switch
+from bypassing source-bound replay checks. A production implementation needs
+independently authenticated source transition and durable quote checkpoints
+before releasing such a hold; this diagnostic has no release mechanism.
+Different instruments are not automatically treated as a feed switch.
+
+Both failures propagate through the composite account/quote/order diagnostic.
+They are **caller-declared, read-only heuristics**, not proof of actual
+market-data authenticity, a stop-fill guarantee or permission to submit an
+order. A caller can forge both snapshots; never use these checks as a
+substitute for authenticated broker evidence or atomic risk reservations.
