@@ -3238,7 +3238,9 @@ test('v75 as-of rejects future-timestamp replacement of revealed rows without re
   return source.provider;
  }});
  assert.throws(()=>studyHourlyFvgMidpointAsOf(declarationRows,declared,cutoff),
-  /row identity changed during snapshot/);
+  /FVG as-of source identity requires own data-property fields/);
+ assert.equal(declarationRows[0].volume,100,
+  'rejected source getter must not mutate completed archive rows');
  assert.deepEqual(studyHourlyFvgMidpointAsOf(fixture(),source,cutoff),
   studyHourlyFvgMidpoint(fixture().slice(0,34),source));
 });
