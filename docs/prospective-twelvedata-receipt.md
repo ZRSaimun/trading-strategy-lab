@@ -178,3 +178,20 @@ neither reserve credits nor invoke the provider. This is a local quota-accountin
 safeguard, not an entitlement check or a new network integration.
 
 No real API call, paid credit, broker access, order or deployment is involved.
+
+## Cumulative HTTP receipt deadline (29 October 2026)
+
+The historical/optional Twelve Data HTTP client now applies a **30-second
+cumulative asyncio deadline** across the entire HTTPS GET transaction,
+including response headers, identity-encoded body chunks and client cleanup.
+The existing 20-second per-operation httpx timeout remains in place, but no
+longer permits repeated sub-timeout chunks to keep the request open forever.
+Deadline expiry fails closed with a sanitized error and no accepted candles,
+normalized snapshot or wire-evidence result. Synthetic MockTransport tests
+cover delayed response headers and delayed body chunks, without provider
+requests or credit consumption. The one-shot review's local reservation is
+still nonrefundable after an uncertain request; do not automatically retry.
+
+This is a bounded transport control, **not** proof of provider freshness,
+authenticated source timestamps, data rights, executable quotes or live feed
+activation. Production staging, recovery, rollback and licensing gates remain.
