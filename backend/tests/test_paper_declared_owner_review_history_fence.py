@@ -18,6 +18,8 @@ def snapshots():
     previous = dict(broker="PAPER-LOCAL", account_alias="demo", session_id="session1",
                     sequence=3, observed_at_ms=NOW-100, events=[event(1)])
     current = deepcopy(previous)
+    # The prior snapshot must precede the newly appended review record.
+    previous["observed_at_ms"] = NOW - 335
     current["sequence"] = 4
     current["events"].append(event(2))
     return previous, current
@@ -246,3 +248,51 @@ def test_identity_rebinding_check_does_not_mutate_inputs():
     originals = deepcopy((prev, curr))
     assert "client_order_rebound_to_different_intent" in inspect(prev, curr)["failed_checks"]
     assert (prev, curr) == originals
+
+
+def test_backfilled_review_before_prior_snapshot_holds():
+    prev, curr = snapshots()
+    curr["events"][1]["recorded_at_ms"] = prev["observed_at_ms"]
+    result = inspect(prev, curr)
+    assert "appended_review_predates_prior_snapshot" in result["failed_checks"]
+    assert result["may_submit_real_order"] is False
+
+
+def test_backfilled_review_strictly_older_than_prior_snapshot_holds():
+    prev, curr = snapshots()
+    curr["events"][1]["recorded_at_ms"] = prev["observed_at_ms"] - 1
+    result = inspect(prev, curr)
+    assert "appended_review_predates_prior_snapshot" in result["failed_checks"]
+    assert result["status"] == "HOLD_DECLARED_REVIEW_HISTORY"
+
+
+def test_recorded_after_prior_snapshot_does_not_false_hold():
+    prev, curr = snapshots()
+    curr["events"][1]["recorded_at_ms"] = prev["observed_at_ms"] + 1
+    assert inspect(prev, curr)["failed_checks"] == []
+
+
+def test_two_appended_reviews_in_one_revision_hold():
+    prev, curr = snapshots()
+    curr["events"].append(event(3))
+    result = inspect(prev, curr)
+    assert "multiple_reviews_appended_in_single_revision" in result["failed_checks"]
+    assert result["appended_events"] == 2
+    assert result["may_submit_paper_order"] is False
+
+
+def test_batch_append_still_holds_with_extra_revision_jump():
+    prev, curr = snapshots()
+    curr["events"].append(event(3))
+    curr["sequence"] += 1
+    result = inspect(prev, curr)
+    assert "multiple_reviews_appended_in_single_revision" in result["failed_checks"]
+    assert "history_revision_not_advanced_once" in result["failed_checks"]
+
+
+def test_backfill_hold_does_not_mutate_inputs():
+    prev, curr = snapshots()
+    curr["events"][1]["recorded_at_ms"] = prev["observed_at_ms"]
+    before = deepcopy((prev, curr))
+    assert "appended_review_predates_prior_snapshot" in inspect(prev, curr)["failed_checks"]
+    assert (prev, curr) == before
