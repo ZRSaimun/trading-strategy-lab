@@ -7,7 +7,7 @@
  */
 import type {Bar} from './research.ts';
 
-export const HOURLY_FVG_VERSION='hourly-fvg-first-midpoint-touch-v86';
+export const HOURLY_FVG_VERSION='hourly-fvg-first-midpoint-touch-v87';
 export type Evidence='PASS'|'FAIL'|'INSUFFICIENT_DATA';
 // First-touch volume evidence is not independent broker/source authentication.
 export type VolumeEvidenceReason='NOT_EVALUATED'|'SOURCE_UNVERIFIED'|
@@ -1610,6 +1610,17 @@ export function studyHourlyFvgMidpointAsOf(
  const barCount=suppliedBars.length;
  validateBarArraySchema(suppliedBars,barCount);
  const archiveSlots=captureArchiveSlots(suppliedBars,barCount);
+ // An accessor returning the cost array has no stable own data-property
+ // identity to recheck after future timestamp getters run. Full-history
+ // research can snapshot it once, but as-of replay must not silently accept
+ // an untracked mutable cost population across its future-time scan.
+ // Reject before invoking that getter or reading any future candle values.
+ if(config&&typeof config==='object'){
+  const costDeclaration=Object.getOwnPropertyDescriptor(config,
+   'hypotheticalRoundTripCostsBps');
+  if(costDeclaration&&!('value' in costDeclaration))
+   throw Error('FVG as-of cost scenarios require an own data property');
+ }
  // Freeze source identity, declared volume provenance and study settings
  // BEFORE reading any future timestamp accessors. Otherwise a future bar's
  // time getter can rewrite the caller's source/config after the completed
