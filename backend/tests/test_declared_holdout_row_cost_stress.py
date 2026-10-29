@@ -48,6 +48,8 @@ def test_row_specific_components_and_maximum_reconcile():
         "scenario_id": "stress",
         "extra_cost_cash": "2.0000",
         "stressed_net_cash": "52.0000",
+        "additional_cost_share_of_positive_baseline_net_bps": 370,
+        "positive_baseline_net_erased_by_stress": False,
         "max_single_observation_extra_cost_cash": "1.2500",
         "additional_cost_affected_observation_count": 2,
         "max_single_observation_extra_cost_share_bps": 6250,
@@ -108,6 +110,8 @@ def test_small_holdout_withholds_all_outcome_and_cost_metrics(count):
     entry = before["scenarios"][0]
     assert entry["extra_cost_cash"] is None
     assert entry["stressed_net_cash"] is None
+    assert entry["additional_cost_share_of_positive_baseline_net_bps"] is None
+    assert entry["positive_baseline_net_erased_by_stress"] is None
     assert entry["max_single_observation_extra_cost_cash"] is None
     assert entry["additional_cost_affected_observation_count"] is None
     assert entry["max_single_observation_extra_cost_share_bps"] is None
@@ -424,3 +428,45 @@ def test_cost_induced_loss_metrics_do_not_release_small_holdout():
     assert report["scenarios"][0]["additional_cost_induced_gross_loss_cash"] is None
     assert report["scenarios"][0]["max_single_stressed_loss_share_bps"] is None
     assert report["may_execute_real_order"] is False
+
+
+@pytest.mark.parametrize(("extra", "expected_bps", "erased"), [
+    ("27.0000", 5000, False),
+    ("54.0000", 10000, True),
+    ("54.0001", 10000, True),
+])
+def test_positive_declared_net_cost_erosion_boundary(extra, expected_bps, erased):
+    data = _fixture()
+    report = _audit(data, [_scenario(data, per_row={
+        0: {"spread_extra_cash": extra},
+    })])
+    entry = report["scenarios"][0]
+    assert entry["additional_cost_share_of_positive_baseline_net_bps"] == expected_bps
+    assert entry["positive_baseline_net_erased_by_stress"] is erased
+    assert Decimal(entry["stressed_net_cash"]) == Decimal("54.0000") - Decimal(extra)
+    assert report["may_execute_real_order"] is False
+
+
+@pytest.mark.parametrize("gross", ["-52.0000", "-52.0001"])
+def test_zero_or_negative_baseline_does_not_report_positive_net_erosion(gross):
+    data = _fixture()
+    data[3][0]["gross_cash"] = gross
+    entry = _audit(data, [_scenario(data, per_row={
+        0: {"slippage_extra_cash": "0.0001"},
+    })])["scenarios"][0]
+    assert entry["additional_cost_share_of_positive_baseline_net_bps"] is None
+    assert entry["positive_baseline_net_erased_by_stress"] is False
+
+
+def test_signed_financing_credit_affects_positive_net_erosion_denominator():
+    data = _fixture()
+    for row in data[3]:
+        row["financing_cash"] = "-0.1000"
+    report = _audit(data, [_scenario(data, per_row={
+        0: {"financing_extra_cash": "28.5000"},
+    })])
+    assert report["baseline_net_cash"] == "57.0000"
+    entry = report["scenarios"][0]
+    assert entry["additional_cost_share_of_positive_baseline_net_bps"] == 5000
+    assert entry["positive_baseline_net_erased_by_stress"] is False
+    assert report["may_execute_demo_order"] is False
