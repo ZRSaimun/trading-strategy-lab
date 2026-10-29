@@ -55,6 +55,26 @@ def _reject_duplicate_response_keys(pairs):
         result[key]=value
     return result
 
+def _reject_non_scalar_json_strings(value):
+    """Reject isolated UTF-16 surrogate escapes anywhere in provider JSON.
+
+    Python's JSON decoder permits unpaired surrogate escapes even in ignored
+    metadata and object keys. These cannot be safely re-encoded as UTF-8
+    evidence. Valid escaped surrogate pairs are decoded to Unicode scalars.
+    """
+    pending = [value]
+    while pending:
+        item = pending.pop()
+        if isinstance(item, str):
+            if any(0xD800 <= ord(char) <= 0xDFFF for char in item):
+                raise ValueError('Unpaired provider JSON surrogate')
+        elif isinstance(item, dict):
+            pending.extend(item.keys())
+            pending.extend(item.values())
+        elif isinstance(item, list):
+            pending.extend(item)
+
+
 def _reject_nonstandard_response_constant(value):
     """NaN and Infinity are not valid JSON evidence."""
     raise ValueError('Nonstandard provider JSON constant')
@@ -245,6 +265,7 @@ async def retrieve(key,instrument,limit,end,now,transport=None, *, include_wire_
                 payload=json.loads(raw.decode('utf-8'),object_pairs_hook=_reject_duplicate_response_keys,
                                    parse_constant=_reject_nonstandard_response_constant,
                                    parse_float=_reject_nonfinite_response_float)
+                _reject_non_scalar_json_strings(payload)
     except (httpx.HTTPError,ValueError,RecursionError):
         # Excessively nested but size-bounded JSON may raise RecursionError.
         # Fail closed with a sanitized provider error rather than a server 500.
