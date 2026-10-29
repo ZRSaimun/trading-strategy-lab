@@ -69,6 +69,35 @@ def _reject_constant(_value: str) -> None:
     raise ValueError("nonstandard JSON constant")
 
 
+_JSON_CONTENT_TYPE = re.compile(
+    r'application/json(?:\\s*;\\s*charset\\s*=\\s*(?:utf-8|"utf-8"))?',
+    re.IGNORECASE,
+)
+
+
+def _identity_json_wire_headers(headers: httpx.Headers) -> str | None:
+    """Validate single-valued JSON media, identity coding and body length.
+
+    Reject ambiguous duplicate fields, misleading charset declarations and
+    unsupported codings before reading any broker account payload.
+    """
+    media = headers.get_list("content-type")
+    if len(media) != 1 or _JSON_CONTENT_TYPE.fullmatch(media[0].strip()) is None:
+        raise ReadOnlyBrokerError("Unexpected broker response content type")
+
+    codings = headers.get_list("content-encoding")
+    if len(codings) > 1 or (codings and codings[0].strip().lower() != "identity"):
+        raise ReadOnlyBrokerError("Compressed or ambiguous broker response not supported")
+
+    lengths = headers.get_list("content-length")
+    if len(lengths) > 1:
+        raise ReadOnlyBrokerError("Ambiguous broker response length")
+    size = lengths[0] if lengths else None
+    if size is not None and (not size.isascii() or not size.isdecimal()
+                             or len(size) > 8 or int(size) > _MAX_RESPONSE_BYTES):
+        raise ReadOnlyBrokerError("Broker response exceeds size limit")
+    return size
+
 
 _RATE_HEADERS = (
     "x-ratelimit-limit", "x-ratelimit-period", "x-ratelimit-remaining",
@@ -206,16 +235,11 @@ def fetch_trading212_readonly(
                                headers={"Accept": "application/json", "Accept-Encoding": "identity"}) as response:
                 if response.status_code != 200:
                     raise ReadOnlyBrokerError("Broker read refused or unavailable")
-                if response.headers.get("content-type", "").split(";", 1)[0].strip().lower() != "application/json":
-                    raise ReadOnlyBrokerError("Unexpected broker response content type")
+                # Validate unambiguous wire framing before reading any payload.
+                # The body is always decoded as strict UTF-8, regardless of
+                # optional (matching) Content-Type charset metadata.
+                size = _identity_json_wire_headers(response.headers)
                 quota_observation = _rate_limit_observation(response.headers)
-                # Never let an automatic decompressor allocate an unbounded chunk.
-                if response.headers.get("content-encoding", "identity").strip().lower() != "identity":
-                    raise ReadOnlyBrokerError("Compressed broker responses not supported")
-                size = response.headers.get("content-length")
-                if size is not None and (not size.isascii() or not size.isdecimal()
-                                         or len(size) > 8 or int(size) > _MAX_RESPONSE_BYTES):
-                    raise ReadOnlyBrokerError("Broker response exceeds size limit")
                 # MockTransport may return an already-buffered Response; real
                 # streamed responses are consumed as raw, undecoded bytes.
                 if response.is_stream_consumed and transport is not None:
