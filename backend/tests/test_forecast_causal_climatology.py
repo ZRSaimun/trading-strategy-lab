@@ -66,8 +66,9 @@ def test_delayed_receipt_cannot_enter_early_training():
 
 def test_pending_and_void_never_scored():
     s = fixture()
-    s["forecasts"][-1].update(status="PENDING", resolvedAt=None, outcomeUp=None)
-    s["forecasts"][-2].update(status="VOID_GAP", outcomeUp=None)
+    # For horizon 1, disjoint scoring selects indices 0, 2, ..., 238.
+    s["forecasts"][-2].update(status="PENDING", resolvedAt=None, outcomeUp=None)
+    s["forecasts"][-4].update(status="VOID_GAP", outcomeUp=None)
     row = run(s)["groups"][0]
     assert row["unavailable"] == 2
     assert row["scored"] == row["baselineEligible"] - 2
@@ -138,3 +139,37 @@ def test_selection_risk_withholds_scores():
     row = run(s)["groups"][0]
     assert row["status"] == "UNAVAILABLE_OUTCOME_SELECTION_RISK"
     assert row["issuedBrier"] is None
+
+
+def test_disjoint_evaluation_census_cannot_inflate_minimum_scored():
+    # 100 matured h=1 forecasts share 50 base/target boundary closes.
+    # A naive all-issuance count would have >=30 scored after training;
+    # the fixed disjoint census has fewer than 30 and must abstain.
+    row = run(fixture(n=100))["groups"][0]
+    assert row["maturedAtDeclaredCutoff"] == 100
+    assert row["nonoverlappingMaturedCensus"] == 50
+    assert row["overlappingMaturedExcluded"] == 50
+    assert row["scored"] < 30
+    assert row["status"] == "INSUFFICIENT_CAUSAL_SAMPLE"
+    assert row["pairedBrierRegretIssuedMinusBaseline"] is None
+
+
+def test_longer_horizon_disjoint_scoring_has_no_overlap():
+    row = run(fixture(n=360, horizon=3))["groups"][0]
+    assert row["maturedAtDeclaredCutoff"] == 360
+    assert row["nonoverlappingMaturedCensus"] == 90
+    assert row["overlappingMaturedExcluded"] == 270
+    assert row["scored"] <= row["nonoverlappingMaturedCensus"]
+    assert row["scored"] >= 30
+
+
+def test_outcome_status_cannot_reselect_disjoint_evaluation_members():
+    base = run(fixture())["groups"][0]
+    s = fixture()
+    # Unselected indices are excluded regardless of whether they settle.
+    for index in (237, 239):
+        s["forecasts"][index].update(status="PENDING", resolvedAt=None, outcomeUp=None)
+    changed = run(s)["groups"][0]
+    assert changed["nonoverlappingMaturedCensus"] == base["nonoverlappingMaturedCensus"]
+    assert changed["scored"] == base["scored"]
+    assert changed["unavailable"] == base["unavailable"]
