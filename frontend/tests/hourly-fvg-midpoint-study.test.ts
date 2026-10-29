@@ -764,7 +764,7 @@ test('v61 source labels reject lone surrogates and Unicode noncharacters in both
  assert.deepEqual(studyHourlyFvgMidpoint(bars,valid).source,valid);
  assert.deepEqual(studyHourlyFvgMidpointAsOf(bars,valid,cutoff).source,valid);
  assert.equal(studyHourlyFvgMidpoint(bars,valid).version,
-  'hourly-fvg-first-midpoint-touch-v78');
+  'hourly-fvg-first-midpoint-touch-v79');
 });
 test('v63 source labels reject Unicode space lookalikes without banning ASCII spaces',()=>{
  const bars=fixture(),cutoff=BASE+37*H;
@@ -781,7 +781,7 @@ test('v63 source labels reject Unicode space lookalikes without banning ASCII sp
  assert.deepEqual(studyHourlyFvgMidpoint(bars,legitimate).source,legitimate);
  assert.deepEqual(studyHourlyFvgMidpointAsOf(bars,legitimate,cutoff).source,legitimate);
  assert.equal(studyHourlyFvgMidpoint(bars,legitimate).version,
-  'hourly-fvg-first-midpoint-touch-v78');
+  'hourly-fvg-first-midpoint-touch-v79');
 });
 test('first bullish midpoint touch has a hypothetical blind limit and later next-open rejection markout',()=>{
  const x=target(fixture());
@@ -1126,7 +1126,7 @@ test('an overflowing next-open comparator suppresses both matched markouts',()=>
 });
 test('completed hourly timestamps are safe and numeric rule changes have a new version',()=>{
  const report=studyHourlyFvgMidpoint(fixture(),source);
- assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v78');
+ assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v79');
  const lastSafeAlignedOpen=Math.floor(Number.MAX_SAFE_INTEGER/H)*H;
  assert.equal(Number.isSafeInteger(lastSafeAlignedOpen),true);
  assert.equal(Number.isSafeInteger(lastSafeAlignedOpen+H),false);
@@ -3383,11 +3383,10 @@ test('v79 matched net-cost signs reconcile by first-touch wait and strict eviden
  const check=(report:ReturnType<typeof studyHourlyFvgMidpoint>)=>{
   const n=report.config.maxTouchWaitBars;
   for(const [scenarioIndex,scenario] of report.cohort.pairedNetSignByCost.entries()){
-   const expected=Object.fromEntries(statuses.map(status=>[
-    status,Array.from({length:n},()=>({
-     bothPositive:0,blindOnlyPositive:0,confirmedOnlyPositive:0,neitherPositive:0,
-    })),
-   ])) as typeof scenario.byFirstTouchWaitAndStrictCandidate;
+   const emptyWait=()=>Array.from({length:n},()=>({
+    bothPositive:0,blindOnlyPositive:0,confirmedOnlyPositive:0,neitherPositive:0,
+   }));
+   const expected={PASS:emptyWait(),FAIL:emptyWait(),INSUFFICIENT_DATA:emptyWait()};
    for(const o of report.observations){
     if(o.blindMidpointTouch===null||o.confirmedNextOpen===null)continue;
     assert.equal(o.firstTouchOutcome,'TOUCH');
