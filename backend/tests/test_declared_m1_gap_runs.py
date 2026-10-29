@@ -208,3 +208,36 @@ def test_trailing_tail_complete_with_duplicate_unexpected_bar_is_still_review():
     assert report["latest_expected_minute_present"] is True
     assert report["duplicate_observation_rows"] == 1
     assert report["status"] == "REVIEW_REQUIRED"
+
+
+def test_declared_session_coverage_reconciles_missing_and_closures():
+    report = audit([T, T+300, T+420])
+    assert report["declared_session_coverage"] == [
+        {"start_utc": T, "end_exclusive_utc": T+180,
+         "expected_minutes": 2, "observed_expected_minutes": 1,
+         "missing_expected_minutes": 1, "missing_gap_runs": 1,
+         "excluded_minutes": 1},
+        {"start_utc": T+300, "end_exclusive_utc": T+480,
+         "expected_minutes": 3, "observed_expected_minutes": 2,
+         "missing_expected_minutes": 1, "missing_gap_runs": 1,
+         "excluded_minutes": 0},
+    ]
+    assert sum(s["missing_expected_minutes"] for s in report["declared_session_coverage"]) == report["missing_expected_minutes"]
+    assert sum(s["missing_gap_runs"] for s in report["declared_session_coverage"]) == report["missing_gap_runs"]
+
+
+def test_session_coverage_does_not_count_unexpected_or_duplicate_as_expected():
+    report = audit([T, T, T+60, T+180, T+300, T+300, T+480], sample_limit=0)
+    assert report["declared_session_coverage"][0]["observed_expected_minutes"] == 1
+    assert report["declared_session_coverage"][1]["observed_expected_minutes"] == 1
+    assert report["duplicate_observation_rows"] == 2
+    assert report["unexpected_unique_minutes"] == 3
+    assert report["status"] == "REVIEW_REQUIRED"
+
+
+def test_adjacent_sessions_coverage_keeps_missing_runs_separate():
+    m = manifest(sessions_utc=[(T, T+120), (T+120, T+240)], exclusions_utc=[])
+    report = audit_declared_m1_gap_runs(m, [])
+    assert [s["missing_gap_runs"] for s in report["declared_session_coverage"]] == [1, 1]
+    assert [s["missing_expected_minutes"] for s in report["declared_session_coverage"]] == [2, 2]
+    assert report["missing_gap_runs"] == 2
