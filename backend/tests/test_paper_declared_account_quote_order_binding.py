@@ -182,3 +182,35 @@ def test_inventory_sync_rollback_propagates_through_composed_review():
     assert "orders_sync_time_rollback" in result["account_snapshot_failed_checks"]
     assert result["may_submit_paper_order"] is False
     assert result["may_submit_real_order"] is False
+
+
+@pytest.mark.parametrize("field", ["open_notional", "open_risk"])
+@pytest.mark.parametrize("equivalent", ["trailing_zero", "additional_zero"])
+def test_composite_exposure_decimal_spelling_is_not_a_position_change(field, equivalent):
+    args = fixture()
+    args[9]["positions_revision"] = args[8]["positions_revision"]
+    original = args[8]["account"][field]
+    args[9]["account"][field] = original + (".0" if equivalent == "trailing_zero" else ".00")
+    before = deepcopy(args)
+    result = inspect(args)
+    assert result["status"] == "DECLARED_ACCOUNT_QUOTE_ORDER_UNVERIFIED"
+    assert "positions_changed_without_revision" not in result["failed_checks"]
+    assert "positions_changed_without_revision" not in result["account_snapshot_failed_checks"]
+    assert result["may_submit_paper_order"] is False
+    assert result["may_submit_real_order"] is False
+    assert args == before
+
+
+@pytest.mark.parametrize("field,prior_value", [
+    ("open_notional", "999.99"),
+    ("open_risk", "49.99"),
+])
+def test_composite_still_holds_on_real_decimal_exposure_change(field, prior_value):
+    args = fixture()
+    args[9]["positions_revision"] = args[8]["positions_revision"]
+    args[9]["account"][field] = prior_value
+    result = inspect(args)
+    assert result["status"] == "HOLD_ACCOUNT_QUOTE_ORDER_BINDING"
+    assert "positions_changed_without_revision" in result["failed_checks"]
+    assert "positions_changed_without_revision" in result["account_snapshot_failed_checks"]
+    assert result["may_submit_real_order"] is False
