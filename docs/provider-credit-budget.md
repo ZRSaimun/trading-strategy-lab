@@ -13,9 +13,11 @@ refuses a potentially billable request unless **all** conditions hold:
    server's **current UTC day** and fixed purpose `completed-m1-review`.
 4. An unused 32-character lowercase hex request ID and valid manifest digest.
 5. A successful, atomic **one-credit reservation before the HTTP request**.
-6. **No other reservation in the same UTC minute**, regardless of the daily
-   allowance. The fixed one-shot integration is deliberately limited to one
-   attempt per minute; the check and INSERT share one SQLite write transaction.
+6. **No reservation within the previous rolling 60 seconds**, regardless
+   of daily allowance or UTC date boundary. The fixed one-shot integration
+   allows at most one attempt per rolling minute; the check and INSERT share
+   one SQLite write transaction. A future-dated reservation blocks attempts
+   after a backwards clock adjustment.
 
 The ledger is never provisioned automatically by the receipt bridge. Budget
 provisioning requires `owner_confirmed=True`, a UTC date, a positive maximum
@@ -44,10 +46,11 @@ credit even when the vendor subsequently fails, times out, rejects a key, or
 returns malformed data. **Never automatically refund or retry an uncertain
 provider request.** Replayed request IDs fail closed; concurrent SQLite writers
 serialize with `BEGIN IMMEDIATE`. The policy cannot be silently increased,
-overwritten or rolled over to a new day. Requests in the same UTC minute
-are denied even if the daily budget has room; they may be attempted in a
-later minute only with a **new** request ID and renewed per-call approvals.
-A failed or uncertain request still consumes its minute slot and daily credit.
+overwritten or rolled over to a new day. Requests less than 60 seconds
+after any earlier reservation are denied, **including across UTC midnight**;
+a new calendar-minute boundary is not enough. Another attempt requires a
+**new** request ID, renewed per-call approvals and a full 60-second separation.
+A failed or uncertain request still consumes its rolling-minute slot and daily credit.
 
 ## Important boundaries
 
@@ -104,10 +107,24 @@ Twelve Data's official support guidance distinguishes **per-minute API
 credit limits** (paid plans) from the Basic plan's **daily quota**. The
 provider's own `api-credits-used` and `api-credits-left` response headers
 are not yet reconciled with this local ledger. This fixed integration
-reserves one credit per call and now limits local attempts to one per UTC
-minute as a conservative safety gate; this does **not** prove a provider
+reserves one credit per call and limits local attempts to one per **rolling
+60-second window**, including across UTC days, as a conservative safety gate;
+this does **not** prove a provider
 quota, account eligibility, price-side entitlement, billing or legal use
 rights. A separate account-wide limit is still necessary if any other
 application or API key consumes credits from the same provider account.
 
 Official explanation: https://support.twelvedata.com/en/articles/5615854-credits
+
+## Rolling-window boundary regression (29 October 2026)
+
+The former UTC calendar-minute limiter allowed two reserved requests at
+`HH:MM:59` and `HH:MM+1:00` (one second apart). The reservation query now
+checks all ledger rows with `reserved_at_utc > now - 60` in the same atomic
+SQLite transaction, regardless of daily policy, so the full cooldown is
+preserved at minute and midnight boundaries. Future-dated rows also block
+requests after a local clock rollback. Exact 60-second separation is allowed.
+Synthetic tests cover the one-second boundary, midnight with separately
+provisioned daily policies, and backward wall-clock movement. No vendor calls
+or credits were consumed. This local clock is still not independently attested
+and other applications using the provider account remain outside this ledger.
