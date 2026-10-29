@@ -49,6 +49,12 @@ def _parse(snapshot: Any, now: int, label: str) -> tuple[dict, set[str]]:
     if type(events) is not list or len(events) > 512:
         raise ValueError("Invalid owner-review history population")
     failures: set[str] = set()
+    # Every event consumes at least one monotonically increasing revision.
+    # Even a caller-declared baseline cannot contain more events than its
+    # nonnegative revision counter. This is a necessary, not sufficient,
+    # consistency condition; the counter itself remains unauthenticated.
+    if len(events) > seq:
+        failures.add("history_population_exceeds_revision")
     if observed > now or (label == "current" and now - observed > 30_000):
         failures.add(f"{label}_snapshot_stale_or_future")
     approval_ids: set[str] = set()
