@@ -1,5 +1,6 @@
 """Bounded, explicit, historical one-minute adapter. No live polling or fallback symbols."""
 import csv
+from email.utils import format_datetime, parsedate_to_datetime
 import hashlib
 import io
 import json
@@ -45,6 +46,32 @@ def _credit_header_observation(headers):
         'quota_window_verified': False,
         'account_usage_reconciled': False,
     }
+
+def _validate_http_cache_headers(headers):
+    """Reject ambiguous Date/Age claims without treating them as feed freshness.
+
+    Date and Age can be supplied by proxies or caches, are not signed vendor
+    timestamps, and cannot establish a completed candle's issue time. Missing
+    headers remain acceptable for a historical import. Malformed/duplicate
+    claims must not be silently ignored.
+    """
+    dates = headers.get_list('date')
+    ages = headers.get_list('age')
+    if len(dates) > 1 or len(ages) > 1:
+        raise ValueError('Duplicate provider cache header')
+    if dates:
+        try:
+            parsed = parsedate_to_datetime(dates[0])
+            if (parsed.tzinfo is None or parsed.utcoffset().total_seconds() != 0
+                    or format_datetime(parsed.astimezone(timezone.utc), usegmt=True) != dates[0]):
+                raise ValueError('Noncanonical HTTP Date')
+        except (ValueError, TypeError, OverflowError):
+            raise ValueError('Invalid provider HTTP Date') from None
+    if ages:
+        if (re.fullmatch(r'(?:0|[1-9][0-9]{0,9})', ages[0]) is None
+                or int(ages[0]) > 1_000_000_000):
+            raise ValueError('Invalid provider HTTP Age')
+
 
 def _reject_duplicate_response_keys(pairs):
     """Reject ambiguous vendor JSON before normalizing or archiving it."""
@@ -202,6 +229,7 @@ async def retrieve(key,instrument,limit,end,now,transport=None, *, include_wire_
                 if response.status_code==429:raise ProviderError('Provider quota exceeded.',429)
                 if response.status_code!=200:raise ProviderError('Provider request failed; no data imported.')
                 credit_headers = _credit_header_observation(response.headers) if include_wire_evidence else None
+                _validate_http_cache_headers(response.headers)
                 # A 200 response must represent the complete JSON entity, not a
                 # claimed byte-range fragment. A valid-looking JSON body with a
                 # Content-Range claim is ambiguous provenance and is quarantined.
