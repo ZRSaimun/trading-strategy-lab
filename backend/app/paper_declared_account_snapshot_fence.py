@@ -193,7 +193,7 @@ def inspect_declared_account_snapshot_fence(
                     and s["unresolved_attempts"] != prior["unresolved_attempts"]):
                 failures.add("unknown_attempts_changed_without_new_orders_sync")
             if (s["positions_revision"] == prior["positions_revision"]
-                    and any(a[k] != prior["account"][k]
+                    and any(Decimal(a[k]) != Decimal(prior["account"][k])
                             for k in ("open_notional", "open_risk"))):
                 failures.add("positions_changed_without_revision")
             if (s["orders_revision"] == prior["orders_revision"]
@@ -237,6 +237,11 @@ def inspect_declared_account_snapshot_fence(
                 # Switching the claimed primary source would otherwise evade
                 # same-source timestamp and payload continuity checks.
                 failures.add("quote_source_change_requires_external_evidence")
+            else:
+                # This single-primary-quote snapshot cannot independently
+                # verify a different instrument's continuity. A new symbol
+                # must not be used to bypass same-stream replay protection.
+                failures.add("quote_instrument_change_requires_external_evidence")
     return {
         "status": "HOLD_ACCOUNT_SNAPSHOT_REVIEW" if failures else "DECLARED_ACCOUNT_SNAPSHOT_UNVERIFIED",
         "failed_checks": sorted(failures),
