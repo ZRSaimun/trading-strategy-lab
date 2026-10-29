@@ -73,3 +73,28 @@ No outcomes, cost estimates or order permissions are accessed or enabled.
 Synthetic regressions cover exact cutoff equality, one-second unavailability,
 populations, deterministic ties and validation ending before the earlier
 holdout window closes.
+
+
+## Declared decision-time coverage and long inactive tails
+
+A multi-year declared holdout window does **not** imply observations were
+distributed throughout those years. For each fold, the audit reports
+`first_declared_decision_at_utc`, `last_declared_decision_at_utc`,
+`declared_decision_span_seconds` (last minus first),
+`max_declared_interdecision_gap_seconds` (null for one observation), and
+`declared_last_decision_to_window_end_seconds` (end minus last decision).
+At study level, `max_declared_last_decision_to_window_end_seconds` and
+`longest_declared_last_decision_gap_fold_index` identify the largest trailing
+interval, breaking ties toward the earliest zero-based fold. These metrics
+come from validated, strictly increasing declared decision timestamps; they
+do not inspect prices, labels' values, P&L or licensed source archives.
+
+For example, forty daily observations beginning in January can occupy only
+39 days of a declared two-year window. That is a **sampling concentration
+warning**, not evidence that the source lacked market data: a strategy may
+legitimately generate no decisions for long periods. The metric cannot
+establish continuous market coverage, a representative walk-forward sample,
+authenticated timestamps, broker fill availability or profitability.
+Synthetic regressions cover 40 early daily decisions, a one-observation
+fold, and a last decision two seconds before the final window closes.
+Trading permissions remain disabled.
