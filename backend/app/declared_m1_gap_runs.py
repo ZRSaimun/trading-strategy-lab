@@ -19,7 +19,8 @@ def audit_declared_m1_gap_runs(
 
     Input timestamps are bar STARTS in UTC seconds. A gap is only an absent
     *declared expected* minute, not proof that a market was open or a vendor
-    failed. Duplicates/unexpected observations are flagged, never repaired.
+    failed. Duplicates, backward timestamp transitions and unexpected
+    observations are flagged, never repaired. Input order is preserved.
     """
     if type(manifest) is not ExpectedM1Manifest:
         raise ValueError("Compiled expected-bar manifest required")
@@ -40,10 +41,18 @@ def audit_declared_m1_gap_runs(
         raise ValueError("Bounded observation list and sample limit required")
     seen: set[int] = set()
     duplicate_rows = 0
+    backward_transitions = 0
+    backward_samples: list[dict[str, int]] = []
+    previous_stamp: int | None = None
     for stamp in observed_minutes:
         if (type(stamp) is not int or stamp < 0 or stamp % 60
                 or stamp + 60 > manifest.observed_at_utc):
             raise ValueError("Invalid or unfinished UTC observation")
+        if previous_stamp is not None and stamp < previous_stamp:
+            backward_transitions += 1
+            if len(backward_samples) < sample_limit:
+                backward_samples.append({"previous_utc": previous_stamp, "observed_utc": stamp})
+        previous_stamp = stamp
         if stamp in seen:
             duplicate_rows += 1
         seen.add(stamp)
@@ -78,7 +87,7 @@ def audit_declared_m1_gap_runs(
         raise ValueError("Expected-minute gap reconciliation failed")
     lengths = Counter(length for _, length in runs)
     return {
-        "status": ("DECLARED_COVERAGE_COMPLETE_UNVERIFIED" if not (missing or duplicate_rows or unexpected)
+        "status": ("DECLARED_COVERAGE_COMPLETE_UNVERIFIED" if not (missing or duplicate_rows or unexpected or backward_transitions)
                    else "REVIEW_REQUIRED"),
         "calendar_manifest_sha256": manifest.manifest_sha256,
         "provider": manifest.provider,
@@ -95,6 +104,8 @@ def audit_declared_m1_gap_runs(
              "minutes": length} for start, length in runs[:sample_limit]
         ],
         "duplicate_observation_rows": duplicate_rows,
+        "backward_timestamp_transitions": backward_transitions,
+        "backward_timestamp_samples": backward_samples,
         "unexpected_unique_minutes": len(unexpected),
         "unexpected_minute_samples": sorted(unexpected)[:sample_limit],
         "observed_in_declared_exclusions_unique_minutes": len(observed_in_exclusions),
