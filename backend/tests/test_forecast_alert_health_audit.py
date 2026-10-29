@@ -554,3 +554,65 @@ def test_next_unverified_ack_escalation_exactly_one_second_remaining():
     assert result["nextUnverifiedAckEscalationSecondsRemaining"] == 1
     assert result["nextUnverifiedAckEscalationKeys"] == [["s1", "f1"]]
     assert result["counts"]["ACK_RECONCILIATION_OVERDUE_WARNING"] == 0
+
+
+def test_next_queue_delay_warning_ties_and_mixed_statuses_are_order_independent():
+    records = [
+        {"sessionId": "s4", "state": state(forecastId="f4", issuedAt=130)},
+        {"sessionId": "s3", "state": state(forecastId="f3", issuedAt=130)},
+        {"sessionId": "s2", "state": state(forecastId="f2", issuedAt=140)},
+        {"sessionId": "s1", "state": state(forecastId="f1")},
+        {"sessionId": "s5", "state": state(forecastId="f5", expiresAt=150)},
+        {"sessionId": "s6", "state": state("IN_FLIGHT_UNCERTAIN", forecastId="f6")},
+        {"sessionId": "s7", "state": state("ACK_RECORDED_UNVERIFIED",
+                                          forecastId="f7", claimId="b" * 32)},
+        {"sessionId": "s8", "state": state("CANCELLED", forecastId="f8")},
+    ]
+    expected = [(row["sessionId"], row["state"]["forecastId"]) for row in records]
+    result = check(records=records, expected=expected, now=150,
+                   queue_warning_seconds=30)
+    assert result == check(records=list(reversed(records)),
+                           expected=list(reversed(expected)), now=150,
+                           queue_warning_seconds=30)
+    assert result["nextQueueDelayWarningSecondsRemaining"] == 10
+    assert result["nextQueueDelayWarningKeys"] == [["s3", "f3"], ["s4", "f4"]]
+    assert result["counts"]["QUEUE_DELAY_WARNING"] == 1
+    assert result["counts"]["EXPIRED_UNCLAIMED"] == 1
+    assert result["counts"]["IN_FLIGHT_UNCERTAIN"] == 1
+    assert result["maySendNotification"] is False
+    assert result["mayExecuteLiveOrder"] is False
+
+
+def test_next_queue_delay_warning_exact_boundary_and_empty_cohorts():
+    one_second = check(now=179)
+    assert one_second["nextQueueDelayWarningSecondsRemaining"] == 1
+    assert one_second["nextQueueDelayWarningKeys"] == [["s1", "f1"]]
+    at_warning = check(now=180)
+    assert at_warning["nextQueueDelayWarningSecondsRemaining"] is None
+    assert at_warning["nextQueueDelayWarningKeys"] == []
+    assert at_warning["counts"]["QUEUE_DELAY_WARNING"] == 1
+    expired = check(now=300)
+    assert expired["nextQueueDelayWarningSecondsRemaining"] is None
+    assert expired["nextQueueDelayWarningKeys"] == []
+    for report in (
+        check(records=[], expected=[]),
+        check(state("CANCELLED")),
+        check(state("IN_FLIGHT_UNCERTAIN")),
+        check(state("ACK_RECORDED_UNVERIFIED")),
+    ):
+        assert report["nextQueueDelayWarningSecondsRemaining"] is None
+        assert report["nextQueueDelayWarningKeys"] == []
+
+
+def test_next_queue_delay_warning_respects_override_and_expiry_overlap():
+    before = check(state(expiresAt=165), now=150, queue_warning_seconds=45)
+    assert before["nextQueueDelayWarningSecondsRemaining"] == 15
+    assert before["nextQueueDelayWarningKeys"] == [["s1", "f1"]]
+    assert before["counts"]["EXPIRING_SOON_WARNING"] == 1
+    assert before["counts"]["QUEUE_DELAY_WARNING"] == 0
+    assert before["status"] == "OPERATOR_REVIEW_REQUIRED"
+    at_expiry = check(state(expiresAt=165), now=165,
+                      queue_warning_seconds=45)
+    assert at_expiry["nextQueueDelayWarningSecondsRemaining"] is None
+    assert at_expiry["nextQueueDelayWarningKeys"] == []
+    assert at_expiry["counts"]["EXPIRED_UNCLAIMED"] == 1
