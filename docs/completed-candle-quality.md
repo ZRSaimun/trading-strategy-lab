@@ -56,3 +56,9 @@ changes the existing historical API request count. Run the offline
 `PYTHONPATH=. pytest -q tests/test_twelvedata_json_unicode_integrity.py`
 from `backend/`; tests use HTTPX MockTransport and synthetic prices.
 No provider account, entitlement, paid feed or broker is activated.
+
+## HTTP Date/Age structural integrity (29 October 2026)
+
+The bounded Twelve Data historical adapter now checks any supplied HTTP `Date` and `Age` headers **before** accepting provider JSON. Duplicate claims, malformed/noncanonical GMT dates (including incorrect weekdays), noninteger/negative/oversized ages and ambiguous combined values fail closed with a sanitized 502. Canonical dates and bounded ages are accepted; either header may be absent, and an `Age` without `Date` is not promoted into a source timestamp. This adds no vendor request, provider credential, storage, API route or new report field. Synthetic HTTPX mock cases: `cd backend && PYTHONPATH=. pytest -q tests/test_twelvedata_cache_headers.py`.
+
+These unsigned HTTP headers may originate from intermediaries or caches. The check is **structural only**: it does not prove the provider issued a candle at that time, establish exchange/venue time, verify feed freshness, authorize live display, or change any `live` / `may_execute_order` flags. Server-owned receipt clocks and independently authenticated, licensed prospective observations remain prerequisites.
