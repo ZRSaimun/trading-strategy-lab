@@ -647,3 +647,75 @@ def test_validation_cutoff_can_precede_prior_window_end_without_claiming_leakage
     assert result["may_execute_demo_order"] is False
     assert result["may_execute_real_order"] is False
     assert "net_cash" not in result
+
+
+def test_declared_decision_coverage_exposes_early_concentration_without_outcomes():
+    # Forty daily decisions occupy only 39 days of each declared two-year
+    # window. This does not prove that later source candles are missing.
+    folds = _valid()
+    original = copy.deepcopy(folds)
+    report = audit_declared_holdout_fold_isolation(folds)
+    expected_gaps = []
+    for index, fold in enumerate(folds):
+        census, manifest = fold["census"], fold["manifest"]
+        summary = report["folds"][index]
+        first, last = census[0]["decision_at_utc"], census[-1]["decision_at_utc"]
+        gap = manifest["holdout_end_at_utc"] - last
+        expected_gaps.append(gap)
+        assert summary["first_declared_decision_at_utc"] == first
+        assert summary["last_declared_decision_at_utc"] == last
+        assert summary["declared_decision_span_seconds"] == 39 * 86400
+        assert summary["max_declared_interdecision_gap_seconds"] == 86400
+        assert summary["declared_last_decision_to_window_end_seconds"] == gap
+    assert report["max_declared_last_decision_to_window_end_seconds"] == max(expected_gaps)
+    assert report["longest_declared_last_decision_gap_fold_index"] == (
+        expected_gaps.index(max(expected_gaps))
+    )
+    assert folds == original
+    assert report["profitable_edge_verified"] is False
+    assert report["may_execute_demo_order"] is False
+    assert report["may_execute_real_order"] is False
+    assert "net_cash" not in report
+
+
+def test_single_observation_fold_has_no_interdecision_gap():
+    folds = _valid()
+    last = folds[2]
+    last["census"] = last["census"][:1]
+    last["manifest"]["expected_holdout_count"] = 1
+    last["manifest"]["holdout_census_sha256"] = (
+        prepare_declared_holdout_census_sha256(last["census"])
+    )
+    before = copy.deepcopy(folds)
+    report = audit_declared_holdout_fold_isolation(folds)
+    assert report["folds"][2]["declared_decision_span_seconds"] == 0
+    assert report["folds"][2]["max_declared_interdecision_gap_seconds"] is None
+    assert report["folds"][2]["declared_last_decision_to_window_end_seconds"] == (
+        last["manifest"]["holdout_end_at_utc"] - last["census"][0]["decision_at_utc"]
+    )
+    assert report["observation_count"] == 81
+    assert folds == before
+    assert report["may_execute_real_order"] is False
+
+
+def test_late_final_fold_decision_updates_gap_without_rewriting_inputs():
+    folds = _valid()
+    final = folds[-1]
+    end = final["manifest"]["holdout_end_at_utc"]
+    final["census"][-1]["decision_at_utc"] = end - 2
+    final["census"][-1]["label_available_at_utc"] = end + 2
+    final["manifest"]["holdout_census_sha256"] = (
+        prepare_declared_holdout_census_sha256(final["census"])
+    )
+    before = copy.deepcopy(folds)
+    report = audit_declared_holdout_fold_isolation(folds)
+    summary = report["folds"][-1]
+    assert summary["last_declared_decision_at_utc"] == end - 2
+    assert summary["declared_last_decision_to_window_end_seconds"] == 2
+    assert summary["declared_labels_pending_at_window_end_count"] == 1
+    assert summary["max_declared_interdecision_gap_seconds"] > 86400
+    assert folds == before
+    assert report["source_bytes_independently_authenticated"] is False
+    assert report["holdout_untouched_independently_verified"] is False
+    assert report["may_execute_demo_order"] is False
+    assert report["may_execute_real_order"] is False
