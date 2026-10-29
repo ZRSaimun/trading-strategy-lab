@@ -35,6 +35,8 @@ def audit_declared_holdout_fold_isolation(folds):
     most_pending_labels_fold_index = None
     max_last_decision_to_window_end_seconds = 0
     min_nonempty_decision_quarters = None
+    max_single_quarter_share_basis_points = -1
+    most_concentrated_quarter_fold_index = None
     sparsest_decision_quarters_fold_index = None
     longest_last_decision_gap_fold_index = None
     previous_census = None
@@ -142,6 +144,13 @@ def audit_declared_holdout_fold_isolation(folds):
             quarter = 4 * (row["decision_at_utc"] - window_start) // window_duration
             quarter_counts[quarter] += 1  # validated decision < window end
         nonempty_quarters = sum(count > 0 for count in quarter_counts)
+        # Integer basis points avoid floating-point drift and distinguish
+        # [97, 1, 1, 1] from [25, 25, 25, 25] even though both touch
+        # all four quarters. This measures decisions, NOT candle coverage.
+        largest_quarter_share_bp = 10000 * max(quarter_counts) // len(census)
+        if largest_quarter_share_bp > max_single_quarter_share_basis_points:
+            max_single_quarter_share_basis_points = largest_quarter_share_bp
+            most_concentrated_quarter_fold_index = index
         if (min_nonempty_decision_quarters is None or
                 nonempty_quarters < min_nonempty_decision_quarters):
             min_nonempty_decision_quarters = nonempty_quarters
@@ -166,6 +175,7 @@ def audit_declared_holdout_fold_isolation(folds):
             "last_declared_decision_at_utc": last_decision,
             "declared_decision_span_seconds": decision_span,
             "declared_decision_quarter_counts": quarter_counts,
+            "declared_largest_quarter_decision_share_basis_points": largest_quarter_share_bp,
             "declared_nonempty_decision_quarter_count": nonempty_quarters,
             "max_declared_interdecision_gap_seconds": max_interdecision_gap,
             "declared_last_decision_to_window_end_seconds": last_decision_to_end,
@@ -184,6 +194,8 @@ def audit_declared_holdout_fold_isolation(folds):
         "most_pending_declared_labels_fold_index": most_pending_labels_fold_index,
         "observation_count": len(seen_rows),
         "min_declared_nonempty_decision_quarter_count": min_nonempty_decision_quarters,
+        "max_declared_largest_quarter_decision_share_basis_points": max_single_quarter_share_basis_points,
+        "most_concentrated_quarter_fold_index": most_concentrated_quarter_fold_index,
         "sparsest_declared_decision_quarters_fold_index": sparsest_decision_quarters_fold_index,
         "max_declared_last_decision_to_window_end_seconds":
             max_last_decision_to_window_end_seconds,
@@ -211,6 +223,6 @@ def audit_declared_holdout_fold_isolation(folds):
                    "Embargo slack and validation-cutoff availability use unverified declared clocks; "
                    "a positive validation count does not prove outcome reuse or leakage. "
                    "Distinct archive digests do not prove independent market data. "
-                   "Decision-time gaps and empty decision quarters do not establish missing source coverage. "
+                   "Decision-time gaps, empty quarters and concentration do not establish missing source coverage. "
                    "No holdout outcomes, executable costs or trading permissions are evaluated."
     }
