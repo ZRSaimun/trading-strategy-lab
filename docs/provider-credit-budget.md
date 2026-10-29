@@ -128,3 +128,15 @@ Synthetic tests cover the one-second boundary, midnight with separately
 provisioned daily policies, and backward wall-clock movement. No vendor calls
 or credits were consumed. This local clock is still not independently attested
 and other applications using the provider account remain outside this ledger.
+
+## Write-lock clock sampling (29 October 2026)
+
+A contended SQLite `BEGIN IMMEDIATE` can wait before the reservation
+transaction obtains its write lock. The reservation now samples the server UTC
+clock **after** the write lock is acquired, so a delayed writer cannot record
+the earlier pre-lock time and then admit a subsequent attempt less than 60
+seconds after the actual reservation. The UTC-day policy lookup and rolling
+cooldown both use this post-lock timestamp. A deterministic, zero-network
+regression simulates a 70-second lock wait and checks the stored timestamp
+and subsequent cooldown. This does not attest the system clock or coordinate
+other applications using the same provider account.
