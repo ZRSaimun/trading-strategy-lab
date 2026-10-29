@@ -865,3 +865,75 @@ def test_study_concentration_equal_share_tie_uses_earliest_fold():
     assert folds == before
     assert report["may_execute_demo_order"] is False
     assert report["may_execute_real_order"] is False
+
+
+@pytest.mark.parametrize("cutoff_kind, expected_all_prior", [
+    ("before_first_fold_final_label", 41),
+    ("at_first_fold_final_label", 40),
+    ("before_second_fold_first_label", 40),
+    ("at_second_fold_final_label", 0),
+])
+def test_all_earlier_fold_labels_counted_at_later_validation_cutoff(
+    cutoff_kind, expected_all_prior
+):
+    # The final fold's validation cutoff may precede earlier holdouts,
+    # despite a later selection satisfying every prior-label embargo.
+    folds = _valid()
+    first, second = folds[0]["census"], folds[1]["census"]
+    cutoffs = {
+        "before_first_fold_final_label": first[-1]["label_available_at_utc"] - 1,
+        "at_first_fold_final_label": first[-1]["label_available_at_utc"],
+        "before_second_fold_first_label": second[0]["label_available_at_utc"] - 1,
+        "at_second_fold_final_label": second[-1]["label_available_at_utc"],
+    }
+    folds[2]["manifest"]["validation_end_at_utc"] = cutoffs[cutoff_kind]
+    before = copy.deepcopy(folds)
+    report = audit_declared_holdout_fold_isolation(folds)
+    transition = report["declared_validation_cutoff_transitions"][-1]
+    immediate = sum(
+        row["label_available_at_utc"] > cutoffs[cutoff_kind] for row in second
+    )
+    assert transition["declared_prior_labels_unavailable_at_validation_end_count"] == immediate
+    assert transition[
+        "declared_all_prior_labels_unavailable_at_validation_end_count"
+    ] == expected_all_prior
+    assert report["total_declared_all_prior_labels_unavailable_at_validation_end_count"] == (
+        expected_all_prior
+    )
+    assert report["max_declared_all_prior_labels_unavailable_at_validation_end_count"] == (
+        expected_all_prior
+    )
+    assert report["most_all_prior_unavailable_at_validation_later_fold_index"] == (
+        2 if expected_all_prior else None
+    )
+    assert folds == before
+    assert report["may_execute_demo_order"] is False
+    assert report["may_execute_real_order"] is False
+    assert "net_cash" not in report
+
+
+def test_all_prior_validation_population_tie_prefers_earliest_later_fold():
+    folds = [_fold(i) for i in range(4)]
+    # At fold 2, both earlier folds are unavailable at the old cutoff:
+    # 40 + 40 = 80. At fold 3, fold 0 is mature, but folds 1 and 2
+    # each still have 40 labels unavailable, producing an exact tie.
+    folds[2]["manifest"]["validation_end_at_utc"] = (
+        folds[0]["census"][0]["label_available_at_utc"] - 1
+    )
+    folds[3]["manifest"]["validation_end_at_utc"] = (
+        folds[1]["census"][0]["label_available_at_utc"] - 1
+    )
+    before = copy.deepcopy(folds)
+    report = audit_declared_holdout_fold_isolation(folds)
+    counts = [
+        transition["declared_all_prior_labels_unavailable_at_validation_end_count"]
+        for transition in report["declared_validation_cutoff_transitions"]
+    ]
+    assert counts == [0, 80, 80]
+    assert report["total_declared_all_prior_labels_unavailable_at_validation_end_count"] == 160
+    assert report["max_declared_all_prior_labels_unavailable_at_validation_end_count"] == 80
+    assert report["most_all_prior_unavailable_at_validation_later_fold_index"] == 2
+    assert folds == before
+    assert report["holdout_untouched_independently_verified"] is False
+    assert report["may_execute_demo_order"] is False
+    assert report["may_execute_real_order"] is False
