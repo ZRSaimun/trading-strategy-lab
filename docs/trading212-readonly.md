@@ -213,3 +213,23 @@ Synthetic header regressions cover invalid/duplicate declarations and valid
 UTF-8 variants. No real Trading 212 account or provider feed was accessed.
 Official API scope checked 29 October 2026:
 https://docs.trading212.com/api (Invest/Stocks ISA, not CFDs).
+
+
+## Cumulative receipt deadline (mock-tested, no account connected)
+
+The explicitly invoked GET now has a **30-second cumulative monotonic receipt
+deadline**, in addition to HTTPX's existing 8-second per-operation timeout.
+The adapter checks the elapsed monotonic interval after response headers,
+after each raw stream chunk (or buffered test response), and after the stream
+is closed. A slow-drip response cannot extend the overall read indefinitely
+by delivering each individual chunk within the per-read timeout. Exceeding
+the limit or observing a backwards monotonic clock raises a sanitized
+`ReadOnlyBrokerError`; no partial payload is returned, persisted or retried.
+
+This is a conservative local transport-safety bound, **not** a guarantee that
+the operating system can interrupt a blocked read at precisely 30 seconds.
+A single blocking operation is still governed by the underlying HTTP timeout.
+It is also not proof of broker issuance, feed freshness, licensing or executable
+market prices. The response remains GET-only, disconnected by default and
+ineligible for orders. Three deterministic mock-clock regressions cover delayed
+headers, delayed second stream chunk, and the inclusive 30-second boundary.
