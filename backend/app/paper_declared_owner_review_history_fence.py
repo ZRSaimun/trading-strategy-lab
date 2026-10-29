@@ -56,6 +56,9 @@ def _parse(snapshot: Any, now: int, label: str) -> tuple[dict, set[str]]:
     approved_intents: set[str] = set()
     rejected_intents: set[str] = set()
     rejected_orders: set[str] = set()
+    order_intents: dict[str, str] = {}
+    intent_orders: dict[str, str] = {}
+    preview_orders: dict[str, tuple[str, str]] = {}
     last_recorded = -1
     for event in events:
         if type(event) is not dict or set(event) != _EVENT:
@@ -63,7 +66,18 @@ def _parse(snapshot: Any, now: int, label: str) -> tuple[dict, set[str]]:
         aid = _id(event["approval_id"], "approval ID")
         cid = _id(event["client_order_id"], "client order ID")
         intent = _digest(event["order_intent_sha"], "order intent digest")
-        _digest(event["preview_digest"], "preview digest")
+        preview = _digest(event["preview_digest"], "preview digest")
+        # A client order, intent and complete review preview must not silently
+        # acquire a different identity in later declared history entries.
+        if cid in order_intents and order_intents[cid] != intent:
+            failures.add("client_order_rebound_to_different_intent")
+        if intent in intent_orders and intent_orders[intent] != cid:
+            failures.add("order_intent_rebound_to_different_client_order")
+        if preview in preview_orders and preview_orders[preview] != (cid, intent):
+            failures.add("preview_digest_reused_for_distinct_order")
+        order_intents.setdefault(cid, intent)
+        intent_orders.setdefault(intent, cid)
+        preview_orders.setdefault(preview, (cid, intent))
         decision = event["decision"]
         if type(decision) is not str or decision not in ("APPROVE", "REJECT"):
             raise ValueError("Invalid review decision")
@@ -94,6 +108,8 @@ def _parse(snapshot: Any, now: int, label: str) -> tuple[dict, set[str]]:
         else:
             if cid in approved_orders or intent in approved_intents:
                 failures.add("rejection_after_approval_same_order_or_intent")
+            if cid in rejected_orders or intent in rejected_intents:
+                failures.add("duplicate_rejected_order_or_intent")
             rejected_orders.add(cid)
             rejected_intents.add(intent)
     return snapshot, failures
