@@ -113,7 +113,11 @@ def audit_declared_holdout_row_cost_stress(
             extra = sum(totals.values(), Decimal(0))
             net = None if withheld else Decimal(baseline["net_cash"]) - extra
             worst_row = drawdown = adverse_drawdown = None
+            baseline_losing = stressed_losing = cost_induced_losing = None
+            stressed_gross_loss = None
             if not withheld:
+                baseline_losing = stressed_losing = cost_induced_losing = 0
+                stressed_gross_loss = Decimal(0)
                 stressed_nets = {}
                 for outcome in outcomes:
                     key = outcome["observation_id"]
@@ -123,10 +127,21 @@ def audit_declared_holdout_row_cost_stress(
                                        "commission_cash", "fx_cash")),
                         Decimal(0),
                     )
-                    stressed_nets[key] = (
+                    baseline_row_net = (
                         _money(outcome["gross_cash"]) - charges
-                        - _money(outcome["financing_cash"]) - extra_by_id[key]
+                        - _money(outcome["financing_cash"])
                     )
+                    stressed_row_net = baseline_row_net - extra_by_id[key]
+                    stressed_nets[key] = stressed_row_net
+                    if baseline_row_net < 0:
+                        baseline_losing += 1
+                    if stressed_row_net < 0:
+                        stressed_losing += 1
+                        stressed_gross_loss -= stressed_row_net
+                        if baseline_row_net >= 0:
+                            cost_induced_losing += 1
+                if stressed_losing < baseline_losing:
+                    raise AssertionError("Adverse costs cannot reduce losing row count")
                 if sum(stressed_nets.values(), Decimal(0)) != net:
                     raise AssertionError("Stressed per-row cash failed reconciliation")
                 worst_row, drawdown, adverse_drawdown = _declared_receipt_risk(
@@ -144,6 +159,11 @@ def audit_declared_holdout_row_cost_stress(
                     None if withheld else format(drawdown, ".4f"),
                 "max_receipt_time_ordering_drawdown_cash_upper_bound":
                     None if withheld else format(adverse_drawdown, ".4f"),
+                "baseline_losing_observation_count": baseline_losing,
+                "stressed_losing_observation_count": stressed_losing,
+                "additional_cost_induced_losing_observation_count": cost_induced_losing,
+                "stressed_gross_loss_cash":
+                    None if withheld else format(stressed_gross_loss, ".4f"),
                 "extra_cost_by_component_cash": {
                     field: None if withheld else format(totals[field], ".4f")
                     for field in _COSTS
@@ -177,5 +197,6 @@ def audit_declared_holdout_row_cost_stress(
                    "Full-row coverage is not broker calibration or independent "
                    "holdout protection. No executable quotes, financing, margin "
                    "or intraperiod equity risk are verified. Receipt-second cash "
-                   "drawdowns do not bound unobserved broker-equity losses.",
+                   "drawdowns and losing-observation counts do not bound "
+                   "unobserved broker-equity losses.",
     }
