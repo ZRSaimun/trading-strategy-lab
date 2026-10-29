@@ -179,8 +179,9 @@ def test_rehashed_invalid_win_fraction_rejected():
 
 
 def test_rehashed_empty_partition_fabricated_return_rejected():
-    a, b = pair()
-    a['later_exploratory_not_holdout']['mean_net_bps_by_roundtrip_cost']['5'] = 0
+    a = receipt('a', 'c', count=1)
+    b = receipt('b', 'd', count=3)
+    a['development_exploratory']['mean_net_bps_by_roundtrip_cost']['5'] = 0
     rehash(a)
     with pytest.raises(ValueError, match='Empty exploratory'):
         audit_m1_multi_archive_census([a, b])
