@@ -199,7 +199,9 @@ def test_rehashed_evaluated_count_above_bar_count_rejected():
     a, b = pair()
     b['bar_count'] = 2
     rehash(b)
-    with pytest.raises(ValueError, match='bar count'):
+    # The stronger scan bound now rejects the impossible confirmation
+    # population before the older evaluated-count upper-bound check.
+    with pytest.raises(ValueError, match='scan bounds'):
         audit_m1_multi_archive_census([a, b])
 
 
