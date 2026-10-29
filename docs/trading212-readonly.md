@@ -50,7 +50,14 @@ milliseconds, so it remains nonnegative even if UTC wall time jumps backwards.
 These are **locally recorded bounds, not independently authenticated vendor
 issuance, trusted UTC custody, candle timestamps, network-only latency, or
 proof of feed freshness**. `receipt_clock_attested=false` always; a host clock
-adjustment can make the two UTC labels appear reversed. Invalid/failed reads
+adjustment can make the two UTC labels appear reversed. The additional
+`receipt_wall_elapsed_ms` and `receipt_wall_vs_monotonic_delta_ms` compare
+local wall-clock elapsed time with monotonic elapsed time. A backwards wall
+clock or a discrepancy greater than **2,000 ms** sets
+`receipt_clock_anomaly_detected=true`; the threshold is a diagnostic heuristic,
+not an independent time reference. A false anomaly flag is **not** evidence of
+correct UTC, authenticated broker issuance or fresh market prices. These
+observations never authorize a trade, retry, polling or source activation. Invalid/failed reads
 return no receipt payload, and no timing data is persisted or transmitted.
 Output always has
 `account_type_verified=false`, `server_clock_attested=false`,
