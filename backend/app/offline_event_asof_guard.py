@@ -139,9 +139,19 @@ def audit_declared_event_asof(revisions, *, decision_utc, source_id):
     # content. A separate, versioned research envelope binds declared source,
     # decision cutoff and visible revision population so identical event lists
     # from different sources or cutoffs cannot be mistaken for the same audit.
-    visible_count = sum(
-        _utc(e["observed_utc"]) < cutoff for rows in groups.values() for e in rows
+    # The v1 envelope records only the final visible event per identity and
+    # a revision count. Distinct visible revision histories can therefore have
+    # the same v1 hash. Preserve v1 for consumers and provide a new opt-in
+    # history-bound envelope without exposing future (invisible) revisions.
+    visible_history = [
+        entry for eid in sorted(groups) for entry in groups[eid]
+        if _utc(entry["observed_utc"]) < cutoff
+    ]
+    visible_count = len(visible_history)
+    history_canonical = json.dumps(
+        visible_history, sort_keys=True, separators=(",", ":"), ensure_ascii=True
     )
+    history_sha256 = hashlib.sha256(history_canonical.encode("utf-8")).hexdigest()
     envelope = {
         "schema_version": 1,
         "source_id": source_id,
@@ -152,6 +162,17 @@ def audit_declared_event_asof(revisions, *, decision_utc, source_id):
     envelope_canonical = json.dumps(
         envelope, sort_keys=True, separators=(",", ":"), ensure_ascii=True
     )
+    envelope_v2 = {
+        "schema_version": 2,
+        "source_id": source_id,
+        "decision_utc": cutoff.isoformat(),
+        "visible_revision_count": visible_count,
+        "visible_revision_history_sha256": history_sha256,
+        "events": output,
+    }
+    envelope_v2_canonical = json.dumps(
+        envelope_v2, sort_keys=True, separators=(",", ":"), ensure_ascii=True
+    )
     return {"research_only": True, "authenticated_calendar": False,
             "trade_authorized": False, "source_id": source_id,
             "decision_utc": cutoff.isoformat(), "visible_revision_count": visible_count,
@@ -160,4 +181,9 @@ def audit_declared_event_asof(revisions, *, decision_utc, source_id):
             "research_envelope_schema_version": 1,
             "research_envelope_sha256": hashlib.sha256(
                 envelope_canonical.encode("utf-8")
+            ).hexdigest(),
+            "visible_revision_history_sha256": history_sha256,
+            "research_envelope_v2_schema_version": 2,
+            "research_envelope_v2_sha256": hashlib.sha256(
+                envelope_v2_canonical.encode("utf-8")
             ).hexdigest()}
