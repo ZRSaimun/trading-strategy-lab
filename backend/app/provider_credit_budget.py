@@ -185,6 +185,33 @@ def reserve_one_credit(
                     or not isinstance(entitlement, str) or _HASH.fullmatch(entitlement) is None
                     or not isinstance(rights, str) or _HASH.fullmatch(rights) is None):
                 raise CreditBudgetError("Corrupt budget policy")
+            # Validate the locally relevant reservation population BEFORE
+            # calculating today's remaining budget. SQLite's foreign key and
+            # cost constraints do not prove a reservation timestamp belongs
+            # to its recorded UTC day (for example after a faulty restore).
+            # A misdated prior-day row can otherwise evade today's cap and
+            # the rolling cooldown once it is more than 60 seconds old.
+            # Include today's rows plus the last 24 hours and any future
+            # timestamps; cap the scan so corruption cannot cause unbounded
+            # memory use. This is integrity screening, not tamper attestation.
+            recent_rows = conn.execute(
+                "SELECT request_id, utc_day, manifest_sha256, "
+                "reserved_at_utc, cost FROM credit_reservation "
+                "WHERE utc_day=? OR reserved_at_utc>=? LIMIT 10001",
+                (utc_day, now - 86400),
+            ).fetchall()
+            if len(recent_rows) > 10000:
+                raise CreditBudgetError("Corrupt provider credit reservation ledger")
+            for prior_id, prior_day, prior_manifest, prior_time, prior_cost in recent_rows:
+                if (type(prior_id) is not str or _REQUEST.fullmatch(prior_id) is None
+                        or type(prior_manifest) is not str
+                        or _HASH.fullmatch(prior_manifest) is None
+                        or type(prior_time) is not int
+                        or not 60 <= prior_time <= 253402300799
+                        or type(prior_day) is not str
+                        or datetime.fromtimestamp(prior_time, timezone.utc).date().isoformat() != prior_day
+                        or type(prior_cost) is not int or prior_cost != 1):
+                    raise CreditBudgetError("Corrupt provider credit reservation ledger")
             used_row = conn.execute(
                 "SELECT COUNT(*), COALESCE(SUM(cost), 0) FROM credit_reservation "
                 "WHERE utc_day=?", (utc_day,),
