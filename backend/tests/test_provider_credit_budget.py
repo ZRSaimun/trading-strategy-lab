@@ -365,3 +365,61 @@ def test_reservation_uses_post_write_lock_clock(tmp_path, monkeypatch):
         reserve(path, 2)
     clock["now"] = NOW + 130
     assert reserve(path, 2)["remaining_credits"] == 0
+
+
+@pytest.mark.parametrize("day_kind, stored_time, fingerprint, stored_id", [
+    ("today", NOW - 86400, HASH, f"{901:032x}"),
+    ("yesterday", NOW - 120, HASH, f"{902:032x}"),
+    ("today", NOW - 120, "not-a-sha256", f"{903:032x}"),
+    ("today", "not-a-timestamp", HASH, f"{904:032x}"),
+    ("today", NOW - 120, HASH, "invalid-request-id"),
+])
+def test_corrupt_reservation_day_or_identity_fails_closed(
+    tmp_path, monkeypatch, day_kind, stored_time, fingerprint, stored_id,
+):
+    """A restored/misdated ledger must not silently undercount API spending."""
+    import sqlite3
+    from datetime import timedelta
+
+    path = ledger(tmp_path, monkeypatch, cap=3)
+    yesterday = (datetime.fromtimestamp(NOW, timezone.utc).date()
+                 - timedelta(days=1)).isoformat()
+    budget.provision_daily_budget(
+        path, utc_day=yesterday, max_credits=3,
+        entitlement_evidence_sha256=HASH,
+        rights_evidence_sha256=RIGHTS, owner_confirmed=True,
+    )
+    stored_day = DAY if day_kind == "today" else yesterday
+    with sqlite3.connect(path) as conn:
+        conn.execute(
+            "INSERT INTO credit_reservation VALUES (?, ?, ?, ?, 1)",
+            (stored_id, stored_day, fingerprint, stored_time),
+        )
+    with pytest.raises(budget.CreditBudgetError, match="Corrupt provider credit"):
+        reserve(path, 1)
+    # No new credit is reserved when integrity is uncertain.
+    with sqlite3.connect(path) as conn:
+        assert conn.execute("SELECT COUNT(*) FROM credit_reservation").fetchone()[0] == 1
+
+
+def test_consistent_prior_day_reservation_does_not_block_new_day(
+    tmp_path, monkeypatch,
+):
+    """Legitimate historical reservations do not trigger false corruption."""
+    import sqlite3
+    from datetime import timedelta
+
+    path = ledger(tmp_path, monkeypatch, cap=2)
+    yesterday = (datetime.fromtimestamp(NOW, timezone.utc).date()
+                 - timedelta(days=1)).isoformat()
+    budget.provision_daily_budget(
+        path, utc_day=yesterday, max_credits=2,
+        entitlement_evidence_sha256=HASH,
+        rights_evidence_sha256=RIGHTS, owner_confirmed=True,
+    )
+    with sqlite3.connect(path) as conn:
+        conn.execute(
+            "INSERT INTO credit_reservation VALUES (?, ?, ?, ?, 1)",
+            (f"{905:032x}", yesterday, HASH, NOW - 86400),
+        )
+    assert reserve(path, 1)["remaining_credits"] == 1
