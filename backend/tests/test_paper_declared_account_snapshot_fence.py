@@ -339,3 +339,43 @@ def test_sync_guard_is_session_scoped_and_session_change_still_holds():
     assert "positions_changed_without_new_sync" not in result["failed_checks"]
     assert "session_change_requires_external_reconciliation" in result["failed_checks"]
     assert result["may_submit_real_order"] is False
+
+
+@pytest.mark.parametrize("change_source", [False, True])
+def test_same_session_primary_instrument_switch_requires_external_evidence(change_source):
+    args = fixture()
+    args[1]["instrument"] = "WTIUSD"
+    args[2]["risk_quote"]["instrument"] = "WTIUSD"
+    if change_source:
+        args[1]["source"] = "feedB"
+        args[2]["risk_quote"]["source"] = "feedB"
+    before = deepcopy(args)
+    result = inspect(args)
+    assert result["status"] == "HOLD_ACCOUNT_SNAPSHOT_REVIEW"
+    assert "quote_instrument_change_requires_external_evidence" in result["failed_checks"]
+    assert result["may_submit_paper_order"] is False
+    assert result["may_submit_real_order"] is False
+    assert args == before
+
+
+def test_primary_instrument_switch_during_new_session_still_holds_reconciliation():
+    args = fixture()
+    args[2]["session_epoch"] += 1
+    args[1]["instrument"] = "WTIUSD"
+    args[2]["risk_quote"]["instrument"] = "WTIUSD"
+    result = inspect(args)
+    assert "session_change_requires_external_reconciliation" in result["failed_checks"]
+    assert result["may_submit_real_order"] is False
+
+
+@pytest.mark.parametrize("field", ["open_notional", "open_risk"])
+def test_equal_numeric_exposure_without_new_revision_is_not_inventory_mutation(field):
+    args = fixture()
+    args[3]["positions_revision"] = args[2]["positions_revision"]
+    args[0][field] = args[0][field] + ".0"
+    args[2]["account"][field] = args[0][field]
+    result = inspect(args)
+    assert "positions_changed_without_revision" not in result["failed_checks"]
+    assert "positions_changed_without_new_sync" not in result["failed_checks"]
+    assert result["status"] == "DECLARED_ACCOUNT_SNAPSHOT_UNVERIFIED"
+    assert result["may_submit_real_order"] is False
