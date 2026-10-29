@@ -43,6 +43,8 @@ def _prior_metadata(previous: Any, now: int, max_transport_lag_ms: int) -> tuple
         # the same caller-declared transport policy used for current evidence.
         failures.add("previous_snapshot_transport_lag")
     total_orders = 0
+    seen_client_ids: set[str] = set()
+    seen_broker_order_ids: set[str] = set()
     for index, raw in enumerate(pages):
         page = _object(raw, _PAGE_FIELDS, "previous page")
         if (_id(page["snapshot_id"], "previous page snapshot ID") != prev["snapshot_id"]
@@ -55,6 +57,19 @@ def _prior_metadata(previous: Any, now: int, max_transport_lag_ms: int) -> tuple
         total_orders += len(page["orders"])
         if total_orders > MAX_ORDERS:
             raise ValueError("Previous order population exceeds bound")
+        # A caller-declared prior page cannot establish continuity when its
+        # order identities are ambiguous, even if page counters look complete.
+        # This is a shape/uniqueness check, not broker receipt authentication.
+        for raw_order in page["orders"]:
+            row = _object(raw_order, {"client_order_id", "broker_order_id",
+                                     "instrument", "side", "quantity", "status",
+                                     "filled_quantity", "fills"}, "previous broker order")
+            client_id = _id(row["client_order_id"], "previous client order ID")
+            broker_id = _id(row["broker_order_id"], "previous broker order ID")
+            if client_id in seen_client_ids or broker_id in seen_broker_order_ids:
+                failures.add("previous_duplicate_order_identity")
+            seen_client_ids.add(client_id)
+            seen_broker_order_ids.add(broker_id)
     return prev, failures
 
 
