@@ -144,3 +144,28 @@ def test_broker_quota_evidence_never_includes_authentication_header():
             "x-ratelimit-used": "1", "authorization": "secret-not-for-output",
         }))
     assert "secret-not-for-output" not in json.dumps(result)
+
+
+@pytest.mark.parametrize("body", [
+    b"\xef\xbb\xbf{}",  # UTF-8 BOM is not valid RFC 8259 JSON wire encoding
+    "{}".encode("utf-16"),
+    "{}".encode("utf-32"),
+    b'{"name":"\xff"}',  # invalid UTF-8
+])
+def test_broker_json_rejects_non_utf8_and_bom_without_leaking_body(body):
+    with pytest.raises(ReadOnlyBrokerError, match="Invalid broker JSON") as exc:
+        call(lambda _: httpx.Response(
+            200, content=body, headers={"content-type": "application/json"}
+        ))
+    assert "name" not in str(exc.value)
+
+
+def test_broker_json_accepts_strict_utf8_non_ascii_without_feed_claim():
+    body = '{"name":"Café","currency":"EUR"}'.encode("utf-8")
+    result = call(lambda _: httpx.Response(
+        200, content=body, headers={"content-type": "application/json"}
+    ))
+    assert result["data"] == {"name": "Café", "currency": "EUR"}
+    assert result["market_data_feed"] is False
+    assert result["price_freshness_verified"] is False
+    assert result["may_execute_order"] is False
