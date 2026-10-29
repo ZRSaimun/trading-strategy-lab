@@ -307,3 +307,10 @@ def test_valid_fraction_rounding_and_integer_partition_counts():
     assert a['later_exploratory_not_holdout']['gross_win_fraction'] == 0.333333
     assert a['all_exploratory']['gross_win_fraction'] == 0.428571
     assert audit_m1_multi_archive_census([a, b])['report_count'] == 2
+
+def test_rehashed_bar_population_above_original_engine_limit_rejected():
+    a, b = pair()
+    b['bar_count'] = 500_001
+    rehash(b)
+    with pytest.raises(ValueError, match='bar count'):
+        audit_m1_multi_archive_census([a, b])
