@@ -58,6 +58,48 @@ def audit_declared_m1_receipt_gap_reconciliation(
                     "received_at_utc": received_utc,
                 })
         previous_receipt_utc = received_utc
+    # Attribute declared receipt lag to the expected session containing each
+    # bar start. Keep unexpected/closure receipts separate: a late closure bar
+    # must not be mistaken for evidence of a delayed open-session candle.
+    # These are caller-declared times, not authenticated network latency.
+    expected_set = set(manifest.expected_minutes)
+    session_by_expected_minute = {
+        minute: index
+        for index, (start, end) in enumerate(manifest.sessions_utc)
+        for minute in range(start, end, 60)
+        if minute in expected_set
+    }
+    session_receipt_lag = [
+        {
+            "start_utc": start,
+            "end_exclusive_utc": end,
+            "expected_receipt_rows": 0,
+            "late_expected_receipt_rows": 0,
+            "max_declared_receipt_lag_seconds": None,
+        }
+        for start, end in manifest.sessions_utc
+    ]
+    unexpected_receipt_rows = 0
+    late_unexpected_receipt_rows = 0
+    for row in receipts:
+        lag = row["received_at_utc"] - row["bar_start_utc"] - 60
+        session_index = session_by_expected_minute.get(row["bar_start_utc"])
+        if session_index is None:
+            unexpected_receipt_rows += 1
+            late_unexpected_receipt_rows += lag > max_receipt_lag_seconds
+            continue
+        bucket = session_receipt_lag[session_index]
+        bucket["expected_receipt_rows"] += 1
+        bucket["late_expected_receipt_rows"] += lag > max_receipt_lag_seconds
+        previous_max = bucket["max_declared_receipt_lag_seconds"]
+        bucket["max_declared_receipt_lag_seconds"] = (
+            lag if previous_max is None else max(previous_max, lag)
+        )
+    if (sum(row["expected_receipt_rows"] for row in session_receipt_lag)
+            + unexpected_receipt_rows != census["receipt_rows"]
+            or sum(row["late_expected_receipt_rows"] for row in session_receipt_lag)
+            + late_unexpected_receipt_rows != census["late_receipt_rows"]):
+        raise ValueError("Declared receipt/session lag attribution failed")
     equalities = (
         (census["calendar_manifest_sha256"], gaps["calendar_manifest_sha256"]),
         (census["expected_minutes"], gaps["expected_minutes"]),
@@ -89,6 +131,9 @@ def audit_declared_m1_receipt_gap_reconciliation(
         "backward_receipt_time_transitions": backward_receipt_times,
         "backward_receipt_time_samples": backward_receipt_time_samples,
         "declared_session_coverage": gaps["declared_session_coverage"],
+        "declared_session_receipt_lag": session_receipt_lag,
+        "unexpected_receipt_rows": unexpected_receipt_rows,
+        "late_unexpected_receipt_rows": late_unexpected_receipt_rows,
         "receipt_census": census,
         "session_gap_audit": gaps,
         "independent_calendar_verified": False,
