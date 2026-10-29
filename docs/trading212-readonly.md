@@ -41,7 +41,18 @@ bodies, keys and secrets are not included in error messages.
 `account_type` must be explicitly declared `INVEST` or `STOCKS_ISA`.
 This is **not independent account-type or entitlement verification**.
 Output `received_at_utc` is local server clock time after reading, not an
-attested clock or original exchange timestamp. Output always has
+attested clock or original exchange timestamp. For successful one-shot GETs,
+`receipt_started_at_utc` and `receipt_completed_at_utc` bracket the HTTP
+stream lifecycle using this process's wall clock, and the legacy
+`received_at_utc` equals `receipt_completed_at_utc`. The separate
+`receipt_elapsed_monotonic_ms` is a local monotonic-clock interval in
+milliseconds, so it remains nonnegative even if UTC wall time jumps backwards.
+These are **locally recorded bounds, not independently authenticated vendor
+issuance, trusted UTC custody, candle timestamps, network-only latency, or
+proof of feed freshness**. `receipt_clock_attested=false` always; a host clock
+adjustment can make the two UTC labels appear reversed. Invalid/failed reads
+return no receipt payload, and no timing data is persisted or transmitted.
+Output always has
 `account_type_verified=false`, `server_clock_attested=false`,
 `market_data_feed=false`, `price_freshness_verified=false`,
 `cfd_supported=false` and `may_execute_order=false`.
