@@ -695,7 +695,7 @@ test('research report rejects extra source fields without leaking caller private
  const report=studyHourlyFvgMidpoint(fixture(),source);
  assert.deepEqual(report.source,source);
  assert.deepEqual(Object.keys(report.source).sort(),Object.keys(source).sort());
- assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v80');
+ assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v81');
 });
 test('ambiguous source labels and contradictory volume evidence fail closed',()=>{
  // These are declared metadata, not independent vendor authentication.
@@ -770,7 +770,7 @@ test('v61 source labels reject lone surrogates and Unicode noncharacters in both
  assert.deepEqual(studyHourlyFvgMidpoint(bars,valid).source,valid);
  assert.deepEqual(studyHourlyFvgMidpointAsOf(bars,valid,cutoff).source,valid);
  assert.equal(studyHourlyFvgMidpoint(bars,valid).version,
-  'hourly-fvg-first-midpoint-touch-v80');
+  'hourly-fvg-first-midpoint-touch-v81');
 });
 test('v63 source labels reject Unicode space lookalikes without banning ASCII spaces',()=>{
  const bars=fixture(),cutoff=BASE+37*H;
@@ -787,7 +787,7 @@ test('v63 source labels reject Unicode space lookalikes without banning ASCII sp
  assert.deepEqual(studyHourlyFvgMidpoint(bars,legitimate).source,legitimate);
  assert.deepEqual(studyHourlyFvgMidpointAsOf(bars,legitimate,cutoff).source,legitimate);
  assert.equal(studyHourlyFvgMidpoint(bars,legitimate).version,
-  'hourly-fvg-first-midpoint-touch-v80');
+  'hourly-fvg-first-midpoint-touch-v81');
 });
 test('first bullish midpoint touch has a hypothetical blind limit and later next-open rejection markout',()=>{
  const x=target(fixture());
@@ -1132,7 +1132,7 @@ test('an overflowing next-open comparator suppresses both matched markouts',()=>
 });
 test('completed hourly timestamps are safe and numeric rule changes have a new version',()=>{
  const report=studyHourlyFvgMidpoint(fixture(),source);
- assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v80');
+ assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v81');
  const lastSafeAlignedOpen=Math.floor(Number.MAX_SAFE_INTEGER/H)*H;
  assert.equal(Number.isSafeInteger(lastSafeAlignedOpen),true);
  assert.equal(Number.isSafeInteger(lastSafeAlignedOpen+H),false);
@@ -1192,21 +1192,29 @@ test('coverage counts unobserved hours without leaking future gaps into as-of re
  assert.deepEqual(full.coverage,{
   firstBarOpenAt:BASE,lastBarClosedAt:BASE+40*H,
   observedBars:38,unobservedHourSlots:2,gapIntervals:1,
+   observedThreeBarWindows:36,completeThreeBarWindows:34,
+   skippedThreeBarWindowsWithGaps:2,
  });
  const before=studyHourlyFvgMidpointAsOf(bars,source,BASE+20*H);
  assert.deepEqual(before.coverage,{
   firstBarOpenAt:BASE,lastBarClosedAt:BASE+20*H,
   observedBars:20,unobservedHourSlots:0,gapIntervals:0,
+   observedThreeBarWindows:18,completeThreeBarWindows:18,
+   skippedThreeBarWindowsWithGaps:0,
  });
  const after=studyHourlyFvgMidpointAsOf(bars,source,BASE+24*H);
  assert.deepEqual(after.coverage,{
   firstBarOpenAt:BASE,lastBarClosedAt:BASE+24*H,
   observedBars:22,unobservedHourSlots:2,gapIntervals:1,
+   observedThreeBarWindows:20,completeThreeBarWindows:18,
+   skippedThreeBarWindowsWithGaps:2,
  });
  const empty=studyHourlyFvgMidpointAsOf(bars,source,H);
  assert.deepEqual(empty.coverage,{
   firstBarOpenAt:null,lastBarClosedAt:null,
   observedBars:0,unobservedHourSlots:0,gapIntervals:0,
+   observedThreeBarWindows:0,completeThreeBarWindows:0,
+   skippedThreeBarWindowsWithGaps:0,
  });
  assert.equal(full.coverage.observedBars+full.coverage.unobservedHourSlots,40);
 });
@@ -3505,4 +3513,39 @@ test('v80 cost-sign census independently reconciles direction, touch wait and st
   assert.equal(sides.flatMap(side=>statuses.flatMap(status=>
    scenario.byDirectionAndFirstTouchWaitAndStrictCandidate[side][status]))
    .flatMap(c=>cells.map(cell=>c[cell])).reduce((sum,n)=>sum+n,0),0);
+});
+
+// Gaps disqualify observed formation triplets; missing hours are never
+// invented as negative FVGs or losing hypothetical trades.
+test('v81 formation triplet gap attrition reconciles for complete and causal windows',()=>{
+ const intact=fixture(),missing=intact.filter(b=>b.time!==BASE+17*H);
+ const independent=(bars:Bar[])=>{
+  let complete=0;
+  for(let i=2;i<bars.length;i++)if(
+   bars[i-1].time-bars[i-2].time===H&&bars[i].time-bars[i-1].time===H
+  )complete++;
+  return {observed:Math.max(0,bars.length-2),complete};
+ };
+ for(const bars of [[],[candle(0)],[candle(0),candle(1)],
+  [candle(0),candle(2),candle(4)],intact,missing]){
+  const report=studyHourlyFvgMidpoint(bars,source),expected=independent(bars);
+  assert.equal(report.coverage.observedThreeBarWindows,expected.observed);
+  assert.equal(report.coverage.completeThreeBarWindows,expected.complete);
+  assert.equal(report.coverage.skippedThreeBarWindowsWithGaps,
+   expected.observed-expected.complete);
+  assert.ok(report.cohort.formations<=expected.complete);
+ }
+ assert.equal(studyHourlyFvgMidpoint(intact,source).coverage.skippedThreeBarWindowsWithGaps,0);
+ assert.equal(studyHourlyFvgMidpoint(missing,source).coverage.skippedThreeBarWindowsWithGaps,2);
+ const cutoffBefore=BASE+16*H,cutoffAfter=BASE+25*H;
+ assert.equal(studyHourlyFvgMidpointAsOf(missing,source,cutoffBefore)
+  .coverage.skippedThreeBarWindowsWithGaps,0);
+ const protectedFuture=missing.map(b=>({...b}));
+ for(const bar of protectedFuture)if(bar.time+H>cutoffAfter)
+  for(const field of ['open','high','low','close','volume','observed_minutes'])
+   Object.defineProperty(bar,field,{get(){throw Error('future '+field+' read');}});
+ const asOf=studyHourlyFvgMidpointAsOf(protectedFuture,source,cutoffAfter);
+ assert.deepEqual(asOf,studyHourlyFvgMidpoint(missing.filter(b=>b.time+H<=cutoffAfter),source));
+ assert.equal(asOf.coverage.skippedThreeBarWindowsWithGaps,2);
+ assert.equal(asOf.coverage.completeThreeBarWindows,20);
 });
