@@ -45,3 +45,21 @@ probability or statistically validated loss frequency is implied. Observations
 are not guaranteed independent trades, and the declared source, cash and
 receipt identities are not externally authenticated. No trade permissions
 are granted.
+
+## Additional-cost concentration (declared scenarios only)
+
+For released holdouts (30+ observations), each scenario also reports
+`additional_cost_affected_observation_count`: the number of rows with any
+strictly positive additional debit; and
+`max_single_observation_extra_cost_share_bps`: the largest per-row debit
+as a **floor-rounded integer share of total incremental cash costs** in basis
+points (10,000 bps = 100%). This flags stress scenarios dominated by a single
+row rather than spread across the sample. If total incremental cost is zero,
+the share is `null` (undefined), not zero. For fewer than 30 observations,
+both values are `null` to preserve outcome-release withholding policy.
+
+These describe **caller-specified stress allocations**, not independently
+measured market costs, tail probabilities, broker equity, expected drawdown,
+or a profitability result. A high concentration may be deliberate; it is a
+research-review flag rather than an automatic model rejection. The metric
+never grants demo or real order permissions.
