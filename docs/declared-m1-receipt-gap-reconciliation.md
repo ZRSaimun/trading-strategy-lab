@@ -36,11 +36,17 @@ OHLC prices. Fingerprints are local reproducibility hashes, not signatures.
 The optional session-local lag breakdown `declared_session_receipt_lag`
 reports each declared session's expected receipt **row** count (duplicates
 included), late expected receipt row count, and maximum caller-declared
-close-to-receipt lag in seconds (null if none). Receipt rows whose bar starts
-are not expected, including observations in declared closures, are counted
-separately under `unexpected_receipt_rows` and
-`late_unexpected_receipt_rows`. Both complete populations reconcile exactly
-against the original receipt census, failing closed on disagreement. These
+close-to-receipt lag in seconds (null if none). It also reports
+`unique_expected_minutes_with_receipts` and
+`duplicate_expected_receipt_rows`, so repeated receipt bursts cannot be
+misrepresented as additional completed-minute coverage. The per-session unique
+counts must equal the independent gap audit's per-session observed coverage.
+Receipt rows whose bar starts are not expected, including observations in
+declared closures, are counted separately under `unexpected_receipt_rows`,
+`late_unexpected_receipt_rows`, and `duplicate_unexpected_receipt_rows`.
+The expected-session and unexpected duplicate populations must add up exactly
+to the original receipt census's total duplicate count; disagreements raise
+`ValueError`. These remain caller-declared rows, not authenticated arrivals. These
 metrics help localize a suspected delayed feed by declared session; they do
 **not** authenticate network arrival, distinguish a backfill from a real-time
 feed, establish provider SLA performance, or permit forecasting. Do not
