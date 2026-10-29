@@ -51,7 +51,6 @@ def test_input_immutable_and_order_matters():
     assert alt["maxCumulativeBrierUnderperformanceExcursion"] == pytest.approx(0.5)
 
 
-
 def test_excursion_spans_include_recovery_and_start_after_favorable_prefix():
     seq = [(-.5, -5), (.2, 1), (.3, 2), (-.1, -1), (.4, 5), (-.9, -9)] * 5
     r = audit_chronological_regret_runs(seq)
