@@ -42,6 +42,7 @@ def audit_causal_climatology(snapshot, *, evaluation_as_of, min_training=30,
         regret_brier_low = regret_brier_high = 0.0
         regret_log_low = regret_log_high = 0.0
         first_baseline = min_history = max_history = None
+        scored_regrets = []  # Chronological disjoint settled evaluation members.
         last_evaluation_target = -1
         overlapping_matured_excluded = 0
         for i, current in enumerate(rows):
@@ -101,9 +102,45 @@ def audit_causal_climatology(snapshot, *, evaluation_as_of, min_training=30,
             baseline_log += -math.log(p) if y else -math.log1p(-p)
             issued_log += -math.log(q) if y else -math.log1p(-q)
             scored += 1
+            scored_regrets.append((regret_brier, regret_log))
         missing_fraction = unavailable / eligible if eligible else None
         sufficient = (scored >= min_scored and eligible > 0 and
                       missing_fraction <= max_unavailable_fraction)
+        # A fixed chronological split is descriptive, NOT a significance test.
+        # Missing eligible labels could selectively bias settled-only halves.
+        split_ready = sufficient and unavailable == 0 and scored >= 60
+        split_status = ("DESCRIPTIVE_ONLY" if split_ready else
+                        "BASELINE_SCORE_WITHHELD" if not sufficient else
+                        "MISSING_ELIGIBLE_OUTCOMES" if unavailable else
+                        "INSUFFICIENT_TEMPORAL_SPLIT_SAMPLE")
+        split_metrics = {
+            "temporalSplitStatus": split_status,
+            "temporalSplitEarlyCount": None,
+            "temporalSplitLateCount": None,
+            "pairedBrierRegretEarlyHalf": None,
+            "pairedBrierRegretLateHalf": None,
+            "pairedBrierRegretLateMinusEarly": None,
+            "pairedLogLossRegretEarlyHalf": None,
+            "pairedLogLossRegretLateHalf": None,
+            "pairedLogLossRegretLateMinusEarly": None,
+        }
+        if split_ready:
+            midpoint = scored // 2
+            early, late = scored_regrets[:midpoint], scored_regrets[midpoint:]
+            early_brier = sum(r[0] for r in early) / len(early)
+            late_brier = sum(r[0] for r in late) / len(late)
+            early_log = sum(r[1] for r in early) / len(early)
+            late_log = sum(r[1] for r in late) / len(late)
+            split_metrics.update(
+                temporalSplitEarlyCount=len(early),
+                temporalSplitLateCount=len(late),
+                pairedBrierRegretEarlyHalf=early_brier,
+                pairedBrierRegretLateHalf=late_brier,
+                pairedBrierRegretLateMinusEarly=late_brier - early_brier,
+                pairedLogLossRegretEarlyHalf=early_log,
+                pairedLogLossRegretLateHalf=late_log,
+                pairedLogLossRegretLateMinusEarly=late_log - early_log,
+            )
         results.append({
             "modelVersion": model, "horizonCandles": horizon,
             "issued": len(rows), "maturedAtDeclaredCutoff": matured,
@@ -134,6 +171,7 @@ def audit_causal_climatology(snapshot, *, evaluation_as_of, min_training=30,
                 regret_log_low / eligible if sufficient else None,
             "pairedLogLossRegretWorstCaseEligibleCensus":
                 regret_log_high / eligible if sufficient else None,
+            **split_metrics,
         })
     return {
         "evidence": validated["evidence"], "evaluationAsOfDeclared": evaluation_as_of,
