@@ -203,3 +203,67 @@ def test_same_minute_result_does_not_change_prior_snapshot_or_count():
     after = run([schedule, result], "2026-10-28T18:01:00Z")
     assert after["visible_revision_count"] == 2
     assert after["events"][0]["actual"] == "3.7"
+
+
+def test_research_envelope_binds_source_without_changing_legacy_event_digest():
+    records = [row()]
+    first = audit_declared_event_asof(
+        records, decision_utc="2026-10-28T17:00:00Z", source_id="provider-A"
+    )
+    second = audit_declared_event_asof(
+        records, decision_utc="2026-10-28T17:00:00Z", source_id="provider-B"
+    )
+    assert first["events"] == second["events"]
+    assert first["visible_snapshot_sha256"] == second["visible_snapshot_sha256"]
+    assert first["research_envelope_sha256"] != second["research_envelope_sha256"]
+    assert first["research_envelope_schema_version"] == 1
+
+
+def test_research_envelope_binds_decision_even_when_events_unchanged():
+    before = run([row()], "2026-10-28T16:00:00Z")
+    after = run([row()], "2026-10-28T17:00:00Z")
+    assert before["events"] == after["events"]
+    assert before["visible_snapshot_sha256"] == after["visible_snapshot_sha256"]
+    assert before["research_envelope_sha256"] != after["research_envelope_sha256"]
+
+
+def test_research_envelope_future_revision_invariant_and_order_independent():
+    base = [row(event_id="A"), row(event_id="B")]
+    later = row(2, "schedule", event_id="A",
+                scheduled="2026-10-28T19:00:00Z",
+                published="2026-10-28T17:01:00Z",
+                observed="2026-10-28T17:02:00Z")
+    first = run(base)
+    assert run(list(reversed(base))) == first
+    assert run(base + [later]) == first
+
+
+def test_research_envelope_digest_matches_independent_canonical_payload():
+    import hashlib
+    import json
+
+    report = run([row()])
+    expected = {
+        "schema_version": 1,
+        "source_id": report["source_id"],
+        "decision_utc": report["decision_utc"],
+        "visible_revision_count": report["visible_revision_count"],
+        "events": report["events"],
+    }
+    canonical = json.dumps(
+        expected, sort_keys=True, separators=(",", ":"), ensure_ascii=True
+    )
+    assert report["research_envelope_sha256"] == hashlib.sha256(
+        canonical.encode("utf-8")
+    ).hexdigest()
+
+
+def test_empty_event_envelope_still_binds_declared_source():
+    a = audit_declared_event_asof(
+        [], decision_utc="2026-10-28T17:00:00Z", source_id="A"
+    )
+    b = audit_declared_event_asof(
+        [], decision_utc="2026-10-28T17:00:00Z", source_id="B"
+    )
+    assert a["visible_event_count"] == b["visible_event_count"] == 0
+    assert a["research_envelope_sha256"] != b["research_envelope_sha256"]
