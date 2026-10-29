@@ -84,6 +84,13 @@ def inspect_declared_inventory_continuity(
             failures.add("snapshot_sequence_gap")
         if current["observed_at_ms"] <= prev["observed_at_ms"]:
             failures.add("snapshot_observation_not_advanced")
+        # An adjacent sequence is not enough if its observation window is stale.
+        # This deliberately conservative caller-declared cadence bound is not
+        # provider evidence and must not be used to authorize orders.
+        if (current["observed_at_ms"] > prev["observed_at_ms"]
+                and current["observed_at_ms"] - prev["observed_at_ms"]
+                > expected["max_snapshot_age_ms"]):
+            failures.add("snapshot_observation_gap_exceeds_freshness_window")
         if current["received_at_ms"] <= prev["received_at_ms"]:
             failures.add("snapshot_receipt_not_advanced")
         if current["observed_at_ms"] <= prev["received_at_ms"]:
