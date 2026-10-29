@@ -109,6 +109,8 @@ def audit_forecast_alert_health(records, expected_keys, *, as_of,
     oldest_queued = 0
     earliest_queued_expiry = None
     earliest_queued_keys = []
+    next_queue_delay_warning = None
+    next_queue_delay_keys = []
     oldest_uncertain = 0
     max_ack_lag = 0
     oldest_unverified_ack = 0
@@ -157,6 +159,17 @@ def audit_forecast_alert_health(records, expected_keys, *, as_of,
                 if age >= queue_warning_seconds:
                     counts["QUEUE_DELAY_WARNING"] += 1
                     warn(key, "QUEUE_DELAY_WARNING")
+                else:
+                    # Only unbreached, still-queued alerts have a future
+                    # issuance-age delay deadline. Already warned and
+                    # expired alerts must not appear as upcoming incidents.
+                    remaining_delay = queue_warning_seconds - age
+                    if (next_queue_delay_warning is None or
+                            remaining_delay < next_queue_delay_warning):
+                        next_queue_delay_warning = remaining_delay
+                        next_queue_delay_keys = [key]
+                    elif remaining_delay == next_queue_delay_warning:
+                        next_queue_delay_keys.append(key)
                 # Short-lived alerts may approach expiry before the normal
                 # queue-age threshold. Surface them for operator review early.
                 if state["expiresAt"] - as_of <= expiry_warning_seconds:
@@ -224,6 +237,8 @@ def audit_forecast_alert_health(records, expected_keys, *, as_of,
             "oldestQueuedSeconds": oldest_queued,
             "earliestQueuedExpirySecondsRemaining": earliest_queued_expiry,
             "earliestQueuedExpiryKeys": [list(key) for key in sorted(earliest_queued_keys)],
+            "nextQueueDelayWarningSecondsRemaining": next_queue_delay_warning,
+            "nextQueueDelayWarningKeys": [list(key) for key in sorted(next_queue_delay_keys)],
             "oldestUncertainSeconds": oldest_uncertain,
             "maxSelfAttestedAckLagSeconds": max_ack_lag,
             "oldestUnverifiedAckAgeSeconds": oldest_unverified_ack,
