@@ -167,3 +167,32 @@ eligible outcome and causal training gates continue to withhold the entire
 fixed-bin report. No additional market feed, broker access, notification,
 order or production write is enabled. Tests:
 `cd backend && PYTHONPATH=. pytest -q tests/test_forecast_fixed_bin_sensitivity.py`.
+
+
+### Leave-one-probability-bin-out calibration fragility (29 October 2026)
+
+The disconnected five-bin audit additionally reports
+`leaveOneBinOutStatus`, `leaveOneBinOutBestCaseWeightedGap`, and
+`leaveOneBinOutWorstCaseWeightedGap`. For each occupied predeclared
+probability bin, it removes **all** forecasts in that bin and recalculates
+the remaining population-weighted absolute calibration gap. The range
+describes how sensitive the aggregate is to one probability region;
+the denominator is the count of **remaining** observations, not the
+original cohort size. Original bins, issued probabilities and labels are
+never changed.
+
+Both numeric values are withheld unless the ordinary five-bin reliability
+status is `DESCRIPTIVE_ONLY` **and at least three occupied bins** each
+meet the 30-observation minimum. This leaves at least two supported
+probability regions after any omission. A two-bin cohort reports
+`INSUFFICIENT_REMAINING_BINS`; sparse or otherwise unsupported cohorts
+report `RELIABILITY_WITHHELD`. The audit is an *in-sample descriptive
+stress test*, not a model-selection procedure, confidence interval,
+causal estimate or improvement to actual predictive performance.
+Comparing omitted populations must not be used to cherry-pick a
+favorable backtest. The existing upstream no-missing-outcomes gate,
+source/provenance limitations and false notification/paper/live
+permissions are unchanged.
+
+Synthetic tests: `cd backend && PYTHONPATH=. pytest -q
+tests/test_forecast_fixed_bin_leave_one_out.py`.
