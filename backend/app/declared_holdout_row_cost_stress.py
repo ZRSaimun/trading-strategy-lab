@@ -8,7 +8,7 @@ from __future__ import annotations
 from decimal import Decimal, ROUND_FLOOR, localcontext
 
 from .declared_holdout_cost_attribution import audit_declared_holdout_cost_attribution
-from .declared_holdout_release_gate import _exact, _id, _money
+from .declared_holdout_release_gate import _exact, _hash, _id, _money
 
 _COSTS = (
     "spread_extra_cash", "slippage_extra_cash", "commission_extra_cash",
@@ -91,6 +91,7 @@ def audit_declared_holdout_row_cost_stress(
     names = set()
     reports = []
     per_scenario_costs = {}
+    scenario_commitments = []
     with localcontext() as ctx:
         ctx.prec = 80
         for scenario in scenarios:
@@ -127,6 +128,16 @@ def audit_declared_holdout_row_cost_stress(
                 extra_by_id[key] = per_row
             if seen != set(by_id):
                 raise ValueError("Incomplete row-cost population")
+            # Input-only commitment: bind exact declared cash strings to the
+            # candidate/source/census, independent of caller list order.
+            # This digest can be externally preregistered, but cannot prove
+            # when, by whom, or whether that preregistration occurred.
+            scenario_commitments.append({
+                "scenario_id": name,
+                "adjustments": sorted(
+                    adjustments, key=lambda row: row["observation_id"]
+                ),
+            })
             per_scenario_costs[name] = extra_by_id
             withheld = baseline["outcome_metrics_withheld"]
             extra = sum(totals.values(), Decimal(0))
@@ -301,6 +312,14 @@ def audit_declared_holdout_row_cost_stress(
         "status": baseline["status"],
         "manifest_sha256": baseline["manifest_sha256"],
         "outcome_receipts_sha256": baseline["outcome_receipts_sha256"],
+        "scenario_set_sha256": _hash({
+            "protocol": "declared-holdout-row-cost-scenario-set-v1",
+            "manifest_sha256": baseline["manifest_sha256"],
+            "holdout_census_sha256": manifest["holdout_census_sha256"],
+            "scenarios": sorted(
+                scenario_commitments, key=lambda row: row["scenario_id"]
+            ),
+        }),
         "observation_count": baseline["observation_count"],
         "outcome_metrics_withheld": withheld,
         "baseline_net_cash": baseline["net_cash"],
