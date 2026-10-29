@@ -86,6 +86,17 @@ def audit_declared_m1_gap_runs(
     if missing != len(expected - seen):
         raise ValueError("Expected-minute gap reconciliation failed")
     lengths = Counter(length for _, length in runs)
+    # Trailing coverage counts only declared expected slots, not elapsed wall
+    # minutes. Session breaks and declared closures do not create fake gaps.
+    # A present out-of-session bar must never satisfy the expected tail.
+    latest_observed_expected = max(expected & seen, default=None)
+    trailing_missing = 0
+    for minute in reversed(manifest.expected_minutes):
+        if minute in seen:
+            break
+        trailing_missing += 1
+    if trailing_missing > missing:
+        raise ValueError("Expected-minute tail reconciliation failed")
     return {
         "status": ("DECLARED_COVERAGE_COMPLETE_UNVERIFIED" if not (missing or duplicate_rows or unexpected or backward_transitions)
                    else "REVIEW_REQUIRED"),
@@ -96,6 +107,10 @@ def audit_declared_m1_gap_runs(
         "expected_minutes": len(expected),
         "unique_observed_expected_minutes": len(expected & seen),
         "missing_expected_minutes": missing,
+        "latest_expected_minute_utc": manifest.expected_minutes[-1],
+        "latest_observed_expected_minute_utc": latest_observed_expected,
+        "trailing_missing_expected_minutes": trailing_missing,
+        "latest_expected_minute_present": trailing_missing == 0,
         "missing_gap_runs": len(runs),
         "longest_missing_gap_minutes": max((length for _, length in runs), default=0),
         "gap_run_length_histogram": {str(k): lengths[k] for k in sorted(lengths)},
