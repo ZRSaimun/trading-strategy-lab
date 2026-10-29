@@ -243,3 +243,68 @@ def audit_declared_event_window(revisions, *, decision_utc, source_id,
         "window_audit_schema_version": 1,
         "window_audit_sha256": hashlib.sha256(canonical.encode("utf-8")).hexdigest(),
     }
+
+
+def audit_declared_surprise_asof(revisions, *, decision_utc, source_id):
+    """Compute declared raw actual-minus-forecast only when both are visible.
+
+    A raw difference has no standardized units, surprise significance, or
+    trade direction. This offline audit never grants execution permission.
+    """
+    from decimal import localcontext
+
+    snapshot = audit_declared_event_asof(
+        revisions, decision_utc=decision_utc, source_id=source_id
+    )
+    observations = []
+    for event in snapshot["events"]:
+        actual, forecast = event["actual"], event["forecast"]
+        if actual is None:
+            status, difference = "ACTUAL_NOT_VISIBLE", None
+        elif forecast is None:
+            status, difference = "FORECAST_MISSING", None
+        else:
+            # Both normalized inputs have bounded exponent and magnitude.
+            # The default 28-digit context would round a 30-place surprise.
+            with localcontext() as ctx:
+                ctx.prec = 128
+                difference = _decimal(format(
+                    Decimal(actual) - Decimal(forecast), "f"
+                ))
+            status = "DECLARED_RAW_DIFFERENCE"
+        observations.append({
+            "event_id": event["event_id"],
+            "revision": event["revision"],
+            "scheduled_utc": event["scheduled_utc"],
+            "forecast": forecast,
+            "actual": actual,
+            "status": status,
+            "raw_actual_minus_forecast": difference,
+        })
+    envelope = {
+        "schema_version": 1,
+        "research_envelope_v2_sha256": snapshot["research_envelope_v2_sha256"],
+        "observations": observations,
+    }
+    canonical = json.dumps(
+        envelope, sort_keys=True, separators=(",", ":"), ensure_ascii=True
+    )
+    return {
+        "research_only": True,
+        "trade_authorized": False,
+        "authenticated_calendar": False,
+        "coverage_verified": False,
+        "comparable_units_verified": False,
+        "source_id": snapshot["source_id"],
+        "decision_utc": snapshot["decision_utc"],
+        "visible_event_count": snapshot["visible_event_count"],
+        "declared_difference_count": sum(
+            item["status"] == "DECLARED_RAW_DIFFERENCE" for item in observations
+        ),
+        "observations": observations,
+        "research_envelope_v2_sha256": snapshot["research_envelope_v2_sha256"],
+        "surprise_audit_schema_version": 1,
+        "surprise_audit_sha256": hashlib.sha256(
+            canonical.encode("utf-8")
+        ).hexdigest(),
+    }
