@@ -85,3 +85,22 @@ These are **caller-declared loss-severity diagnostics**, not an estimate of
 value at risk, independent trades, executable slippage, broker equity, or a
 profitable edge. A high share may simply reflect a single constructed stress
 row. No demo or real order permissions are enabled.
+
+
+## Positive declared-net erosion under adverse costs
+
+For released populations with **positive** caller-declared baseline net cash,
+`additional_cost_share_of_positive_baseline_net_bps` is the floor-rounded
+ratio of total scenario additional cash debits to baseline net, in basis
+points. It can exceed 10,000 bps when the extra costs exceed baseline net.
+`positive_baseline_net_erased_by_stress` is true only when a strictly
+positive declared baseline becomes **zero or negative** under additional
+costs. For zero/negative baseline net, the ratio is undefined (`null`)
+and the erosion flag is false. Both fields are `null` when fewer than
+30 observations are eligible for release.
+
+The denominator includes the existing signed CFD financing cash and all
+declared spread, slippage, commission and FX costs. This is a deterministic
+**cost-fragility accounting diagnostic**, not a calibrated break-even
+probability, independently verified edge, or broker-executable cost.
+It does not grant any paper/demo or live order permission.
