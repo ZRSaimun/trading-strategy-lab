@@ -7,3 +7,20 @@ The audit rejects reused archive SHA-256 declarations, reused raw-row hashes, ov
 **Limitations:** This is not a source-authenticated walk-forward, an independently preregistered untouched holdout, proof of distinct market-data samples, or a broker-cost backtest. Distinct digest strings can be fabricated, and no cryptographic authentication of archive bytes or historical quote execution is performed. The fixed-candidate rule is intentionally narrower than retrained walk-forward strategies; development-fold audits remain in separate PR #144. For genuinely prospective holdouts, precommit eligibility rules before future market rows exist, then authenticate and freeze the observed census. A caller with access to raw outcomes can still peek. No result is evidence of profitability.
 
 Synthetic regression: `cd backend && PYTHONPATH=. python -m pytest -q tests/test_declared_holdout_fold_isolation.py`.
+
+
+## Declared label maturity beyond the window
+
+The membership-only audit now reports each fold's
+`latest_declared_label_available_at_utc` and
+`declared_label_tail_beyond_window_seconds` (zero if every label matures
+before or at the declared holdout end). The study-level
+`max_declared_label_tail_beyond_window_seconds` and
+`longest_declared_label_tail_fold_index` identify the longest positive
+tail, with earliest-fold tie handling; the index is `null` when all tails
+are zero. This surfaces a release-readiness concern: the end of a
+decision window does not mean every trade outcome is yet observable.
+A positive tail is not itself leakage or proof of an invalid split.
+The existing next-selection embargo validation still rejects immature
+earlier labels. These values use only caller-declared timestamps; they
+cannot verify actual source clocks, observation receipts or independence.
