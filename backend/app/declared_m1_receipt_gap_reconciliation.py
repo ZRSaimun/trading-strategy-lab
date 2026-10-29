@@ -1,0 +1,82 @@
+"""Offline cross-check of declared completed-M1 receipts and session gap runs.
+
+This is a consistency audit, not provider authentication, a venue calendar,
+licensed data access, a live-feed assertion or a forecasting/trading gate.
+"""
+from __future__ import annotations
+
+from .declared_m1_gap_runs import audit_declared_m1_gap_runs
+from .expected_bar_manifest import (
+    ExpectedM1Manifest,
+    audit_m1_receipts_against_manifest,
+)
+
+
+def audit_declared_m1_receipt_gap_reconciliation(
+    receipts: list[dict],
+    manifest: ExpectedM1Manifest,
+    *,
+    max_receipt_lag_seconds: int = 120,
+    max_observation_age_seconds: int = 180,
+    max_expected_close_age_seconds: int = 180,
+    sample_limit: int = 20,
+) -> dict:
+    """Reconcile two independent *algorithms* over the same declared inputs.
+
+    The receipt census validates schema, OHLC, source identity and declared
+    freshness first. The gap audit separately checks input order, closures,
+    per-session missing runs and trailing expected-minute coverage. Their
+    populations must agree exactly; neither input is independently trusted.
+    """
+    limits = dict(
+        max_receipt_lag_seconds=max_receipt_lag_seconds,
+        max_observation_age_seconds=max_observation_age_seconds,
+        max_expected_close_age_seconds=max_expected_close_age_seconds,
+        sample_limit=sample_limit,
+    )
+    # This call validates the entire receipt schema and frozen manifest before
+    # any fields are read. Do not skip it even when the receipt list is empty.
+    census = audit_m1_receipts_against_manifest(receipts, manifest, **limits)
+    gaps = audit_declared_m1_gap_runs(
+        manifest, [row["bar_start_utc"] for row in receipts],
+        sample_limit=sample_limit,
+    )
+    equalities = (
+        (census["calendar_manifest_sha256"], gaps["calendar_manifest_sha256"]),
+        (census["expected_minutes"], gaps["expected_minutes"]),
+        (census["missing_expected_minutes"], gaps["missing_expected_minutes"]),
+        (census["unexpected_observed_minutes"], gaps["unexpected_unique_minutes"]),
+        (census["duplicate_receipt_rows"], gaps["duplicate_observation_rows"]),
+        (census["unique_observed_minutes"],
+         gaps["unique_observed_expected_minutes"] + gaps["unexpected_unique_minutes"]),
+    )
+    if any(left != right for left, right in equalities):
+        raise ValueError("Declared receipt/gap population reconciliation failed")
+    clean = (
+        census["status"] == "INTERNAL_CENSUS_ONLY_NOT_LIVE"
+        and gaps["status"] == "DECLARED_COVERAGE_COMPLETE_UNVERIFIED"
+    )
+    return {
+        "protocol": "declared-m1-receipt-gap-reconciliation-v1",
+        "status": ("DECLARED_RECONCILED_UNVERIFIED" if clean else "REVIEW_REQUIRED"),
+        "calendar_manifest_sha256": manifest.manifest_sha256,
+        "receipt_input_sha256": census["input_sha256"],
+        "expected_minutes": gaps["expected_minutes"],
+        "missing_expected_minutes": gaps["missing_expected_minutes"],
+        "missing_gap_runs": gaps["missing_gap_runs"],
+        "trailing_missing_expected_minutes": gaps["trailing_missing_expected_minutes"],
+        "unexpected_unique_minutes": gaps["unexpected_unique_minutes"],
+        "duplicate_receipt_rows": gaps["duplicate_observation_rows"],
+        "backward_timestamp_transitions": gaps["backward_timestamp_transitions"],
+        "declared_session_coverage": gaps["declared_session_coverage"],
+        "receipt_census": census,
+        "session_gap_audit": gaps,
+        "independent_calendar_verified": False,
+        "source_authenticated": False,
+        "provider_entitlement_verified": False,
+        "server_receipt_clock_attested": False,
+        "executable_bid_ask_verified": False,
+        "live": False,
+        "forecast_ready": False,
+        "may_execute_order": False,
+    }
