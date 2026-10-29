@@ -68,6 +68,9 @@ def test_missing_previous_holds():
     (lambda e,p,c: p.update(received_at_ms=NOW + 1), "previous_snapshot_clock_invalid"),
     (lambda e,p,c: p["pages"][0].update(complete=False), "previous_page_census_incomplete"),
     (lambda e,p,c: c.update(observed_at_ms=NOW - 6000), "current_inventory:snapshot_freshness"),
+    (lambda e,p,c: p.update(observed_at_ms=c["observed_at_ms"] - e["max_snapshot_age_ms"] - 1,
+                             received_at_ms=c["observed_at_ms"] - e["max_snapshot_age_ms"] + 99),
+     "snapshot_observation_gap_exceeds_freshness_window"),
 ])
 def test_transition_fail_closed(edit, reason):
     result = inspect(edit)
@@ -88,6 +91,17 @@ def test_transition_fail_closed(edit, reason):
 def test_invalid_schemas_raise(edit):
     with pytest.raises(ValueError):
         inspect(edit)
+
+
+
+def test_observation_gap_at_freshness_window_boundary_is_not_held():
+    e, p, c = sample()
+    p["observed_at_ms"] = c["observed_at_ms"] - e["max_snapshot_age_ms"]
+    p["received_at_ms"] = p["observed_at_ms"] + 100
+    result = inspect_declared_inventory_continuity(e, p, c, NOW)
+    assert result["status"] == "DECLARED_INVENTORY_CONTINUITY_UNVERIFIED"
+    assert "snapshot_observation_gap_exceeds_freshness_window" not in result["failed_checks"]
+    assert result["may_clear_unknown"] is False
 
 
 def test_non_mutating_and_deterministic():
