@@ -2938,20 +2938,14 @@ test('v69 matched first-touch wait attrition reconciles strict status and as-of 
 });
 
 test('as-of future timestamp getter cannot rewrite historical source or frozen settings',()=>{
- const bars=fixture();
- const mutableSource:FvgSource={...source};
+ const bars=fixture(),mutableSource:FvgSource={...source};
  const mutableConfig:FvgConfig={
   volumeMultiple:1.5,hypotheticalRoundTripCostsBps:[0,5,15],
  };
- const cutoff=BASE+34*H; // first midpoint-touch bar is now completed
- const expected=studyHourlyFvgMidpoint(bars.slice(0,34),mutableSource,mutableConfig);
- const firstFuture=bars[34];
- const originalFutureTime=firstFuture.time;
+ const cutoff=BASE+34*H,firstFuture=bars[34],originalFutureTime=firstFuture.time;
  let futureTimestampReads=0;
  Object.defineProperty(firstFuture,'time',{get(){
   futureTimestampReads++;
-  // Future OHLC must not be read, but even the timestamp getter must not
-  // be able to reclassify already-observed volume or rewrite the report.
   mutableSource.volumeVerified=false;
   mutableSource.provider='spoofed-after-cutoff';
   mutableConfig.volumeMultiple=10;
@@ -2962,19 +2956,12 @@ test('as-of future timestamp getter cannot rewrite historical source or frozen s
   Object.defineProperty(firstFuture,field,{get(){
    throw Error('future '+field+' must not be inspected');
   }});
- const actual=studyHourlyFvgMidpointAsOf(bars,mutableSource,cutoff,mutableConfig);
- assert.ok(futureTimestampReads>0,'future timestamps are still checked for ordering');
- assert.equal(mutableSource.volumeVerified,false,'mutation fixture must execute');
- assert.equal(mutableConfig.volumeMultiple,10,'future getter must attempt config rewrite');
- assert.deepEqual(actual,expected,
-  'historical source, volume classification and cost settings must be frozen before future timestamp reads');
- assert.equal(actual.source.provider,source.provider);
- assert.equal(actual.source.volumeVerified,true);
- assert.deepEqual(actual.config.hypotheticalRoundTripCostsBps,[0,5,15]);
- const observed=actual.observations.find(o=>o.formationClosedAt===BASE+33*H);
- assert.equal(observed?.gates.verifiedVolume,'PASS');
- assert.equal(observed?.gates.markout,'INSUFFICIENT_DATA',
-  'future exit candles remain right-censored as of the touch close');
+ assert.throws(()=>studyHourlyFvgMidpointAsOf(bars,mutableSource,cutoff,mutableConfig),
+  /FVG source declaration field changed during declaration snapshot/,
+  'a retroactively rewritten original declaration must fail closed, not merely export its old copy');
+ assert.ok(futureTimestampReads>0);
+ assert.equal(mutableSource.volumeVerified,false);
+ assert.equal(mutableConfig.volumeMultiple,10);
 });
 
 test('v71 post-snapshot archive and cost schemas reject getter-injected broker metadata',()=>{
@@ -3028,36 +3015,27 @@ test('v71 post-snapshot as-of rechecks completed schemas without future OHLC rea
  }
 });
 
-test('v72 full-history freezes source, volume status and costs before completed-bar accessors',()=>{
- const rows=fixture();
- const mutableSource:FvgSource={...source};
+test('v72 full-history rejects retroactive declaration edits from completed-bar accessors',()=>{
+ const rows=fixture(),mutableSource:FvgSource={...source};
  const mutableConfig:FvgConfig={
   volumeMultiple:1.5,hypotheticalRoundTripCostsBps:[0,5,15],
  };
- const expected=studyHourlyFvgMidpoint(fixture(),source,mutableConfig);
  const first=rows[0],originalTime=first.time;
  let completedGetterReads=0;
  Object.defineProperty(first,'time',{configurable:true,enumerable:true,get(){
   completedGetterReads++;
-  // The observed bar is still a valid BID candle, but a hostile getter can
-  // rewrite the caller's evidence declarations during snapshot collection.
   mutableSource.volumeVerified=false;
   mutableSource.provider='rewritten-by-completed-bar-getter';
   mutableConfig.volumeMultiple=10;
   mutableConfig.hypotheticalRoundTripCostsBps=[0,900];
   return originalTime;
  }});
- const actual=studyHourlyFvgMidpoint(rows,mutableSource,mutableConfig);
- assert.ok(completedGetterReads>0,'the mutation attempt must execute');
+ assert.throws(()=>studyHourlyFvgMidpoint(rows,mutableSource,mutableConfig),
+  /FVG source declaration field changed during declaration snapshot/,
+  'post-preflight declaration edits must be rejected rather than silently accepted');
+ assert.ok(completedGetterReads>0);
  assert.equal(mutableSource.volumeVerified,false);
  assert.equal(mutableConfig.volumeMultiple,10);
- assert.deepEqual(actual,expected,
-  'completed candle getters must not reclassify volume or costs after preflight');
- assert.equal(actual.source.provider,source.provider);
- assert.equal(actual.source.volumeVerified,true);
- assert.deepEqual(actual.config.hypotheticalRoundTripCostsBps,[0,5,15]);
- const observed=actual.observations.find(o=>o.formationClosedAt===BASE+33*H);
- assert.equal(observed?.gates.verifiedVolume,'PASS');
 });
 
 test('v72 source/config getter cannot resize the bounded historical candle population',()=>{
