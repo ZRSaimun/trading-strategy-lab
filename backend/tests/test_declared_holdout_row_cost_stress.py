@@ -676,3 +676,100 @@ def test_nonnegative_receipt_batches_have_no_loss_streak():
     assert entry["negative_receipt_batch_count"] == 0
     assert entry["max_consecutive_negative_receipt_batches"] == 0
     assert entry["max_consecutive_negative_receipt_batches_loss_cash"] == "0.0000"
+
+
+def test_scenario_set_digest_is_canonical_across_scenario_and_row_order():
+    data = _fixture()
+    scenarios = [
+        _scenario(data, "alpha", {0: {"spread_extra_cash": "0.2000"}}),
+        _scenario(data, "beta", {1: {"financing_extra_cash": "0.3000"}}),
+    ]
+    original = copy.deepcopy(scenarios)
+    first = _audit(data, scenarios)
+    reversed_scenarios = copy.deepcopy(scenarios)[::-1]
+    for scenario in reversed_scenarios:
+        scenario["adjustments"].reverse()
+    reordered = copy.deepcopy(data)
+    reordered[3].reverse()
+    second = _audit(reordered, reversed_scenarios)
+    assert first["scenario_set_sha256"] == second["scenario_set_sha256"]
+    assert len(first["scenario_set_sha256"]) == 64
+    int(first["scenario_set_sha256"], 16)
+    assert scenarios == original
+    assert first["may_execute_demo_order"] is False
+    assert first["may_execute_real_order"] is False
+
+
+def test_scenario_set_digest_changes_with_cash_component_even_if_net_unchanged():
+    data = _fixture()
+    first = _scenario(data, per_row={
+        0: {"spread_extra_cash": "0.3000"},
+    })
+    second = _scenario(data, per_row={
+        0: {"slippage_extra_cash": "0.3000"},
+    })
+    a = _audit(data, [first])
+    b = _audit(data, [second])
+    assert a["scenarios"][0]["stressed_net_cash"] == b["scenarios"][0]["stressed_net_cash"]
+    assert a["scenario_set_sha256"] != b["scenario_set_sha256"]
+
+
+def test_scenario_set_digest_changes_with_row_location_not_just_total():
+    data = _fixture()
+    first = _scenario(data, per_row={
+        0: {"spread_extra_cash": "0.3000"},
+    })
+    second = _scenario(data, per_row={
+        1: {"spread_extra_cash": "0.3000"},
+    })
+    a = _audit(data, [first])
+    b = _audit(data, [second])
+    assert a["scenarios"][0]["extra_cost_cash"] == b["scenarios"][0]["extra_cost_cash"]
+    assert a["scenario_set_sha256"] != b["scenario_set_sha256"]
+
+
+def test_scenario_set_digest_binds_manifest_candidate_identity():
+    from app.declared_holdout_release_gate import prepare_declared_holdout_manifest_sha256
+
+    data = _fixture()
+    scenario = _scenario(data)
+    original = _audit(data, [scenario])
+    other = copy.deepcopy(data)
+    other[0]["candidate_config_sha256"] = "e" * 64
+    other[2]["manifest_sha256"] = prepare_declared_holdout_manifest_sha256(other[0])
+    changed = _audit(other, [scenario])
+    assert original["scenario_set_sha256"] != changed["scenario_set_sha256"]
+
+
+def test_scenario_set_digest_is_independent_of_outcome_cash():
+    data = _fixture()
+    scenario = _scenario(data)
+    before = _audit(data, [scenario])
+    other = copy.deepcopy(data)
+    other[3][0]["gross_cash"] = "3.0000"
+    after = _audit(other, [scenario])
+    assert before["scenario_set_sha256"] == after["scenario_set_sha256"]
+    assert before["baseline_net_cash"] != after["baseline_net_cash"]
+
+
+def test_scenario_set_digest_commits_exact_decimal_text():
+    data = _fixture()
+    first = _scenario(data, per_row={0: {"spread_extra_cash": "0.1"}})
+    second = _scenario(data, per_row={0: {"spread_extra_cash": "0.1000"}})
+    a = _audit(data, [first])
+    b = _audit(data, [second])
+    assert a["scenarios"][0]["stressed_net_cash"] == b["scenarios"][0]["stressed_net_cash"]
+    assert a["scenario_set_sha256"] != b["scenario_set_sha256"]
+
+
+def test_withheld_population_can_commit_inputs_without_exposing_outcomes():
+    data = _fixture(29)
+    scenario = _scenario(data, per_row={0: {"fx_extra_cash": "0.2000"}})
+    result = _audit(data, [scenario])
+    assert result["outcome_metrics_withheld"] is True
+    assert result["outcome_receipts_sha256"] is None
+    assert len(result["scenario_set_sha256"]) == 64
+    assert result["scenarios"][0]["stressed_net_cash"] is None
+    assert result["scenarios"][0]["extra_cost_cash"] is None
+    assert result["may_execute_demo_order"] is False
+    assert result["may_execute_real_order"] is False
