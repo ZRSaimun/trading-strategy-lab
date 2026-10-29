@@ -58,6 +58,8 @@ def test_row_specific_components_and_maximum_reconcile():
         "stressed_losing_observation_count": 0,
         "additional_cost_induced_losing_observation_count": 0,
         "stressed_gross_loss_cash": "0.0000",
+        "additional_cost_induced_gross_loss_cash": "0.0000",
+        "max_single_stressed_loss_share_bps": None,
         "extra_cost_by_component_cash": {
             "spread_extra_cash": "1.2500",
             "slippage_extra_cash": "0.0000",
@@ -116,6 +118,8 @@ def test_small_holdout_withholds_all_outcome_and_cost_metrics(count):
     assert entry["stressed_losing_observation_count"] is None
     assert entry["additional_cost_induced_losing_observation_count"] is None
     assert entry["stressed_gross_loss_cash"] is None
+    assert entry["additional_cost_induced_gross_loss_cash"] is None
+    assert entry["max_single_stressed_loss_share_bps"] is None
     assert all(value is None for value in entry["extra_cost_by_component_cash"].values())
 
 
@@ -368,4 +372,55 @@ def test_tiny_exact_cash_cost_concentration_and_execution_disabled():
     assert entry["additional_cost_affected_observation_count"] == 2
     assert entry["max_single_observation_extra_cost_share_bps"] == 6666
     assert report["may_execute_demo_order"] is False
+    assert report["may_execute_real_order"] is False
+
+
+def test_cost_induced_gross_loss_and_single_loss_share_are_exact():
+    data = _fixture()
+    report = _audit(data, [_scenario(data, per_row={
+        0: {"spread_extra_cash": "5.0000"},
+    })])["scenarios"][0]
+    assert report["stressed_gross_loss_cash"] == "3.1000"
+    assert report["additional_cost_induced_gross_loss_cash"] == "3.1000"
+    assert report["max_single_stressed_loss_share_bps"] == 10000
+
+
+def test_preexisting_loss_is_not_cost_induced_gross_loss():
+    data = _fixture()
+    data[3][0]["gross_cash"] = "-1.0000"
+    report = _audit(data, [_scenario(data, per_row={
+        0: {"slippage_extra_cash": "5.0000"},
+    })])["scenarios"][0]
+    assert report["stressed_gross_loss_cash"] == "6.1000"
+    assert report["additional_cost_induced_gross_loss_cash"] == "0.0000"
+    assert report["max_single_stressed_loss_share_bps"] == 10000
+
+
+def test_two_stressed_losses_use_floor_rounded_largest_share():
+    data = _fixture()
+    report = _audit(data, [_scenario(data, per_row={
+        0: {"spread_extra_cash": "5.0000"},
+        1: {"financing_extra_cash": "5.0000"},
+    })])["scenarios"][0]
+    assert report["stressed_losing_observation_count"] == 2
+    assert report["stressed_gross_loss_cash"] == "6.4000"
+    assert report["additional_cost_induced_gross_loss_cash"] == "6.4000"
+    assert report["max_single_stressed_loss_share_bps"] == 5156
+
+
+def test_no_stressed_losses_have_undefined_loss_concentration():
+    data = _fixture()
+    report = _audit(data, [_scenario(data)])["scenarios"][0]
+    assert report["stressed_gross_loss_cash"] == "0.0000"
+    assert report["additional_cost_induced_gross_loss_cash"] == "0.0000"
+    assert report["max_single_stressed_loss_share_bps"] is None
+
+
+def test_cost_induced_loss_metrics_do_not_release_small_holdout():
+    data = _fixture(29)
+    report = _audit(data, [_scenario(data, per_row={
+        0: {"spread_extra_cash": "5.0000"},
+    })])
+    assert report["scenarios"][0]["additional_cost_induced_gross_loss_cash"] is None
+    assert report["scenarios"][0]["max_single_stressed_loss_share_bps"] is None
     assert report["may_execute_real_order"] is False
