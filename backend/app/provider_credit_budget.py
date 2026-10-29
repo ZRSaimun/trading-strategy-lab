@@ -162,13 +162,16 @@ def reserve_one_credit(
     path = _path(db_path)
     if not path.is_file():
         raise CreditBudgetError("Durable budget not provisioned")
-    now = int(time.time())
-    if not 60 <= now <= 253402300799:
-        raise CreditBudgetError("Invalid server UTC clock")
-    utc_day = datetime.fromtimestamp(now, timezone.utc).date().isoformat()
     try:
         with closing(_connect(path)) as conn:
             conn.execute("BEGIN IMMEDIATE")
+            # Sample UTC only AFTER acquiring SQLite's write lock. Sampling
+            # before a contended BEGIN could backdate a reservation by the
+            # lock wait and permit a second call <60s after the real attempt.
+            now = int(time.time())
+            if not 60 <= now <= 253402300799:
+                raise CreditBudgetError("Invalid server UTC clock")
+            utc_day = datetime.fromtimestamp(now, timezone.utc).date().isoformat()
             row = conn.execute(
                 "SELECT max_credits, entitlement_evidence_sha256, "
                 "rights_evidence_sha256 FROM daily_policy WHERE utc_day=? "
