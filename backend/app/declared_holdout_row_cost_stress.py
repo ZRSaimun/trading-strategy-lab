@@ -18,6 +18,43 @@ _ROW = {"observation_id", "row_sha256", "source_sha256", *_COSTS}
 _SCENARIO = {"scenario_id", "adjustments"}
 
 
+
+def _declared_receipt_risk(outcomes, stressed_nets):
+    """Receipt-second cash diagnostics, never intraperiod broker equity risk."""
+    batches = {}
+    worst = None
+    for row in outcomes:
+        net = stressed_nets[row["observation_id"]]
+        worst = net if worst is None else min(worst, net)
+        batch = batches.setdefault(
+            row["observed_at_utc"], [Decimal(0), Decimal(0), Decimal(0)]
+        )
+        batch[0] += net
+        batch[1 if net >= 0 else 2] += net
+
+    running = peak = drawdown = Decimal(0)
+    adverse_running = adverse_peak = adverse_drawdown = Decimal(0)
+    for observed_at in sorted(batches):
+        batch_net, positive, negative = batches[observed_at]
+        running += batch_net
+        peak = max(peak, running)
+        drawdown = max(drawdown, peak - running)
+
+        # Same-second receipts have no trustworthy internal ordering.
+        # A prior peak or all same-second credits before debits can each
+        # produce the largest receipt-time cash drawdown.
+        adverse_end = adverse_running + batch_net
+        adverse_drawdown = max(
+            adverse_drawdown,
+            adverse_peak - (adverse_running + negative),
+            -negative,
+            adverse_peak - adverse_end,
+        )
+        adverse_peak = max(adverse_peak, adverse_running + positive)
+        adverse_running = adverse_end
+    return worst, drawdown, adverse_drawdown
+
+
 def audit_declared_holdout_row_cost_stress(
     manifest, census, anchor, outcomes, release_at_utc, scenarios
 ):
@@ -51,6 +88,7 @@ def audit_declared_holdout_row_cost_stress(
             if type(adjustments) is not list or len(adjustments) != len(census):
                 raise ValueError("Row-cost scenario must cover every holdout observation")
             seen = set()
+            extra_by_id = {}
             totals = {field: Decimal(0) for field in _COSTS}
             maximum = Decimal(0)
             for adjustment in adjustments:
@@ -68,17 +106,44 @@ def audit_declared_holdout_row_cost_stress(
                     totals[field] += amount
                     per_row += amount
                 maximum = max(maximum, per_row)
+                extra_by_id[key] = per_row
             if seen != set(by_id):
                 raise ValueError("Incomplete row-cost population")
             withheld = baseline["outcome_metrics_withheld"]
             extra = sum(totals.values(), Decimal(0))
             net = None if withheld else Decimal(baseline["net_cash"]) - extra
+            worst_row = drawdown = adverse_drawdown = None
+            if not withheld:
+                stressed_nets = {}
+                for outcome in outcomes:
+                    key = outcome["observation_id"]
+                    charges = sum(
+                        (_money(outcome[field], nonnegative=True)
+                         for field in ("spread_cash", "slippage_cash",
+                                       "commission_cash", "fx_cash")),
+                        Decimal(0),
+                    )
+                    stressed_nets[key] = (
+                        _money(outcome["gross_cash"]) - charges
+                        - _money(outcome["financing_cash"]) - extra_by_id[key]
+                    )
+                if sum(stressed_nets.values(), Decimal(0)) != net:
+                    raise AssertionError("Stressed per-row cash failed reconciliation")
+                worst_row, drawdown, adverse_drawdown = _declared_receipt_risk(
+                    outcomes, stressed_nets
+                )
             reports.append({
                 "scenario_id": name,
                 "extra_cost_cash": None if withheld else format(extra, ".4f"),
                 "stressed_net_cash": None if withheld else format(net, ".4f"),
                 "max_single_observation_extra_cost_cash":
                     None if withheld else format(maximum, ".4f"),
+                "worst_observation_stressed_net_cash":
+                    None if withheld else format(worst_row, ".4f"),
+                "max_observation_end_drawdown_cash":
+                    None if withheld else format(drawdown, ".4f"),
+                "max_receipt_time_ordering_drawdown_cash_upper_bound":
+                    None if withheld else format(adverse_drawdown, ".4f"),
                 "extra_cost_by_component_cash": {
                     field: None if withheld else format(totals[field], ".4f")
                     for field in _COSTS
@@ -111,5 +176,6 @@ def audit_declared_holdout_row_cost_stress(
         "warning": "Every per-row cash debit and source identity is caller-declared. "
                    "Full-row coverage is not broker calibration or independent "
                    "holdout protection. No executable quotes, financing, margin "
-                   "or intraperiod equity risk are verified.",
+                   "or intraperiod equity risk are verified. Receipt-second cash "
+                   "drawdowns do not bound unobserved broker-equity losses.",
     }
