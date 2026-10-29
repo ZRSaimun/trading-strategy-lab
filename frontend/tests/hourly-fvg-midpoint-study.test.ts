@@ -695,7 +695,7 @@ test('research report rejects extra source fields without leaking caller private
  const report=studyHourlyFvgMidpoint(fixture(),source);
  assert.deepEqual(report.source,source);
  assert.deepEqual(Object.keys(report.source).sort(),Object.keys(source).sort());
- assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v83');
+ assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v84');
 });
 test('ambiguous source labels and contradictory volume evidence fail closed',()=>{
  // These are declared metadata, not independent vendor authentication.
@@ -770,7 +770,7 @@ test('v61 source labels reject lone surrogates and Unicode noncharacters in both
  assert.deepEqual(studyHourlyFvgMidpoint(bars,valid).source,valid);
  assert.deepEqual(studyHourlyFvgMidpointAsOf(bars,valid,cutoff).source,valid);
  assert.equal(studyHourlyFvgMidpoint(bars,valid).version,
-  'hourly-fvg-first-midpoint-touch-v83');
+  'hourly-fvg-first-midpoint-touch-v84');
 });
 test('v63 source labels reject Unicode space lookalikes without banning ASCII spaces',()=>{
  const bars=fixture(),cutoff=BASE+37*H;
@@ -787,7 +787,7 @@ test('v63 source labels reject Unicode space lookalikes without banning ASCII sp
  assert.deepEqual(studyHourlyFvgMidpoint(bars,legitimate).source,legitimate);
  assert.deepEqual(studyHourlyFvgMidpointAsOf(bars,legitimate,cutoff).source,legitimate);
  assert.equal(studyHourlyFvgMidpoint(bars,legitimate).version,
-  'hourly-fvg-first-midpoint-touch-v83');
+  'hourly-fvg-first-midpoint-touch-v84');
 });
 test('first bullish midpoint touch has a hypothetical blind limit and later next-open rejection markout',()=>{
  const x=target(fixture());
@@ -1132,7 +1132,7 @@ test('an overflowing next-open comparator suppresses both matched markouts',()=>
 });
 test('completed hourly timestamps are safe and numeric rule changes have a new version',()=>{
  const report=studyHourlyFvgMidpoint(fixture(),source);
- assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v83');
+ assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v84');
  const lastSafeAlignedOpen=Math.floor(Number.MAX_SAFE_INTEGER/H)*H;
  assert.equal(Number.isSafeInteger(lastSafeAlignedOpen),true);
  assert.equal(Number.isSafeInteger(lastSafeAlignedOpen+H),false);
@@ -3631,4 +3631,63 @@ test('v83 gap severity census is causal and never reads future prices',()=>{
  assert.equal(asOf.coverage.singleMissingHourGapIntervals,1);
  assert.equal(asOf.coverage.multiMissingHourGapIntervals,1);
  assert.equal(asOf.coverage.longestUnobservedHourRun,3);
+});
+
+
+// Per-candidate censor severity is not an archive-wide outage census.
+test('v84 candidate-specific first-touch and exit gap severity is causal',()=>{
+ const intact=fixture();
+ const cases:[Bar[], 'firstTouch'|'markout', number][]=[
+  [intact.filter(b=>b.time!==BASE+33*H),'firstTouch',1],
+  [intact.filter(b=>b.time!==BASE+33*H&&b.time!==BASE+34*H),'firstTouch',2],
+  [intact.filter(b=>b.time!==BASE+35*H),'markout',1],
+  [intact.filter(b=>b.time!==BASE+34*H&&b.time!==BASE+35*H),'markout',2],
+ ];
+ for(const [bars,phase,missingSlots] of cases){
+  const report=studyHourlyFvgMidpoint(bars,source);
+  const observation=target(bars);
+  const first=phase==='firstTouch';
+  assert.equal(first?observation.firstTouchCensorReason:observation.markoutCensorReason,
+   'MISSING_HOUR');
+  assert.equal(first?observation.firstTouchCensorMissingHourSlots:
+   observation.markoutCensorMissingHourSlots,missingSlots);
+  assert.equal(first?observation.markoutCensorMissingHourSlots:
+   observation.firstTouchCensorMissingHourSlots,null);
+  const severity=first?report.cohort.firstTouchMissingHourSeverity:
+   report.cohort.markoutMissingHourSeverity;
+  const population=first?report.cohort.incompleteWindowByReason.MISSING_HOUR:
+   report.cohort.markoutCensoredByReason.MISSING_HOUR;
+  assert.equal(severity.single+severity.multiple,population);
+  const missing=report.observations.map(o=>first?o.firstTouchCensorMissingHourSlots:
+   o.markoutCensorMissingHourSlots).filter((n):n is number=>n!==null);
+  assert.equal(severity.unobservedSlots,missing.reduce((sum,n)=>sum+n,0));
+  assert.equal(severity.single,missing.filter(n=>n===1).length);
+  assert.equal(severity.multiple,missing.filter(n=>n>1).length);
+  assert.equal(observation.gates.markout,'INSUFFICIENT_DATA');
+ }
+ const intactObservation=target(intact);
+ assert.equal(intactObservation.firstTouchCensorMissingHourSlots,null);
+ assert.equal(intactObservation.markoutCensorMissingHourSlots,null);
+ const tail=target(intact.slice(0,33));
+ assert.equal(tail.firstTouchCensorReason,'RIGHT_CENSORED');
+ assert.equal(tail.firstTouchCensorMissingHourSlots,null);
+ const exitTail=target(intact.slice(0,35));
+ assert.equal(exitTail.markoutCensorReason,'RIGHT_CENSORED');
+ assert.equal(exitTail.markoutCensorMissingHourSlots,null);
+ const firstMulti=cases[1][0],protectedFuture=firstMulti.map(b=>({...b}));
+ const before=studyHourlyFvgMidpointAsOf(protectedFuture,source,BASE+35*H);
+ const notYet=before.observations.find(o=>o.formationClosedAt===BASE+33*H);
+ assert.ok(notYet);
+ assert.equal(notYet.firstTouchCensorReason,'RIGHT_CENSORED');
+ assert.equal(notYet.firstTouchCensorMissingHourSlots,null);
+ const cutoff=BASE+36*H;
+ for(const b of protectedFuture)if(b.time+H>cutoff)
+  for(const field of ['open','high','low','close','volume','observed_minutes'])
+   Object.defineProperty(b,field,{get(){throw Error('future '+field+' read');}});
+ const asOf=studyHourlyFvgMidpointAsOf(protectedFuture,source,cutoff);
+ assert.deepEqual(asOf,studyHourlyFvgMidpoint(firstMulti.filter(b=>b.time+H<=cutoff),source));
+ const censored=asOf.observations.find(o=>o.formationClosedAt===BASE+33*H);
+ assert.ok(censored);
+ assert.equal(censored.firstTouchCensorMissingHourSlots,2);
+ assert.equal(censored.firstTouchCensorObservedAt,cutoff);
 });

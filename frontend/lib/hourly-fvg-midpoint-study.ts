@@ -7,7 +7,7 @@
  */
 import type {Bar} from './research.ts';
 
-export const HOURLY_FVG_VERSION='hourly-fvg-first-midpoint-touch-v83';
+export const HOURLY_FVG_VERSION='hourly-fvg-first-midpoint-touch-v84';
 export type Evidence='PASS'|'FAIL'|'INSUFFICIENT_DATA';
 // First-touch volume evidence is not independent broker/source authentication.
 export type VolumeEvidenceReason='NOT_EVALUATED'|'SOURCE_UNVERIFIED'|
@@ -54,6 +54,8 @@ export type FvgObservation={
   // subsequently observed hourly bar CLOSES. Null for an incomplete tail,
   // because absence of a future bar is not a timestamped missing-hour receipt.
   firstTouchCensorObservedAt:number|null;
+  // Count only the first observed interior interruption, not an unknown tail.
+  firstTouchCensorMissingHourSlots:number|null;
   // A real midpoint intersection can have an unobserved fixed exit.
   // Do not confuse an interior source gap with an as-of/right-censored tail.
   markoutCensorReason:MarkoutCensorReason|null;
@@ -61,6 +63,8 @@ export type FvgObservation={
   // unrepresentable returns are known at the fixed exit close. A tail has
   // no timestamped missing-hour receipt and stays null.
   markoutCensorObservedAt:number|null;
+  // No inferred hours for tails or unrepresentable-return censoring.
+  markoutCensorMissingHourSlots:number|null;
   rejectionWickFraction:number|null;
  // The first completed touch fixes the volume reason, even when evidence is
  // insufficient. Null means no first-touch volume assessment has occurred.
@@ -164,6 +168,9 @@ export type FvgCohort={
  firstTouchCensoredAfterWaitByReasonByDirection:Record<Side,
   Record<FirstTouchCensorReason,readonly number[]>>;
   incompleteWindowByReason:Record<FirstTouchCensorReason,number>;
+  // Candidate-specific interruption counts; NOT distinct market outages.
+  firstTouchMissingHourSeverity:{single:number;multiple:number;unobservedSlots:number};
+  markoutMissingHourSeverity:{single:number;multiple:number;unobservedSlots:number};
   markoutCensoredByReason:Record<MarkoutCensorReason,number>;
   // Keep missing-exit and unrepresentable-return attrition separate for
   // known strict PASS, known FAIL and unknown eligibility populations.
@@ -810,6 +817,8 @@ function summarizeCohort(observations:readonly FvgObservation[],costs:readonly n
   MISSING_HOUR:0,RIGHT_CENSORED:0,UNREPRESENTABLE_RETURN:0,
  });
  const markoutCensoredByReason=emptyMarkoutCensorCounts();
+ const firstTouchMissingHourSeverity={single:0,multiple:0,unobservedSlots:0};
+ const markoutMissingHourSeverity={single:0,multiple:0,unobservedSlots:0};
  const markoutCensoredByReasonByStrictCandidate:Record<Evidence,
   Record<MarkoutCensorReason,number>>={
    PASS:emptyMarkoutCensorCounts(),FAIL:emptyMarkoutCensorCounts(),
@@ -904,6 +913,24 @@ function summarizeCohort(observations:readonly FvgObservation[],costs:readonly n
   }else if(observation.firstTouchCensorReason!==null){
    throw Error('Observed FVG disposition cannot carry a censor reason');
   }
+  const firstMissing=observation.firstTouchCensorMissingHourSlots;
+  if(observation.firstTouchCensorReason==='MISSING_HOUR'){
+   if(!Number.isSafeInteger(firstMissing)||firstMissing===null||firstMissing<1)
+    throw Error('FVG first-touch missing-hour severity is invalid');
+   firstTouchMissingHourSeverity[firstMissing===1?'single':'multiple']++;
+   firstTouchMissingHourSeverity.unobservedSlots+=firstMissing;
+  }else if(firstMissing!==null){
+   throw Error('FVG non-gap first-touch censor cannot claim missing hours');
+  }
+  const exitMissing=observation.markoutCensorMissingHourSlots;
+  if(observation.markoutCensorReason==='MISSING_HOUR'){
+   if(!Number.isSafeInteger(exitMissing)||exitMissing===null||exitMissing<1)
+    throw Error('FVG markout missing-hour severity is invalid');
+   markoutMissingHourSeverity[exitMissing===1?'single':'multiple']++;
+   markoutMissingHourSeverity.unobservedSlots+=exitMissing;
+  }else if(exitMissing!==null){
+   throw Error('FVG non-gap markout censor cannot claim missing hours');
+  }
   if(observation.markoutCensorReason!==null){
    markoutCensoredByReason[observation.markoutCensorReason]++;
    markoutCensoredByReasonByStrictCandidate[observation.gates.strictCandidate]
@@ -912,6 +939,11 @@ function summarizeCohort(observations:readonly FvgObservation[],costs:readonly n
     [observation.gates.strictCandidate][observation.markoutCensorReason]++;
   }
  }
+ if(firstTouchMissingHourSeverity.single+firstTouchMissingHourSeverity.multiple!==
+    incompleteWindowByReason.MISSING_HOUR||
+    markoutMissingHourSeverity.single+markoutMissingHourSeverity.multiple!==
+    markoutCensoredByReason.MISSING_HOUR)
+  throw Error('FVG candidate-specific missing-hour severity does not reconcile');
  for(const outcome of ['TOUCH','OPEN_GAP_THROUGH','NO_TOUCH'] as const){
   const accounted=firstDispositionWaitBarCounts[outcome].reduce((sum,n)=>sum+n,0);
   if(accounted!==firstTouchOutcome[outcome])
@@ -1050,7 +1082,7 @@ function summarizeCohort(observations:readonly FvgObservation[],costs:readonly n
   firstTouchUnpairedByWaitAndStrictCandidateByDirection,
   firstTouchObservedExposureByWait,firstTouchObservedExposureByWaitByDirection,
   firstTouchCensoredAfterWaitByReason,firstTouchCensoredAfterWaitByReasonByDirection,
-  incompleteWindowByReason,
+  incompleteWindowByReason,firstTouchMissingHourSeverity,markoutMissingHourSeverity,
   pairedNetSignByCost,pairedGrossOrdering,pairedHoldingWindowOverlap,
   pairedHoldingWindowOverlapByDirection,pairedHoldingWindowCrossDirection,
   pairedHoldingWindowOverlapByStrictCandidate,
@@ -1359,8 +1391,10 @@ export function studyHourlyFvgMidpoint(
   let windowComplete=true;
   let censorReason:FirstTouchCensorReason|null=null;
   let censorObservedAt:number|null=null;
+  let firstTouchCensorMissingHourSlots:number|null=null;
   let markoutCensorReason:MarkoutCensorReason|null=null;
   let markoutCensorObservedAt:number|null=null;
+  let markoutCensorMissingHourSlots:number|null=null;
   let openingGapThrough=false;
   let observedWaitBars=0;
   let outcomeObservedAt:number|null=null;
@@ -1371,7 +1405,10 @@ export function studyHourlyFvgMidpoint(
     // A missing interior hour and a not-yet-observed tail are both unknown,
     // but have different data-quality implications for later validation.
     censorReason=!b?'RIGHT_CENSORED':'MISSING_HOUR';
-    if(b)censorObservedAt=b.time+HOUR;
+    if(b){
+     censorObservedAt=b.time+HOUR;
+     firstTouchCensorMissingHourSlots=(b.time-prev.time)/HOUR-1;
+    }
     break;
    }
    observedWaitBars++;
@@ -1430,6 +1467,7 @@ export function studyHourlyFvgMidpoint(
      contiguous=false;
      markoutCensorReason='MISSING_HOUR';
      markoutCensorObservedAt=bars[k].time+HOUR;
+     markoutCensorMissingHourSlots=(bars[k].time-bars[k-1].time)/HOUR-1;
      break;
     }
    }
@@ -1483,7 +1521,8 @@ export function studyHourlyFvgMidpoint(
     touch!==null?'TOUCH':windowComplete?'NO_TOUCH':'INCOMPLETE_WINDOW',
    firstTouchObservedWaitBars:observedWaitBars,
    firstTouchCensorReason:censorReason,firstTouchCensorObservedAt:censorObservedAt,
-   markoutCensorReason,markoutCensorObservedAt,
+   firstTouchCensorMissingHourSlots,
+   markoutCensorReason,markoutCensorObservedAt,markoutCensorMissingHourSlots,
    rejectionWickFraction:wickFraction,volumeEvidenceObservedAt,
    volumeEvidenceReason,gates,
    blindMidpointTouch:blind,confirmedNextOpen:confirmed,
