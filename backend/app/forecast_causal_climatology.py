@@ -72,12 +72,10 @@ def audit_causal_climatology(snapshot, *, evaluation_as_of, min_training=30,
                 continue
             prior_up = sum(r["outcomeUp"] for r in observed)
             p = (prior_up + 0.5) / (len(observed) + 1)
-            # A missing or post-cutoff outcome is not a scored forecast.
-            # Keep the first-scored diagnostic aligned with paired losses.
-            min_history = len(observed) if min_history is None else min(min_history, len(observed))
-            max_history = len(observed) if max_history is None else max(max_history, len(observed))
             if first_baseline is None:
                 first_baseline = p
+            min_history = len(observed) if min_history is None else min(min_history, len(observed))
+            max_history = len(observed) if max_history is None else max(max_history, len(observed))
             y = int(current["outcomeUp"])
             q = current["probability"]
             baseline_brier += (p - y) ** 2
