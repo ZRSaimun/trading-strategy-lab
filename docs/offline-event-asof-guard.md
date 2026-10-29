@@ -93,3 +93,33 @@ arithmetic, negative/zero results, future-data noninterference, source
 identity, ordering and independently recomputed digest. No external
 calendar data, protected historical holdout, executable-cost evaluation,
 production integration or broker connection was added.
+
+
+
+## 29 October 2026: First-release versus corrected-result as-of census
+
+The additive audit_declared_result_corrections_asof helper is disconnected and
+research-only. A later correction to an economic announcement cannot be
+misrepresented as the first result available to a historical news trader.
+The helper validates the entire declared revision chain first, then includes
+only results observed strictly before the historical decision minute. It
+reports first/latest as-of-visible actual, receipt times and revision numbers,
+raw first/latest surprise versus the pre-release forecast, exact net actual
+change, and the count of changed adjacent result revisions. Reversion to the
+original actual still records intermediate changes; repeated identical actual
+is a revision but not a price-value change. Missing result and forecast stay
+null rather than becoming fabricated zero surprise.
+
+The versioned result_correction_audit_sha256 binds the full-visible-revision
+v2 research envelope and deterministic observations. All outputs explicitly
+deny calendar authentication, coverage verification, cross-indicator unit
+comparability and trading permission. The digest is NOT independent vendor
+receipt provenance or a source-completeness attestation. Ten synthetic
+regression functions test exact-minute receipt exclusion, future correction
+noninterference, correction/reversion counting, precision, source/cutoff
+binding, deterministic ordering and malformed future records.
+
+No historical calendar or market archive replay, executable BID/ASK spread,
+slippage, financing, independent holdout, production route, paid feed or broker
+order is introduced. Authenticate vendor receipt times and join source-isolated
+market candles before making any costed trading-performance claim.
