@@ -180,3 +180,53 @@ def test_repeated_inventory_sync_and_quote_timestamps_do_not_alone_hold():
     result = inspect(fixture())
     assert result["failed_checks"] == []
     assert result["may_submit_real_order"] is False
+
+
+@pytest.mark.parametrize("field,value", [
+    ("bid", "99.8"),
+    ("ask", "100.1"),
+])
+def test_same_observation_with_changed_price_holds(field, value):
+    args = fixture()
+    args[1][field] = value
+    args[2]["risk_quote"][field] = value
+    result = inspect(args)
+    assert result["status"] == "HOLD_ACCOUNT_SNAPSHOT_REVIEW"
+    assert "quote_payload_changed_without_new_observation" in result["failed_checks"]
+    assert result["may_submit_real_order"] is False
+
+
+@pytest.mark.parametrize("advance_quote_time", [False, True])
+def test_same_instrument_primary_source_switch_holds(advance_quote_time):
+    args = fixture()
+    args[1]["source"] = "feedB"
+    args[2]["risk_quote"]["source"] = "feedB"
+    if advance_quote_time:
+        args[1]["observed_at_ms"] = NOW-140
+        args[1]["received_at_ms"] = NOW-90
+        args[2]["risk_quote"].update(
+            observed_at_ms=NOW-140, received_at_ms=NOW-90,
+        )
+    result = inspect(args)
+    assert "quote_source_change_requires_external_evidence" in result["failed_checks"]
+    assert result["may_submit_paper_order"] is False
+
+
+def test_changed_price_with_new_observation_is_not_payload_replay():
+    args = fixture()
+    args[1].update(ask="100.1", observed_at_ms=NOW-140, received_at_ms=NOW-90)
+    args[2]["risk_quote"].update(args[1])
+    result = inspect(args)
+    assert "quote_payload_changed_without_new_observation" not in result["failed_checks"]
+    assert "quote_source_change_requires_external_evidence" not in result["failed_checks"]
+    assert result["status"] == "DECLARED_ACCOUNT_SNAPSHOT_UNVERIFIED"
+    assert result["may_submit_real_order"] is False
+
+
+def test_quote_payload_and_source_checks_do_not_mutate_inputs():
+    args = fixture()
+    args[1].update(source="feedB", bid="99.8")
+    args[2]["risk_quote"].update(args[1])
+    before = deepcopy(args)
+    assert inspect(args)["status"] == "HOLD_ACCOUNT_SNAPSHOT_REVIEW"
+    assert args == before
