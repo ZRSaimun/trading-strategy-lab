@@ -1194,6 +1194,8 @@ test('coverage counts unobserved hours without leaking future gaps into as-of re
   observedBars:38,unobservedHourSlots:2,gapIntervals:1,
    observedThreeBarWindows:36,completeThreeBarWindows:34,
    skippedThreeBarWindowsWithGaps:2,
+   skippedThreeBarWindowsWithOneGapEdge:2,
+   skippedThreeBarWindowsWithTwoGapEdges:0,
  });
  const before=studyHourlyFvgMidpointAsOf(bars,source,BASE+20*H);
  assert.deepEqual(before.coverage,{
@@ -1201,6 +1203,8 @@ test('coverage counts unobserved hours without leaking future gaps into as-of re
   observedBars:20,unobservedHourSlots:0,gapIntervals:0,
    observedThreeBarWindows:18,completeThreeBarWindows:18,
    skippedThreeBarWindowsWithGaps:0,
+   skippedThreeBarWindowsWithOneGapEdge:0,
+   skippedThreeBarWindowsWithTwoGapEdges:0,
  });
  const after=studyHourlyFvgMidpointAsOf(bars,source,BASE+24*H);
  assert.deepEqual(after.coverage,{
@@ -1208,6 +1212,8 @@ test('coverage counts unobserved hours without leaking future gaps into as-of re
   observedBars:22,unobservedHourSlots:2,gapIntervals:1,
    observedThreeBarWindows:20,completeThreeBarWindows:18,
    skippedThreeBarWindowsWithGaps:2,
+   skippedThreeBarWindowsWithOneGapEdge:2,
+   skippedThreeBarWindowsWithTwoGapEdges:0,
  });
  const empty=studyHourlyFvgMidpointAsOf(bars,source,H);
  assert.deepEqual(empty.coverage,{
@@ -1215,6 +1221,8 @@ test('coverage counts unobserved hours without leaking future gaps into as-of re
   observedBars:0,unobservedHourSlots:0,gapIntervals:0,
    observedThreeBarWindows:0,completeThreeBarWindows:0,
    skippedThreeBarWindowsWithGaps:0,
+   skippedThreeBarWindowsWithOneGapEdge:0,
+   skippedThreeBarWindowsWithTwoGapEdges:0,
  });
  assert.equal(full.coverage.observedBars+full.coverage.unobservedHourSlots,40);
 });
