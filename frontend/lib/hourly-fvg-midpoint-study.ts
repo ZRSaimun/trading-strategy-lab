@@ -7,7 +7,7 @@
  */
 import type {Bar} from './research.ts';
 
-export const HOURLY_FVG_VERSION='hourly-fvg-first-midpoint-touch-v90';
+export const HOURLY_FVG_VERSION='hourly-fvg-first-midpoint-touch-v91';
 export type Evidence='PASS'|'FAIL'|'INSUFFICIENT_DATA';
 // First-touch volume evidence is not independent broker/source authentication.
 export type VolumeEvidenceReason='NOT_EVALUATED'|'SOURCE_UNVERIFIED'|
@@ -252,6 +252,13 @@ export type FvgStudy={
   // Preserve direction inside cost-width groups; pooled censoring can mask bias.
   byDirection:Record<Side,{noWiderThanCost:FirstTouchOpportunityBound;
    widerThanCost:FirstTouchOpportunityBound}>;
+  // Only observed first midpoint intersections; a gap-through or censored
+  // formation cannot be promoted to a verified wick/volume confirmation.
+  strictObservedTouchEvidenceByCostWidth:{
+   noWiderThanCost:EvidenceCounts;widerThanCost:EvidenceCounts;
+   byDirection:Record<Side,{noWiderThanCost:EvidenceCounts;
+    widerThanCost:EvidenceCounts}>;
+  };
  }[];
  warning:string;
 };
@@ -511,6 +518,15 @@ function touchBounds(population:readonly FvgObservation[]):FirstTouchOpportunity
     (observedTouches+unresolvedGapThrough+unresolvedIncomplete)/formations:null};
 }
 
+// Reconcile the strict wick + declared prior-20 volume gate only among
+// actually observed first midpoint touches, never censored or gap-throughs.
+function strictObservedTouchEvidence(population:readonly FvgObservation[]):EvidenceCounts{
+ const result:EvidenceCounts={PASS:0,FAIL:0,INSUFFICIENT_DATA:0};
+ for(const observation of population)
+  if(observation.firstTouchOutcome==='TOUCH')
+   result[observation.gates.strictCandidate]++;
+ return result;
+}
 function summarizeCohort(observations:readonly FvgObservation[],costs:readonly number[],
  maxTouchWaitBars:number):FvgCohort{
  const count=(gate:'midpointTouch'|'strictCandidate'|'markout'):EvidenceCounts=>{
@@ -1692,8 +1708,48 @@ export function studyHourlyFvgMidpoint(
      if(byDirection.BULLISH[group][key]+byDirection.BEARISH[group][key]!==
         (group==='noWiderThanCost'?noWiderThanCost:widerThanCost)[key])
       throw Error('FVG pooled cost-width touch bounds do not reconcile');
+   const strictObservedTouchEvidenceByCostWidth={
+    noWiderThanCost:strictObservedTouchEvidence(noWider),
+    widerThanCost:strictObservedTouchEvidence(wider),
+    byDirection:{
+     BULLISH:{
+      noWiderThanCost:strictObservedTouchEvidence(noWider.filter(o=>o.direction==='BULLISH')),
+      widerThanCost:strictObservedTouchEvidence(wider.filter(o=>o.direction==='BULLISH')),
+     },
+     BEARISH:{
+      noWiderThanCost:strictObservedTouchEvidence(noWider.filter(o=>o.direction==='BEARISH')),
+      widerThanCost:strictObservedTouchEvidence(wider.filter(o=>o.direction==='BEARISH')),
+     },
+    },
+   };
+   const countEvidence=(counts:EvidenceCounts)=>
+    counts.PASS+counts.FAIL+counts.INSUFFICIENT_DATA;
+   for(const group of ['noWiderThanCost','widerThanCost'] as const){
+    const cells=strictObservedTouchEvidenceByCostWidth[group];
+    const directional=strictObservedTouchEvidenceByCostWidth.byDirection;
+    const bounds=group==='noWiderThanCost'?noWiderThanCost:widerThanCost;
+    if(countEvidence(cells)!==bounds.observedTouches)
+     throw Error('FVG cost-width strict first-touch population does not reconcile');
+    for(const evidence of ['PASS','FAIL','INSUFFICIENT_DATA'] as const)
+     if(directional.BULLISH[group][evidence]+directional.BEARISH[group][evidence]!==cells[evidence])
+      throw Error('FVG cost-width directional strict first-touch evidence does not reconcile');
+   }
+   for(const evidence of ['PASS','FAIL','INSUFFICIENT_DATA'] as const){
+    const cells=strictObservedTouchEvidenceByCostWidth;
+    const pooled=cohort.firstTouchStrictCandidateByWait[evidence].reduce((a,b)=>a+b,0);
+    if(cells.noWiderThanCost[evidence]+cells.widerThanCost[evidence]!==pooled)
+     throw Error('FVG cost-width strict first-touch census does not reconcile');
+    for(const direction of ['BULLISH','BEARISH'] as const){
+     const directional=cells.byDirection[direction];
+     const expected=cohort.firstTouchStrictCandidateByWaitByDirection[direction][evidence]
+      .reduce((a,b)=>a+b,0);
+     if(directional.noWiderThanCost[evidence]+directional.widerThanCost[evidence]!==expected)
+      throw Error('FVG cost-width directional strict census does not reconcile');
+    }
+   }
    return {scenarioIndex:scenario.scenarioIndex,costBps:scenario.costBps,
-    noWiderThanCost,widerThanCost,byDirection};
+    noWiderThanCost,widerThanCost,byDirection,
+    strictObservedTouchEvidenceByCostWidth};
   });
  return {version:HOURLY_FVG_VERSION,source:declaredSource,
    coverage,
