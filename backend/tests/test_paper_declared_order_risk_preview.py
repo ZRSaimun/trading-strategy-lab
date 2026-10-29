@@ -103,3 +103,57 @@ def test_conflicting_reused_history_identity_holds(repeat_field):
     second[repeat_field] = first[repeat_field]
     args[4] = [first, second]
     assert "duplicate_order_history" in inspect(args)["failed_checks"]
+
+
+# T212 Public API: Invest/Stocks ISA are cash securities accounts, not CFDs.
+# These are disconnected arithmetic tests, NOT instrument entitlement checks.
+@pytest.mark.parametrize("broker", [
+    "T212-INVEST-DEMO", "T212-STOCKSISA-DEMO",
+    "T212-INVEST-LIVE", "T212-STOCKSISA-LIVE",
+])
+@pytest.mark.parametrize("requested,limit,side,stop,expected", [
+    ("5", "10", "BUY", "95", {"cash_account_leverage_unsupported",
+                             "cash_account_policy_leverage_unsupported"}),
+    ("1", "10", "BUY", "95", {"cash_account_policy_leverage_unsupported"}),
+    ("5", "1", "BUY", "95", {"cash_account_leverage_unsupported", "leverage_limit"}),
+    ("1", "1", "SELL", "105", {"cash_account_sell_requires_authenticated_holdings"}),
+    ("1", "1", "BUY", "95", set()),
+])
+def test_t212_cash_account_limits_never_authorize_orders(
+    broker, requested, limit, side, stop, expected,
+):
+    args = fixture()
+    args[2]["broker"] = broker
+    args[0].update(requested_leverage=requested, side=side, stop_price=stop)
+    args[3]["max_leverage"] = limit
+    # A placeholder stock symbol avoids implying XAUUSD CFD entitlement.
+    args[0]["instrument"] = args[1]["instrument"] = "EXAMPLE-STOCK"
+    result = inspect(args)
+    assert expected.issubset(set(result["failed_checks"]))
+    assert (result["status"] == "HOLD_RISK_REVIEW") is bool(expected)
+    assert result["broker_authenticated"] is False
+    assert result["may_submit_paper_order"] is False
+    assert result["may_submit_real_order"] is False
+
+
+def test_paper_local_short_simulation_remains_disconnected():
+    args = fixture()
+    args[0].update(side="SELL", stop_price="105")
+    result = inspect(args)
+    assert result["failed_checks"] == []
+    assert result["may_submit_real_order"] is False
+
+
+def test_t212_cfd_label_cannot_be_used_to_claim_api_support():
+    args = fixture()
+    args[2]["broker"] = "T212-CFD-LIVE"
+    with pytest.raises(ValueError, match="Unsupported broker"):
+        inspect(args)
+
+
+def test_t212_cash_account_check_does_not_mutate_inputs():
+    args = fixture()
+    args[2]["broker"] = "T212-INVEST-DEMO"
+    before = deepcopy(args)
+    inspect(args)
+    assert args == before
