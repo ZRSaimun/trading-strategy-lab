@@ -6,18 +6,18 @@ from app.offline_m1_multi_archive_census import audit_m1_multi_archive_census, B
 
 
 def receipt(archive='a', manifest='c', count=2, mean=1.0, instrument='NSXUSD'):
-    s = {'count': count, 'mean_gross_bps': mean if count else None,
-         'mean_net_bps_by_roundtrip_cost': {str(c): round(mean-c, 6) if count else None for c in (0, 5, 10, 20)},
-         'gross_win_fraction': 0.5 if count else None}
-    empty = {'count': 0, 'mean_gross_bps': None,
-             'mean_net_bps_by_roundtrip_cost': {str(c): None for c in (0, 5, 10, 20)},
-             'gross_win_fraction': None}
+    # Model the original engine's integer outcome wins; a fractional winner
+    # count is impossible even when a fabricated report is self-rehashed.
     dev_count = count * 7 // 10
     later_count = count - dev_count
-    def part(n):
+    dev_wins = dev_count // 2
+    later_wins = later_count // 2
+
+    def part(n, wins):
         return {'count': n, 'mean_gross_bps': mean if n else None,
                 'mean_net_bps_by_roundtrip_cost': {str(c): round(mean-c, 6) if n else None for c in (0, 5, 10, 20)},
-                'gross_win_fraction': 0.5 if n else None}
+                'gross_win_fraction': round(wins / n, 6) if n else None}
+
     r = {'policy': POLICY, 'source': {'instrument': instrument, 'provider': 'HistData',
           'archive_sha256': archive*64, 'price_side': 'UNVERIFIED_SINGLE_SIDE',
           'time_convention': 'SOURCE_WALL_UNVERIFIED'},
@@ -26,14 +26,15 @@ def receipt(archive='a', manifest='c', count=2, mean=1.0, instrument='NSXUSD'):
          'sweep_count': count, 'ambiguous_count': 0, 'confirmed_count': count,
          'censored_gap_or_end': 0, 'excluded_overlap': 0, 'horizon_minutes': 15,
          'roundtrip_cost_bps': [0, 5, 10, 20],
-         'development_exploratory': part(dev_count), 'later_exploratory_not_holdout': part(later_count),
-         'all_exploratory': s, 'research_schema_version': 1, 'research_only': True,
+         'development_exploratory': part(dev_count, dev_wins),
+         'later_exploratory_not_holdout': part(later_count, later_wins),
+         'all_exploratory': part(count, dev_wins + later_wins),
+         'research_schema_version': 1, 'research_only': True,
          'trade_authorized': False, 'verified_profitability': False,
          'protected_holdout': False, 'source_authenticity_verified': False,
          'executable_quotes_verified': False, 'financing_modeled': False,
          'market_calendar_verified': False}
     return rehash(r)
-
 
 def rehash(r):
     r['research_sha256'] = hashlib.sha256(json.dumps({k: r[k] for k in BODY_KEYS},
@@ -257,17 +258,17 @@ def test_rehashed_impossible_sweep_population_rejected(field, value):
 def test_rehashed_partition_win_fraction_mismatch_rejected():
     a, b = pair()
     b = receipt('b', 'd', count=10, mean=1)
-    b['development_exploratory']['gross_win_fraction'] = 0.7
+    b['development_exploratory']['gross_win_fraction'] = round(4 / 7, 6)
     rehash(b)
-    with pytest.raises(ValueError, match='gross win fractions'):
+    with pytest.raises(ValueError, match='integer win counts'):
         audit_m1_multi_archive_census([a, b])
 
 
 def test_partition_win_fraction_independent_rounding_tolerated():
     a, b = pair()
-    b = receipt('b', 'd', count=10, mean=1)
-    b['all_exploratory']['gross_win_fraction'] = 0.500001
-    rehash(b)
+    # 3 / 7 and 1 / 3 require independent six-decimal rounding.
+    b = receipt('b', 'd', count=7, mean=1)
+    assert b['all_exploratory']['gross_win_fraction'] == round(3 / 7, 6)
     assert audit_m1_multi_archive_census([a, b])['report_count'] == 2
 
 
@@ -277,4 +278,32 @@ def test_source_wall_counter_bounds_accept_consistent_gaps():
     b['backward_jumps'] = 1
     b['adjacent_duplicates'] = 1
     rehash(b)
+    assert audit_m1_multi_archive_census([a, b])['report_count'] == 2
+
+# Original-v1 integer-win feasibility: a self-hash cannot invent half a win.
+@pytest.mark.parametrize('count,impossible', [(1, 0.5), (3, 0.5), (10, 0.500001), (7, 0.42857)])
+def test_rehashed_impossible_all_win_fraction_rejected(count, impossible):
+    a, b = pair()
+    b = receipt('b', 'd', count=count)
+    b['all_exploratory']['gross_win_fraction'] = impossible
+    rehash(b)
+    with pytest.raises(ValueError, match='integer outcomes'):
+        audit_m1_multi_archive_census([a, b])
+
+
+def test_rehashed_feasible_but_partition_inconsistent_integer_wins_rejected():
+    a, b = pair()
+    b = receipt('b', 'd', count=10)
+    # 5/10 is individually feasible but the original 7/3 splits have 3+1 wins.
+    b['all_exploratory']['gross_win_fraction'] = 0.5
+    rehash(b)
+    with pytest.raises(ValueError, match='integer win counts'):
+        audit_m1_multi_archive_census([a, b])
+
+
+def test_valid_fraction_rounding_and_integer_partition_counts():
+    a = receipt('a', 'c', count=7)
+    b = receipt('b', 'd', count=13)
+    assert a['later_exploratory_not_holdout']['gross_win_fraction'] == 0.333333
+    assert a['all_exploratory']['gross_win_fraction'] == 0.428571
     assert audit_m1_multi_archive_census([a, b])['report_count'] == 2
