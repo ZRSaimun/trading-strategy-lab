@@ -6,6 +6,7 @@ from collections import defaultdict
 import math
 
 from .forecast_prospective_scorecard import summarize_forecast_snapshot
+from .forecast_fixed_bin_reliability import audit_fixed_bin_reliability
 
 
 def audit_causal_climatology(snapshot, *, evaluation_as_of, min_training=30,
@@ -164,7 +165,17 @@ def audit_causal_climatology(snapshot, *, evaluation_as_of, min_training=30,
                 temporalSplitSignedCalibrationGapLateHalf=late_gap,
                 temporalSplitSignedCalibrationGapLateMinusEarly=late_gap - early_gap,
             )
+        # Fixed bins use precisely the same preselected disjoint scored cohort.
+        # Missing eligible labels prohibit an apparently favorable reliability view.
+        fixed_bin_status = ("BASELINE_SCORE_WITHHELD" if not sufficient else
+                            "MISSING_ELIGIBLE_OUTCOMES" if unavailable else None)
+        fixed_bin = None
+        if fixed_bin_status is None:
+            fixed_bin = audit_fixed_bin_reliability(scored_calibration)
+            fixed_bin_status = fixed_bin["status"]
         results.append({
+            "fixedBinReliabilityStatus": fixed_bin_status,
+            "fixedBinReliability": fixed_bin,
             "modelVersion": model, "horizonCandles": horizon,
             "issued": len(rows), "maturedAtDeclaredCutoff": matured,
             "nonoverlappingMaturedCensus": matured - overlapping_matured_excluded,

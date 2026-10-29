@@ -326,3 +326,78 @@ def test_temporal_calibration_withheld_under_split_gates(mutate):
         "temporalSplitSignedCalibrationGapLateMinusEarly",
     ):
         assert row[key] is None
+
+
+def test_fixed_bin_reliability_abstains_from_global_metric_on_one_bucket():
+    row = run(fixture(n=300))["groups"][0]
+    assert row["fixedBinReliabilityStatus"] == "LIMITED_PROBABILITY_COVERAGE"
+    report = row["fixedBinReliability"]
+    assert report["weightedAbsoluteCalibrationGap"] is None
+    assert report["occupiedBins"] == 1
+    assert sum(b["count"] for b in report["bins"]) == row["scored"]
+    assert report["bins"][3]["absoluteCalibrationGap"] == pytest.approx(.3)
+    assert not report["mayExecuteLiveOrder"]
+
+
+def test_fixed_bin_reliability_two_predeclared_supported_bins():
+    s = fixture(n=300)
+    for event, forecast in zip(s["events"][180:], s["forecasts"][180:]):
+        event["probability"] = forecast["probability"] = .3
+    row = run(s)["groups"][0]
+    assert row["fixedBinReliabilityStatus"] == "DESCRIPTIVE_ONLY"
+    report = row["fixedBinReliability"]
+    assert report["occupiedBins"] == 2
+    assert report["sparseBins"] == 0
+    assert report["bins"][1]["count"] == 60
+    assert report["bins"][3]["count"] == 60
+    assert report["weightedAbsoluteCalibrationGap"] == pytest.approx(.5)
+
+
+def test_fixed_bin_reliability_withheld_on_missing_eligible_outcome():
+    s = fixture(n=300)
+    s["forecasts"][298].update(status="PENDING", resolvedAt=None, outcomeUp=None)
+    row = run(s)["groups"][0]
+    assert row["status"] == "DESCRIPTIVE_ONLY"
+    assert row["fixedBinReliabilityStatus"] == "MISSING_ELIGIBLE_OUTCOMES"
+    assert row["fixedBinReliability"] is None
+
+
+def test_fixed_bin_reliability_withheld_below_causal_score_minimum():
+    row = run(fixture(n=100))["groups"][0]
+    assert row["fixedBinReliabilityStatus"] == "BASELINE_SCORE_WITHHELD"
+    assert row["fixedBinReliability"] is None
+
+
+def test_fixed_bin_boundary_and_sparse_population():
+    from app.forecast_fixed_bin_reliability import audit_fixed_bin_reliability
+    pairs = [(.2, 1)] * 30 + [(.8, 0)] * 30
+    result = audit_fixed_bin_reliability(pairs)
+    assert result["status"] == "DESCRIPTIVE_ONLY"
+    assert result["bins"][1]["count"] == 30
+    assert result["bins"][4]["count"] == 30
+    assert result["weightedAbsoluteCalibrationGap"] == pytest.approx(.8)
+    pairs.append((.5, 1))
+    sparse = audit_fixed_bin_reliability(pairs)
+    assert sparse["status"] == "INSUFFICIENT_BIN_SUPPORT"
+    assert sparse["bins"][2]["count"] == 1
+    assert sparse["bins"][2]["observedUpFraction"] is None
+    assert sparse["weightedAbsoluteCalibrationGap"] is None
+
+
+@pytest.mark.parametrize("pairs", [
+    [(.5, True)], [(True, 1)], [(float("nan"), 1)],
+    [(.5, 2)], [(0, 1)], [(1, 0)], [(.5, 1, 0)], ["bad"],
+])
+def test_fixed_bin_rejects_invalid_pairs(pairs):
+    from app.forecast_fixed_bin_reliability import audit_fixed_bin_reliability
+    with pytest.raises(ValueError):
+        audit_fixed_bin_reliability(pairs)
+
+
+def test_fixed_bin_helper_does_not_mutate_inputs():
+    from app.forecast_fixed_bin_reliability import audit_fixed_bin_reliability
+    pairs = [(.1, 0)] * 30 + [(.9, 1)] * 30
+    before = deepcopy(pairs)
+    result = audit_fixed_bin_reliability(pairs)
+    assert pairs == before
+    assert result["weightedAbsoluteCalibrationGap"] == pytest.approx(.1)

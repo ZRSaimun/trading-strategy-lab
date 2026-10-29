@@ -119,3 +119,30 @@ issued probabilities. The underlying journal and cutoff remain
 unauthenticated, so apparent calibration changes are not independently
 verified forward results. No notification, paper order or live execution
 permission is granted.
+
+
+### Fixed-bin reliability on disjoint forecast evaluations (29 October 2026)
+
+The offline comparator also reports `fixedBinReliabilityStatus` and a
+`fixedBinReliability` census. Exactly five **predeclared** probability bins
+[0,.2), [.2,.4), [.4,.6), [.6,.8), [.8,1] prevent outcome-selected bin
+boundaries. The input is the *same frozen, nonoverlapping, causally eligible
+scored population* as the paired-regret and chronological calibration metrics.
+The diagnostic is withheld entirely if the baseline score is withheld or any
+eligible outcome is missing; unknown outcomes are never assigned labels.
+
+Each occupied bin must contain at least 30 observations before its mean issued
+UP probability, observed UP frequency and absolute gap are exposed. Sparse
+bins reveal counts only. A weighted absolute calibration gap is reported only
+if **at least two distinct probability bins** are occupied and **every
+occupied bin** has at least 30 observations. Otherwise the status is
+`INSUFFICIENT_BIN_SUPPORT` or `LIMITED_PROBABILITY_COVERAGE`, and the
+weighted gap is null. Empty bins have null metrics. A single well-populated
+bin cannot establish calibration across a range of forecast probabilities.
+
+These are **descriptive**, not statistical confidence intervals or tests:
+serial dependence, market regimes, arbitrary fixed bins, selection effects,
+unverified sources and absence of independent holdout remain. A small
+calibration gap is not an actionable signal, independent profitability
+evidence, a broker quote or permission to notify or trade. No production
+route, API credential, order, alert or dataset mutation is added.
