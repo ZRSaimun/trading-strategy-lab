@@ -164,6 +164,12 @@ def inspect_declared_owner_review_history_fence(
             # or retroactive review claim, even if it was recorded later.
             if any(e["issued_at_ms"] <= prev["observed_at_ms"] for e in new[len(old):]):
                 failures.add("appended_review_issued_before_prior_snapshot")
+            # A newly appended approval cannot serve as a current review if
+            # its declared validity already elapsed by evaluation time. Old
+            # historical approvals may be expired; do not rewrite history.
+            if any(e["decision"] == "APPROVE" and e["expires_at_ms"] <= now
+                   for e in new[len(old):]):
+                failures.add("appended_approval_expired_at_evaluation")
             if old and new[len(old)]["recorded_at_ms"] <= old[-1]["recorded_at_ms"]:
                 failures.add("appended_review_time_not_advanced")
         elif curr["sequence"] != prev["sequence"]:
