@@ -123,6 +123,21 @@ def audit_declared_holdout_row_cost_stress(
                 ))
             )
             net = None if withheld else Decimal(baseline["net_cash"]) - extra
+            positive_baseline = (
+                None if withheld else Decimal(baseline["net_cash"]) > 0
+            )
+            # Fraction of declared positive baseline net consumed by additional
+            # cash costs. This is not a win probability or executable quote.
+            cost_to_positive_baseline_bps = (
+                None if withheld or not positive_baseline else
+                int((extra * Decimal(10000) /
+                     Decimal(baseline["net_cash"])).to_integral_value(
+                         rounding=ROUND_FLOOR
+                     ))
+            )
+            positive_baseline_erased = (
+                None if withheld else positive_baseline and net <= 0
+            )
             worst_row = drawdown = adverse_drawdown = None
             baseline_losing = stressed_losing = cost_induced_losing = None
             stressed_gross_loss = cost_induced_gross_loss = None
@@ -165,6 +180,9 @@ def audit_declared_holdout_row_cost_stress(
                 "scenario_id": name,
                 "extra_cost_cash": None if withheld else format(extra, ".4f"),
                 "stressed_net_cash": None if withheld else format(net, ".4f"),
+                "additional_cost_share_of_positive_baseline_net_bps":
+                    cost_to_positive_baseline_bps,
+                "positive_baseline_net_erased_by_stress": positive_baseline_erased,
                 "max_single_observation_extra_cost_cash":
                     None if withheld else format(maximum, ".4f"),
                 "additional_cost_affected_observation_count":
