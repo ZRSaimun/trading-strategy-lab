@@ -169,3 +169,31 @@ def test_broker_json_accepts_strict_utf8_non_ascii_without_feed_claim():
     assert result["market_data_feed"] is False
     assert result["price_freshness_verified"] is False
     assert result["may_execute_order"] is False
+
+
+@pytest.mark.parametrize("body", [
+    b'{"ticker":"\\ud800"}',        # isolated high surrogate in a value
+    b'{"\\udfff":"example"}',       # isolated low surrogate in an object key
+    b'[{"nested":["\\udc00"]}]',   # nested list value
+    b'{"ticker":"\\ud83d"}',       # incomplete surrogate pair
+])
+def test_broker_json_rejects_unpaired_surrogate_escapes(body):
+    with pytest.raises(ReadOnlyBrokerError, match="Invalid broker JSON") as exc:
+        call(lambda _: httpx.Response(
+            200, content=body, headers={"content-type": "application/json"}
+        ))
+    assert "ticker" not in str(exc.value)
+    assert "example" not in str(exc.value)
+
+
+@pytest.mark.parametrize("body", [
+    b'{"symbol":"\\ud83d\\ude80"}',  # paired escapes are a valid scalar
+    '{"symbol":"🚀"}'.encode("utf-8"),
+])
+def test_broker_json_accepts_valid_supplementary_unicode(body):
+    result = call(lambda _: httpx.Response(
+        200, content=body, headers={"content-type": "application/json"}
+    ))
+    assert result["data"] == {"symbol": "🚀"}
+    assert result["market_data_feed"] is False
+    assert result["may_execute_order"] is False
