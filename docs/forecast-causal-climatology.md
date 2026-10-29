@@ -196,3 +196,35 @@ permissions are unchanged.
 
 Synthetic tests: `cd backend && PYTHONPATH=. pytest -q
 tests/test_forecast_fixed_bin_leave_one_out.py`.
+
+
+### Chronological paired-regret underperformance runs (29 October 2026)
+
+The disconnected comparator now includes `chronologicalRegretRunStatus` and
+`chronologicalRegretRuns` for each **exact model/horizon**, computed only
+from its already-frozen, chronological, nonoverlapping and causally eligible
+scored forecast cohort. It reports the **largest contiguous cumulative
+positive net paired Brier and log-loss regret** (issued forecast loss minus
+causal-baseline loss), together with the longest uninterrupted run of
+strictly positive paired regret for each scoring rule. A negative regret
+reduces the running adverse excursion; an all-favorable cohort reports zero.
+These numbers are in **scoring-loss units**, not pounds, dollars, position
+drawdown, trading returns, expected profit, or a probability of future loss.
+
+The entire run report is null if the baseline scored-sample gate fails or
+**any** eligible outcome is unavailable at the declared evaluation cutoff,
+even when the primary paired score is descriptive. No selective deletion of
+pending/void outcomes can manufacture a favorable-looking worst run.
+The standalone helper validates finite bounded loss differences, has a
+30-observation default gate and never authenticates source or holdout.
+It does not select a model or optimize a threshold. Serial dependence,
+regime changes, forecast selection, missing issuance and unauthenticated
+clocks remain unaddressed; a large run is descriptive fragility, not a
+significance test. All notification, paper-order and live-order permissions
+remain false.
+
+Synthetic tests:
+`cd backend && PYTHONPATH=. pytest -q tests/test_forecast_regret_run_audit.py tests/test_forecast_causal_climatology.py`.
+Keep draft and undeployed pending exact-head CI, source-rights/provenance,
+independent prospective receipts, restorable backup, rollback rehearsal and
+authenticated production health.
