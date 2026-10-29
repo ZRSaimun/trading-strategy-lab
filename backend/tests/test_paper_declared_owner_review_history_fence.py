@@ -187,3 +187,62 @@ def test_contradictory_review_does_not_mutate_input():
     before = deepcopy((prev, curr))
     assert "rejection_after_approval_same_order_or_intent" in inspect(prev, curr)["failed_checks"]
     assert (prev, curr) == before
+
+
+def _two_rejections():
+    prev, curr = snapshots()
+    prev["events"][0]["decision"] = "REJECT"
+    curr["events"][0]["decision"] = "REJECT"
+    curr["events"][1]["decision"] = "REJECT"
+    return prev, curr
+
+
+def test_duplicate_rejection_same_client_order_and_intent_holds():
+    prev, curr = _two_rejections()
+    curr["events"][1]["client_order_id"] = prev["events"][0]["client_order_id"]
+    curr["events"][1]["order_intent_sha"] = prev["events"][0]["order_intent_sha"]
+    curr["events"][1]["preview_digest"] = prev["events"][0]["preview_digest"]
+    result = inspect(prev, curr)
+    assert "duplicate_rejected_order_or_intent" in result["failed_checks"]
+    assert result["status"] == "HOLD_DECLARED_REVIEW_HISTORY"
+    assert result["may_submit_real_order"] is False
+
+
+def test_rejected_client_order_cannot_be_rebound_to_new_intent():
+    prev, curr = _two_rejections()
+    curr["events"][1]["client_order_id"] = prev["events"][0]["client_order_id"]
+    result = inspect(prev, curr)
+    assert "client_order_rebound_to_different_intent" in result["failed_checks"]
+    assert result["may_submit_paper_order"] is False
+
+
+def test_rejected_intent_cannot_be_rebound_to_new_client_order():
+    prev, curr = _two_rejections()
+    curr["events"][1]["order_intent_sha"] = prev["events"][0]["order_intent_sha"]
+    result = inspect(prev, curr)
+    assert "order_intent_rebound_to_different_client_order" in result["failed_checks"]
+    assert result["may_submit_real_order"] is False
+
+
+def test_preview_digest_reuse_for_different_order_holds():
+    prev, curr = snapshots()
+    curr["events"][1]["preview_digest"] = prev["events"][0]["preview_digest"]
+    result = inspect(prev, curr)
+    assert "preview_digest_reused_for_distinct_order" in result["failed_checks"]
+    assert result["status"] == "HOLD_DECLARED_REVIEW_HISTORY"
+
+
+def test_unrelated_rejections_remain_unverified_without_false_hold():
+    prev, curr = _two_rejections()
+    result = inspect(prev, curr)
+    assert result["failed_checks"] == []
+    assert result["status"] == "DECLARED_REVIEW_HISTORY_UNVERIFIED"
+    assert result["may_submit_real_order"] is False
+
+
+def test_identity_rebinding_check_does_not_mutate_inputs():
+    prev, curr = _two_rejections()
+    curr["events"][1]["client_order_id"] = prev["events"][0]["client_order_id"]
+    originals = deepcopy((prev, curr))
+    assert "client_order_rebound_to_different_intent" in inspect(prev, curr)["failed_checks"]
+    assert (prev, curr) == originals
