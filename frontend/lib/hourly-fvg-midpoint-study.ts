@@ -1772,8 +1772,8 @@ export function studyHourlyFvgMidpoint(
         observedTouchVolumeReasonsByCostWidth.byDirection.BEARISH[group][reason]!==counts[reason])
       throw Error('FVG directional cost-width volume reasons do not reconcile');
    }
-   for(const reason of Object.keys(observedTouchVolumeReasonsByCostWidth.noWiderThanCost)
-    as VolumeEvidenceReason[]){
+   for(const reason of (Object.keys(observedTouchVolumeReasonsByCostWidth.noWiderThanCost)
+    as VolumeEvidenceReason[])){
     const total=observedTouchVolumeReasonsByCostWidth.noWiderThanCost[reason]+
      observedTouchVolumeReasonsByCostWidth.widerThanCost[reason];
     const expected=reason==='NOT_EVALUATED'?0:cohort.volumeEvidenceByReason[reason];
