@@ -536,9 +536,11 @@ def test_declared_validation_cutoff_availability_is_zero_for_default_windows():
     result = audit_declared_holdout_fold_isolation(folds)
     assert result["declared_validation_cutoff_transitions"] == [
         {"later_fold_index": 1,
-         "declared_prior_labels_unavailable_at_validation_end_count": 0},
+         "declared_prior_labels_unavailable_at_validation_end_count": 0,
+         "declared_all_prior_labels_unavailable_at_validation_end_count": 0},
         {"later_fold_index": 2,
-         "declared_prior_labels_unavailable_at_validation_end_count": 0},
+         "declared_prior_labels_unavailable_at_validation_end_count": 0,
+         "declared_all_prior_labels_unavailable_at_validation_end_count": 0},
     ]
     assert result["total_declared_prior_labels_unavailable_at_validation_end_count"] == 0
     assert result["max_declared_prior_labels_unavailable_at_validation_end_count"] == 0
