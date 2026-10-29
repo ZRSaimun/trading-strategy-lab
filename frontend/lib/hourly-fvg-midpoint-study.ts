@@ -7,7 +7,7 @@
  */
 import type {Bar} from './research.ts';
 
-export const HOURLY_FVG_VERSION='hourly-fvg-first-midpoint-touch-v79';
+export const HOURLY_FVG_VERSION='hourly-fvg-first-midpoint-touch-v80';
 export type Evidence='PASS'|'FAIL'|'INSUFFICIENT_DATA';
 // First-touch volume evidence is not independent broker/source authentication.
 export type VolumeEvidenceReason='NOT_EVALUATED'|'SOURCE_UNVERIFIED'|
@@ -112,6 +112,9 @@ export type PairedNetSignCostCensus={
  // Matched, matured first touches by elapsed waiting hour and strict evidence.
  // Missing exits and failed wicks are NOT treated as cost-adjusted losses.
  byFirstTouchWaitAndStrictCandidate:Record<Evidence,readonly PairedNetSignCells[]>;
+ // Joint direction/wait/strict partition of the SAME completed matched pairs.
+ byDirectionAndFirstTouchWaitAndStrictCandidate:Record<Side,
+  Record<Evidence,readonly PairedNetSignCells[]>>;
 };
 // Overlap is measured only between matured hypothetical confirmed-entry-to-exit
 // windows. It is a dependence warning, not an effective sample-size estimate.
@@ -687,6 +690,15 @@ function summarizeCohort(observations:readonly FvgObservation[],costs:readonly n
    FAIL:Array.from({length:maxTouchWaitBars},empty),
    INSUFFICIENT_DATA:Array.from({length:maxTouchWaitBars},empty),
   };
+  const emptyJointWait=():Record<Evidence,PairedNetSignCells[]>=>({
+   PASS:Array.from({length:maxTouchWaitBars},empty),
+   FAIL:Array.from({length:maxTouchWaitBars},empty),
+   INSUFFICIENT_DATA:Array.from({length:maxTouchWaitBars},empty),
+  });
+  const byDirectionAndFirstTouchWaitAndStrictCandidate:Record<Side,
+   Record<Evidence,PairedNetSignCells[]>>={
+    BULLISH:emptyJointWait(),BEARISH:emptyJointWait(),
+   };
   for(const observation of observations){
    if(!paired(observation))continue;
    const blind=observation.blindMidpointTouch!.netBpsByCost[scenarioIndex];
@@ -712,6 +724,8 @@ function summarizeCohort(observations:readonly FvgObservation[],costs:readonly n
     throw Error('Matched FVG first-touch waiting hour is inconsistent');
    byFirstTouchWaitAndStrictCandidate[observation.gates.strictCandidate]
     [observation.firstTouchObservedWaitBars-1][cell]++;
+   byDirectionAndFirstTouchWaitAndStrictCandidate[observation.direction]
+    [observation.gates.strictCandidate][observation.firstTouchObservedWaitBars-1][cell]++;
    const directional=byDirection[observation.direction];
    directional.all[cell]++;
    if(observation.gates.strictCandidate==='PASS'){
@@ -746,8 +760,35 @@ function summarizeCohort(observations:readonly FvgObservation[],costs:readonly n
      throw Error('FVG cost-sign wait/status population does not reconcile');
    }
   }
+  // Both projections of the joint population must match the original censuses.
+  for(const status of ['PASS','FAIL','INSUFFICIENT_DATA'] as const){
+   for(let wait=0;wait<maxTouchWaitBars;wait++){
+    for(const cell of ['bothPositive','blindOnlyPositive',
+     'confirmedOnlyPositive','neitherPositive'] as const){
+     const joint=byDirectionAndFirstTouchWaitAndStrictCandidate;
+     if(joint.BULLISH[status][wait][cell]+joint.BEARISH[status][wait][cell]!==
+      byFirstTouchWaitAndStrictCandidate[status][wait][cell])
+      throw Error('Directional FVG cost-sign wait/status population does not reconcile');
+    }
+   }
+  }
+  for(const side of ['BULLISH','BEARISH'] as const){
+   for(const [status,group] of [
+    ['PASS','strict'],['FAIL','strictFail'],
+    ['INSUFFICIENT_DATA','strictUnknown'],
+   ] as const){
+    for(const cell of ['bothPositive','blindOnlyPositive',
+     'confirmedOnlyPositive','neitherPositive'] as const){
+     const total=byDirectionAndFirstTouchWaitAndStrictCandidate[side][status]
+      .reduce((sum,wait)=>sum+wait[cell],0);
+     if(total!==byDirection[side][group][cell])
+      throw Error('Directional FVG cost-sign strict/wait projection does not reconcile');
+    }
+   }
+  }
   return {scenarioIndex,costBps,all,strict,strictFail,strictUnknown,byDirection,
-   byFirstTouchWaitAndStrictCandidate};
+   byFirstTouchWaitAndStrictCandidate,
+   byDirectionAndFirstTouchWaitAndStrictCandidate};
  });
  const firstTouchOutcome:Record<FirstTouchOutcome,number>={
   TOUCH:0,NO_TOUCH:0,OPEN_GAP_THROUGH:0,INCOMPLETE_WINDOW:0,
@@ -977,6 +1018,15 @@ function summarizeCohort(observations:readonly FvgObservation[],costs:readonly n
      cells.confirmedOnlyPositive+cells.neitherPositive;
     if(matched!==firstTouchPairedByWaitAndStrictCandidate[status][wait])
      throw Error('FVG cost-sign waiting cohort and matched attrition disagree');
+    for(const side of ['BULLISH','BEARISH'] as const){
+     const directional=scenario.byDirectionAndFirstTouchWaitAndStrictCandidate
+      [side][status][wait];
+     const count=directional.bothPositive+directional.blindOnlyPositive+
+      directional.confirmedOnlyPositive+directional.neitherPositive;
+     if(count!==firstTouchPairedByWaitAndStrictCandidateByDirection
+      [side][status][wait])
+      throw Error('Directional FVG cost-sign waiting cohort and attrition disagree');
+    }
    }
   }
  }
