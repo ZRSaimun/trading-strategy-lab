@@ -176,3 +176,33 @@ statistic, intraperiod broker-equity drawdown, margin estimate or a bound
 on unobserved execution risk. All receipt times and costs are declared,
 not independently authenticated. It grants no paper/demo or live order
 permission.
+
+
+## Canonical scenario-set input commitment (audit trace, not attestation)
+
+The result includes `scenario_set_sha256`, an SHA-256 of a canonical JSON
+envelope containing the **declared manifest digest**, **holdout census digest**,
+protocol version, and the complete set of scenario IDs and per-row cost
+adjustments. Scenario IDs and adjustment rows are sorted by their validated
+identities before hashing, so caller list order does not affect the digest.
+JSON object keys are canonicalized by the existing repository hash helper.
+Exact input cash **strings** are preserved: `"0.1"` and `"0.1000"` have the
+same numeric cash value but intentionally different evidence digests.
+Changing the affected observation, cost component, amount, candidate, or
+source-bound census changes the commitment.
+
+This digest depends only on **declared pre-outcome inputs**. It does not include
+outcome receipts, P&L, or the release timestamp; it can therefore be committed
+to a genuinely independent timestamped registry **before** viewing holdout
+outcomes. For 1–29 observations, it is still available, but outcome receipts
+and every outcome-dependent amount remain withheld.
+
+**Critical limitation:** generating or displaying a digest *after* seeing
+results is not preregistration. This function neither checks an external
+immutable registry nor prevents multiple candidate/scenario probes or
+selective publication. No externally authenticated anchor, independently
+untouched holdout, source provenance, executable broker cost, trading edge,
+or paper/live order permission is established by this digest.
+
+Synthetic regressions verify input-order invariance, candidate binding,
+component/row/cash-text sensitivity, outcome independence and withholding.
