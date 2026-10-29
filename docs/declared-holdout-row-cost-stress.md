@@ -125,3 +125,30 @@ Both metrics are `null` for fewer than 30 observations. They are descriptive
 of caller-declared cash outcomes, **not** independently verified profitable
 trades, broker fills, executable costs, or predictive performance. Neither
 metric grants demo or real order permission.
+
+
+## Pairwise row-wise cost dominance and incomparable stresses
+
+The offline audit now compares all pairs among the 1–8 complete scenarios using
+**total additional settlement-currency cash per observation**. A scenario is
+*row-wise more adverse* only when its additional debit is at least as large
+for **every** identical source-bound observation. Matching aggregate totals
+are insufficient: if one scenario charges row A more and row B less, the pair
+is **incomparable**, even when both scenarios have identical total cash cost.
+
+For released populations (30+), `scenario_cost_dominance_pairs` lists
+the deterministic lower-or-equal/higher-or-equal scenario IDs and whether
+all per-row totals match exactly; equal vectors use lexical ID order.
+`scenario_cost_incomparable_pair_count` counts pairs that cannot be
+ordered by row-wise adverse cost. The implementation also asserts that
+row-wise dominance cannot improve stressed net cash, reduce negative-row
+counts or gross losses, reduce positive-profit erasure, or improve the worst
+stressed row. These checks use exact-decimal arithmetic. Both new report
+fields are `null` below 30 observations.
+
+**Do not infer** monotonicity of receipt-time drawdown from cost dominance:
+the maximum drawdown measured from a changing prior peak can behave
+differently as earlier costs increase. This diagnostic does not rank
+incomparable scenarios, authenticate source data, independently protect
+a holdout, prove broker-executable costs or establish profitability.
+No broker adapter or order permission is changed.
