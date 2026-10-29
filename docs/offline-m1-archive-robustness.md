@@ -14,3 +14,7 @@ PYTHONPATH=. python -m pytest -q tests/test_offline_m1_archive_robustness.py
 ```
 
 The return flags always deny trading, verified profitability, authenticated source, executable quotes, statistical significance and protected holdout. This is a research-only feature; it must not be exposed as a live BUY/SELL signal. Before strategy promotion, obtain independently authenticated archive metadata and fresh untouched chronological data, then evaluate source-specific executable BID/ASK, spread, commission, slippage and financing assumptions without tuning on the holdout.
+
+## 29 October 2026 — incomplete-source stress quarantine
+
+For a source cohort containing any zero-outcome original archive, **all** cost-scenario return metrics, positive-archive counts, and leave-one-archive-out extrema are now null. The result retains `INCOMPLETE_ARCHIVE_COVERAGE`, archive identities and population counters for diagnostics. The prior behavior could display a favorable mean from only the remaining nonempty archives, even though the source cohort was incomplete. A complete cohort of another instrument/provider is not suppressed. This is a fail-closed reporting correction, not new market evidence or a trading signal.
