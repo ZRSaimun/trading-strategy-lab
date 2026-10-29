@@ -33,6 +33,8 @@ def audit_declared_holdout_fold_isolation(folds):
     total_pending_labels = 0
     max_pending_labels = 0
     most_pending_labels_fold_index = None
+    max_last_decision_to_window_end_seconds = 0
+    longest_last_decision_gap_fold_index = None
     previous_census = None
     validation_cutoff_transitions = []
     total_prior_labels_unavailable_at_validation = 0
@@ -117,6 +119,21 @@ def audit_declared_holdout_fold_isolation(folds):
         pending_labels = sum(
             row["label_available_at_utc"] > previous_end for row in census
         )
+        # A multi-year window can contain decisions in only a few early days.
+        # These are coverage diagnostics, NOT proof of missing source candles:
+        # a strategy may legitimately produce no later trade decisions.
+        first_decision = census[0]["decision_at_utc"]
+        last_decision = census[-1]["decision_at_utc"]
+        decision_span = last_decision - first_decision
+        last_decision_to_end = previous_end - last_decision
+        max_interdecision_gap = (
+            max(census[i]["decision_at_utc"] - census[i - 1]["decision_at_utc"]
+                for i in range(1, len(census)))
+            if len(census) > 1 else None
+        )
+        if last_decision_to_end > max_last_decision_to_window_end_seconds:
+            max_last_decision_to_window_end_seconds = last_decision_to_end
+            longest_last_decision_gap_fold_index = index
         total_pending_labels += pending_labels
         if pending_labels > max_pending_labels:
             max_pending_labels = pending_labels
@@ -130,6 +147,11 @@ def audit_declared_holdout_fold_isolation(folds):
             "holdout_start_at_utc": manifest["holdout_start_at_utc"],
             "holdout_end_at_utc": previous_end,
             "observation_count": len(census),
+            "first_declared_decision_at_utc": first_decision,
+            "last_declared_decision_at_utc": last_decision,
+            "declared_decision_span_seconds": decision_span,
+            "max_declared_interdecision_gap_seconds": max_interdecision_gap,
+            "declared_last_decision_to_window_end_seconds": last_decision_to_end,
             "latest_declared_label_available_at_utc": previous_max_label,
             "declared_label_tail_beyond_window_seconds": label_tail,
             "declared_labels_pending_at_window_end_count": pending_labels,
@@ -144,6 +166,10 @@ def audit_declared_holdout_fold_isolation(folds):
         "max_declared_labels_pending_at_window_end_count": max_pending_labels,
         "most_pending_declared_labels_fold_index": most_pending_labels_fold_index,
         "observation_count": len(seen_rows),
+        "max_declared_last_decision_to_window_end_seconds":
+            max_last_decision_to_window_end_seconds,
+        "longest_declared_last_decision_gap_fold_index":
+            longest_last_decision_gap_fold_index,
         "declared_validation_cutoff_transitions": validation_cutoff_transitions,
         "total_declared_prior_labels_unavailable_at_validation_end_count":
             total_prior_labels_unavailable_at_validation,
@@ -166,5 +192,6 @@ def audit_declared_holdout_fold_isolation(folds):
                    "Embargo slack and validation-cutoff availability use unverified declared clocks; "
                    "a positive validation count does not prove outcome reuse or leakage. "
                    "Distinct archive digests do not prove independent market data. "
+                   "Decision-time gaps do not establish missing source coverage. "
                    "No holdout outcomes, executable costs or trading permissions are evaluated."
     }
