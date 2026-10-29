@@ -7,7 +7,7 @@
  */
 import type {Bar} from './research.ts';
 
-export const HOURLY_FVG_VERSION='hourly-fvg-first-midpoint-touch-v74';
+export const HOURLY_FVG_VERSION='hourly-fvg-first-midpoint-touch-v75';
 export type Evidence='PASS'|'FAIL'|'INSUFFICIENT_DATA';
 // First-touch volume evidence is not independent broker/source authentication.
 export type VolumeEvidenceReason='NOT_EVALUATED'|'SOURCE_UNVERIFIED'|
@@ -244,6 +244,35 @@ function validateBarArraySchema(bars:readonly Bar[],count:number){
   throw Error('Unexpected FVG archive array metadata outside frozen BID-only protocol');
  }
 }
+
+// Preserve the exact own-index archive population across source/config and
+// candle getters. Length/key checks alone cannot detect a same-length row
+// substitution, which would silently change the dataset under the report.
+// Inspect property descriptors, not caller-controlled indexed getters; an
+// accessor slot is allowed but its descriptor must remain unchanged.
+function captureArchiveSlots(bars:readonly Bar[],count:number):PropertyDescriptor[]{
+ const slots:PropertyDescriptor[]=[];
+ for(let index=0;index<count;index++){
+  const descriptor=Object.getOwnPropertyDescriptor(bars,index);
+  if(!descriptor)throw Error('Hourly research array contains missing own-index candle evidence');
+  slots.push(descriptor);
+ }
+ return slots;
+}
+function assertArchiveSlotsUnchanged(bars:readonly Bar[],slots:readonly PropertyDescriptor[]){
+ for(let index=0;index<slots.length;index++){
+  const initial=slots[index],current=Object.getOwnPropertyDescriptor(bars,index);
+  const initialData='value' in initial;
+  if(!current||initial.configurable!==current.configurable||
+   initial.enumerable!==current.enumerable||
+   initialData!==('value' in current)||
+   (initialData?
+    initial.value!==current.value||initial.writable!==current.writable:
+    initial.get!==current.get||initial.set!==current.set))
+   throw Error('Hourly research candle row identity changed during snapshot');
+ }
+}
+
 function validateBars(bars:readonly Bar[]){
  if(!Array.isArray(bars)||bars.length>20000)
   throw Error('Invalid or oversized hourly research window');
@@ -930,6 +959,7 @@ export function studyHourlyFvgMidpoint(
  // config/source getters execute; those getters cannot grow or shrink it.
  const barCount=suppliedBars.length;
  validateBarArraySchema(suppliedBars,barCount);
+ const archiveSlots=captureArchiveSlots(suppliedBars,barCount);
  // A research setting must be explicitly supplied or use its frozen default.
  // An inherited prototype value can silently shorten the touch window,
  // change the wick/volume threshold or replace the cost scenarios.
@@ -1065,6 +1095,7 @@ export function studyHourlyFvgMidpoint(
  if(suppliedBars.length!==barCount)
   throw Error('Hourly research candle array length changed during declaration snapshot');
  validateBarArraySchema(suppliedBars,barCount);
+ assertArchiveSlotsUnchanged(suppliedBars,archiveSlots);
  // Snapshot each candle exactly once. An observed getter may not append,
  // remove or silently substitute an additional archive population.
  // Do not invoke a caller-controlled Symbol.iterator: a short Array can
@@ -1099,6 +1130,7 @@ export function studyHourlyFvgMidpoint(
  // earlier rows after the initial preflight. Check schema again without
  // rereading any candle values or caller-controlled iterators.
  validateBarArraySchema(suppliedBars,barCount);
+ assertArchiveSlotsUnchanged(suppliedBars,archiveSlots);
  for(const row of originalRows){
   if(!CANDLE_FIELDS.every(field=>hasOwnField(row,field))||
    Reflect.ownKeys(row).some(key=>!CANDLE_FIELDS.some(field=>field===key)))
@@ -1287,6 +1319,7 @@ export function studyHourlyFvgMidpointAsOf(
   throw Error('Invalid or oversized hourly research window');
  const barCount=suppliedBars.length;
  validateBarArraySchema(suppliedBars,barCount);
+ const archiveSlots=captureArchiveSlots(suppliedBars,barCount);
  // Freeze source identity, declared volume provenance and study settings
  // BEFORE reading any future timestamp accessors. Otherwise a future bar's
  // time getter can rewrite the caller's source/config after the completed
@@ -1334,6 +1367,7 @@ export function studyHourlyFvgMidpointAsOf(
  // Future timestamp accessors may mutate archive-level or already-revealed
  // candle schemas. Recheck only completed rows; future OHLC stays unread.
  validateBarArraySchema(suppliedBars,barCount);
+ assertArchiveSlotsUnchanged(suppliedBars,archiveSlots);
  for(const row of completedRows){
   if(!CANDLE_FIELDS.every(field=>hasOwnField(row,field))||
    Reflect.ownKeys(row).some(key=>!CANDLE_FIELDS.some(field=>field===key)))
