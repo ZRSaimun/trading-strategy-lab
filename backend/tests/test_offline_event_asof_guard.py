@@ -522,3 +522,13 @@ def test_surprise_digest_matches_independent_canonical_payload():
     assert report["surprise_audit_sha256"] == hashlib.sha256(
         canonical.encode("utf-8")
     ).hexdigest()
+
+
+def test_surprise_valid_extreme_inputs_do_not_overflow_difference():
+    rows = [row(forecast="-1e30"),
+            row(2, "result", published="2026-10-28T18:00:00Z",
+                observed="2026-10-28T18:01:00Z",
+                forecast="-1e30", actual="1e30")]
+    assert surprise(rows)["observations"][0]["raw_actual_minus_forecast"] == (
+        "2000000000000000000000000000000"
+    )
