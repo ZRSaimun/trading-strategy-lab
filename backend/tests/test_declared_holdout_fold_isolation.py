@@ -457,3 +457,74 @@ def test_equal_declared_label_tails_report_earliest_fold_without_outcomes():
     assert result["may_execute_demo_order"] is False
     assert result["may_execute_real_order"] is False
     assert "net_cash" not in result
+
+
+def test_pending_label_population_zero_for_default_windows():
+    folds = _valid()
+    before = copy.deepcopy(folds)
+    result = audit_declared_holdout_fold_isolation(folds)
+    assert result["total_declared_labels_pending_at_window_end_count"] == 0
+    assert result["max_declared_labels_pending_at_window_end_count"] == 0
+    assert result["most_pending_declared_labels_fold_index"] is None
+    assert all(x["declared_labels_pending_at_window_end_count"] == 0
+               for x in result["folds"])
+    assert folds == before
+    assert result["may_execute_demo_order"] is False
+    assert result["may_execute_real_order"] is False
+    assert "net_cash" not in result
+
+
+@pytest.mark.parametrize("pending_count", [1, 2, 5, 40])
+def test_pending_label_count_uses_every_row_and_exact_window_end_boundary(pending_count):
+    folds = _valid()
+    end = folds[2]["manifest"]["holdout_end_at_utc"]
+    # The last fold has no subsequent selection. All observations remain
+    # causal, but the outcomes become available one second after window end.
+    for row in folds[2]["census"][:pending_count]:
+        row["label_available_at_utc"] = end + 1
+    folds[2]["manifest"]["holdout_census_sha256"] = (
+        prepare_declared_holdout_census_sha256(folds[2]["census"])
+    )
+    before = copy.deepcopy(folds)
+    result = audit_declared_holdout_fold_isolation(folds)
+    assert result["folds"][2]["declared_labels_pending_at_window_end_count"] == pending_count
+    assert result["total_declared_labels_pending_at_window_end_count"] == pending_count
+    assert result["max_declared_labels_pending_at_window_end_count"] == pending_count
+    assert result["most_pending_declared_labels_fold_index"] == 2
+    assert result["max_declared_label_tail_beyond_window_seconds"] == 1
+    assert folds == before
+    assert result["may_execute_demo_order"] is False
+    assert result["may_execute_real_order"] is False
+    assert "net_cash" not in result
+
+    # Exactly at the window end is mature, not pending.
+    folds[2]["census"][0]["label_available_at_utc"] = end
+    folds[2]["manifest"]["holdout_census_sha256"] = (
+        prepare_declared_holdout_census_sha256(folds[2]["census"])
+    )
+    result = audit_declared_holdout_fold_isolation(folds)
+    assert result["total_declared_labels_pending_at_window_end_count"] == pending_count - 1
+
+
+def test_pending_label_count_stable_tie_and_study_total():
+    folds = _valid()
+    for index in (0, 2):
+        end = folds[index]["manifest"]["holdout_end_at_utc"]
+        # Nonmonotonic maturity: early decisions remain pending.
+        for row in folds[index]["census"][:3]:
+            row["label_available_at_utc"] = end + 1
+        folds[index]["manifest"]["holdout_census_sha256"] = (
+            prepare_declared_holdout_census_sha256(folds[index]["census"])
+        )
+    before = copy.deepcopy(folds)
+    result = audit_declared_holdout_fold_isolation(folds)
+    assert result["total_declared_labels_pending_at_window_end_count"] == 6
+    assert result["max_declared_labels_pending_at_window_end_count"] == 3
+    assert result["most_pending_declared_labels_fold_index"] == 0
+    assert [x["declared_labels_pending_at_window_end_count"]
+            for x in result["folds"]] == [3, 0, 3]
+    assert folds == before
+    assert result["holdout_untouched_independently_verified"] is False
+    assert result["may_execute_demo_order"] is False
+    assert result["may_execute_real_order"] is False
+    assert "net_cash" not in result
