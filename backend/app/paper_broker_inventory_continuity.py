@@ -6,14 +6,18 @@ release UNKNOWN attempts, and never authorizes any paper or live order.
 """
 from __future__ import annotations
 
+from decimal import Decimal
 from typing import Any
 
 from app.paper_broker_inventory_census import (
     MAX_PAGES,
     MAX_ORDERS,
+    MAX_FILLS,
+    _STATUSES,
     _id,
     _ms,
     _object,
+    _qty,
     inspect_declared_inventory,
 )
 
@@ -45,6 +49,8 @@ def _prior_metadata(previous: Any, now: int, max_transport_lag_ms: int) -> tuple
     total_orders = 0
     seen_client_ids: set[str] = set()
     seen_broker_order_ids: set[str] = set()
+    seen_fill_ids: set[str] = set()
+    total_fills = 0
     for index, raw in enumerate(pages):
         page = _object(raw, _PAGE_FIELDS, "previous page")
         if (_id(page["snapshot_id"], "previous page snapshot ID") != prev["snapshot_id"]
@@ -70,6 +76,42 @@ def _prior_metadata(previous: Any, now: int, max_transport_lag_ms: int) -> tuple
                 failures.add("previous_duplicate_order_identity")
             seen_client_ids.add(client_id)
             seen_broker_order_ids.add(broker_id)
+            # Prior inventory must be internally coherent too. A unique order
+            # ID alone cannot establish continuity if its fills are duplicated,
+            # future-dated, or inconsistent with the declared order status.
+            _id(row["instrument"], "previous instrument")
+            if type(row["side"]) is not str or row["side"] not in ("BUY", "SELL"):
+                raise ValueError("Invalid previous order side")
+            quantity = _qty(row["quantity"], "previous order quantity", positive=True)
+            filled = _qty(row["filled_quantity"], "previous filled quantity")
+            status = row["status"]
+            if type(status) is not str or status not in _STATUSES:
+                raise ValueError("Invalid previous order status")
+            fills = row["fills"]
+            if type(fills) is not list or len(fills) > MAX_FILLS:
+                raise ValueError("Invalid previous fill population")
+            total_fills += len(fills)
+            if total_fills > MAX_FILLS:
+                raise ValueError("Previous fill population exceeds bound")
+            sum_fills = Decimal(0)
+            for raw_fill in fills:
+                fill = _object(raw_fill, {"fill_id", "quantity", "filled_at_ms"},
+                               "previous fill")
+                fill_id = _id(fill["fill_id"], "previous fill ID")
+                amount = _qty(fill["quantity"], "previous fill quantity", positive=True)
+                filled_at = _ms(fill["filled_at_ms"], "previous fill time")
+                if fill_id in seen_fill_ids:
+                    failures.add("previous_duplicate_fill_identity")
+                seen_fill_ids.add(fill_id)
+                sum_fills += amount
+                if filled_at > observed:
+                    failures.add("previous_fill_after_observation")
+            if sum_fills != filled or filled > quantity:
+                failures.add("previous_fill_quantity_reconciliation")
+            if (status == "FILLED" and filled != quantity
+                    or status in ("REJECTED", "CANCELLED", "OPEN") and filled != 0
+                    or status == "PARTIAL" and not 0 < filled < quantity):
+                failures.add("previous_status_quantity_reconciliation")
     return prev, failures
 
 
