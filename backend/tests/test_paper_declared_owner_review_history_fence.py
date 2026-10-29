@@ -269,6 +269,7 @@ def test_backfilled_review_strictly_older_than_prior_snapshot_holds():
 def test_recorded_after_prior_snapshot_does_not_false_hold():
     prev, curr = snapshots()
     curr["events"][1]["recorded_at_ms"] = prev["observed_at_ms"] + 1
+    curr["events"][1]["issued_at_ms"] = prev["observed_at_ms"] + 1
     assert inspect(prev, curr)["failed_checks"] == []
 
 
