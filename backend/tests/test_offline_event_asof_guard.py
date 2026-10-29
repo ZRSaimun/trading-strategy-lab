@@ -793,3 +793,158 @@ def test_latency_does_not_mutate_rows_or_infer_broker_execution():
     assert report["authenticated_calendar"] is False
     assert report["coverage_verified"] is False
     assert report["trade_authorized"] is False
+
+
+# Declared as-of pre-release consensus churn: synthetic, no vendor receipts.
+from app.offline_event_asof_guard import audit_declared_consensus_churn_asof
+
+
+def churn(rows, decision="2026-10-28T17:00:00Z",
+          source="synthetic-calendar", maximum=1440):
+    return audit_declared_consensus_churn_asof(
+        rows, decision_utc=decision, source_id=source,
+        max_forecast_age_minutes=maximum,
+    )
+
+
+def churn_rows():
+    return [
+        row(forecast="3.0"),
+        row(2, observed="2026-10-28T14:00:00Z",
+            published="2026-10-28T13:59:00Z", forecast="3.5"),
+        row(3, observed="2026-10-28T15:00:00Z",
+            published="2026-10-28T14:59:00Z", forecast="3.5"),
+    ]
+
+
+def test_churn_counts_distinct_forecast_changes_not_repeat_refreshes():
+    item = churn(churn_rows())["observations"][0]
+    assert item["schedule_revision_count"] == 3
+    assert item["declared_forecast_change_count"] == 1
+    assert item["latest_schedule_observed_utc"] == "2026-10-28T15:00:00+00:00"
+    assert item["last_distinct_forecast_observed_utc"] == "2026-10-28T14:00:00+00:00"
+    assert item["declared_forecast_age_minutes"] == 180
+
+
+def test_churn_exact_decision_minute_excludes_revision():
+    rows = churn_rows()
+    at = churn(rows, decision="2026-10-28T14:00:00Z")["observations"][0]
+    after = churn(rows, decision="2026-10-28T14:01:00Z")["observations"][0]
+    assert at["schedule_revision_count"] == 1
+    assert at["declared_forecast_change_count"] == 0
+    assert after["schedule_revision_count"] == 2
+    assert after["declared_forecast_age_minutes"] == 1
+
+
+def test_churn_missing_forecast_transitions_are_not_numeric_changes():
+    rows = [
+        row(forecast="3.0"),
+        row(2, observed="2026-10-28T13:00:00Z",
+            published="2026-10-28T12:59:00Z", forecast=None),
+        row(3, observed="2026-10-28T14:00:00Z",
+            published="2026-10-28T13:59:00Z", forecast="4.0"),
+    ]
+    item = churn(rows)["observations"][0]
+    assert item["declared_forecast_change_count"] == 0
+    assert item["missing_forecast_transition_count"] == 2
+    assert item["declared_forecast_age_minutes"] == 180
+
+
+def test_churn_missing_latest_forecast_is_unknown_not_recent():
+    rows = [row(forecast=None)]
+    report = churn(rows)
+    item = report["observations"][0]
+    assert item["status"] == "FORECAST_MISSING"
+    assert item["declared_forecast_age_minutes"] is None
+    assert item["exceeds_declared_age_limit"] is None
+    assert report["missing_forecast_event_count"] == 1
+
+
+def test_churn_declared_age_limit_is_inclusive_and_never_trade_clearance():
+    rows = churn_rows()
+    within = churn(rows, maximum=180)
+    older = churn(rows, maximum=179)
+    assert within["observations"][0]["status"] == "DECLARED_FORECAST_WITHIN_LIMIT"
+    assert older["observations"][0]["status"] == "DECLARED_FORECAST_OLDER_THAN_LIMIT"
+    assert older["older_than_limit_event_count"] == 1
+    assert within["trade_authorized"] is False
+    assert within["receipt_provenance_verified"] is False
+
+
+def test_churn_after_release_uses_event_time_as_age_anchor():
+    rows = churn_rows() + [
+        row(4, "result", observed="2026-10-28T18:01:00Z",
+            published="2026-10-28T18:00:00Z", forecast="3.5", actual="3.7"),
+    ]
+    a = churn(rows, decision="2026-10-28T18:02:00Z")["observations"][0]
+    b = churn(rows, decision="2026-10-28T19:00:00Z")["observations"][0]
+    assert a["declared_forecast_age_minutes"] == 240
+    assert a["declared_forecast_age_minutes"] == b["declared_forecast_age_minutes"]
+    assert a["age_anchor_utc"] == "2026-10-28T18:00:00+00:00"
+
+
+def test_churn_future_revision_and_order_do_not_change_past():
+    rows = churn_rows()
+    cutoff = "2026-10-28T14:00:00Z"
+    before = churn(rows[:1], decision=cutoff)
+    assert churn(rows, decision=cutoff) == before
+    assert churn(list(reversed(rows)), decision=cutoff) == before
+
+
+def test_churn_empty_inventory_cannot_prove_event_free_market():
+    report = churn([])
+    assert report["visible_event_count"] == 0
+    assert report["observations"] == []
+    assert report["coverage_verified"] is False
+    assert report["authenticated_calendar"] is False
+
+
+@pytest.mark.parametrize("maximum", [-1, 10081, True, 1.5, "5", None])
+def test_churn_invalid_age_limit_fails_closed(maximum):
+    with pytest.raises(ValueError, match="max_forecast_age_minutes"):
+        churn([row()], maximum=maximum)
+
+
+def test_churn_source_cutoff_and_policy_bind_digest():
+    rows = churn_rows()
+    report = churn(rows)
+    assert churn(rows, source="other")["consensus_churn_audit_sha256"] != (
+        report["consensus_churn_audit_sha256"]
+    )
+    assert churn(rows, decision="2026-10-28T17:01:00Z")[
+        "consensus_churn_audit_sha256"
+    ] != report["consensus_churn_audit_sha256"]
+    assert churn(rows, maximum=100)["consensus_churn_audit_sha256"] != (
+        report["consensus_churn_audit_sha256"]
+    )
+
+
+def test_churn_digest_independently_reconstructed():
+    import hashlib
+    import json
+    report = churn(churn_rows())
+    payload = {
+        "schema_version": 1,
+        "research_envelope_v2_sha256": report["research_envelope_v2_sha256"],
+        "max_forecast_age_minutes": report["max_forecast_age_minutes"],
+        "observations": report["observations"],
+    }
+    canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"),
+                           ensure_ascii=True)
+    assert report["consensus_churn_audit_sha256"] == hashlib.sha256(
+        canonical.encode("utf-8")
+    ).hexdigest()
+
+
+def test_churn_rejects_invalid_future_revision_even_when_invisible():
+    rows = churn_rows()
+    rows[-1]["actual"] = "9"
+    with pytest.raises(ValueError, match="Schedule revision"):
+        churn(rows, decision="2026-10-28T14:00:00Z")
+
+
+def test_churn_does_not_mutate_input():
+    rows = churn_rows()
+    before = deepcopy(rows)
+    churn(rows)
+    assert rows == before
