@@ -107,6 +107,14 @@ def audit_declared_event_asof(revisions, *, decision_utc, source_id):
             if seen_result and entry["kind"] != "result":
                 raise ValueError("Schedule revision after result forbidden")
             if entry["kind"] == "schedule":
+                # A schedule/consensus must be observed strictly before its
+                # own event time; post-release consensus is not pre-news data.
+                if observed >= _utc(entry["scheduled_utc"]):
+                    raise ValueError("Schedule must be observed before its event time")
+                # Post-event postponements cannot retroactively erase the
+                # originally scheduled release. Fail closed until modeled.
+                if last_schedule is not None and observed >= _utc(last_schedule["scheduled_utc"]):
+                    raise ValueError("Schedule revision observed at or after prior event time")
                 last_schedule = entry
             elif (entry["scheduled_utc"] != last_schedule["scheduled_utc"]
                   or entry["forecast"] != last_schedule["forecast"]):
