@@ -183,6 +183,22 @@ def inspect_declared_account_snapshot_fence(
                 failures.add("orders_revision_rollback")
         if observed <= prior["observed_at_ms"] or received < prior["received_at_ms"]:
             failures.add("snapshot_time_replay")
+        # A later account envelope must not conceal an older positions/orders
+        # inventory snapshot. A repeated sync timestamp is permitted because
+        # an unchanged inventory can legitimately be reused while still fresh.
+        # On session changes the separate reconciliation hold already applies.
+        if s["session_epoch"] == prior["session_epoch"]:
+            for label in ("positions", "orders"):
+                if s[label + "_synced_at_ms"] < prior[label + "_synced_at_ms"]:
+                    failures.add(label + "_sync_time_rollback")
+            # A primary quote can be reused at the same timestamp within its
+            # freshness window, but a *backward* quote timestamp is suspect.
+            previous_quote = prior["risk_quote"]
+            if (q["instrument"], q["source"]) == (previous_quote["instrument"], previous_quote["source"]):
+                if q["observed_at_ms"] < previous_quote["observed_at_ms"]:
+                    failures.add("quote_observation_time_rollback")
+                if q["received_at_ms"] < previous_quote["received_at_ms"]:
+                    failures.add("quote_receipt_time_rollback")
     return {
         "status": "HOLD_ACCOUNT_SNAPSHOT_REVIEW" if failures else "DECLARED_ACCOUNT_SNAPSHOT_UNVERIFIED",
         "failed_checks": sorted(failures),
