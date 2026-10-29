@@ -67,10 +67,21 @@ def audit_declared_m1_gap_runs(
     if len(observed_in_exclusions) + len(observed_outside_sessions) != len(unexpected):
         raise ValueError("Unexpected-minute attribution failed")
     runs: list[tuple[int, int]] = []
+    session_coverage: list[dict[str, int]] = []
     for start, end in manifest.sessions_utc:
         run_start = None
         run_length = 0
+        runs_before = len(runs)
+        session_expected = 0
+        session_observed = 0
+        session_excluded = 0
         for minute in range(start, end, 60):
+            if minute in exclusions:
+                session_excluded += 1
+            else:
+                session_expected += 1
+                if minute in seen:
+                    session_observed += 1
             if minute in exclusions or minute in seen:
                 if run_start is not None:
                     runs.append((run_start, run_length))
@@ -82,9 +93,24 @@ def audit_declared_m1_gap_runs(
                 run_length += 1
         if run_start is not None:
             runs.append((run_start, run_length))
+        session_coverage.append({
+            "start_utc": start,
+            "end_exclusive_utc": end,
+            "expected_minutes": session_expected,
+            "observed_expected_minutes": session_observed,
+            "missing_expected_minutes": session_expected - session_observed,
+            "missing_gap_runs": len(runs) - runs_before,
+            "excluded_minutes": session_excluded,
+        })
     missing = sum(length for _, length in runs)
     if missing != len(expected - seen):
         raise ValueError("Expected-minute gap reconciliation failed")
+    if (sum(row["expected_minutes"] for row in session_coverage) != len(expected)
+            or sum(row["observed_expected_minutes"] for row in session_coverage) != len(expected & seen)
+            or sum(row["missing_expected_minutes"] for row in session_coverage) != missing
+            or sum(row["missing_gap_runs"] for row in session_coverage) != len(runs)
+            or sum(row["excluded_minutes"] for row in session_coverage) != len(exclusions)):
+        raise ValueError("Per-session coverage reconciliation failed")
     lengths = Counter(length for _, length in runs)
     # Trailing coverage counts only declared expected slots, not elapsed wall
     # minutes. Session breaks and declared closures do not create fake gaps.
@@ -129,6 +155,7 @@ def audit_declared_m1_gap_runs(
         "observed_outside_declared_sessions_samples": sorted(observed_outside_sessions)[:sample_limit],
         "declared_excluded_minutes": len(exclusions),
         "declared_session_intervals": len(manifest.sessions_utc),
+        "declared_session_coverage": session_coverage,
         "expected_calendar_verified": False,
         "source_authenticated": False,
         "data_rights_verified": False,
