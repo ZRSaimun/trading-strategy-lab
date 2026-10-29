@@ -187,3 +187,59 @@ def audit_declared_event_asof(revisions, *, decision_utc, source_id):
             "research_envelope_v2_sha256": hashlib.sha256(
                 envelope_v2_canonical.encode("utf-8")
             ).hexdigest()}
+
+
+def audit_declared_event_window(revisions, *, decision_utc, source_id,
+                                before_minutes=30, after_minutes=15):
+    """Research-only, as-of event proximity census; never a trade clearance.
+
+    Uses only schedules visible before the decision minute. Unknown events,
+    omitted sources, incomplete calendars and unauthenticated receipts cannot
+    be interpreted as proof that a market is safe to trade.
+    """
+    for name, value in (("before_minutes", before_minutes),
+                        ("after_minutes", after_minutes)):
+        if type(value) is not int or not 0 <= value <= 1440:
+            raise ValueError(f"{name} must be an integer from 0 to 1440")
+    snapshot = audit_declared_event_asof(
+        revisions, decision_utc=decision_utc, source_id=source_id
+    )
+    cutoff = _utc(decision_utc)
+    matches = []
+    for event in snapshot["events"]:
+        scheduled = _utc(event["scheduled_utc"])
+        delta = int((scheduled - cutoff).total_seconds() // 60)
+        if -after_minutes <= delta <= before_minutes:
+            matches.append({
+                "event_id": event["event_id"],
+                "scheduled_utc": event["scheduled_utc"],
+                "minutes_until_event": delta,
+            })
+    matches.sort(key=lambda x: (x["minutes_until_event"], x["event_id"]))
+    envelope = {
+        "schema_version": 1,
+        "research_envelope_v2_sha256": snapshot["research_envelope_v2_sha256"],
+        "before_minutes": before_minutes,
+        "after_minutes": after_minutes,
+        "matched_events": matches,
+    }
+    canonical = json.dumps(
+        envelope, sort_keys=True, separators=(",", ":"), ensure_ascii=True
+    )
+    return {
+        "research_only": True,
+        "trade_authorized": False,
+        "authenticated_calendar": False,
+        "coverage_verified": False,
+        "decision_utc": snapshot["decision_utc"],
+        "source_id": snapshot["source_id"],
+        "before_minutes": before_minutes,
+        "after_minutes": after_minutes,
+        "visible_event_count": snapshot["visible_event_count"],
+        "matched_event_count": len(matches),
+        "within_declared_event_window": bool(matches),
+        "matched_events": matches,
+        "research_envelope_v2_sha256": snapshot["research_envelope_v2_sha256"],
+        "window_audit_schema_version": 1,
+        "window_audit_sha256": hashlib.sha256(canonical.encode("utf-8")).hexdigest(),
+    }
