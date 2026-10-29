@@ -178,11 +178,15 @@ def test_receipt_lag_is_attributed_to_declared_expected_sessions_only():
         {
             "start_utc": T, "end_exclusive_utc": T + 120,
             "expected_receipt_rows": 1, "late_expected_receipt_rows": 0,
+            "unique_expected_minutes_with_receipts": 1,
+            "duplicate_expected_receipt_rows": 0,
             "max_declared_receipt_lag_seconds": 5,
         },
         {
             "start_utc": T + 180, "end_exclusive_utc": T + 300,
             "expected_receipt_rows": 2, "late_expected_receipt_rows": 0,
+            "unique_expected_minutes_with_receipts": 2,
+            "duplicate_expected_receipt_rows": 0,
             "max_declared_receipt_lag_seconds": 5,
         },
     ]
@@ -229,3 +233,41 @@ def test_duplicate_and_empty_receipts_preserve_lag_population_accounting():
                for x in empty["declared_session_receipt_lag"])
     assert empty["late_unexpected_receipt_rows"] == 0
     assert empty["status"] == "REVIEW_REQUIRED"
+
+
+def test_duplicate_expected_rows_do_not_inflate_session_unique_coverage():
+    report = audit([bar(T), bar(T), bar(T + 180), bar(T + 180), bar(T + 240)])
+    buckets = report["declared_session_receipt_lag"]
+    assert [b["expected_receipt_rows"] for b in buckets] == [2, 3]
+    assert [b["unique_expected_minutes_with_receipts"] for b in buckets] == [1, 2]
+    assert [b["duplicate_expected_receipt_rows"] for b in buckets] == [1, 1]
+    assert report["duplicate_unexpected_receipt_rows"] == 0
+    assert report["duplicate_receipt_rows"] == 2
+    assert report["status"] == "REVIEW_REQUIRED"
+
+
+def test_unexpected_closure_duplicates_are_attributed_separately():
+    report = audit([
+        bar(T), bar(T + 60), bar(T + 60), bar(T + 180), bar(T + 240),
+    ])
+    assert report["unexpected_receipt_rows"] == 2
+    assert report["unexpected_unique_minutes"] == 1
+    assert report["duplicate_unexpected_receipt_rows"] == 1
+    assert [b["duplicate_expected_receipt_rows"]
+            for b in report["declared_session_receipt_lag"]] == [0, 0]
+    assert report["duplicate_receipt_rows"] == 1
+    assert report["status"] == "REVIEW_REQUIRED"
+
+
+def test_empty_and_zero_sample_limits_preserve_unique_session_accounting():
+    empty = audit([], sample_limit=0)
+    assert [b["unique_expected_minutes_with_receipts"]
+            for b in empty["declared_session_receipt_lag"]] == [0, 0]
+    assert empty["duplicate_unexpected_receipt_rows"] == 0
+    duplicated = audit([bar(T), bar(T), bar(T + 180), bar(T + 240)],
+                       sample_limit=0)
+    assert [b["unique_expected_minutes_with_receipts"]
+            for b in duplicated["declared_session_receipt_lag"]] == [1, 2]
+    assert [b["duplicate_expected_receipt_rows"]
+            for b in duplicated["declared_session_receipt_lag"]] == [1, 0]
+    assert duplicated["status"] == "REVIEW_REQUIRED"
