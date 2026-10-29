@@ -710,7 +710,7 @@ test('research report rejects extra source fields without leaking caller private
  const report=studyHourlyFvgMidpoint(fixture(),source);
  assert.deepEqual(report.source,source);
  assert.deepEqual(Object.keys(report.source).sort(),Object.keys(source).sort());
- assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v90');
+ assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v91');
 });
 test('ambiguous source labels and contradictory volume evidence fail closed',()=>{
  // These are declared metadata, not independent vendor authentication.
@@ -785,7 +785,7 @@ test('v61 source labels reject lone surrogates and Unicode noncharacters in both
  assert.deepEqual(studyHourlyFvgMidpoint(bars,valid).source,valid);
  assert.deepEqual(studyHourlyFvgMidpointAsOf(bars,valid,cutoff).source,valid);
  assert.equal(studyHourlyFvgMidpoint(bars,valid).version,
-  'hourly-fvg-first-midpoint-touch-v90');
+  'hourly-fvg-first-midpoint-touch-v91');
 });
 test('v63 source labels reject Unicode space lookalikes without banning ASCII spaces',()=>{
  const bars=fixture(),cutoff=BASE+37*H;
@@ -802,7 +802,7 @@ test('v63 source labels reject Unicode space lookalikes without banning ASCII sp
  assert.deepEqual(studyHourlyFvgMidpoint(bars,legitimate).source,legitimate);
  assert.deepEqual(studyHourlyFvgMidpointAsOf(bars,legitimate,cutoff).source,legitimate);
  assert.equal(studyHourlyFvgMidpoint(bars,legitimate).version,
-  'hourly-fvg-first-midpoint-touch-v90');
+  'hourly-fvg-first-midpoint-touch-v91');
 });
 test('first bullish midpoint touch has a hypothetical blind limit and later next-open rejection markout',()=>{
  const x=target(fixture());
@@ -1147,7 +1147,7 @@ test('an overflowing next-open comparator suppresses both matched markouts',()=>
 });
 test('completed hourly timestamps are safe and numeric rule changes have a new version',()=>{
  const report=studyHourlyFvgMidpoint(fixture(),source);
- assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v90');
+ assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v91');
  const lastSafeAlignedOpen=Math.floor(Number.MAX_SAFE_INTEGER/H)*H;
  assert.equal(Number.isSafeInteger(lastSafeAlignedOpen),true);
  assert.equal(Number.isSafeInteger(lastSafeAlignedOpen+H),false);
@@ -3703,7 +3703,7 @@ test('v85 candle getters cannot rewrite preflighted source, settings or costs',(
   hypotheticalRoundTripCostsBps:costs,
  }),/FVG cost scenario field changed during declaration snapshot/);
  assert.equal(studyHourlyFvgMidpoint(fixture(),source).version,
-  'hourly-fvg-first-midpoint-touch-v90');
+  'hourly-fvg-first-midpoint-touch-v91');
 });
 
 test('v85 future timestamp accessors cannot rewrite as-of provenance or cost axis',()=>{
@@ -3970,4 +3970,48 @@ test('v90 cost-width touch censor bounds retain direction and missing evidence',
  for(const scenario of empty.firstTouchOpportunityBoundsByCostScenario)
   for(const side of ['BULLISH','BEARISH'] as const)
    assert.equal(scenario.byDirection[side].noWiderThanCost.lowerObservedTouchFraction,null);
+});
+
+
+test('v91 cost-width strict first-touch evidence keeps unknown volume separate from failures',()=>{
+ const pass=fixture();
+ const fail=fixture().map((b,i)=>({...b,time:b.time+50*H,
+  volume:i===33?100:b.volume}));
+ const unknown=fixture().map((b,i)=>({...b,time:b.time+100*H,
+  open:220-b.open,high:220-b.low,low:220-b.high,close:220-b.close,
+  volume:i===33?null:b.volume}));
+ const bars=[...pass,...fail,...unknown];
+ const config:FvgConfig={hypotheticalRoundTripCostsBps:[0,1000]};
+ const report=studyHourlyFvgMidpoint(bars,source,config);
+ assert.equal(report.observations.length,3);
+ assert.deepEqual(report.observations.map(o=>o.gates.strictCandidate),
+  ['PASS','FAIL','INSUFFICIENT_DATA']);
+ for(const [index,scenario] of report.firstTouchOpportunityBoundsByCostScenario.entries()){
+  const census=scenario.strictObservedTouchEvidenceByCostWidth;
+  const selected=index===0?census.widerThanCost:census.noWiderThanCost;
+  const empty=index===0?census.noWiderThanCost:census.widerThanCost;
+  assert.deepEqual(selected,{PASS:1,FAIL:1,INSUFFICIENT_DATA:1});
+  assert.deepEqual(empty,{PASS:0,FAIL:0,INSUFFICIENT_DATA:0});
+  const side=index===0?'widerThanCost':'noWiderThanCost';
+  assert.deepEqual(census.byDirection.BULLISH[side],
+   {PASS:1,FAIL:1,INSUFFICIENT_DATA:0});
+  assert.deepEqual(census.byDirection.BEARISH[side],
+   {PASS:0,FAIL:0,INSUFFICIENT_DATA:1});
+ }
+ // Before the third touch closes, future price/volume are inaccessible and
+ // the unfinished waiting window is not a strict observed touch.
+ const cutoff=BASE+133*H;
+ const future=bars.map(b=>({...b}));
+ const futureTouch=future.find(b=>b.time===BASE+133*H);
+ assert.ok(futureTouch);
+ Object.defineProperty(futureTouch,'low',{get(){throw Error('future price read');}});
+ const asOf=studyHourlyFvgMidpointAsOf(future,source,cutoff,config);
+ const prefix=bars.filter(b=>b.time+H<=cutoff);
+ assert.deepEqual(asOf,studyHourlyFvgMidpoint(prefix,source,config));
+ for(const scenario of asOf.firstTouchOpportunityBoundsByCostScenario){
+  const census=scenario.strictObservedTouchEvidenceByCostWidth;
+  const all=['PASS','FAIL','INSUFFICIENT_DATA'] as const;
+  assert.equal(all.reduce((sum,status)=>sum+
+   census.noWiderThanCost[status]+census.widerThanCost[status],0),2);
+ }
 });
