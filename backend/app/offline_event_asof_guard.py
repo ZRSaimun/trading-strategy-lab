@@ -509,3 +509,106 @@ def audit_declared_first_receipt_latency_asof(
             canonical.encode("utf-8")
         ).hexdigest(),
     }
+
+
+def audit_declared_consensus_churn_asof(
+    revisions, *, decision_utc, source_id, max_forecast_age_minutes=1440
+):
+    """Describe visible pre-release consensus revisions without trade clearance.
+
+    A repeated unchanged forecast does not reset the distinct-forecast clock.
+    Missing forecasts break comparability; changes across missing values are
+    counted separately, never silently treated as numerical revisions.
+    """
+    if (type(max_forecast_age_minutes) is not int
+            or not 0 <= max_forecast_age_minutes <= 10080):
+        raise ValueError("max_forecast_age_minutes must be integer 0..10080")
+    snapshot = audit_declared_event_asof(
+        revisions, decision_utc=decision_utc, source_id=source_id
+    )
+    cutoff = _utc(decision_utc)
+    schedules = {}
+    for entry in revisions:
+        if entry["kind"] == "schedule" and _utc(entry["observed_utc"]) < cutoff:
+            schedules.setdefault(entry["event_id"], []).append(entry)
+
+    observations = []
+    for event in snapshot["events"]:
+        history = sorted(schedules[event["event_id"]],
+                         key=lambda entry: entry["revision"])
+        previous_forecast = None
+        last_distinct_forecast_utc = None
+        changes = 0
+        missing_transitions = 0
+        for index, entry in enumerate(history):
+            forecast = _decimal(entry["forecast"])
+            if index and ((forecast is None) != (previous_forecast is None)):
+                missing_transitions += 1
+            if forecast is None:
+                last_distinct_forecast_utc = None
+            elif previous_forecast is None or forecast != previous_forecast:
+                if previous_forecast is not None:
+                    changes += 1
+                last_distinct_forecast_utc = _utc(entry["observed_utc"])
+            previous_forecast = forecast
+
+        # After release, do not let arbitrary later decision times make the
+        # pre-release forecast appear progressively older. Use event time.
+        anchor = min(cutoff, _utc(event["scheduled_utc"]))
+        age = (int((anchor - last_distinct_forecast_utc).total_seconds() // 60)
+               if last_distinct_forecast_utc is not None else None)
+        exceeds = (age > max_forecast_age_minutes if age is not None else None)
+        observations.append({
+            "event_id": event["event_id"],
+            "scheduled_utc": event["scheduled_utc"],
+            "schedule_revision_count": len(history),
+            "declared_forecast_change_count": changes,
+            "missing_forecast_transition_count": missing_transitions,
+            "latest_forecast": event["forecast"],
+            "latest_schedule_observed_utc": _utc(
+                history[-1]["observed_utc"]
+            ).isoformat(),
+            "last_distinct_forecast_observed_utc": (
+                last_distinct_forecast_utc.isoformat()
+                if last_distinct_forecast_utc is not None else None
+            ),
+            "age_anchor_utc": anchor.isoformat(),
+            "declared_forecast_age_minutes": age,
+            "exceeds_declared_age_limit": exceeds,
+            "status": ("FORECAST_MISSING" if age is None
+                       else "DECLARED_FORECAST_OLDER_THAN_LIMIT" if exceeds
+                       else "DECLARED_FORECAST_WITHIN_LIMIT"),
+        })
+    envelope = {
+        "schema_version": 1,
+        "research_envelope_v2_sha256": snapshot["research_envelope_v2_sha256"],
+        "max_forecast_age_minutes": max_forecast_age_minutes,
+        "observations": observations,
+    }
+    canonical = json.dumps(
+        envelope, sort_keys=True, separators=(",", ":"), ensure_ascii=True
+    )
+    return {
+        "research_only": True,
+        "trade_authorized": False,
+        "authenticated_calendar": False,
+        "coverage_verified": False,
+        "receipt_provenance_verified": False,
+        "comparable_units_verified": False,
+        "source_id": snapshot["source_id"],
+        "decision_utc": snapshot["decision_utc"],
+        "visible_event_count": snapshot["visible_event_count"],
+        "missing_forecast_event_count": sum(
+            item["status"] == "FORECAST_MISSING" for item in observations
+        ),
+        "older_than_limit_event_count": sum(
+            item["exceeds_declared_age_limit"] is True for item in observations
+        ),
+        "max_forecast_age_minutes": max_forecast_age_minutes,
+        "observations": observations,
+        "research_envelope_v2_sha256": snapshot["research_envelope_v2_sha256"],
+        "consensus_churn_audit_schema_version": 1,
+        "consensus_churn_audit_sha256": hashlib.sha256(
+            canonical.encode("utf-8")
+        ).hexdigest(),
+    }
