@@ -29,6 +29,12 @@ No caller-supplied URLs, paths, redirects, proxies, write verbs, or order
 endpoints are accepted. The request uses Basic authentication over
 certificate-verified HTTPS. Responses are limited to 8 MiB, must be JSON and
 HTTP 200, and are not automatically retried.
+The JSON wire body must decode as **strict UTF-8 without a byte-order mark**.
+Python's default `json.loads(bytes)` can silently accept UTF-16/UTF-32 or a
+UTF-8 BOM; this adapter now rejects those encodings and invalid UTF-8 with a
+sanitized `Invalid broker JSON` error. Valid non-ASCII UTF-8 remains supported.
+This is format integrity only, not broker authentication, price freshness or
+market-data entitlement; no network calls or write capabilities are added.
 When a `Content-Length` header is supplied, the adapter now verifies that
 its declared byte count exactly matches the bounded identity-encoded body
 actually hashed and parsed. Mismatches fail closed with a sanitized error,
