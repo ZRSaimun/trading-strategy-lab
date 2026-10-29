@@ -102,7 +102,8 @@ def audit_forecast_decision_latency(snapshot, expected_identity, expected_keys,
         })
     needs_review = (not complete or late_count > 0 or bool(missing_overdue_keys))
     return {
-        "status": ("NO_DECLARED_EXPECTATIONS" if not total else
+        "status": ("NO_DECLARED_EXPECTATIONS" if not total and
+                   coverage["status"] == "NO_DECLARED_EXPECTATIONS" else
                    "OPERATOR_REVIEW_REQUIRED" if needs_review else
                    "INSUFFICIENT_COMPLETE_DECLARED_SAMPLE" if not summary_ready else
                    "DECLARED_TIMING_WITHIN_BUDGET_UNVERIFIED"),
