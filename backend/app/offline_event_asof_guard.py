@@ -311,3 +311,96 @@ def audit_declared_surprise_asof(revisions, *, decision_utc, source_id):
             canonical.encode("utf-8")
         ).hexdigest(),
     }
+
+
+
+def audit_declared_result_corrections_asof(revisions, *, decision_utc, source_id):
+    """Research-only first visible result versus later as-of corrections.
+
+    Only result receipts strictly before the decision minute are eligible.
+    This is a declared-data audit, not a verified economic feed or signal.
+    """
+    from decimal import localcontext
+
+    snapshot = audit_declared_event_asof(
+        revisions, decision_utc=decision_utc, source_id=source_id
+    )
+    cutoff = _utc(decision_utc)
+
+    def difference(left, right):
+        if left is None or right is None:
+            return None
+        with localcontext() as ctx:
+            ctx.prec = 128
+            delta = Decimal(left) - Decimal(right)
+            if delta.is_zero():
+                return "0"
+            formatted = format(delta, "f")
+            return formatted.rstrip("0").rstrip(".") if "." in formatted else formatted
+
+    visible = {}
+    for entry in revisions:
+        if entry["kind"] == "result" and _utc(entry["observed_utc"]) < cutoff:
+            visible.setdefault(entry["event_id"], []).append(entry)
+
+    observations = []
+    for event in snapshot["events"]:
+        results = sorted(visible.get(event["event_id"], []),
+                         key=lambda entry: entry["revision"])
+        if not results:
+            observations.append({
+                "event_id": event["event_id"], "status": "NO_VISIBLE_RESULT",
+                "first_result_revision": None, "latest_result_revision": None,
+                "first_result_observed_utc": None, "latest_result_observed_utc": None,
+                "first_actual": None, "latest_actual": None,
+                "first_surprise": None, "latest_surprise": None,
+                "net_actual_change": None, "visible_result_revision_count": 0,
+                "changed_result_revision_count": 0,
+            })
+            continue
+        actuals = [_decimal(entry["actual"]) for entry in results]
+        changed_count = sum(a != b for a, b in zip(actuals, actuals[1:]))
+        observations.append({
+            "event_id": event["event_id"],
+            "status": "FIRST_RESULT_ONLY" if len(results) == 1 else "RESULT_REVISED",
+            "first_result_revision": results[0]["revision"],
+            "latest_result_revision": results[-1]["revision"],
+            "first_result_observed_utc": _utc(results[0]["observed_utc"]).isoformat(),
+            "latest_result_observed_utc": _utc(results[-1]["observed_utc"]).isoformat(),
+            "first_actual": actuals[0], "latest_actual": actuals[-1],
+            "first_surprise": difference(actuals[0], event["forecast"]),
+            "latest_surprise": difference(actuals[-1], event["forecast"]),
+            "net_actual_change": (
+                difference(actuals[-1], actuals[0]) if len(results) > 1 else None
+            ),
+            "visible_result_revision_count": len(results),
+            "changed_result_revision_count": changed_count,
+        })
+
+    envelope = {
+        "schema_version": 1,
+        "research_envelope_v2_sha256": snapshot["research_envelope_v2_sha256"],
+        "observations": observations,
+    }
+    canonical = json.dumps(
+        envelope, sort_keys=True, separators=(",", ":"), ensure_ascii=True
+    )
+    return {
+        "research_only": True, "trade_authorized": False,
+        "authenticated_calendar": False, "coverage_verified": False,
+        "comparable_units_verified": False,
+        "source_id": snapshot["source_id"], "decision_utc": snapshot["decision_utc"],
+        "visible_event_count": snapshot["visible_event_count"],
+        "visible_result_event_count": sum(
+            item["visible_result_revision_count"] > 0 for item in observations
+        ),
+        "revised_result_event_count": sum(
+            item["visible_result_revision_count"] > 1 for item in observations
+        ),
+        "observations": observations,
+        "research_envelope_v2_sha256": snapshot["research_envelope_v2_sha256"],
+        "result_correction_audit_schema_version": 1,
+        "result_correction_audit_sha256": hashlib.sha256(
+            canonical.encode("utf-8")
+        ).hexdigest(),
+    }
