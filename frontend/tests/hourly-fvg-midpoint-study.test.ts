@@ -357,6 +357,19 @@ test('formation census preserves unknown outcomes and distinguishes paired from 
  assert.deepEqual(paired.cohort,{
   formations:1,
   firstTouchOutcome:{TOUCH:1,NO_TOUCH:0,OPEN_GAP_THROUGH:0,INCOMPLETE_WINDOW:0},
+  firstTouchOpportunityBounds:{
+   all:{formations:1,observedTouches:1,observedNoTouches:0,
+    unresolvedGapThrough:0,unresolvedIncomplete:0,
+    lowerObservedTouchFraction:1,upperPossibleTouchFraction:1},
+   byDirection:{
+    BULLISH:{formations:1,observedTouches:1,observedNoTouches:0,
+     unresolvedGapThrough:0,unresolvedIncomplete:0,
+     lowerObservedTouchFraction:1,upperPossibleTouchFraction:1},
+    BEARISH:{formations:0,observedTouches:0,observedNoTouches:0,
+     unresolvedGapThrough:0,unresolvedIncomplete:0,
+     lowerObservedTouchFraction:null,upperPossibleTouchFraction:null},
+   },
+  },
   firstDispositionWaitBarCounts:{
    TOUCH:[1,...Array(11).fill(0)],
    OPEN_GAP_THROUGH:Array(12).fill(0),
