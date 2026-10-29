@@ -52,6 +52,10 @@ def test_row_specific_components_and_maximum_reconcile():
         "worst_observation_stressed_net_cash": "0.6500",
         "max_observation_end_drawdown_cash": "0.0000",
         "max_receipt_time_ordering_drawdown_cash_upper_bound": "0.0000",
+        "baseline_losing_observation_count": 0,
+        "stressed_losing_observation_count": 0,
+        "additional_cost_induced_losing_observation_count": 0,
+        "stressed_gross_loss_cash": "0.0000",
         "extra_cost_by_component_cash": {
             "spread_extra_cash": "1.2500",
             "slippage_extra_cash": "0.0000",
@@ -102,6 +106,10 @@ def test_small_holdout_withholds_all_outcome_and_cost_metrics(count):
     assert entry["worst_observation_stressed_net_cash"] is None
     assert entry["max_observation_end_drawdown_cash"] is None
     assert entry["max_receipt_time_ordering_drawdown_cash_upper_bound"] is None
+    assert entry["baseline_losing_observation_count"] is None
+    assert entry["stressed_losing_observation_count"] is None
+    assert entry["additional_cost_induced_losing_observation_count"] is None
+    assert entry["stressed_gross_loss_cash"] is None
     assert all(value is None for value in entry["extra_cost_by_component_cash"].values())
 
 
@@ -249,3 +257,64 @@ def test_stressed_cash_diagnostics_do_not_grant_execution_permission():
     assert report["holdout_untouched_independently_verified"] is False
     assert report["broker_costs_verified"] is False
     assert report["scenarios"][0]["max_observation_end_drawdown_cash"] == "0.0000"
+
+
+def test_adverse_costs_create_a_new_losing_observation():
+    data = _fixture()
+    scenario = _scenario(data, per_row={
+        0: {"spread_extra_cash": "5.0000"},
+    })
+    report = _audit(data, [scenario])["scenarios"][0]
+    assert report["baseline_losing_observation_count"] == 0
+    assert report["stressed_losing_observation_count"] == 1
+    assert report["additional_cost_induced_losing_observation_count"] == 1
+    assert report["stressed_gross_loss_cash"] == "3.1000"
+    assert report["stressed_net_cash"] == "49.0000"
+
+
+def test_existing_losing_observation_is_not_cost_induced():
+    data = _fixture()
+    data[3][0]["gross_cash"] = "-1.0000"
+    scenario = _scenario(data, per_row={
+        0: {"slippage_extra_cash": "5.0000"},
+    })
+    report = _audit(data, [scenario])["scenarios"][0]
+    assert report["baseline_losing_observation_count"] == 1
+    assert report["stressed_losing_observation_count"] == 1
+    assert report["additional_cost_induced_losing_observation_count"] == 0
+    assert report["stressed_gross_loss_cash"] == "6.1000"
+
+
+def test_exact_zero_to_negative_counts_as_cost_induced_loss():
+    data = _fixture()
+    # First receipt: 0.1000 gross - 0.2000 costs + 0.1000
+    # signed financing credit = exact zero before additional cost.
+    data[3][0]["gross_cash"] = "0.1000"
+    scenario = _scenario(data, per_row={
+        0: {"fx_extra_cash": "0.0001"},
+    })
+    report = _audit(data, [scenario])["scenarios"][0]
+    assert report["baseline_losing_observation_count"] == 0
+    assert report["stressed_losing_observation_count"] == 1
+    assert report["additional_cost_induced_losing_observation_count"] == 1
+    assert report["stressed_gross_loss_cash"] == "0.0001"
+
+
+def test_more_adverse_costs_cannot_reduce_losing_population():
+    data = _fixture()
+    mild = _scenario(data, "mild", {
+        0: {"commission_extra_cash": "1.8999"},
+    })
+    severe = _scenario(data, "severe", {
+        0: {"commission_extra_cash": "1.9001"},
+        1: {"financing_extra_cash": "2.0000"},
+    })
+    reports = {
+        row["scenario_id"]: row
+        for row in _audit(data, [severe, mild])["scenarios"]
+    }
+    assert reports["mild"]["stressed_losing_observation_count"] == 0
+    assert reports["severe"]["stressed_losing_observation_count"] == 2
+    assert reports["severe"]["additional_cost_induced_losing_observation_count"] == 2
+    assert Decimal(reports["severe"]["stressed_gross_loss_cash"]) > 0
+    assert reports["severe"]["stressed_net_cash"] < reports["mild"]["stressed_net_cash"]
