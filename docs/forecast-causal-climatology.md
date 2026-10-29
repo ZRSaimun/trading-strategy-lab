@@ -146,3 +146,24 @@ unverified sources and absence of independent holdout remain. A small
 calibration gap is not an actionable signal, independent profitability
 evidence, a broker quote or permission to notify or trade. No production
 route, API credential, order, alert or dataset mutation is added.
+
+
+### Single-outcome label-flip sensitivity (29 October 2026)
+
+For an otherwise supported five-bin reliability population, the disconnected
+audit now reports `singleOutcomeFlipBestCaseWeightedGap` and
+`singleOutcomeFlipWorstCaseWeightedGap`. They enumerate every feasible
+**exactly one** binary outcome flip in the frozen, nonoverlapping scored
+population, recomputing the weighted absolute calibration gap with the same
+issued probabilities, five bins, counts and denominator. A DOWN-to-UP flip
+is feasible only where a DOWN outcome was observed, and vice versa. The
+range is a hypothetical one-label data-quality stress, **not** a corrected
+score, probabilistic confidence interval, hypothesis test or source
+authentication. The original journal, labels and bin report are unchanged.
+
+Both values are null when the weighted gap is withheld for sparse occupied
+bins or fewer than two occupied bins. The comparator's upstream missing
+eligible outcome and causal training gates continue to withhold the entire
+fixed-bin report. No additional market feed, broker access, notification,
+order or production write is enabled. Tests:
+`cd backend && PYTHONPATH=. pytest -q tests/test_forecast_fixed_bin_sensitivity.py`.
