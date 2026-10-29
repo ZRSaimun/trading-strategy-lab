@@ -19,10 +19,17 @@ best-effort partial report.
 
 A fully consistent result is `DECLARED_RECONCILED_UNVERIFIED`, **not**
 authenticated, licensed, fresh, executable, or approved for forecasting.
-A stale/late receipt, missing candle, duplicate, unexpected candle or backward
-bar-start transition yields `REVIEW_REQUIRED`. In particular, out-of-order
-backfills may pass the original receipt census's timestamp-set completeness
-check but are flagged by this combined audit. Both underlying reports remain
+A stale/late receipt, missing candle, duplicate, unexpected candle, backward
+bar-start transition **or backward declared receipt-time transition** yields
+`REVIEW_REQUIRED`. In particular, out-of-order backfills may pass the original
+receipt census's timestamp-set completeness check but are flagged by this
+combined audit. Receipt-time reversals are counted across adjacent input rows,
+with up to `sample_limit` timestamp-only samples; equal receipt timestamps are
+allowed, and `sample_limit=0` suppresses samples without suppressing counts.
+The caller must preserve its original receipt input order: sorting by bar start
+or receipt time before this audit would destroy ordering evidence. A reversal
+is an offline review signal, not proof of clock tampering; the declared
+`received_at_utc` values are **not** server-attested timestamps. Both underlying reports remain
 available under `receipt_census` and `session_gap_audit`; they expose no raw
 OHLC prices. Fingerprints are local reproducibility hashes, not signatures.
 
