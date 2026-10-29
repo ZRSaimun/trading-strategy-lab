@@ -537,14 +537,20 @@ def test_declared_validation_cutoff_availability_is_zero_for_default_windows():
     assert result["declared_validation_cutoff_transitions"] == [
         {"later_fold_index": 1,
          "declared_prior_labels_unavailable_at_validation_end_count": 0,
-         "declared_all_prior_labels_unavailable_at_validation_end_count": 0},
+         "declared_all_prior_labels_unavailable_at_validation_end_count": 0,
+         "declared_all_prior_labels_unavailable_at_validation_end_share_basis_points": 0},
         {"later_fold_index": 2,
          "declared_prior_labels_unavailable_at_validation_end_count": 0,
-         "declared_all_prior_labels_unavailable_at_validation_end_count": 0},
+         "declared_all_prior_labels_unavailable_at_validation_end_count": 0,
+         "declared_all_prior_labels_unavailable_at_validation_end_share_basis_points": 0},
     ]
     assert result["total_declared_prior_labels_unavailable_at_validation_end_count"] == 0
     assert result["max_declared_prior_labels_unavailable_at_validation_end_count"] == 0
     assert result["most_unavailable_at_validation_later_fold_index"] is None
+    assert result[
+        "max_declared_all_prior_labels_unavailable_at_validation_end_share_basis_points"
+    ] == 0
+    assert result["highest_all_prior_unavailable_share_later_fold_index"] is None
     assert folds == before
     assert result["may_execute_demo_order"] is False
     assert result["may_execute_real_order"] is False
@@ -1003,3 +1009,81 @@ def test_last_of_24_folds_rejects_immature_prior_label_even_with_recommitted_cen
     )
     with pytest.raises(ValueError, match="labels not mature"):
         audit_declared_holdout_fold_isolation(folds)
+
+
+@pytest.mark.parametrize("offset, expected_share_bp", [(-1, 250), (0, 0)])
+def test_all_prior_validation_unavailability_fraction_exact_label_boundary(
+    offset, expected_share_bp
+):
+    folds = _valid()
+    folds[1]["manifest"]["validation_end_at_utc"] = (
+        folds[0]["census"][-1]["label_available_at_utc"] + offset
+    )
+    original = copy.deepcopy(folds)
+    report = audit_declared_holdout_fold_isolation(folds)
+    transition = report["declared_validation_cutoff_transitions"][0]
+    assert transition[
+        "declared_all_prior_labels_unavailable_at_validation_end_share_basis_points"
+    ] == expected_share_bp
+    assert report[
+        "max_declared_all_prior_labels_unavailable_at_validation_end_share_basis_points"
+    ] == expected_share_bp
+    assert report["highest_all_prior_unavailable_share_later_fold_index"] == (
+        1 if expected_share_bp else None
+    )
+    assert folds == original
+    assert report["may_execute_demo_order"] is False
+    assert report["may_execute_real_order"] is False
+
+
+def test_all_prior_unavailability_share_identifies_small_fold_risk_not_just_count():
+    folds = _valid()
+    # Compare 4/4 unavailable labels against 40/44 unavailable labels.
+    folds[0]["census"] = folds[0]["census"][:4]
+    folds[0]["manifest"]["expected_holdout_count"] = 4
+    folds[0]["manifest"]["holdout_census_sha256"] = (
+        prepare_declared_holdout_census_sha256(folds[0]["census"])
+    )
+    folds[1]["manifest"]["validation_end_at_utc"] = (
+        folds[0]["census"][0]["label_available_at_utc"] - 1
+    )
+    folds[2]["manifest"]["validation_end_at_utc"] = (
+        folds[1]["census"][0]["label_available_at_utc"] - 1
+    )
+    original = copy.deepcopy(folds)
+    report = audit_declared_holdout_fold_isolation(folds)
+    transitions = report["declared_validation_cutoff_transitions"]
+    assert [t["declared_all_prior_labels_unavailable_at_validation_end_count"]
+            for t in transitions] == [4, 40]
+    assert [t[
+        "declared_all_prior_labels_unavailable_at_validation_end_share_basis_points"
+    ] for t in transitions] == [10000, 10000 * 40 // 44]
+    assert report["max_declared_all_prior_labels_unavailable_at_validation_end_count"] == 40
+    assert report[
+        "max_declared_all_prior_labels_unavailable_at_validation_end_share_basis_points"
+    ] == 10000
+    assert report["highest_all_prior_unavailable_share_later_fold_index"] == 1
+    assert folds == original
+    assert report["broker_costs_verified"] is False
+    assert report["may_execute_demo_order"] is False
+    assert report["may_execute_real_order"] is False
+
+
+def test_all_prior_unavailability_share_ties_choose_earliest_later_fold():
+    folds = _valid()
+    first_unavailable = folds[0]["census"][0]["label_available_at_utc"] - 1
+    folds[1]["manifest"]["validation_end_at_utc"] = first_unavailable
+    folds[2]["manifest"]["validation_end_at_utc"] = first_unavailable
+    original = copy.deepcopy(folds)
+    report = audit_declared_holdout_fold_isolation(folds)
+    assert [t[
+        "declared_all_prior_labels_unavailable_at_validation_end_share_basis_points"
+    ] for t in report["declared_validation_cutoff_transitions"]] == [10000, 10000]
+    assert report[
+        "max_declared_all_prior_labels_unavailable_at_validation_end_share_basis_points"
+    ] == 10000
+    assert report["highest_all_prior_unavailable_share_later_fold_index"] == 1
+    assert folds == original
+    assert report["holdout_untouched_independently_verified"] is False
+    assert report["may_execute_demo_order"] is False
+    assert report["may_execute_real_order"] is False
