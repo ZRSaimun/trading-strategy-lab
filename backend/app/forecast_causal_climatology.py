@@ -43,6 +43,7 @@ def audit_causal_climatology(snapshot, *, evaluation_as_of, min_training=30,
         regret_log_low = regret_log_high = 0.0
         first_baseline = min_history = max_history = None
         scored_regrets = []  # Chronological disjoint settled evaluation members.
+        scored_calibration = []  # Frozen issued p and matured binary label, same members.
         last_evaluation_target = -1
         overlapping_matured_excluded = 0
         for i, current in enumerate(rows):
@@ -103,6 +104,7 @@ def audit_causal_climatology(snapshot, *, evaluation_as_of, min_training=30,
             issued_log += -math.log(q) if y else -math.log1p(-q)
             scored += 1
             scored_regrets.append((regret_brier, regret_log))
+            scored_calibration.append((q, y))
         missing_fraction = unavailable / eligible if eligible else None
         sufficient = (scored >= min_scored and eligible > 0 and
                       missing_fraction <= max_unavailable_fraction)
@@ -123,6 +125,13 @@ def audit_causal_climatology(snapshot, *, evaluation_as_of, min_training=30,
             "pairedLogLossRegretEarlyHalf": None,
             "pairedLogLossRegretLateHalf": None,
             "pairedLogLossRegretLateMinusEarly": None,
+            "temporalSplitMeanIssuedProbabilityEarlyHalf": None,
+            "temporalSplitMeanIssuedProbabilityLateHalf": None,
+            "temporalSplitObservedUpFractionEarlyHalf": None,
+            "temporalSplitObservedUpFractionLateHalf": None,
+            "temporalSplitSignedCalibrationGapEarlyHalf": None,
+            "temporalSplitSignedCalibrationGapLateHalf": None,
+            "temporalSplitSignedCalibrationGapLateMinusEarly": None,
         }
         if split_ready:
             midpoint = scored // 2
@@ -131,6 +140,13 @@ def audit_causal_climatology(snapshot, *, evaluation_as_of, min_training=30,
             late_brier = sum(r[0] for r in late) / len(late)
             early_log = sum(r[1] for r in early) / len(early)
             late_log = sum(r[1] for r in late) / len(late)
+            # Same fixed disjoint members as paired regret; never select on label.
+            early_cal, late_cal = scored_calibration[:midpoint], scored_calibration[midpoint:]
+            early_p = sum(p for p, _ in early_cal) / len(early_cal)
+            late_p = sum(p for p, _ in late_cal) / len(late_cal)
+            early_y = sum(y for _, y in early_cal) / len(early_cal)
+            late_y = sum(y for _, y in late_cal) / len(late_cal)
+            early_gap, late_gap = early_p - early_y, late_p - late_y
             split_metrics.update(
                 temporalSplitEarlyCount=len(early),
                 temporalSplitLateCount=len(late),
@@ -140,6 +156,13 @@ def audit_causal_climatology(snapshot, *, evaluation_as_of, min_training=30,
                 pairedLogLossRegretEarlyHalf=early_log,
                 pairedLogLossRegretLateHalf=late_log,
                 pairedLogLossRegretLateMinusEarly=late_log - early_log,
+                temporalSplitMeanIssuedProbabilityEarlyHalf=early_p,
+                temporalSplitMeanIssuedProbabilityLateHalf=late_p,
+                temporalSplitObservedUpFractionEarlyHalf=early_y,
+                temporalSplitObservedUpFractionLateHalf=late_y,
+                temporalSplitSignedCalibrationGapEarlyHalf=early_gap,
+                temporalSplitSignedCalibrationGapLateHalf=late_gap,
+                temporalSplitSignedCalibrationGapLateMinusEarly=late_gap - early_gap,
             )
         results.append({
             "modelVersion": model, "horizonCandles": horizon,
