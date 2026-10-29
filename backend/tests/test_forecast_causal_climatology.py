@@ -1,5 +1,6 @@
 """Synthetic-only prequential baseline tests; no broker or market calls."""
 from copy import deepcopy
+import math
 import pytest
 from app.forecast_causal_climatology import audit_causal_climatology
 
@@ -173,3 +174,61 @@ def test_outcome_status_cannot_reselect_disjoint_evaluation_members():
     assert changed["nonoverlappingMaturedCensus"] == base["nonoverlappingMaturedCensus"]
     assert changed["scored"] == base["scored"]
     assert changed["unavailable"] == base["unavailable"]
+
+
+def test_complete_eligible_census_bounds_equal_observed_paired_regret():
+    row = run(fixture())["groups"][0]
+    assert row["status"] == "DESCRIPTIVE_ONLY"
+    assert row["unavailable"] == 0
+    assert row["pairedBrierRegretBestCaseEligibleCensus"] == pytest.approx(
+        row["pairedBrierRegretIssuedMinusBaseline"])
+    assert row["pairedBrierRegretWorstCaseEligibleCensus"] == pytest.approx(
+        row["pairedBrierRegretIssuedMinusBaseline"])
+    assert row["pairedLogLossRegretBestCaseEligibleCensus"] == pytest.approx(
+        row["pairedLogLossRegretIssuedMinusBaseline"])
+    assert row["pairedLogLossRegretWorstCaseEligibleCensus"] == pytest.approx(
+        row["pairedLogLossRegretIssuedMinusBaseline"])
+
+
+@pytest.mark.parametrize("missing", ["PENDING", "VOID_GAP", "POST_CUTOFF"])
+def test_counterfactual_regret_bounds_on_fixed_eligible_census(missing):
+    complete = run(fixture())["groups"][0]
+    s = fixture()
+    last = s["forecasts"][238]  # Last selected disjoint evaluation row.
+    if missing == "PENDING":
+        last.update(status="PENDING", resolvedAt=None, outcomeUp=None)
+    elif missing == "VOID_GAP":
+        last.update(status="VOID_GAP", resolvedAt=last["issuedAt"], outcomeUp=None)
+    else:
+        last.update(status="SETTLED", resolvedAt=200001, outcomeUp=True)
+    row = run(s)["groups"][0]
+    assert row["status"] == "DESCRIPTIVE_ONLY"
+    assert row["baselineEligible"] == complete["baselineEligible"]
+    assert row["scored"] == complete["scored"] - 1
+    assert row["unavailable"] == 1
+    # The missing final row's baseline uses 119 prior disjoint UP outcomes.
+    p, q = 119.5 / 120, .7
+    brier_down, brier_up = q * q - p * p, (1 - q) ** 2 - (1 - p) ** 2
+    log_down = math.log1p(-p) - math.log1p(-q)
+    log_up = math.log(p) - math.log(q)
+    observed_brier = (complete["pairedBrierRegretIssuedMinusBaseline"]
+                      * complete["scored"] - brier_up)
+    observed_log = (complete["pairedLogLossRegretIssuedMinusBaseline"]
+                    * complete["scored"] - log_up)
+    assert row["pairedBrierRegretBestCaseEligibleCensus"] == pytest.approx(
+        (observed_brier + min(brier_down, brier_up)) / row["baselineEligible"])
+    assert row["pairedBrierRegretWorstCaseEligibleCensus"] == pytest.approx(
+        (observed_brier + max(brier_down, brier_up)) / row["baselineEligible"])
+    assert row["pairedLogLossRegretBestCaseEligibleCensus"] == pytest.approx(
+        (observed_log + min(log_down, log_up)) / row["baselineEligible"])
+    assert row["pairedLogLossRegretWorstCaseEligibleCensus"] == pytest.approx(
+        (observed_log + max(log_down, log_up)) / row["baselineEligible"])
+
+
+def test_counterfactual_regret_bounds_withheld_when_not_sufficient():
+    row = run(fixture(n=100))["groups"][0]
+    for metric in ("pairedBrierRegretBestCaseEligibleCensus",
+                   "pairedBrierRegretWorstCaseEligibleCensus",
+                   "pairedLogLossRegretBestCaseEligibleCensus",
+                   "pairedLogLossRegretWorstCaseEligibleCensus"):
+        assert row[metric] is None
