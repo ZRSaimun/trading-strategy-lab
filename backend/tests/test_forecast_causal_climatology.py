@@ -401,3 +401,39 @@ def test_fixed_bin_helper_does_not_mutate_inputs():
     result = audit_fixed_bin_reliability(pairs)
     assert pairs == before
     assert result["weightedAbsoluteCalibrationGap"] == pytest.approx(.1)
+
+
+def test_chronological_regret_run_uses_frozen_disjoint_complete_cohort():
+    row = run(fixture(n=300))["groups"][0]
+    assert row["chronologicalRegretRunStatus"] == "DESCRIPTIVE_ONLY"
+    report = row["chronologicalRegretRuns"]
+    assert report["scored"] == row["scored"]
+    assert report["maxCumulativeBrierUnderperformanceExcursion"] >= 0
+    assert report["maxCumulativeLogLossUnderperformanceExcursion"] >= 0
+    assert 0 <= report["longestConsecutiveBrierUnderperformance"] <= row["scored"]
+    assert report["maySendNotification"] is False
+    assert report["mayExecutePaperOrder"] is False
+    assert report["mayExecuteLiveOrder"] is False
+
+
+def test_chronological_regret_run_withheld_if_any_eligible_label_missing():
+    s = fixture(n=300)
+    s["forecasts"][298].update(status="PENDING", resolvedAt=None, outcomeUp=None)
+    row = run(s)["groups"][0]
+    assert row["status"] == "DESCRIPTIVE_ONLY"
+    assert row["chronologicalRegretRunStatus"] == "MISSING_ELIGIBLE_OUTCOMES"
+    assert row["chronologicalRegretRuns"] is None
+
+
+def test_chronological_regret_run_withheld_without_minimum_disjoint_scores():
+    row = run(fixture(n=100))["groups"][0]
+    assert row["chronologicalRegretRunStatus"] == "BASELINE_SCORE_WITHHELD"
+    assert row["chronologicalRegretRuns"] is None
+
+
+def test_chronological_regret_run_not_reselected_by_unadmitted_status():
+    baseline = run(fixture(n=300))["groups"][0]["chronologicalRegretRuns"]
+    s = fixture(n=300)
+    s["forecasts"][299].update(status="PENDING", resolvedAt=None, outcomeUp=None)
+    changed = run(s)["groups"][0]["chronologicalRegretRuns"]
+    assert baseline == changed
