@@ -112,3 +112,25 @@ def test_cost_grid_is_not_broker_execution():
     assert x['cost_grid_bps'] == [0, 5, 10, 20]
     assert x['executable_quotes_verified'] is False
     assert x['protected_holdout'] is False
+
+def test_incomplete_source_withholds_all_scenario_returns_and_success_counts():
+    a = receipt('a', 'c', count=0)
+    b = receipt('b', 'd', count=2, mean=50)
+    c = receipt('e', 'f', count=2, mean=60)
+    g = audit_m1_archive_robustness([a, b, c])['groups'][0]
+    assert g['status'] == 'INCOMPLETE_ARCHIVE_COVERAGE'
+    assert g['evaluated_outcome_count'] == 4
+    assert g['evaluated_archive_count'] == 2
+    for scenario in g['scenarios_by_illustrative_cost_bps'].values():
+        assert all(value is None for value in scenario.values())
+
+
+def test_complete_source_still_reports_after_another_source_is_incomplete():
+    a = receipt('a', 'c', count=0)
+    b = receipt('b', 'd', count=2, mean=50)
+    c = receipt('e', 'f', count=2, mean=-2, instrument='XAUUSD')
+    d = receipt('f', 'e', count=2, mean=-4, instrument='XAUUSD')
+    groups = audit_m1_archive_robustness([a, b, c, d])['groups']
+    assert groups[0]['scenarios_by_illustrative_cost_bps']['0']['trade_weighted_net_bps'] is None
+    assert groups[1]['status'] == 'DESCRIPTIVE_ARCHIVE_STRESS_ONLY'
+    assert groups[1]['scenarios_by_illustrative_cost_bps']['0']['trade_weighted_net_bps'] == -3
