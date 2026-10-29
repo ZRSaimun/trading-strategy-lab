@@ -86,8 +86,63 @@ def test_same_utc_minute_reservations_fail_offline_audit(tmp_path):
             "UPDATE credit_reservation SET reserved_at_utc=? WHERE request_id=?",
             (STAMP + 30, f"{1:032x}"),
         )
-    with pytest.raises(CreditLedgerAuditError, match="one UTC minute"):
+    with pytest.raises(CreditLedgerAuditError, match="less than 60 seconds apart"):
         audit(path)
+
+
+
+@pytest.mark.parametrize("gap_seconds", [1, 30, 59])
+def test_adjacent_utc_minute_buckets_do_not_bypass_rolling_limit(
+    tmp_path, gap_seconds,
+):
+    """A previous minute's last seconds are not a new quota window."""
+    path = ledger(tmp_path, cap=2, rows=2)
+    with sqlite3.connect(path) as db:
+        db.execute(
+            "UPDATE credit_reservation SET reserved_at_utc=? WHERE request_id=?",
+            (STAMP + 60 - gap_seconds, f"{0:032x}"),
+        )
+        db.execute(
+            "UPDATE credit_reservation SET reserved_at_utc=? WHERE request_id=?",
+            (STAMP + 60, f"{1:032x}"),
+        )
+    original = path.read_bytes()
+    with pytest.raises(CreditLedgerAuditError, match="less than 60 seconds apart"):
+        audit(path)
+    assert path.read_bytes() == original
+
+
+def test_exact_60_second_separation_passes_offline_audit(tmp_path):
+    path = ledger(tmp_path, cap=2, rows=2)
+    assert audit(path)["reserved_credits"] == 2
+
+
+@pytest.mark.parametrize("gap_seconds, allowed", [(1, False), (59, False), (60, True)])
+def test_rolling_limit_spans_utc_midnight_and_policy_days(
+    tmp_path, gap_seconds, allowed,
+):
+    path = ledger(tmp_path, cap=2, rows=2)
+    midnight = int(datetime(2026, 10, 27, tzinfo=timezone.utc).timestamp())
+    with sqlite3.connect(path) as db:
+        db.execute(
+            "INSERT INTO daily_policy VALUES (?,?,?,?,?,?,?)",
+            ("2026-10-27", "twelvedata", "XAU/USD",
+             "completed-m1-review", 2, "a"*64, "b"*64),
+        )
+        db.execute(
+            "UPDATE credit_reservation SET reserved_at_utc=? WHERE request_id=?",
+            (midnight - 1, f"{0:032x}"),
+        )
+        db.execute(
+            "UPDATE credit_reservation SET reserved_at_utc=?, utc_day=? "
+            "WHERE request_id=?",
+            (midnight - 1 + gap_seconds, "2026-10-27", f"{1:032x}"),
+        )
+    if allowed:
+        assert audit(path)["reserved_credits"] == 1
+    else:
+        with pytest.raises(CreditLedgerAuditError, match="less than 60 seconds apart"):
+            audit(path)
 
 
 def test_timestamp_day_mismatch_denied(tmp_path):
