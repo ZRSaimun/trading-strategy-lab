@@ -697,7 +697,7 @@ test('research report rejects extra source fields without leaking caller private
  const report=studyHourlyFvgMidpoint(fixture(),source);
  assert.deepEqual(report.source,source);
  assert.deepEqual(Object.keys(report.source).sort(),Object.keys(source).sort());
- assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v85');
+ assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v86');
 });
 test('ambiguous source labels and contradictory volume evidence fail closed',()=>{
  // These are declared metadata, not independent vendor authentication.
@@ -772,7 +772,7 @@ test('v61 source labels reject lone surrogates and Unicode noncharacters in both
  assert.deepEqual(studyHourlyFvgMidpoint(bars,valid).source,valid);
  assert.deepEqual(studyHourlyFvgMidpointAsOf(bars,valid,cutoff).source,valid);
  assert.equal(studyHourlyFvgMidpoint(bars,valid).version,
-  'hourly-fvg-first-midpoint-touch-v85');
+  'hourly-fvg-first-midpoint-touch-v86');
 });
 test('v63 source labels reject Unicode space lookalikes without banning ASCII spaces',()=>{
  const bars=fixture(),cutoff=BASE+37*H;
@@ -789,7 +789,7 @@ test('v63 source labels reject Unicode space lookalikes without banning ASCII sp
  assert.deepEqual(studyHourlyFvgMidpoint(bars,legitimate).source,legitimate);
  assert.deepEqual(studyHourlyFvgMidpointAsOf(bars,legitimate,cutoff).source,legitimate);
  assert.equal(studyHourlyFvgMidpoint(bars,legitimate).version,
-  'hourly-fvg-first-midpoint-touch-v85');
+  'hourly-fvg-first-midpoint-touch-v86');
 });
 test('first bullish midpoint touch has a hypothetical blind limit and later next-open rejection markout',()=>{
  const x=target(fixture());
@@ -1134,7 +1134,7 @@ test('an overflowing next-open comparator suppresses both matched markouts',()=>
 });
 test('completed hourly timestamps are safe and numeric rule changes have a new version',()=>{
  const report=studyHourlyFvgMidpoint(fixture(),source);
- assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v85');
+ assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v86');
  const lastSafeAlignedOpen=Math.floor(Number.MAX_SAFE_INTEGER/H)*H;
  assert.equal(Number.isSafeInteger(lastSafeAlignedOpen),true);
  assert.equal(Number.isSafeInteger(lastSafeAlignedOpen+H),false);
@@ -3690,7 +3690,7 @@ test('v85 candle getters cannot rewrite preflighted source, settings or costs',(
   hypotheticalRoundTripCostsBps:costs,
  }),/FVG cost scenario field changed during declaration snapshot/);
  assert.equal(studyHourlyFvgMidpoint(fixture(),source).version,
-  'hourly-fvg-first-midpoint-touch-v85');
+  'hourly-fvg-first-midpoint-touch-v86');
 });
 
 test('v85 future timestamp accessors cannot rewrite as-of provenance or cost axis',()=>{
@@ -3714,4 +3714,44 @@ test('v85 future timestamp accessors cannot rewrite as-of provenance or cost axi
  }),/FVG cost scenario field changed during declaration snapshot/);
  assert.deepEqual(studyHourlyFvgMidpointAsOf(fixture(),source,cutoff).observations,
   studyHourlyFvgMidpoint(fixture().slice(0,37),source).observations);
+});
+
+test('v86 formed-gap friction census includes censored bullish and bearish windows',()=>{
+ const narrow=[
+  candle(0,99.99,100,99.98,99.99),
+  candle(1,100.02,100.03,100.01,100.02),
+  candle(2,100.07,100.08,100.05,100.07),
+ ];
+ const costs=[0,1,5,15];
+ for(const bearish of [false,true]){
+  const bars=bearish?narrow.map(b=>({...b,open:220-b.open,
+   high:220-b.low,low:220-b.high,close:220-b.close})):narrow;
+  const report=studyHourlyFvgMidpoint(bars,source,{
+   hypotheticalRoundTripCostsBps:costs,
+  });
+  assert.equal(report.observations.length,1);
+  assert.equal(report.observations[0].firstTouchOutcome,'INCOMPLETE_WINDOW');
+  assert.equal(report.cohort.pairedMarkouts,0);
+  assert.deepEqual(report.formationGapNoWiderThanCostByScenario,
+   costs.map((costBps,scenarioIndex)=>({
+    scenarioIndex,costBps,all:costBps>=5?1:0,
+    byDirection:{BULLISH:!bearish&&costBps>=5?1:0,
+     BEARISH:bearish&&costBps>=5?1:0},
+   })));
+  const future=bars.concat(candle(3));
+  Object.defineProperty(future[3],'high',{get(){throw Error('future price read');}});
+  assert.deepEqual(studyHourlyFvgMidpointAsOf(future,source,BASE+3*H,{
+   hypotheticalRoundTripCostsBps:costs,
+  }),report);
+ }
+ const wide=studyHourlyFvgMidpoint(fixture(),source,{
+  hypotheticalRoundTripCostsBps:[0,5,15,1000],
+ });
+ for(const scenario of wide.formationGapNoWiderThanCostByScenario){
+  const expected=wide.observations.filter(o=>
+   (o.gapHigh-o.gapLow)/o.midpoint*10000<=scenario.costBps);
+  assert.equal(scenario.all,expected.length);
+  assert.equal(scenario.all,scenario.byDirection.BULLISH+
+   scenario.byDirection.BEARISH);
+ }
 });

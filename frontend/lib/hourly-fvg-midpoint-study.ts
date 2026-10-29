@@ -7,7 +7,7 @@
  */
 import type {Bar} from './research.ts';
 
-export const HOURLY_FVG_VERSION='hourly-fvg-first-midpoint-touch-v85';
+export const HOURLY_FVG_VERSION='hourly-fvg-first-midpoint-touch-v86';
 export type Evidence='PASS'|'FAIL'|'INSUFFICIENT_DATA';
 // First-touch volume evidence is not independent broker/source authentication.
 export type VolumeEvidenceReason='NOT_EVALUATED'|'SOURCE_UNVERIFIED'|
@@ -227,6 +227,10 @@ export type FvgCoverage={
 export type FvgStudy={
  version:typeof HOURLY_FVG_VERSION;source:FvgSource;coverage:FvgCoverage;
  config:Required<FvgConfig>;observations:FvgObservation[];cohort:FvgCohort;
+ // Every formed BID gap, including censored and no-touch observations.
+ formationGapNoWiderThanCostByScenario:readonly {
+  scenarioIndex:number;costBps:number;all:number;byDirection:Record<Side,number>;
+ }[];
  warning:string;
 };
 const HOUR=3600;
@@ -396,6 +400,20 @@ function verifiedVolume(bars:readonly Bar[],j:number,source:FvgSource,multiple:n
  return lhs>rhs?
   {evidence:'PASS',reason:'THRESHOLD_EXCEEDED'}:
   {evidence:'FAIL',reason:'THRESHOLD_NOT_MET'};
+}
+// Full BID formation gap versus illustrative round-trip bps cost at the
+// midpoint. Exact float comparisons avoid rounded near-threshold ties.
+function formationGapNoWiderThanCost(
+ lowPrice:number,highPrice:number,midpoint:number,costBps:number,
+):boolean{
+ if(costBps===0)return false;
+ const low=positiveFloatParts(lowPrice),high=positiveFloatParts(highPrice);
+ const mid=positiveFloatParts(midpoint),cost=positiveFloatParts(costBps);
+ const common=Math.min(low.exponent,high.exponent,mid.exponent+cost.exponent);
+ const gap=(high.mantissa<<BigInt(high.exponent-common))-
+  (low.mantissa<<BigInt(low.exponent-common));
+ const friction=mid.mantissa*cost.mantissa<<BigInt(mid.exponent+cost.exponent-common);
+ return 10000n*gap<=friction;
 }
 // Evaluate the wick threshold against the exact supplied IEEE-754 prices.
 // Subtracting a tiny positive low from a much larger wick/range can round
@@ -1553,11 +1571,29 @@ export function studyHourlyFvgMidpoint(
  if(observations.length>coverage.completeThreeBarWindows)
   throw Error('FVG formation population exceeds complete observed triplets');
  // The report and volume gates share the same validated allowlisted snapshot.
+ // Include all formed gaps, not only completed matched trades.
+ const formationGapNoWiderThanCostByScenario=costs.map((costBps,scenarioIndex)=>{
+  const byDirection:Record<Side,number>={BULLISH:0,BEARISH:0};
+  let all=0;
+  for(const o of observations){
+   if(formationGapNoWiderThanCost(o.gapLow,o.gapHigh,o.midpoint,costBps)){
+    all++;byDirection[o.direction]++;
+   }
+  }
+  if(all!==byDirection.BULLISH+byDirection.BEARISH||all>observations.length)
+   throw Error('FVG formation cost/geometry census does not reconcile');
+  return {scenarioIndex,costBps,all,byDirection};
+ });
+ for(let k=1;k<formationGapNoWiderThanCostByScenario.length;k++)
+  if(formationGapNoWiderThanCostByScenario[k].all<
+     formationGapNoWiderThanCostByScenario[k-1].all)
+   throw Error('FVG formation cost/geometry census is not monotonic');
  return {version:HOURLY_FVG_VERSION,source:declaredSource,
    coverage,
   config:{maxTouchWaitBars,markoutBars,minimumRejectionWickFraction,
    volumeMultiple,hypotheticalRoundTripCostsBps:[...costs]},
   observations,cohort:summarizeCohort(observations,costs,maxTouchWaitBars),
+  formationGapNoWiderThanCostByScenario,
   warning:'Read-only hourly BID OHLC research. Midpoint touch is a hypothetical blind limit, not an executable fill. Rejection entry uses only the next observed hourly open. Markouts omit intrabar stops, spreads, financing, news, slippage and broker contracts; bps costs are illustrative, not measured. No strategy edge or live execution is established.'};
 }
 
