@@ -10,7 +10,7 @@ NOW = 1_800_000_000_000
 def event(n=1, decision="APPROVE"):
     return dict(approval_id=f"review{n}", client_order_id=f"order{n}",
                 order_intent_sha=f"{n:064x}", preview_digest=f"{n+10:064x}",
-                decision=decision, issued_at_ms=NOW-400+n*10,
+                decision=decision, issued_at_ms=NOW-350+n*10,
                 expires_at_ms=NOW+1_000+n*10, recorded_at_ms=NOW-350+n*10)
 
 
@@ -342,4 +342,34 @@ def test_revision_population_hold_does_not_mutate_snapshots():
     curr["sequence"] = 1
     original = deepcopy((prev, curr))
     assert "history_population_exceeds_revision" in inspect(prev, curr)["failed_checks"]
+    assert (prev, curr) == original
+
+
+def test_appended_review_issued_at_prior_snapshot_holds():
+    prev, curr = snapshots()
+    curr["events"][1]["issued_at_ms"] = prev["observed_at_ms"]
+    result = inspect(prev, curr)
+    assert "appended_review_issued_before_prior_snapshot" in result["failed_checks"]
+    assert result["may_submit_real_order"] is False
+
+
+def test_appended_review_issued_before_prior_snapshot_holds():
+    prev, curr = snapshots()
+    curr["events"][1]["issued_at_ms"] = prev["observed_at_ms"] - 1
+    result = inspect(prev, curr)
+    assert "appended_review_issued_before_prior_snapshot" in result["failed_checks"]
+    assert result["status"] == "HOLD_DECLARED_REVIEW_HISTORY"
+
+
+def test_appended_review_issued_after_prior_snapshot_is_not_false_hold():
+    prev, curr = snapshots()
+    curr["events"][1]["issued_at_ms"] = prev["observed_at_ms"] + 1
+    assert inspect(prev, curr)["failed_checks"] == []
+
+
+def test_issued_time_hold_does_not_mutate_inputs():
+    prev, curr = snapshots()
+    curr["events"][1]["issued_at_ms"] = prev["observed_at_ms"]
+    original = deepcopy((prev, curr))
+    assert "appended_review_issued_before_prior_snapshot" in inspect(prev, curr)["failed_checks"]
     assert (prev, curr) == original
