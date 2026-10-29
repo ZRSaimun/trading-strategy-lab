@@ -1,0 +1,102 @@
+"""Disconnected continuity diagnostic for two declared broker inventory snapshots.
+
+The caller controls every field, including the clock and both checkpoints.
+This read-only preflight is not authenticated broker reconciliation, does not
+release UNKNOWN attempts, and never authorizes any paper or live order.
+"""
+from __future__ import annotations
+
+from typing import Any
+
+from app.paper_broker_inventory_census import (
+    MAX_PAGES,
+    MAX_ORDERS,
+    _id,
+    _ms,
+    _object,
+    inspect_declared_inventory,
+)
+
+_SNAPSHOT_FIELDS = {"broker", "account_alias", "snapshot_id", "sequence",
+                    "observed_at_ms", "received_at_ms", "pages"}
+_PAGE_FIELDS = {"snapshot_id", "index", "total_pages", "complete", "orders"}
+
+
+def _prior_metadata(previous: Any, now: int) -> tuple[dict, set[str]]:
+    """Validate bounded checkpoint metadata, not authenticity or order contents."""
+    prev = _object(previous, _SNAPSHOT_FIELDS, "previous snapshot")
+    for key in ("broker", "account_alias", "snapshot_id"):
+        _id(prev[key], f"previous {key}")
+    seq = _ms(prev["sequence"], "previous sequence")
+    if seq == 0:
+        raise ValueError("Invalid previous sequence")
+    observed = _ms(prev["observed_at_ms"], "previous observation")
+    received = _ms(prev["received_at_ms"], "previous receipt")
+    pages = prev["pages"]
+    if type(pages) is not list or not 1 <= len(pages) <= MAX_PAGES:
+        raise ValueError("Invalid previous page population")
+    failures: set[str] = set()
+    if not observed <= received <= now:
+        failures.add("previous_snapshot_clock_invalid")
+    total_orders = 0
+    for index, raw in enumerate(pages):
+        page = _object(raw, _PAGE_FIELDS, "previous page")
+        if (_id(page["snapshot_id"], "previous page snapshot ID") != prev["snapshot_id"]
+                or _ms(page["index"], "previous page index") != index
+                or _ms(page["total_pages"], "previous page count") != len(pages)
+                or page["complete"] is not True):
+            failures.add("previous_page_census_incomplete")
+        if type(page["orders"]) is not list or len(page["orders"]) > MAX_ORDERS:
+            raise ValueError("Invalid previous page orders")
+        total_orders += len(page["orders"])
+        if total_orders > MAX_ORDERS:
+            raise ValueError("Previous order population exceeds bound")
+    return prev, failures
+
+
+def inspect_declared_inventory_continuity(
+    expected: dict, previous: dict | None, current: dict, now_ms: int,
+) -> dict[str, Any]:
+    """Hold on replay, missing checkpoint, gaps or regressed broker snapshots.
+
+    The current inventory is fully checked by the existing census. Previous
+    snapshot metadata is checked only for structural/chronological consistency;
+    it is NOT authenticated or independently proven complete. A clean result
+    is always unverified and cannot clear any UNKNOWN submission.
+    """
+    now = _ms(now_ms, "evaluation time")
+    census = inspect_declared_inventory(expected, current, now)
+    failures = {f"current_inventory:{reason}" for reason in census["failed_checks"]}
+    if previous is None:
+        failures.add("missing_prior_inventory_checkpoint")
+    else:
+        prev, prior_failures = _prior_metadata(previous, now)
+        failures.update(prior_failures)
+        if (prev["broker"], prev["account_alias"]) != (
+            expected["broker"], expected["account_alias"]
+        ):
+            failures.add("previous_account_identity")
+        if current["snapshot_id"] == prev["snapshot_id"]:
+            failures.add("snapshot_id_reused")
+        if current["sequence"] <= prev["sequence"]:
+            failures.add("snapshot_sequence_not_advanced")
+        elif current["sequence"] != prev["sequence"] + 1:
+            failures.add("snapshot_sequence_gap")
+        if current["observed_at_ms"] <= prev["observed_at_ms"]:
+            failures.add("snapshot_observation_not_advanced")
+        if current["received_at_ms"] <= prev["received_at_ms"]:
+            failures.add("snapshot_receipt_not_advanced")
+        if current["observed_at_ms"] <= prev["received_at_ms"]:
+            failures.add("snapshot_delivery_overlap")
+    return {
+        "status": "HOLD_INVENTORY_CONTINUITY" if failures else "DECLARED_INVENTORY_CONTINUITY_UNVERIFIED",
+        "failed_checks": sorted(failures),
+        "current_inventory_status": census["status"],
+        "current_inventory_failed_checks": census["failed_checks"],
+        "prior_checkpoint_authenticated": False,
+        "broker_authenticated": False,
+        "inventory_continuity_authenticated": False,
+        "may_clear_unknown": False,
+        "may_submit_paper_order": False,
+        "may_submit_real_order": False,
+    }
