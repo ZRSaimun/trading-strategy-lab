@@ -92,6 +92,21 @@ def _check(report):
     counts = ("bar_count", "confirmed_count", "censored_gap_or_end", "excluded_overlap")
     if any(type(report.get(k)) is not int or report[k] < 0 for k in counts) or report["bar_count"] == 0:
         raise ValueError("Invalid population counts")
+    # Counters are part of the original M1 engine's source-wall scan.
+    # A valid self-hash alone cannot establish that these declarations agree.
+    diagnostic_counts = (
+        "timestamp_discontinuities", "backward_jumps", "adjacent_duplicates",
+        "sweep_count", "ambiguous_count",
+    )
+    if any(type(report.get(k)) is not int or report[k] < 0 for k in diagnostic_counts):
+        raise ValueError("Invalid source-wall diagnostic counters")
+    if (report["timestamp_discontinuities"] > report["bar_count"] - 1
+            or report["backward_jumps"] + report["adjacent_duplicates"] > report["timestamp_discontinuities"]):
+        raise ValueError("Source-wall discontinuity counters do not reconcile")
+    if (report["sweep_count"] > report["bar_count"]
+            or report["confirmed_count"] > report["sweep_count"]
+            or report["ambiguous_count"] > 2 * report["bar_count"]):
+        raise ValueError("Sweep/confirmation population exceeds original scan bounds")
     all_count, gross = _check_summary(report.get("all_exploratory"))
     dev_count, dev_gross = _check_summary(report.get("development_exploratory"))
     later_count, later_gross = _check_summary(report.get("later_exploratory_not_holdout"))
@@ -109,6 +124,15 @@ def _check(report):
         )
         if abs(gross - expected) > Decimal("0.000002"):
             raise ValueError("Exploratory partition gross means do not reconcile")
+        # Fractions are rounded independently to six decimals by the v1
+        # engine. Reconcile the partition fractions by outcome count, not by
+        # pretending individual outcomes are independent observations.
+        dev_win = _number(report["development_exploratory"]["gross_win_fraction"]) if dev_count else Decimal(0)
+        later_win = _number(report["later_exploratory_not_holdout"]["gross_win_fraction"]) if later_count else Decimal(0)
+        expected_win = (dev_win * dev_count + later_win * later_count) / all_count
+        all_win = _number(report["all_exploratory"]["gross_win_fraction"])
+        if abs(all_win - expected_win) > Decimal("0.000002"):
+            raise ValueError("Exploratory partition gross win fractions do not reconcile")
     return src, all_count, gross
 
 
