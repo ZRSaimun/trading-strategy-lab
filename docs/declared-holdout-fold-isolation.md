@@ -125,3 +125,29 @@ realized transaction costs, untouched-holdout integrity or profitable
 performance. Synthetic regressions cover exact quarter boundaries,
 1–4 populated quarters, stable ties, input immutability and disabled
 demo/real order permissions.
+
+
+## Largest-quarter concentration (integer basis points)
+
+Counting nonempty quarters alone can miss a severely skewed sample:
+`[97, 1, 1, 1]` and `[25, 25, 25, 25]` both populate all four
+equal-duration quarters, but the former has 97% of decisions in one quarter.
+Each fold now reports
+`declared_largest_quarter_decision_share_basis_points`, computed as
+`floor(10000 * max(declared_decision_quarter_counts) / observation_count)`.
+The study-wide
+`max_declared_largest_quarter_decision_share_basis_points` and
+`most_concentrated_quarter_fold_index` select the largest share, with
+the earliest zero-based fold winning exact ties. Integer arithmetic
+avoids floating-point rounding drift; 10000 basis points means all
+declared decisions were concentrated in one quarter, while 2500 means
+equal counts in four quarters.
+
+This is a **sampling-distribution diagnostic**, not a minimum trade
+frequency requirement, candle-coverage test, significance test, actual
+execution-cost measure, or evidence of profitable performance. Inactive
+quarters can be legitimate strategy behavior. Source identities and
+timestamps remain caller-declared, not independently authenticated.
+Synthetic regressions distinguish 97/1/1/1 from 25/25/25/25, cover
+integer rounding, study-wide maxima, earliest-fold ties, immutable
+inputs and disabled demo/real trading permissions.
