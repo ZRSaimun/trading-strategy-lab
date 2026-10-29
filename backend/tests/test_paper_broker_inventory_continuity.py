@@ -205,3 +205,97 @@ def test_prior_distinct_order_identities_still_unverified():
     assert result["status"] == "DECLARED_INVENTORY_CONTINUITY_UNVERIFIED"
     assert result["prior_checkpoint_authenticated"] is False
     assert result["may_clear_unknown"] is False
+
+
+def test_previous_duplicate_fill_within_order_holds():
+    e, p, c = sample()
+    order = p["pages"][0]["orders"][0]
+    order["quantity"] = "2"
+    order["filled_quantity"] = "2"
+    order["fills"].append(deepcopy(order["fills"][0]))
+    result = inspect_declared_inventory_continuity(e, p, c, NOW)
+    assert "previous_duplicate_fill_identity" in result["failed_checks"]
+    assert result["status"] == "HOLD_INVENTORY_CONTINUITY"
+    assert result["may_clear_unknown"] is False
+
+
+def test_previous_duplicate_fill_across_pages_holds():
+    e, p, c = sample()
+    other = deepcopy(p["pages"][0]["orders"][0])
+    other["client_order_id"] = "order2"
+    other["broker_order_id"] = "broker2"
+    p["pages"][0]["total_pages"] = 2
+    p["pages"].append({"snapshot_id": "prior", "index": 1, "total_pages": 2,
+                       "complete": True, "orders": [other]})
+    result = inspect_declared_inventory_continuity(e, p, c, NOW)
+    assert "previous_duplicate_fill_identity" in result["failed_checks"]
+    assert "previous_duplicate_order_identity" not in result["failed_checks"]
+    assert result["may_submit_real_order"] is False
+
+
+@pytest.mark.parametrize("edit", [
+    lambda f: f.update(fill_id=True),
+    lambda f: f.update(quantity="0"),
+    lambda f: f.update(quantity="NaN"),
+    lambda f: f.update(filled_at_ms=True),
+    lambda f: f.update(unexpected="field"),
+])
+def test_previous_fill_schema_fails_closed(edit):
+    e, p, c = sample()
+    edit(p["pages"][0]["orders"][0]["fills"][0])
+    with pytest.raises(ValueError):
+        inspect_declared_inventory_continuity(e, p, c, NOW)
+
+
+def test_previous_fill_after_snapshot_observation_holds():
+    e, p, c = sample()
+    p["pages"][0]["orders"][0]["fills"][0]["filled_at_ms"] = p["observed_at_ms"] + 1
+    result = inspect_declared_inventory_continuity(e, p, c, NOW)
+    assert "previous_fill_after_observation" in result["failed_checks"]
+    assert result["status"] == "HOLD_INVENTORY_CONTINUITY"
+
+
+def test_previous_fill_sum_mismatch_holds():
+    e, p, c = sample()
+    p["pages"][0]["orders"][0]["fills"][0]["quantity"] = "0.5"
+    result = inspect_declared_inventory_continuity(e, p, c, NOW)
+    assert "previous_fill_quantity_reconciliation" in result["failed_checks"]
+    assert result["may_clear_unknown"] is False
+
+
+def test_previous_order_status_mismatch_holds():
+    e, p, c = sample()
+    p["pages"][0]["orders"][0]["status"] = "OPEN"
+    result = inspect_declared_inventory_continuity(e, p, c, NOW)
+    assert "previous_status_quantity_reconciliation" in result["failed_checks"]
+    assert result["may_submit_real_order"] is False
+
+
+def test_previous_partial_fill_is_consistent_but_unverified():
+    e, p, c = sample()
+    p["pages"][0]["orders"][0].update(status="PARTIAL", quantity="2")
+    result = inspect_declared_inventory_continuity(e, p, c, NOW)
+    assert result["status"] == "DECLARED_INVENTORY_CONTINUITY_UNVERIFIED"
+    assert result["failed_checks"] == []
+    assert result["may_clear_unknown"] is False
+
+
+def test_previous_fill_population_over_bound_raises():
+    e, p, c = sample()
+    p["pages"][0]["orders"][0]["fills"] *= 2049
+    with pytest.raises(ValueError, match="Invalid previous fill population"):
+        inspect_declared_inventory_continuity(e, p, c, NOW)
+
+
+@pytest.mark.parametrize("edit", [
+    lambda o: o.update(status="UNKNOWN"),
+    lambda o: o.update(side=True),
+    lambda o: o.update(quantity="0"),
+    lambda o: o.update(filled_quantity="-1"),
+    lambda o: o.update(fills="not-a-list"),
+])
+def test_previous_order_economics_invalid_schema_raises(edit):
+    e, p, c = sample()
+    edit(p["pages"][0]["orders"][0])
+    with pytest.raises(ValueError):
+        inspect_declared_inventory_continuity(e, p, c, NOW)
