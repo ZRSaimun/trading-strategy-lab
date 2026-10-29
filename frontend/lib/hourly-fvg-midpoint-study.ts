@@ -7,7 +7,7 @@
  */
 import type {Bar} from './research.ts';
 
-export const HOURLY_FVG_VERSION='hourly-fvg-first-midpoint-touch-v89';
+export const HOURLY_FVG_VERSION='hourly-fvg-first-midpoint-touch-v90';
 export type Evidence='PASS'|'FAIL'|'INSUFFICIENT_DATA';
 // First-touch volume evidence is not independent broker/source authentication.
 export type VolumeEvidenceReason='NOT_EVALUATED'|'SOURCE_UNVERIFIED'|
@@ -249,6 +249,9 @@ export type FvgStudy={
   scenarioIndex:number;costBps:number;
   noWiderThanCost:FirstTouchOpportunityBound;
   widerThanCost:FirstTouchOpportunityBound;
+  // Preserve direction inside cost-width groups; pooled censoring can mask bias.
+  byDirection:Record<Side,{noWiderThanCost:FirstTouchOpportunityBound;
+   widerThanCost:FirstTouchOpportunityBound}>;
  }[];
  warning:string;
 };
@@ -1668,8 +1671,29 @@ export function studyHourlyFvgMidpoint(
     if(noWiderThanCost[key]+widerThanCost[key]!==
        cohort.firstTouchOpportunityBounds.all[key])
      throw Error('FVG cost-width touch-bound outcomes do not reconcile');
+   const directionBounds=(direction:Side)=>({
+    noWiderThanCost:touchBounds(noWider.filter(o=>o.direction===direction)),
+    widerThanCost:touchBounds(wider.filter(o=>o.direction===direction)),
+   });
+   const byDirection={
+    BULLISH:directionBounds('BULLISH'),BEARISH:directionBounds('BEARISH'),
+   };
+   for(const direction of ['BULLISH','BEARISH'] as const){
+    const directional=byDirection[direction];
+    const expected=cohort.firstTouchOpportunityBounds.byDirection[direction];
+    for(const key of ['formations','observedTouches','observedNoTouches',
+     'unresolvedGapThrough','unresolvedIncomplete'] as const)
+     if(directional.noWiderThanCost[key]+directional.widerThanCost[key]!==expected[key])
+      throw Error('FVG directional cost-width touch bounds do not reconcile');
+   }
+   for(const key of ['formations','observedTouches','observedNoTouches',
+    'unresolvedGapThrough','unresolvedIncomplete'] as const)
+    for(const group of ['noWiderThanCost','widerThanCost'] as const)
+     if(byDirection.BULLISH[group][key]+byDirection.BEARISH[group][key]!==
+        (group==='noWiderThanCost'?noWiderThanCost:widerThanCost)[key])
+      throw Error('FVG pooled cost-width touch bounds do not reconcile');
    return {scenarioIndex:scenario.scenarioIndex,costBps:scenario.costBps,
-    noWiderThanCost,widerThanCost};
+    noWiderThanCost,widerThanCost,byDirection};
   });
  return {version:HOURLY_FVG_VERSION,source:declaredSource,
    coverage,
