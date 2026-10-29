@@ -54,3 +54,35 @@ They are **caller-declared, read-only heuristics**, not proof of actual
 market-data authenticity, a stop-fill guarantee or permission to submit an
 order. A caller can forge both snapshots; never use these checks as a
 substitute for authenticated broker evidence or atomic risk reservations.
+
+
+## Standalone safety-release and inventory-revision continuity (29 October 2026)
+
+The standalone snapshot fence now rejects a declared transition from an open
+circuit breaker to closed, a reduction in unresolved submission attempts, or
+a transition from incomplete to complete reconciliation. Each requires
+independent external evidence; advancing the declared account revision or
+starting a new session does not itself release these safety holds.
+
+Within the same declared session, changes to `open_notional` or `open_risk`
+without an increased positions revision, and changes to the unresolved attempt
+count without an increased orders revision, also cause a HOLD. These checks
+previously existed in the composed account/quote/order review; they now apply
+to direct callers of the standalone fence as defense in depth. The composite
+continues to enforce its own independent checks.
+
+Failure names are
+`circuit_breaker_reset_requires_external_evidence`,
+`unknown_attempt_reduction_requires_external_evidence`,
+`reconciliation_release_requires_external_evidence`,
+`positions_changed_without_revision`, and
+`unknown_attempts_changed_without_orders_revision`.
+
+These are deliberately conservative **caller-declared diagnostics**, not
+authenticated account statements, external release receipts, durable
+checkpoints, or broker permissions. Legitimate resets, reconciliation, and
+position/order updates can remain quarantined until independently verified.
+Every result continues to prohibit paper and real order submission, and live
+orders always require separately recorded owner approval and secure broker
+credentials. Do not infer a guaranteed stop fill, margin availability or
+profitable trading from a clean diagnostic.
