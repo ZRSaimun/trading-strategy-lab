@@ -39,6 +39,8 @@ def audit_causal_climatology(snapshot, *, evaluation_as_of, min_training=30,
             raise ValueError("Repeated or retroactive model/horizon base candle")
         matured = eligible = unavailable = training_rejected = scored = 0
         baseline_brier = issued_brier = baseline_log = issued_log = 0.0
+        regret_brier_low = regret_brier_high = 0.0
+        regret_log_low = regret_log_high = 0.0
         first_baseline = min_history = max_history = None
         last_evaluation_target = -1
         overlapping_matured_excluded = 0
@@ -67,17 +69,33 @@ def audit_causal_climatology(snapshot, *, evaluation_as_of, min_training=30,
                 training_rejected += 1
                 continue
             eligible += 1
-            if current["status"] != "SETTLED" or current["resolvedAt"] > evaluation_as_of:
-                unavailable += 1
-                continue
             prior_up = sum(r["outcomeUp"] for r in observed)
             p = (prior_up + 0.5) / (len(observed) + 1)
+            q = current["probability"]
+            # Counterfactual binary labels on the FIXED eligible census.
+            # These are selection-risk bounds, never invented settlements.
+            brier_down = q * q - p * p
+            brier_up = (1 - q) ** 2 - (1 - p) ** 2
+            log_down = math.log1p(-p) - math.log1p(-q)
+            log_up = math.log(p) - math.log(q)
+            if current["status"] != "SETTLED" or current["resolvedAt"] > evaluation_as_of:
+                unavailable += 1
+                regret_brier_low += min(brier_down, brier_up)
+                regret_brier_high += max(brier_down, brier_up)
+                regret_log_low += min(log_down, log_up)
+                regret_log_high += max(log_down, log_up)
+                continue
+            regret_brier = brier_up if current["outcomeUp"] else brier_down
+            regret_log = log_up if current["outcomeUp"] else log_down
+            regret_brier_low += regret_brier
+            regret_brier_high += regret_brier
+            regret_log_low += regret_log
+            regret_log_high += regret_log
             if first_baseline is None:
                 first_baseline = p
             min_history = len(observed) if min_history is None else min(min_history, len(observed))
             max_history = len(observed) if max_history is None else max(max_history, len(observed))
             y = int(current["outcomeUp"])
-            q = current["probability"]
             baseline_brier += (p - y) ** 2
             issued_brier += (q - y) ** 2
             baseline_log += -math.log(p) if y else -math.log1p(-p)
@@ -104,10 +122,18 @@ def audit_causal_climatology(snapshot, *, evaluation_as_of, min_training=30,
             "causalBaselineBrier": baseline_brier / scored if sufficient else None,
             "pairedBrierRegretIssuedMinusBaseline":
                 (issued_brier - baseline_brier) / scored if sufficient else None,
+            "pairedBrierRegretBestCaseEligibleCensus":
+                regret_brier_low / eligible if sufficient else None,
+            "pairedBrierRegretWorstCaseEligibleCensus":
+                regret_brier_high / eligible if sufficient else None,
             "issuedLogLoss": issued_log / scored if sufficient else None,
             "causalBaselineLogLoss": baseline_log / scored if sufficient else None,
             "pairedLogLossRegretIssuedMinusBaseline":
                 (issued_log - baseline_log) / scored if sufficient else None,
+            "pairedLogLossRegretBestCaseEligibleCensus":
+                regret_log_low / eligible if sufficient else None,
+            "pairedLogLossRegretWorstCaseEligibleCensus":
+                regret_log_high / eligible if sufficient else None,
         })
     return {
         "evidence": validated["evidence"], "evaluationAsOfDeclared": evaluation_as_of,
