@@ -320,3 +320,48 @@ def test_provision_rejects_existing_public_file_without_mutation(tmp_path):
             rights_evidence_sha256=RIGHTS, owner_confirmed=True,
         )
     assert path.read_bytes() == b"not a database"
+
+
+def test_reservation_uses_post_write_lock_clock(tmp_path, monkeypatch):
+    """A delayed SQLite write lock must not backdate the request cooldown."""
+    import sqlite3
+
+    path = ledger(tmp_path, monkeypatch, cap=2)
+    real_connect = budget._connect
+    clock = {"now": NOW}
+    waited = {"done": False}
+
+    class DelayedWriteLock:
+        def __init__(self, conn):
+            self.conn = conn
+
+        def execute(self, sql, params=()):
+            if sql == "BEGIN IMMEDIATE" and not waited["done"]:
+                # Deterministically model a 70-second lock wait, without
+                # sleeping or issuing any provider request.
+                clock["now"] += 70
+                waited["done"] = True
+            return self.conn.execute(sql, params)
+
+        def close(self):
+            return self.conn.close()
+
+        def __getattr__(self, name):
+            return getattr(self.conn, name)
+
+    monkeypatch.setattr(budget, "_connect", lambda p: DelayedWriteLock(real_connect(p)))
+    monkeypatch.setattr(budget, "time", SimpleNamespace(time=lambda: clock["now"]))
+    assert reserve(path, 1)["remaining_credits"] == 1
+    with sqlite3.connect(path) as conn:
+        stored = conn.execute(
+            "SELECT reserved_at_utc FROM credit_reservation WHERE request_id=?",
+            (f"{1:032x}",),
+        ).fetchone()[0]
+    assert stored == NOW + 70
+    # A request 60 seconds after the *pre-lock* time is still inside the
+    # post-lock cooldown and must be refused.
+    clock["now"] = NOW + 100
+    with pytest.raises(budget.CreditBudgetError, match="Per-minute"):
+        reserve(path, 2)
+    clock["now"] = NOW + 130
+    assert reserve(path, 2)["remaining_credits"] == 0
