@@ -532,3 +532,134 @@ def test_surprise_valid_extreme_inputs_do_not_overflow_difference():
     assert surprise(rows)["observations"][0]["raw_actual_minus_forecast"] == (
         "2000000000000000000000000000000"
     )
+
+
+
+# Declared first-release and corrected-result research, synthetic only.
+from app.offline_event_asof_guard import audit_declared_result_corrections_asof
+
+
+def corrections(rows, decision="2026-10-28T18:05:00Z",
+                source="synthetic-calendar"):
+    return audit_declared_result_corrections_asof(
+        rows, decision_utc=decision, source_id=source
+    )
+
+
+def correction_rows(forecast="3.5", first="3.7", corrected="3.9"):
+    return [
+        row(forecast=forecast),
+        row(2, "result", published="2026-10-28T18:00:00Z",
+            observed="2026-10-28T18:01:00Z", forecast=forecast, actual=first),
+        row(3, "result", published="2026-10-28T18:02:00Z",
+            observed="2026-10-28T18:03:00Z", forecast=forecast, actual=corrected),
+    ]
+
+
+def test_corrections_empty_and_schedule_only_never_clear_trading():
+    empty = corrections([])
+    assert empty["visible_result_event_count"] == 0
+    assert empty["trade_authorized"] is False
+    only = corrections([row()])
+    assert only["observations"][0]["status"] == "NO_VISIBLE_RESULT"
+    assert only["observations"][0]["first_actual"] is None
+    assert only["authenticated_calendar"] is False
+
+
+def test_corrections_first_result_stamped_in_decision_minute_is_invisible():
+    rows = correction_rows()
+    at_first = corrections(rows, "2026-10-28T18:01:00Z")
+    assert at_first["observations"][0]["status"] == "NO_VISIBLE_RESULT"
+    after_first = corrections(rows, "2026-10-28T18:02:00Z")
+    item = after_first["observations"][0]
+    assert item["status"] == "FIRST_RESULT_ONLY"
+    assert item["first_actual"] == "3.7"
+    assert item["first_surprise"] == "0.2"
+    assert item["net_actual_change"] is None
+
+
+def test_corrections_later_receipt_excluded_until_next_minute():
+    rows = correction_rows()
+    at_correction = corrections(rows, "2026-10-28T18:03:00Z")
+    assert at_correction["observations"][0]["status"] == "FIRST_RESULT_ONLY"
+    after = corrections(rows, "2026-10-28T18:04:00Z")
+    item = after["observations"][0]
+    assert item["status"] == "RESULT_REVISED"
+    assert item["first_actual"] == "3.7"
+    assert item["latest_actual"] == "3.9"
+    assert item["first_surprise"] == "0.2"
+    assert item["latest_surprise"] == "0.4"
+    assert item["net_actual_change"] == "0.2"
+    assert item["changed_result_revision_count"] == 1
+
+
+def test_corrections_reversion_still_counts_intermediate_changes():
+    rows = correction_rows()
+    rows.append(row(4, "result", published="2026-10-28T18:04:00Z",
+                    observed="2026-10-28T18:05:00Z", actual="3.7"))
+    item = corrections(rows, "2026-10-28T18:06:00Z")["observations"][0]
+    assert item["net_actual_change"] == "0"
+    assert item["changed_result_revision_count"] == 2
+    assert item["visible_result_revision_count"] == 3
+
+
+def test_corrections_unchanged_revision_not_price_change():
+    item = corrections(correction_rows(corrected="3.7"))["observations"][0]
+    assert item["status"] == "RESULT_REVISED"
+    assert item["changed_result_revision_count"] == 0
+    assert item["net_actual_change"] == "0"
+
+
+def test_corrections_high_precision_and_missing_forecast():
+    forecast = "1.234567890123456789012345678901"
+    first = "1.234567890123456789012345678902"
+    later = "1.234567890123456789012345678904"
+    item = corrections(correction_rows(forecast, first, later))["observations"][0]
+    assert item["first_surprise"] == "0.000000000000000000000000000001"
+    assert item["latest_surprise"] == "0.000000000000000000000000000003"
+    assert item["net_actual_change"] == "0.000000000000000000000000000002"
+    missing = corrections(correction_rows(None))["observations"][0]
+    assert missing["first_surprise"] is None
+    assert missing["latest_surprise"] is None
+    assert missing["net_actual_change"] == "0.2"
+
+
+def test_corrections_future_invariant_order_independent_and_no_mutation():
+    rows = correction_rows()
+    cutoff = "2026-10-28T18:02:00Z"
+    before = corrections(rows[:2], cutoff)
+    assert corrections(rows, cutoff) == before
+    assert corrections(list(reversed(rows)), cutoff) == before
+    assert rows == correction_rows()
+
+
+def test_corrections_source_and_cutoff_bind_digest():
+    rows = correction_rows()
+    a = corrections(rows)
+    b = corrections(rows, source="another-provider")
+    c = corrections(rows, decision="2026-10-28T18:06:00Z")
+    assert a["result_correction_audit_sha256"] != b["result_correction_audit_sha256"]
+    assert a["result_correction_audit_sha256"] != c["result_correction_audit_sha256"]
+
+
+def test_corrections_digest_independently_reconstructed():
+    import hashlib
+    import json
+    report = corrections(correction_rows())
+    payload = {
+        "schema_version": 1,
+        "research_envelope_v2_sha256": report["research_envelope_v2_sha256"],
+        "observations": report["observations"],
+    }
+    canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"),
+                           ensure_ascii=True)
+    assert report["result_correction_audit_sha256"] == hashlib.sha256(
+        canonical.encode("utf-8")
+    ).hexdigest()
+
+
+def test_corrections_invalid_future_revision_fails_closed():
+    rows = correction_rows()
+    rows[2]["forecast"] = "999"
+    with pytest.raises(ValueError, match="match latest schedule"):
+        corrections(rows, "2026-10-28T18:02:00Z")
