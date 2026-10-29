@@ -107,6 +107,17 @@ def inspect_declared_order_risk_preview(order: dict, quote: dict, account: dict,
     if type(recent_orders) is not list or len(recent_orders) > 10_000:
         raise ValueError("Invalid recent order history")
     failures: set[str] = set()
+    # Trading 212 Invest / Stocks ISA are cash securities accounts, not CFDs.
+    # A caller-declared preview has no authenticated holdings inventory, so a
+    # SELL cannot be treated as an ordinary short or a verified disposal.
+    # Paper-local simulations retain their separately bounded leverage rules.
+    if broker.startswith("T212-"):
+        if leverage != Decimal("1"):
+            failures.add("cash_account_leverage_unsupported")
+        if limits["max_leverage"] != Decimal("1"):
+            failures.add("cash_account_policy_leverage_unsupported")
+        if o["side"] == "SELL":
+            failures.add("cash_account_sell_requires_authenticated_holdings")
     if a["circuit_breaker_open"]:
         failures.add("circuit_breaker_open")
     if q["instrument"] != instrument:
