@@ -254,3 +254,38 @@ def test_broker_accepts_unambiguous_utf8_json_media(media):
     assert result["data"] == {"ticker": "TEST"}
     assert result["market_data_feed"] is False
     assert result["may_execute_order"] is False
+
+
+
+def test_broker_total_receipt_deadline_rejects_slow_header_response(monkeypatch):
+    # Simulate a completed HTTP response arriving after the cumulative deadline.
+    # No sleep, real broker, or external request is involved.
+    ticks = iter([0, 30_000_000_001])
+    monkeypatch.setattr("app.trading212_readonly.monotonic_ns", lambda: next(ticks))
+    with pytest.raises(ReadOnlyBrokerError, match="total duration limit") as exc:
+        call(lambda _: httpx.Response(200, json={"secret": "never-reflect"}))
+    assert "never-reflect" not in str(exc.value)
+
+
+def test_broker_total_receipt_deadline_checks_each_stream_chunk(monkeypatch):
+    # The first 64 KiB is received within the limit; the next chunk arrives
+    # after it. A per-read timeout alone cannot bound cumulative slow drips.
+    ticks = iter([0, 0, 1_000_000_000, 30_000_000_001])
+    monkeypatch.setattr("app.trading212_readonly.monotonic_ns", lambda: next(ticks))
+    payload = b"{" + b" " * 70000 + b"}"
+    with pytest.raises(ReadOnlyBrokerError, match="total duration limit"):
+        call(lambda _: httpx.Response(
+            200, stream=httpx.ByteStream(payload),
+            headers={"content-type": "application/json"},
+        ))
+
+
+def test_broker_total_receipt_deadline_accepts_exact_boundary_without_live_claim(monkeypatch):
+    ticks = iter([0, 30_000_000_000, 30_000_000_000,
+                  30_000_000_000, 30_000_000_000])
+    monkeypatch.setattr("app.trading212_readonly.monotonic_ns", lambda: next(ticks))
+    result = call(lambda _: httpx.Response(200, json={"ticker": "TEST"}))
+    assert result["receipt_elapsed_monotonic_ms"] == 30000
+    assert result["receipt_clock_anomaly_detected"] is True
+    assert result["market_data_feed"] is False
+    assert result["may_execute_order"] is False
