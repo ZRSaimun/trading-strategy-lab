@@ -7,7 +7,7 @@
  */
 import type {Bar} from './research.ts';
 
-export const HOURLY_FVG_VERSION='hourly-fvg-first-midpoint-touch-v94';
+export const HOURLY_FVG_VERSION='hourly-fvg-first-midpoint-touch-v95';
 export type Evidence='PASS'|'FAIL'|'INSUFFICIENT_DATA';
 // First-touch volume evidence is not independent broker/source authentication.
 export type VolumeEvidenceReason='NOT_EVALUATED'|'SOURCE_UNVERIFIED'|
@@ -1925,6 +1925,19 @@ export function studyHourlyFvgMidpointAsOf(
  const barCount=suppliedBars.length;
  validateBarArraySchema(suppliedBars,barCount);
  const archiveSlots=captureArchiveSlots(suppliedBars,barCount);
+ // As-of replay must bind provider, instrument, archive hash and volume
+ // certification before reading any future timestamp getter. An accessor
+ // could return a different private closure value after that scan without
+ // changing its property descriptor, making the historical provenance
+ // declaration unverifiable. Full-history snapshots may still read it once.
+ // Reject before invoking any source getter or future timestamp accessor.
+ if(source&&typeof source==='object'){
+  for(const field of SOURCE_FIELDS){
+   const declaration=Object.getOwnPropertyDescriptor(source,field);
+   if(declaration&&!('value' in declaration))
+    throw Error('FVG as-of source identity requires own data-property fields');
+  }
+ }
  // An accessor returning the cost array has no stable own data-property
  // identity to recheck after future timestamp getters run. Full-history
  // research can snapshot it once, but as-of replay must not silently accept

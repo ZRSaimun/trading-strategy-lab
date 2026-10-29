@@ -710,7 +710,7 @@ test('research report rejects extra source fields without leaking caller private
  const report=studyHourlyFvgMidpoint(fixture(),source);
  assert.deepEqual(report.source,source);
  assert.deepEqual(Object.keys(report.source).sort(),Object.keys(source).sort());
- assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v94');
+ assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v95');
 });
 test('ambiguous source labels and contradictory volume evidence fail closed',()=>{
  // These are declared metadata, not independent vendor authentication.
@@ -785,7 +785,7 @@ test('v61 source labels reject lone surrogates and Unicode noncharacters in both
  assert.deepEqual(studyHourlyFvgMidpoint(bars,valid).source,valid);
  assert.deepEqual(studyHourlyFvgMidpointAsOf(bars,valid,cutoff).source,valid);
  assert.equal(studyHourlyFvgMidpoint(bars,valid).version,
-  'hourly-fvg-first-midpoint-touch-v94');
+  'hourly-fvg-first-midpoint-touch-v95');
 });
 test('v63 source labels reject Unicode space lookalikes without banning ASCII spaces',()=>{
  const bars=fixture(),cutoff=BASE+37*H;
@@ -802,7 +802,7 @@ test('v63 source labels reject Unicode space lookalikes without banning ASCII sp
  assert.deepEqual(studyHourlyFvgMidpoint(bars,legitimate).source,legitimate);
  assert.deepEqual(studyHourlyFvgMidpointAsOf(bars,legitimate,cutoff).source,legitimate);
  assert.equal(studyHourlyFvgMidpoint(bars,legitimate).version,
-  'hourly-fvg-first-midpoint-touch-v94');
+  'hourly-fvg-first-midpoint-touch-v95');
 });
 test('first bullish midpoint touch has a hypothetical blind limit and later next-open rejection markout',()=>{
  const x=target(fixture());
@@ -1147,7 +1147,7 @@ test('an overflowing next-open comparator suppresses both matched markouts',()=>
 });
 test('completed hourly timestamps are safe and numeric rule changes have a new version',()=>{
  const report=studyHourlyFvgMidpoint(fixture(),source);
- assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v94');
+ assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v95');
  const lastSafeAlignedOpen=Math.floor(Number.MAX_SAFE_INTEGER/H)*H;
  assert.equal(Number.isSafeInteger(lastSafeAlignedOpen),true);
  assert.equal(Number.isSafeInteger(lastSafeAlignedOpen+H),false);
@@ -3082,8 +3082,9 @@ test('v73 rejects source getter injecting broker metadata after preflight',()=>{
   assert.throws(()=>asOf?
    studyHourlyFvgMidpointAsOf(fixture(),src,BASE+34*H):
    studyHourlyFvgMidpoint(fixture(),src),
-   /source declaration schema changed during snapshot/);
-  assert.equal(reads,1);
+   asOf?/FVG as-of source identity requires own data-property fields/:
+    /source declaration schema changed during snapshot/);
+  assert.equal(reads,asOf?0:1);
  }
 });
 
@@ -3106,7 +3107,9 @@ test('v73 rejects setting schema injection from settings or source getters',()=>
   assert.throws(()=>asOf?
    studyHourlyFvgMidpointAsOf(fixture(),src,BASE+34*H,config):
    studyHourlyFvgMidpoint(fixture(),src,config),
-   /study setting schema changed during snapshot/);
+   asOf&&actor==='source'?
+    /FVG as-of source identity requires own data-property fields/:
+    /study setting schema changed during snapshot/);
  }
 });
 
@@ -3291,7 +3294,8 @@ test('v77 source and setting getters cannot rewrite previously declared evidence
    return provider;
   }});
   assert.throws(()=>evaluate(src,config),
-   /source declaration field changed during declaration snapshot/);
+   asOf?/FVG as-of source identity requires own data-property fields/:
+    /source declaration field changed during declaration snapshot/);
 
   const settings:FvgConfig={maxTouchWaitBars:12,volumeMultiple:1.5};
   Object.defineProperty(settings,'volumeMultiple',{
@@ -3312,7 +3316,8 @@ test('v77 source and setting getters cannot rewrite previously declared evidence
    },
   });
   assert.throws(()=>evaluate(crossSource,crossConfig),
-   /study setting field changed during declaration snapshot/);
+   asOf?/FVG as-of source identity requires own data-property fields/:
+    /study setting field changed during declaration snapshot/);
  }
 });
 
@@ -3347,14 +3352,14 @@ test('v77 stable accessor-backed declarations retain exact historical and as-of 
   studyHourlyFvgMidpoint(fixture(),source,{
    maxTouchWaitBars:12,hypotheticalRoundTripCostsBps:[0,5,15],
   }));
- // Full-history accepts a stable indexed getter; v94 as-of replay instead
- // requires direct data-property cells, while other stable getters remain OK.
+ // Full-history accepts stable source/cost getters. As-of replay requires
+ // direct data-property source and cost cells; stable setting getters remain OK.
  const asOfConfig:FvgConfig={maxTouchWaitBars:12,
   hypotheticalRoundTripCostsBps:[0,5,15]};
  Object.defineProperty(asOfConfig,'maxTouchWaitBars',{
   enumerable:true,configurable:true,get(){return 12;},
  });
- assert.deepEqual(studyHourlyFvgMidpointAsOf(fixture(),src,BASE+34*H,asOfConfig),
+ assert.deepEqual(studyHourlyFvgMidpointAsOf(fixture(),source,BASE+34*H,asOfConfig),
   studyHourlyFvgMidpoint(fixture().slice(0,34),source,{
    maxTouchWaitBars:12,hypotheticalRoundTripCostsBps:[0,5,15],
   }));
@@ -3711,7 +3716,7 @@ test('v85 candle getters cannot rewrite preflighted source, settings or costs',(
   hypotheticalRoundTripCostsBps:costs,
  }),/FVG cost scenario field changed during declaration snapshot/);
  assert.equal(studyHourlyFvgMidpoint(fixture(),source).version,
-  'hourly-fvg-first-midpoint-touch-v94');
+  'hourly-fvg-first-midpoint-touch-v95');
 });
 
 test('v85 future timestamp accessors cannot rewrite as-of provenance or cost axis',()=>{
@@ -3802,6 +3807,30 @@ test('v87 as-of cost-array getter is rejected before reading future timestamps',
  assert.deepEqual(studyHourlyFvgMidpointAsOf(fixture(),source,cutoff,{
   hypotheticalRoundTripCostsBps:costs,
  }),studyHourlyFvgMidpointAsOf(fixture(),source,cutoff));
+});
+
+
+test('v95 as-of rejects source getters before future timestamps can change provenance',()=>{
+ const rows=fixture(),cutoff=BASE+34*H;
+ const declared:FvgSource={...source};
+ let sourceReads=0,futureTimeReads=0,providerValue=source.provider;
+ Object.defineProperty(declared,'provider',{enumerable:true,configurable:true,
+  get(){sourceReads++;return providerValue;}});
+ Object.defineProperty(rows[39],'time',{enumerable:true,configurable:true,
+  get(){futureTimeReads++;providerValue='mutated-after-preflight';return BASE+39*H;}});
+ Object.defineProperty(rows[39],'high',{get(){
+  throw Error('future OHLC must not be read');
+ }});
+ assert.throws(()=>studyHourlyFvgMidpointAsOf(rows,declared,cutoff),
+  /FVG as-of source identity requires own data-property fields/);
+ assert.equal(sourceReads,0,'rejected source getter must never execute');
+ assert.equal(futureTimeReads,0,'future timestamp must remain unread on rejection');
+ assert.equal(providerValue,source.provider,'rejected source remains unchanged');
+ const full=studyHourlyFvgMidpoint(fixture(),declared);
+ assert.equal(full.source.provider,source.provider);
+ assert.equal(sourceReads,1,'full-history may snapshot a stable getter once');
+ assert.deepEqual(studyHourlyFvgMidpointAsOf(fixture(),source,cutoff),
+  studyHourlyFvgMidpoint(fixture().slice(0,34),source));
 });
 
 test('v94 as-of rejects accessor-backed indexed costs before future timestamp scans',()=>{
