@@ -180,6 +180,18 @@ def inspect_declared_account_snapshot_fence(
         if not prior["reconciliation_complete"] and s["reconciliation_complete"]:
             failures.add("reconciliation_release_requires_external_evidence")
         if s["session_epoch"] == prior["session_epoch"]:
+            # A changed inventory cannot claim a new revision while reusing
+            # its old sync timestamp. Revision-only heartbeat updates with
+            # unchanged financial payloads remain diagnostic, not authority.
+            if (s["positions_revision"] > prior["positions_revision"]
+                    and s["positions_synced_at_ms"] <= prior["positions_synced_at_ms"]
+                    and any(Decimal(a[k]) != Decimal(prior["account"][k])
+                            for k in ("open_notional", "open_risk"))):
+                failures.add("positions_changed_without_new_sync")
+            if (s["orders_revision"] > prior["orders_revision"]
+                    and s["orders_synced_at_ms"] <= prior["orders_synced_at_ms"]
+                    and s["unresolved_attempts"] != prior["unresolved_attempts"]):
+                failures.add("unknown_attempts_changed_without_new_orders_sync")
             if (s["positions_revision"] == prior["positions_revision"]
                     and any(a[k] != prior["account"][k]
                             for k in ("open_notional", "open_risk"))):
