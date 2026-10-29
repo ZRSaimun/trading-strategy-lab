@@ -4023,3 +4023,62 @@ test('v91 cost-width strict first-touch evidence keeps unknown volume separate f
    census.noWiderThanCost[status]+census.widerThanCost[status],0),2);
  }
 });
+
+test('v92 cost-width volume reasons preserve prior-20 gaps, missing data and unverified sources',()=>{
+ const template=Array.from({length:40},(_,i)=>
+  i>=34?candle(i,105,106,104,105):candle(i,100,101,99,100));
+ template[30]=candle(30,99,100,98,99);
+ template[31]=candle(31,100,102,99,101);
+ template[32]=candle(32,105,106,104,105);
+ template[33]=candle(33,105,106,101,105.5,200);
+ const variants:{
+  reason:string;bars:Bar[];declaredSource:FvgSource;
+ }[]=[
+  {reason:'THRESHOLD_EXCEEDED',bars:template,declaredSource:source},
+  {reason:'THRESHOLD_NOT_MET',bars:template.map((b,i)=>
+   i===33?{...b,volume:100}:b),declaredSource:source},
+  {reason:'MISSING_OR_NONPOSITIVE_VOLUME',bars:template.map((b,i)=>
+   i===33?{...b,volume:null}:b),declaredSource:source},
+  {reason:'SOURCE_UNVERIFIED',bars:template,declaredSource:{
+   ...source,volumeVerified:false,volumeType:'unverified'}},
+  {reason:'PRIOR20_GAP',bars:template.filter(b=>b.time!==BASE+20*H),
+   declaredSource:source},
+  {reason:'PRIOR20_UNAVAILABLE',bars:template.slice(20),declaredSource:source},
+ ];
+ const reasons=['NOT_EVALUATED','SOURCE_UNVERIFIED','PRIOR20_UNAVAILABLE',
+  'PRIOR20_GAP','MISSING_OR_NONPOSITIVE_VOLUME',
+  'THRESHOLD_NOT_MET','THRESHOLD_EXCEEDED'] as const;
+ for(const {reason,bars,declaredSource} of variants){
+  const report=studyHourlyFvgMidpoint(bars,declaredSource,{
+   hypotheticalRoundTripCostsBps:[0,1000],
+  });
+  assert.equal(report.observations.length,1,reason);
+  assert.equal(report.observations[0].firstTouchOutcome,'TOUCH',reason);
+  assert.equal(report.observations[0].volumeEvidenceReason,reason);
+  for(const [index,scenario] of report.firstTouchOpportunityBoundsByCostScenario.entries()){
+   const census=scenario.observedTouchVolumeReasonsByCostWidth;
+   const selected=index===0?'widerThanCost':'noWiderThanCost';
+   const other=index===0?'noWiderThanCost':'widerThanCost';
+   for(const key of reasons){
+    assert.equal(census[selected][key],key===reason?1:0);
+    assert.equal(census[other][key],0);
+    assert.equal(census.byDirection.BULLISH[selected][key],key===reason?1:0);
+    assert.equal(census.byDirection.BEARISH[selected][key],0);
+   }
+   assert.equal(census[selected].NOT_EVALUATED,0);
+  }
+ }
+ // A future unclosed touch cannot contribute a volume-reason observation.
+ const protectedBars=template.map(b=>({...b}));
+ Object.defineProperty(protectedBars[33],'volume',{
+  get(){throw Error('future volume must not be read');},
+ });
+ const asOf=studyHourlyFvgMidpointAsOf(protectedBars,source,BASE+33*H,{
+  hypotheticalRoundTripCostsBps:[0,1000],
+ });
+ assert.deepEqual(asOf,studyHourlyFvgMidpoint(template.slice(0,33),source,{
+  hypotheticalRoundTripCostsBps:[0,1000],
+ }));
+ for(const scenario of asOf.firstTouchOpportunityBoundsByCostScenario)
+  assert.equal(scenario.observedTouchVolumeReasonsByCostWidth.widerThanCost.NOT_EVALUATED,0);
+});
