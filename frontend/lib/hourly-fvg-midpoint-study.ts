@@ -7,7 +7,7 @@
  */
 import type {Bar} from './research.ts';
 
-export const HOURLY_FVG_VERSION='hourly-fvg-first-midpoint-touch-v91';
+export const HOURLY_FVG_VERSION='hourly-fvg-first-midpoint-touch-v92';
 export type Evidence='PASS'|'FAIL'|'INSUFFICIENT_DATA';
 // First-touch volume evidence is not independent broker/source authentication.
 export type VolumeEvidenceReason='NOT_EVALUATED'|'SOURCE_UNVERIFIED'|
@@ -258,6 +258,16 @@ export type FvgStudy={
    noWiderThanCost:EvidenceCounts;widerThanCost:EvidenceCounts;
    byDirection:Record<Side,{noWiderThanCost:EvidenceCounts;
     widerThanCost:EvidenceCounts}>;
+  };
+  // Among observed first midpoint touches ONLY, retain the exact
+  // source-declared prior-20 volume reason inside each cost-width cohort.
+  // NOT_EVALUATED belongs to non-touch/censored formations, not touches.
+  observedTouchVolumeReasonsByCostWidth:{
+   noWiderThanCost:Record<VolumeEvidenceReason,number>;
+   widerThanCost:Record<VolumeEvidenceReason,number>;
+   byDirection:Record<Side,{
+    noWiderThanCost:Record<VolumeEvidenceReason,number>;
+    widerThanCost:Record<VolumeEvidenceReason,number>}>;
   };
  }[];
  warning:string;
@@ -527,6 +537,22 @@ function strictObservedTouchEvidence(population:readonly FvgObservation[]):Evide
    result[observation.gates.strictCandidate]++;
  return result;
 }
+function observedTouchVolumeReasons(population:readonly FvgObservation[]):
+ Record<VolumeEvidenceReason,number>{
+ const counts:Record<VolumeEvidenceReason,number>={
+  NOT_EVALUATED:0,SOURCE_UNVERIFIED:0,PRIOR20_UNAVAILABLE:0,
+  PRIOR20_GAP:0,MISSING_OR_NONPOSITIVE_VOLUME:0,
+  THRESHOLD_NOT_MET:0,THRESHOLD_EXCEEDED:0,
+ };
+ for(const observation of population){
+  if(observation.firstTouchOutcome!=='TOUCH')continue;
+  if(observation.volumeEvidenceReason==='NOT_EVALUATED')
+   throw Error('Observed FVG first touch lacks volume evidence reason');
+  counts[observation.volumeEvidenceReason]++;
+ }
+ return counts;
+}
+
 function summarizeCohort(observations:readonly FvgObservation[],costs:readonly number[],
  maxTouchWaitBars:number):FvgCohort{
  const count=(gate:'midpointTouch'|'strictCandidate'|'markout'):EvidenceCounts=>{
@@ -1722,6 +1748,46 @@ export function studyHourlyFvgMidpoint(
      },
     },
    };
+   const observedTouchVolumeReasonsByCostWidth={
+    noWiderThanCost:observedTouchVolumeReasons(noWider),
+    widerThanCost:observedTouchVolumeReasons(wider),
+    byDirection:{
+     BULLISH:{
+      noWiderThanCost:observedTouchVolumeReasons(noWider.filter(o=>o.direction==='BULLISH')),
+      widerThanCost:observedTouchVolumeReasons(wider.filter(o=>o.direction==='BULLISH')),
+     },
+     BEARISH:{
+      noWiderThanCost:observedTouchVolumeReasons(noWider.filter(o=>o.direction==='BEARISH')),
+      widerThanCost:observedTouchVolumeReasons(wider.filter(o=>o.direction==='BEARISH')),
+     },
+    },
+   };
+   for(const group of ['noWiderThanCost','widerThanCost'] as const){
+    const counts=observedTouchVolumeReasonsByCostWidth[group];
+    const observed=group==='noWiderThanCost'?noWiderThanCost:widerThanCost;
+    if(Object.values(counts).reduce((sum,n)=>sum+n,0)!==observed.observedTouches)
+     throw Error('FVG cost-width observed-touch volume reasons do not reconcile');
+    for(const reason of Object.keys(counts) as VolumeEvidenceReason[])
+     if(observedTouchVolumeReasonsByCostWidth.byDirection.BULLISH[group][reason]+
+        observedTouchVolumeReasonsByCostWidth.byDirection.BEARISH[group][reason]!==counts[reason])
+      throw Error('FVG directional cost-width volume reasons do not reconcile');
+   }
+   for(const reason of Object.keys(observedTouchVolumeReasonsByCostWidth.noWiderThanCost)
+    as VolumeEvidenceReason[]){
+    const total=observedTouchVolumeReasonsByCostWidth.noWiderThanCost[reason]+
+     observedTouchVolumeReasonsByCostWidth.widerThanCost[reason];
+    const expected=reason==='NOT_EVALUATED'?0:cohort.volumeEvidenceByReason[reason];
+    if(total!==expected)
+     throw Error('FVG cost-width volume reason population does not reconcile');
+    for(const direction of ['BULLISH','BEARISH'] as const){
+     const directional=observedTouchVolumeReasonsByCostWidth.byDirection[direction];
+     const observed=directional.noWiderThanCost[reason]+directional.widerThanCost[reason];
+     const expectedSide=reason==='NOT_EVALUATED'?0:
+      cohort.volumeEvidenceByReasonByDirection[direction][reason];
+     if(observed!==expectedSide)
+      throw Error('FVG directional cost-width volume reason census does not reconcile');
+    }
+   }
    const countEvidence=(counts:EvidenceCounts)=>
     counts.PASS+counts.FAIL+counts.INSUFFICIENT_DATA;
    for(const group of ['noWiderThanCost','widerThanCost'] as const){
@@ -1749,7 +1815,8 @@ export function studyHourlyFvgMidpoint(
    }
    return {scenarioIndex:scenario.scenarioIndex,costBps:scenario.costBps,
     noWiderThanCost,widerThanCost,byDirection,
-    strictObservedTouchEvidenceByCostWidth};
+    strictObservedTouchEvidenceByCostWidth,
+    observedTouchVolumeReasonsByCostWidth};
   });
  return {version:HOURLY_FVG_VERSION,source:declaredSource,
    coverage,
