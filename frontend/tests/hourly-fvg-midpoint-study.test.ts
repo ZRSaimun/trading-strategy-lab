@@ -2977,3 +2977,35 @@ test('v71 post-snapshot as-of rechecks completed schemas without future OHLC rea
    'future timestamp side effects cannot silently alter already-revealed evidence schema');
  }
 });
+
+test('v72 full-history freezes source, volume status and costs before completed-bar accessors',()=>{
+ const rows=fixture();
+ const mutableSource:FvgSource={...source};
+ const mutableConfig:FvgConfig={
+  volumeMultiple:1.5,hypotheticalRoundTripCostsBps:[0,5,15],
+ };
+ const expected=studyHourlyFvgMidpoint(fixture(),source,mutableConfig);
+ const first=rows[0],originalTime=first.time;
+ let completedGetterReads=0;
+ Object.defineProperty(first,'time',{configurable:true,enumerable:true,get(){
+  completedGetterReads++;
+  // The observed bar is still a valid BID candle, but a hostile getter can
+  // rewrite the caller's evidence declarations during snapshot collection.
+  mutableSource.volumeVerified=false;
+  mutableSource.provider='rewritten-by-completed-bar-getter';
+  mutableConfig.volumeMultiple=10;
+  mutableConfig.hypotheticalRoundTripCostsBps=[0,900];
+  return originalTime;
+ }});
+ const actual=studyHourlyFvgMidpoint(rows,mutableSource,mutableConfig);
+ assert.ok(completedGetterReads>0,'the mutation attempt must execute');
+ assert.equal(mutableSource.volumeVerified,false);
+ assert.equal(mutableConfig.volumeMultiple,10);
+ assert.deepEqual(actual,expected,
+  'completed candle getters must not reclassify volume or costs after preflight');
+ assert.equal(actual.source.provider,source.provider);
+ assert.equal(actual.source.volumeVerified,true);
+ assert.deepEqual(actual.config.hypotheticalRoundTripCostsBps,[0,5,15]);
+ const observed=actual.observations.find(o=>o.formationClosedAt===BASE+33*H);
+ assert.equal(observed?.gates.verifiedVolume,'PASS');
+});
