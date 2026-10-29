@@ -404,3 +404,108 @@ def audit_declared_result_corrections_asof(revisions, *, decision_utc, source_id
             canonical.encode("utf-8")
         ).hexdigest(),
     }
+
+
+def audit_declared_first_receipt_latency_asof(
+    revisions, *, decision_utc, source_id, max_observed_delay_minutes=5
+):
+    """Audit declared first-result publication/receipt lag, never trade readiness.
+
+    Minute-resolution receipts observed in the decision minute are excluded.
+    A missing result is UNKNOWN, never treated as timely or event-free.
+    """
+    if (type(max_observed_delay_minutes) is not int
+            or not 0 <= max_observed_delay_minutes <= 1440):
+        raise ValueError("max_observed_delay_minutes must be integer 0..1440")
+    snapshot = audit_declared_event_asof(
+        revisions, decision_utc=decision_utc, source_id=source_id
+    )
+    cutoff = _utc(decision_utc)
+    first_visible_results = {}
+    # The as-of audit above validates *all* revisions, including future ones.
+    # Never select by list position or a later corrected actual.
+    for entry in revisions:
+        if entry["kind"] != "result" or _utc(entry["observed_utc"]) >= cutoff:
+            continue
+        eid = entry["event_id"]
+        if (eid not in first_visible_results
+                or entry["revision"] < first_visible_results[eid]["revision"]):
+            first_visible_results[eid] = entry
+
+    observations = []
+    for event in snapshot["events"]:
+        first = first_visible_results.get(event["event_id"])
+        record = {
+            "event_id": event["event_id"],
+            "scheduled_utc": event["scheduled_utc"],
+            "first_result_revision": None,
+            "first_published_utc": None,
+            "first_observed_utc": None,
+            "publication_delay_minutes": None,
+            "observation_delay_minutes": None,
+            "publication_to_observation_minutes": None,
+            "earliest_research_visibility_utc": None,
+            "exceeds_declared_delay_limit": None,
+            "status": "NO_VISIBLE_RESULT",
+        }
+        if first is not None:
+            scheduled = _utc(first["scheduled_utc"])
+            published = _utc(first["published_utc"])
+            observed = _utc(first["observed_utc"])
+            publication_delay = int((published - scheduled).total_seconds() // 60)
+            observed_delay = int((observed - scheduled).total_seconds() // 60)
+            receipt_delay = int((observed - published).total_seconds() // 60)
+            exceeds = observed_delay > max_observed_delay_minutes
+            record.update({
+                "first_result_revision": first["revision"],
+                "first_published_utc": published.isoformat(),
+                "first_observed_utc": observed.isoformat(),
+                "publication_delay_minutes": publication_delay,
+                "observation_delay_minutes": observed_delay,
+                "publication_to_observation_minutes": receipt_delay,
+                # Strict observed < decision: earliest eligible minute is +1.
+                # This is a *research feature* visibility bound, not fill time.
+                "earliest_research_visibility_utc": (
+                    observed + timedelta(minutes=1)
+                ).isoformat(),
+                "exceeds_declared_delay_limit": exceeds,
+                "status": ("DECLARED_DELAY_EXCEEDS_LIMIT" if exceeds
+                           else "DECLARED_DELAY_WITHIN_LIMIT"),
+            })
+        observations.append(record)
+
+    envelope = {
+        "schema_version": 1,
+        "research_envelope_v2_sha256": snapshot["research_envelope_v2_sha256"],
+        "max_observed_delay_minutes": max_observed_delay_minutes,
+        "observations": observations,
+    }
+    canonical = json.dumps(
+        envelope, sort_keys=True, separators=(",", ":"), ensure_ascii=True
+    )
+    return {
+        "research_only": True,
+        "trade_authorized": False,
+        "authenticated_calendar": False,
+        "coverage_verified": False,
+        "receipt_provenance_verified": False,
+        "source_id": snapshot["source_id"],
+        "decision_utc": snapshot["decision_utc"],
+        "visible_event_count": snapshot["visible_event_count"],
+        "visible_first_result_count": sum(
+            x["first_result_revision"] is not None for x in observations
+        ),
+        "unknown_first_result_count": sum(
+            x["first_result_revision"] is None for x in observations
+        ),
+        "delayed_first_result_count": sum(
+            x["exceeds_declared_delay_limit"] is True for x in observations
+        ),
+        "max_observed_delay_minutes": max_observed_delay_minutes,
+        "observations": observations,
+        "research_envelope_v2_sha256": snapshot["research_envelope_v2_sha256"],
+        "first_receipt_latency_audit_schema_version": 1,
+        "first_receipt_latency_audit_sha256": hashlib.sha256(
+            canonical.encode("utf-8")
+        ).hexdigest(),
+    }
