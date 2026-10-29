@@ -134,3 +134,56 @@ def test_future_prior_checkpoint_holds():
     prev, curr = snapshots()
     prev["observed_at_ms"] = NOW + 1
     assert "previous_snapshot_stale_or_future" in inspect(prev, curr)["failed_checks"]
+
+
+def test_rejected_client_order_cannot_be_reapproved_with_new_intent():
+    prev, curr = snapshots()
+    prev["events"][0]["decision"] = "REJECT"
+    curr["events"][0]["decision"] = "REJECT"
+    curr["events"][1]["client_order_id"] = prev["events"][0]["client_order_id"]
+    result = inspect(prev, curr)
+    assert "approval_after_rejection_same_client_order" in result["failed_checks"]
+    assert result["status"] == "HOLD_DECLARED_REVIEW_HISTORY"
+    assert result["may_submit_real_order"] is False
+
+
+def test_rejection_after_approval_same_client_order_holds():
+    prev, curr = snapshots()
+    curr["events"][1]["decision"] = "REJECT"
+    curr["events"][1]["client_order_id"] = prev["events"][0]["client_order_id"]
+    result = inspect(prev, curr)
+    assert "rejection_after_approval_same_order_or_intent" in result["failed_checks"]
+    assert result["may_submit_paper_order"] is False
+
+
+def test_rejection_after_approval_same_intent_holds():
+    prev, curr = snapshots()
+    curr["events"][1]["decision"] = "REJECT"
+    curr["events"][1]["order_intent_sha"] = prev["events"][0]["order_intent_sha"]
+    assert "rejection_after_approval_same_order_or_intent" in inspect(prev, curr)["failed_checks"]
+
+
+def test_unrelated_rejection_after_approval_is_not_a_false_hold():
+    prev, curr = snapshots()
+    curr["events"][1]["decision"] = "REJECT"
+    result = inspect(prev, curr)
+    assert result["status"] == "DECLARED_REVIEW_HISTORY_UNVERIFIED"
+    assert result["may_submit_real_order"] is False
+
+
+def test_unrelated_approval_after_rejection_is_not_a_false_hold():
+    prev, curr = snapshots()
+    prev["events"][0]["decision"] = "REJECT"
+    curr["events"][0]["decision"] = "REJECT"
+    result = inspect(prev, curr)
+    assert result["status"] == "DECLARED_REVIEW_HISTORY_UNVERIFIED"
+    assert result["may_submit_real_order"] is False
+
+
+def test_contradictory_review_does_not_mutate_input():
+    prev, curr = snapshots()
+    curr["events"][1]["decision"] = "REJECT"
+    curr["events"][1]["client_order_id"] = prev["events"][0]["client_order_id"]
+    before = deepcopy((prev, curr))
+    assert "rejection_after_approval_same_order_or_intent" in inspect(prev, curr)["failed_checks"]
+    assert (prev, curr) == before

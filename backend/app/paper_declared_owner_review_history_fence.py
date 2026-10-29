@@ -55,6 +55,7 @@ def _parse(snapshot: Any, now: int, label: str) -> tuple[dict, set[str]]:
     approved_orders: set[str] = set()
     approved_intents: set[str] = set()
     rejected_intents: set[str] = set()
+    rejected_orders: set[str] = set()
     last_recorded = -1
     for event in events:
         if type(event) is not dict or set(event) != _EVENT:
@@ -86,9 +87,14 @@ def _parse(snapshot: Any, now: int, label: str) -> tuple[dict, set[str]]:
                 failures.add("duplicate_approved_order_or_intent")
             if intent in rejected_intents:
                 failures.add("approval_after_rejection_same_intent")
+            if cid in rejected_orders:
+                failures.add("approval_after_rejection_same_client_order")
             approved_orders.add(cid)
             approved_intents.add(intent)
         else:
+            if cid in approved_orders or intent in approved_intents:
+                failures.add("rejection_after_approval_same_order_or_intent")
+            rejected_orders.add(cid)
             rejected_intents.add(intent)
     return snapshot, failures
 
