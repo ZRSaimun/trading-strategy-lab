@@ -140,3 +140,28 @@ cooldown both use this post-lock timestamp. A deterministic, zero-network
 regression simulates a 70-second lock wait and checks the stored timestamp
 and subsequent cooldown. This does not attest the system clock or coordinate
 other applications using the same provider account.
+
+
+## Recent reservation UTC-day integrity fence (29 October 2026)
+
+Before accepting another potentially chargeable request, the SQLite gate now
+checks the current UTC day's reservations and all records whose stored
+reservation time falls within the last 24 hours **or in the future**. Each
+selected record must have a valid lowercase request ID, 64-digit manifest
+fingerprint, integer UTC timestamp, exact UTC-day match, and one-credit cost.
+An inconsistent or malformed record fails closed **before** any new
+reservation or HTTP request. A bounded 10,000-record scan prevents unbounded
+memory allocation on an anomalous ledger; legitimate historical reservations
+from the previous UTC day remain supported.
+
+This closes a local accounting failure mode in which a misdated prior-day
+reservation could escape the current day's cap and, once older than the
+rolling 60-second window, no longer block a new request. It is an integrity
+preflight for accidental corruption or faulty restores, **not** a signed
+tamper-evidence system, provider billing reconciliation, independent UTC
+clock attestation or substitute for a verified backup. Rows older than the
+selected window are not exhaustively audited by this preflight.
+
+Six synthetic SQLite cases cover mismatched UTC days, malformed identity,
+malformed timestamps and valid previous-day rollover. No network, provider
+credit, account connection, order or production deployment was involved.
