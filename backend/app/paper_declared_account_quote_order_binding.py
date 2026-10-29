@@ -4,6 +4,7 @@ Read-only research preflight. No broker access, risk reservation or execution.
 """
 from __future__ import annotations
 
+from decimal import Decimal
 from typing import Any
 
 from app.paper_declared_account_snapshot_fence import inspect_declared_account_snapshot_fence
@@ -48,7 +49,7 @@ def inspect_declared_account_quote_order_binding(
             failures.add("reconciliation_release_requires_external_evidence")
         if current["session_epoch"] == prior["session_epoch"]:
             if (current["positions_revision"] == prior["positions_revision"] and
-                    any(current["account"][k] != prior["account"][k]
+                    any(Decimal(current["account"][k]) != Decimal(prior["account"][k])
                         for k in ("open_notional", "open_risk"))):
                 failures.add("positions_changed_without_revision")
             if (current["orders_revision"] == prior["orders_revision"] and
