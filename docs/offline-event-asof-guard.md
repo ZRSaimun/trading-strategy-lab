@@ -178,7 +178,7 @@ is included.
 
 ## 29 October 2026: as-of pre-release consensus churn and declared age
 
-The additive, disconnected \`audit_declared_consensus_churn_asof\` reports the
+The additive, disconnected `audit_declared_consensus_churn_asof` reports the
 number of visible pre-release schedule revisions, changes between adjacent
 **nonmissing** forecast values, and transitions into/out of missing forecasts.
 An unchanged repeated consensus does **not** reset the last-distinct-forecast
@@ -188,14 +188,14 @@ numerical forecast change. For a pre-release decision, age is measured at the
 decision cutoff; after release, it is anchored to the scheduled announcement
 minute so unrelated later decisions cannot inflate pre-news age.
 
-The caller supplies an integer \`max_forecast_age_minutes\` in 0–10080.
-The descriptive statuses \`FORECAST_MISSING\`,
-\`DECLARED_FORECAST_WITHIN_LIMIT\`, and
-\`DECLARED_FORECAST_OLDER_THAN_LIMIT\` are **not** verified consensus quality,
+The caller supplies an integer `max_forecast_age_minutes` in 0–10080.
+The descriptive statuses `FORECAST_MISSING`,
+`DECLARED_FORECAST_WITHIN_LIMIT`, and
+`DECLARED_FORECAST_OLDER_THAN_LIMIT` are **not** verified consensus quality,
 news impact, event-free coverage, trading readiness, or a profitable edge.
 A forecast can legitimately remain unchanged; this is not proof it is stale.
 The source-bound, cutoff-bound, full-visible-history-v2-bound
-\`consensus_churn_audit_sha256\` is a reproducibility digest, not a signature
+`consensus_churn_audit_sha256` is a reproducibility digest, not a signature
 or receipt authentication. All authentication, provenance, completeness,
 cross-indicator unit comparability and trade permissions remain false.
 
