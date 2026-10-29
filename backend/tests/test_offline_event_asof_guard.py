@@ -433,3 +433,92 @@ def test_event_window_invalid_calendar_still_fails_closed():
         window([row(observed="2026-10-28T18:00:00Z",
                     published="2026-10-28T18:00:00Z")],
                "2026-10-28T18:01:00Z")
+
+
+# A raw economic surprise is a declared difference, never a trading signal.
+from app.offline_event_asof_guard import audit_declared_surprise_asof
+
+
+def surprise(rows, decision="2026-10-28T18:02:00Z", source="synthetic-calendar"):
+    return audit_declared_surprise_asof(
+        rows, decision_utc=decision, source_id=source
+    )
+
+
+def test_surprise_withholds_result_until_strict_receipt_cutoff():
+    rows = [row(), row(2, "result", published="2026-10-28T18:01:00Z",
+                       observed="2026-10-28T18:02:00Z", actual="3.7")]
+    at_receipt = surprise(rows)
+    assert at_receipt["observations"][0]["status"] == "ACTUAL_NOT_VISIBLE"
+    assert at_receipt["observations"][0]["raw_actual_minus_forecast"] is None
+    after_receipt = surprise(rows, "2026-10-28T18:03:00Z")
+    assert after_receipt["observations"][0]["raw_actual_minus_forecast"] == "0.2"
+    assert after_receipt["declared_difference_count"] == 1
+
+
+def test_surprise_missing_forecast_abstains_without_inventing_zero():
+    rows = [row(forecast=None),
+            row(2, "result", published="2026-10-28T18:00:00Z",
+                observed="2026-10-28T18:01:00Z", forecast=None, actual="3.7")]
+    report = surprise(rows)
+    assert report["observations"][0]["status"] == "FORECAST_MISSING"
+    assert report["observations"][0]["raw_actual_minus_forecast"] is None
+    assert report["declared_difference_count"] == 0
+
+
+def test_surprise_preserves_high_precision_without_decimal_rounding():
+    precise = "1.234567890123456789012345678901"
+    rows = [row(forecast=precise),
+            row(2, "result", published="2026-10-28T18:00:00Z",
+                observed="2026-10-28T18:01:00Z", forecast=precise,
+                actual="1.234567890123456789012345678902")]
+    assert surprise(rows)["observations"][0]["raw_actual_minus_forecast"] == "0.000000000000000000000000000001"
+
+
+def test_surprise_negative_difference_and_negative_zero():
+    rows = [row(forecast="3.8"),
+            row(2, "result", published="2026-10-28T18:00:00Z",
+                observed="2026-10-28T18:01:00Z", forecast="3.8", actual="3.7")]
+    assert surprise(rows)["observations"][0]["raw_actual_minus_forecast"] == "-0.1"
+    same = deepcopy(rows)
+    same[1]["actual"] = "3.800"
+    assert surprise(same)["observations"][0]["raw_actual_minus_forecast"] == "0"
+
+
+def test_surprise_future_revision_invariant_and_source_bound():
+    base = [row()]
+    later = row(2, "result", published="2026-10-28T18:01:00Z",
+                observed="2026-10-28T18:02:00Z", actual="3.7")
+    first = surprise(base, "2026-10-28T18:00:00Z")
+    assert surprise(base + [later], "2026-10-28T18:00:00Z") == first
+    assert surprise(base, "2026-10-28T18:00:00Z", "other")[
+        "surprise_audit_sha256"
+    ] != first["surprise_audit_sha256"]
+
+
+def test_surprise_row_order_stable_and_never_authorizes_execution():
+    rows = [row(event_id="B"), row(event_id="A")]
+    report = surprise(rows)
+    assert surprise(list(reversed(rows))) == report
+    assert report["authenticated_calendar"] is False
+    assert report["coverage_verified"] is False
+    assert report["comparable_units_verified"] is False
+    assert report["trade_authorized"] is False
+    assert report["declared_difference_count"] == 0
+
+
+def test_surprise_digest_matches_independent_canonical_payload():
+    import hashlib
+    import json
+    report = surprise([row()])
+    payload = {
+        "schema_version": 1,
+        "research_envelope_v2_sha256": report["research_envelope_v2_sha256"],
+        "observations": report["observations"],
+    }
+    canonical = json.dumps(
+        payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True
+    )
+    assert report["surprise_audit_sha256"] == hashlib.sha256(
+        canonical.encode("utf-8")
+    ).hexdigest()
