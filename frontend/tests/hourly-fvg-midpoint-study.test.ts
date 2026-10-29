@@ -3400,7 +3400,9 @@ test('v79 matched net-cost signs reconcile by first-touch wait and strict eviden
    }
    assert.deepEqual(scenario.byFirstTouchWaitAndStrictCandidate,expected);
    for(const status of statuses)for(let wait=0;wait<n;wait++){
-    const cells=scenario.byFirstTouchWaitAndStrictCandidate[status][wait];
+    const cells:Record<'bothPositive'|'blindOnlyPositive'|
+     'confirmedOnlyPositive'|'neitherPositive',number>=
+     scenario.byFirstTouchWaitAndStrictCandidate[status][wait];
     assert.equal(Object.values(cells).reduce((sum,count)=>sum+count,0),
      report.cohort.firstTouchPairedByWaitAndStrictCandidate[status][wait]);
    }
