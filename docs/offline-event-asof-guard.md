@@ -19,3 +19,12 @@ A schedule/forecast observation must be **strictly earlier** than its own schedu
 ## 29 October 2026: decision-minute receipt ambiguity
 
 **Fail-closed as-of visibility:** all declared observation clocks are only minute-precise. A record stamped at the same minute as the historical decision cannot be proven to have arrived before that decision. Both the event snapshot and `visible_revision_count` therefore include only records with `observed_utc < decision_utc` (strict inequality), even if `published_utc` and `scheduled_utc` are earlier. A result observed at 18:00 UTC first becomes eligible at the 18:01 UTC decision boundary, never at 18:00. The same rule applies to schedule revisions and first schedule visibility. This is conservative rather than a claim of exact intraminute sequencing. If authenticated sub-minute event receipt and decision timestamps become available, model those clocks separately and test them before relaxing this fence. The synthetic regressions cover schedule/result exact-minute exclusions, revision counts, future-snapshot invariance, and next-minute availability. No live data or trading authority is introduced.
+
+
+## 29 October 2026: source- and cutoff-bound research envelope
+
+The existing `visible_snapshot_sha256` remains an event-content-only digest for backward compatibility. Identical visible event lists can have the same digest even when they come from different declared sources or decision times. It must not be used as a unique audit identity.
+
+A new additive `research_envelope_schema_version: 1` and `research_envelope_sha256` bind the **declared** `source_id`, UTC decision cutoff, visible revision count and visible events in sorted-key, compact, ASCII-escaped JSON. The digest is stable under row ordering and future invisible revisions; it changes when the declared source or cutoff changes, including empty-event reports. This is useful for preventing accidental research-artifact misattribution across providers, decision cutoffs and folds. It is **not** a digital signature, independent timestamp, verified source lineage, licensed feed attestation or authorization to trade. A dishonest caller can still fabricate all fields; protect the original vendor receipt and immutable archive separately.
+
+Five synthetic regressions check source binding, decision binding, future-revision/order invariance, independently recomputed canonical digest and empty-event source binding. No calendar feed, production API, order path or protected holdout was added.
