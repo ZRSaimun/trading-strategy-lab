@@ -390,3 +390,70 @@ def test_interfold_selection_gap_exact_boundary_and_one_second_violation(
     later["registered_at_utc"] = prior_end
     with pytest.raises(ValueError, match="candidate selection overlaps previous holdout"):
         audit_declared_holdout_fold_isolation(folds)
+
+
+def test_label_tail_diagnostic_zero_when_all_labels_mature_inside_windows():
+    folds = _valid()
+    before = copy.deepcopy(folds)
+    result = audit_declared_holdout_fold_isolation(folds)
+    assert result["max_declared_label_tail_beyond_window_seconds"] == 0
+    assert result["longest_declared_label_tail_fold_index"] is None
+    for fold, summary in zip(folds, result["folds"]):
+        assert summary["declared_label_tail_beyond_window_seconds"] == 0
+        assert summary["latest_declared_label_available_at_utc"] == max(
+            row["label_available_at_utc"] for row in fold["census"]
+        )
+    assert folds == before
+    assert result["may_execute_demo_order"] is False
+    assert result["may_execute_real_order"] is False
+    assert "net_cash" not in result
+
+
+@pytest.mark.parametrize("tail_seconds,expected_index", [
+    (1, 0),
+    (86400, 0),
+    (2 * 86400, 2),
+])
+def test_declared_label_tail_reports_latest_maturity_not_last_decision(
+    tail_seconds, expected_index
+):
+    folds = _valid()
+    fold = folds[expected_index]
+    # The earliest decision has the latest label; decision order is not
+    # label-maturity order, and a one-second post-window tail is meaningful.
+    fold["census"][0]["label_available_at_utc"] = (
+        fold["manifest"]["holdout_end_at_utc"] + tail_seconds
+    )
+    fold["manifest"]["holdout_census_sha256"] = (
+        prepare_declared_holdout_census_sha256(fold["census"])
+    )
+    before = copy.deepcopy(folds)
+    result = audit_declared_holdout_fold_isolation(folds)
+    assert result["max_declared_label_tail_beyond_window_seconds"] == tail_seconds
+    assert result["longest_declared_label_tail_fold_index"] == expected_index
+    assert result["folds"][expected_index]["declared_label_tail_beyond_window_seconds"] == tail_seconds
+    assert result["folds"][expected_index]["latest_declared_label_available_at_utc"] == (
+        fold["manifest"]["holdout_end_at_utc"] + tail_seconds
+    )
+    assert folds == before
+    assert result["holdout_untouched_independently_verified"] is False
+    assert result["may_execute_demo_order"] is False
+    assert result["may_execute_real_order"] is False
+    assert "net_cash" not in result
+
+
+def test_equal_declared_label_tails_report_earliest_fold_without_outcomes():
+    folds = _valid()
+    for fold in folds[:2]:
+        fold["census"][0]["label_available_at_utc"] = (
+            fold["manifest"]["holdout_end_at_utc"] + 86400
+        )
+        fold["manifest"]["holdout_census_sha256"] = (
+            prepare_declared_holdout_census_sha256(fold["census"])
+        )
+    result = audit_declared_holdout_fold_isolation(folds)
+    assert result["max_declared_label_tail_beyond_window_seconds"] == 86400
+    assert result["longest_declared_label_tail_fold_index"] == 0
+    assert result["may_execute_demo_order"] is False
+    assert result["may_execute_real_order"] is False
+    assert "net_cash" not in result
