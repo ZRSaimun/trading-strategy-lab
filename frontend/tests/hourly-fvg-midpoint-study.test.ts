@@ -410,6 +410,8 @@ test('formation census preserves unknown outcomes and distinguishes paired from 
    BEARISH:{MISSING_HOUR:Array(12).fill(0),RIGHT_CENSORED:Array(12).fill(0)},
   },
   incompleteWindowByReason:{MISSING_HOUR:0,RIGHT_CENSORED:0},
+  firstTouchMissingHourSeverity:{single:0,multiple:0,unobservedSlots:0},
+  markoutMissingHourSeverity:{single:0,multiple:0,unobservedSlots:0},
   markoutCensoredByReason:{MISSING_HOUR:0,RIGHT_CENSORED:0,UNREPRESENTABLE_RETURN:0},
   markoutCensoredByReasonByStrictCandidate:{
    PASS:{MISSING_HOUR:0,RIGHT_CENSORED:0,UNREPRESENTABLE_RETURN:0},
