@@ -248,3 +248,26 @@ independence, mixed statuses, exact one-second/threshold/expiry boundaries,
 and configurable warning budgets. Production release still requires
 independent source and receipt evidence, recipient opt-in, and verified
 backup restoration, rollback and health checks.
+
+
+## Expiry-preempted queued-delay deadlines (29 October 2026)
+
+A queued alert only has a reachable upcoming `QUEUE_DELAY_WARNING`
+when `issuedAt + queue_warning_seconds < expiresAt`. At the exact expiry
+timestamp, `EXPIRED_UNCLAIMED` takes precedence over the queue-delay warning;
+therefore a queue-age threshold **equal to or later than expiry** must not be
+shown as a future incident. Previously the audit advertised such impossible
+countdowns even though the alert would expire first.
+
+`nextQueueDelayWarningSecondsRemaining` and
+`nextQueueDelayWarningKeys` now exclude expiry-preempted candidates.
+An alert whose delay threshold falls strictly before expiry still appears,
+including one second before the threshold; once breached it is counted in
+`QUEUE_DELAY_WARNING` instead. `earliestQueuedExpirySecondsRemaining`
+and the existing pre-expiry/expired warning classifications remain unchanged.
+Synthetic regressions cover early expiry, equal expiry/threshold, strictly
+reachable deadlines, mixed populations and order independence.
+
+These are caller-declared timestamps, not a trusted scheduler or provider
+delivery evidence. The correction grants no notification, retry, paper-order
+or live-order authority and requires no production activation.
