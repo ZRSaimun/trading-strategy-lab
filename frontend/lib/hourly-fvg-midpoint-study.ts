@@ -7,7 +7,7 @@
  */
 import type {Bar} from './research.ts';
 
-export const HOURLY_FVG_VERSION='hourly-fvg-first-midpoint-touch-v84';
+export const HOURLY_FVG_VERSION='hourly-fvg-first-midpoint-touch-v85';
 export type Evidence='PASS'|'FAIL'|'INSUFFICIENT_DATA';
 // First-touch volume evidence is not independent broker/source authentication.
 export type VolumeEvidenceReason='NOT_EVALUATED'|'SOURCE_UNVERIFIED'|
@@ -1359,6 +1359,26 @@ export function studyHourlyFvgMidpoint(
    throw Error('Hourly research candle schema changed during snapshot');
   assertCompletedFieldsUnchanged(row,originalFields[index]);
  }
+ // A completed-candle getter runs after source, settings and cost preflight.
+ // Reject retroactive declaration edits before computing any FVG outcomes.
+ if(!SOURCE_FIELDS.every(field=>hasOwnField(source,field))||
+  Reflect.ownKeys(source).some(key=>!SOURCE_FIELDS.some(field=>field===key)))
+  throw Error('FVG source declaration schema changed during candle snapshot');
+ if(initialConfigKeys.some(key=>!hasOwnField(config,key))||
+  Reflect.ownKeys(config).some(key=>!initialConfigKeys.includes(key)))
+  throw Error('FVG study setting schema changed during candle snapshot');
+ if(suppliedCosts.length!==costCount||
+  Reflect.ownKeys(suppliedCosts).some(key=>key!=='length'&&
+   key!==Symbol.iterator&&
+   !(typeof key==='string'&&allowedCostIndices.has(key)))||
+  costIndexKeys.some(key=>!hasOwnField(suppliedCosts,key)))
+  throw Error('FVG cost scenario schema changed during candle snapshot');
+ assertFrozenFieldDescriptors(source,SOURCE_FIELDS,
+  initialSourceDescriptors,'source declaration');
+ assertFrozenFieldDescriptors(config,initialConfigKeys,
+  initialConfigDescriptors,'study setting');
+ assertFrozenFieldDescriptors(suppliedCosts,costIndexKeys,
+  initialCostDescriptors,'cost scenario');
  validateBars(bars);
  const observations:FvgObservation[]=[];
  for(let i=2;i<bars.length;i++){
@@ -1561,6 +1581,22 @@ export function studyHourlyFvgMidpointAsOf(
  // Empty-history preflight uses the SAME validated declaration snapshot path
  // as the full study and performs no future OHLC or volume reads.
  const frozenDeclaration=studyHourlyFvgMidpoint([],source,config);
+ // Future timestamp accessors must not retroactively edit original evidence.
+ // Capture descriptors without invoking source/config getters a second time.
+ const asOfSourceDescriptors=SOURCE_FIELDS.map(field=>
+  Object.getOwnPropertyDescriptor(source,field));
+ const asOfConfigKeys=Reflect.ownKeys(config);
+ const asOfConfigDescriptors=asOfConfigKeys.map(key=>
+  Object.getOwnPropertyDescriptor(config,key));
+ const asOfCostProperty=Object.getOwnPropertyDescriptor(config,
+  'hypotheticalRoundTripCostsBps');
+ const asOfCosts=asOfCostProperty&&'value' in asOfCostProperty&&
+  Array.isArray(asOfCostProperty.value)?asOfCostProperty.value:null;
+ const asOfCostKeys=asOfCosts?Array.from({length:asOfCosts.length},
+  (_,index)=>String(index)):[];
+ const asOfCostDescriptors=asOfCosts?asOfCostKeys.map(key=>
+  Object.getOwnPropertyDescriptor(asOfCosts,key)):[];
+ const asOfCostCount=asOfCosts?.length??0;
  const prefix:Bar[]=[];
  const completedRows:Bar[]=[];
  const completedFields:PropertyDescriptor[][]=[];
@@ -1620,6 +1656,25 @@ export function studyHourlyFvgMidpointAsOf(
    Reflect.ownKeys(row).some(key=>!CANDLE_FIELDS.some(field=>field===key)))
    throw Error('Hourly as-of completed candle schema changed during snapshot');
   assertCompletedFieldsUnchanged(row,completedFields[index]);
+ }
+ if(!SOURCE_FIELDS.every(field=>hasOwnField(source,field))||
+  Reflect.ownKeys(source).some(key=>!SOURCE_FIELDS.some(field=>field===key)))
+  throw Error('FVG as-of source declaration schema changed during timestamp scan');
+ if(asOfConfigKeys.some(key=>!hasOwnField(config,key))||
+  Reflect.ownKeys(config).some(key=>!asOfConfigKeys.includes(key)))
+  throw Error('FVG as-of study setting schema changed during timestamp scan');
+ assertFrozenFieldDescriptors(source,SOURCE_FIELDS,
+  asOfSourceDescriptors,'source declaration');
+ assertFrozenFieldDescriptors(config,asOfConfigKeys,
+  asOfConfigDescriptors,'study setting');
+ if(asOfCosts){
+  if(asOfCosts.length!==asOfCostCount||
+   Reflect.ownKeys(asOfCosts).some(key=>key!=='length'&&
+    key!==Symbol.iterator&&!asOfCostKeys.includes(String(key)))||
+   asOfCostKeys.some(key=>!hasOwnField(asOfCosts,key)))
+   throw Error('FVG as-of cost scenario schema changed during timestamp scan');
+  assertFrozenFieldDescriptors(asOfCosts,asOfCostKeys,
+   asOfCostDescriptors,'cost scenario');
  }
  return studyHourlyFvgMidpoint(prefix,frozenDeclaration.source,frozenDeclaration.config);
 }
