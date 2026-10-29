@@ -715,3 +715,62 @@ def test_next_expiry_soon_warning_respects_budget_and_empty_cohorts():
         assert report["nextExpirySoonWarningKeys"] == []
         assert report["mayExecutePaperOrder"] is False
         assert report["mayExecuteLiveOrder"] is False
+
+
+def test_next_uncertain_delay_warning_selects_nearest_ties_and_is_order_independent():
+    records = [
+        {"sessionId": "s3", "state": state("IN_FLIGHT_UNCERTAIN", forecastId="f3",
+                                           claimId="c" * 32, claimedAt=135)},
+        {"sessionId": "s2", "state": state("IN_FLIGHT_UNCERTAIN", forecastId="f2",
+                                           claimId="b" * 32)},
+        {"sessionId": "s1", "state": state("IN_FLIGHT_UNCERTAIN")},
+        {"sessionId": "s4", "state": state(forecastId="f4")},
+        {"sessionId": "s5", "state": state("ACK_RECORDED_UNVERIFIED", forecastId="f5",
+                                           claimId="d" * 32)},
+    ]
+    expected = [(row["sessionId"], row["state"]["forecastId"]) for row in records]
+    result = check(records=records, expected=expected, now=140)
+    assert result["nextUncertainDelayWarningSecondsRemaining"] == 20
+    assert result["nextUncertainDelayWarningKeys"] == [["s1", "f1"], ["s2", "f2"]]
+    assert result["counts"]["UNCERTAIN_DELAY_WARNING"] == 0
+    assert result["status"] == "OPERATOR_REVIEW_REQUIRED"
+    assert result == check(records=list(reversed(records)),
+                           expected=list(reversed(expected)), now=140)
+    assert result["maySendNotification"] is False
+
+
+def test_next_uncertain_delay_warning_exact_boundary_and_overdue_exclusion():
+    before = check(state("IN_FLIGHT_UNCERTAIN"), now=159)
+    assert before["nextUncertainDelayWarningSecondsRemaining"] == 1
+    assert before["nextUncertainDelayWarningKeys"] == [["s1", "f1"]]
+    assert before["counts"]["UNCERTAIN_DELAY_WARNING"] == 0
+    at = check(state("IN_FLIGHT_UNCERTAIN"), now=160)
+    assert at["nextUncertainDelayWarningSecondsRemaining"] is None
+    assert at["nextUncertainDelayWarningKeys"] == []
+    assert at["counts"]["UNCERTAIN_DELAY_WARNING"] == 1
+    overdue = check(state("IN_FLIGHT_UNCERTAIN"), now=300)
+    assert overdue["nextUncertainDelayWarningSecondsRemaining"] is None
+    assert overdue["counts"]["EXPIRED_IN_FLIGHT_UNCERTAIN"] == 1
+    assert overdue["mayExecuteLiveOrder"] is False
+
+
+def test_next_uncertain_delay_warning_expiry_does_not_cancel_reconciliation():
+    # A claimed alert remains uncertain even after the declared expiry.
+    expired = check(state("IN_FLIGHT_UNCERTAIN", expiresAt=140), now=150,
+                    uncertain_warning_seconds=40)
+    assert expired["nextUncertainDelayWarningSecondsRemaining"] == 20
+    assert expired["nextUncertainDelayWarningKeys"] == [["s1", "f1"]]
+    assert expired["counts"]["EXPIRED_IN_FLIGHT_UNCERTAIN"] == 1
+    at = check(state("IN_FLIGHT_UNCERTAIN", expiresAt=140), now=170,
+               uncertain_warning_seconds=40)
+    assert at["nextUncertainDelayWarningSecondsRemaining"] is None
+    assert at["counts"]["UNCERTAIN_DELAY_WARNING"] == 1
+    for result in (
+        check(records=[], expected=[]),
+        check(state()),
+        check(state("CANCELLED")),
+        check(state("ACK_RECORDED_UNVERIFIED")),
+    ):
+        assert result["nextUncertainDelayWarningSecondsRemaining"] is None
+        assert result["nextUncertainDelayWarningKeys"] == []
+        assert result["mayExecutePaperOrder"] is False
