@@ -86,8 +86,10 @@ def _identity_json_wire_headers(headers: httpx.Headers) -> str | None:
         raise ReadOnlyBrokerError("Unexpected broker response content type")
 
     codings = headers.get_list("content-encoding")
-    if len(codings) > 1 or (codings and codings[0].strip().lower() != "identity"):
-        raise ReadOnlyBrokerError("Compressed or ambiguous broker response not supported")
+    if len(codings) > 1:
+        raise ReadOnlyBrokerError("Ambiguous broker content encoding headers")
+    if codings and codings[0].strip().lower() != "identity":
+        raise ReadOnlyBrokerError("Compressed broker responses not supported")
 
     lengths = headers.get_list("content-length")
     if len(lengths) > 1:
