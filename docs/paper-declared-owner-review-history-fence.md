@@ -31,3 +31,10 @@ This is only a necessary arithmetic consistency check. The starting revision may
 ## Review issuance causality (29 October 2026)
 
 An appended review must now claim an `issued_at_ms` strictly **after** the previous complete snapshot's `observed_at_ms`, as well as a later recording time. A review claiming issuance at or before that checkpoint was not in its history and is quarantined as `appended_review_issued_before_prior_snapshot`, even if the caller reports a later recording timestamp. This conservative policy can hold legitimate delayed records until independently verified backfill/reconciliation; it does not authenticate issuance clocks, prove checkpoint completeness, sign consent, or grant execution. Four synthetic regression cases cover both boundaries, forward issuance and input immutability. No paper or real-money orders are permitted.
+
+
+## Appended approval freshness at evaluation (29 October 2026)
+
+A newly appended `APPROVE` event whose declared `expires_at_ms` is **at or before** the validator's `now_ms` is quarantined as `appended_approval_expired_at_evaluation`. This is separate from recording-before-expiry and catches an approval that was valid when recorded but no longer valid when inspected. The boundary is strict: expiry equal to the evaluation time is expired. Historical approvals in the unchanged prefix may naturally be expired and are retained without a false hold; an unrelated new rejection is not treated as an approval. Five synthetic regressions cover past/equal/future expiry, historical approval retention and input immutability.
+
+This conservative diagnostic may quarantine legitimately delayed records. Neither `now_ms` nor review evidence is authenticated, and a clean history still grants no trading authority. A production executor must independently authenticate the owner and clock, bind consent to a specific immutable order/risk snapshot, atomically consume the approval once, and recheck all risk and broker state at submission. No demo or live order is permitted by this module.
