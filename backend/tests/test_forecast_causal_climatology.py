@@ -272,3 +272,57 @@ def test_later_outcome_does_not_rewrite_earlier_temporal_split():
     assert earlier["pairedBrierRegretEarlyHalf"] == later["pairedBrierRegretEarlyHalf"]
     assert earlier["pairedLogLossRegretEarlyHalf"] == later["pairedLogLossRegretEarlyHalf"]
     assert earlier["pairedBrierRegretLateHalf"] != later["pairedBrierRegretLateHalf"]
+
+
+def test_temporal_calibration_gap_is_signed_and_disjoint():
+    row = run(fixture())["groups"][0]
+    assert row["temporalSplitStatus"] == "DESCRIPTIVE_ONLY"
+    assert row["temporalSplitEarlyCount"] == row["temporalSplitLateCount"] == 60
+    assert row["temporalSplitMeanIssuedProbabilityEarlyHalf"] == pytest.approx(.7)
+    assert row["temporalSplitMeanIssuedProbabilityLateHalf"] == pytest.approx(.7)
+    assert row["temporalSplitObservedUpFractionEarlyHalf"] == pytest.approx(1)
+    assert row["temporalSplitObservedUpFractionLateHalf"] == pytest.approx(1)
+    assert row["temporalSplitSignedCalibrationGapEarlyHalf"] == pytest.approx(-.3)
+    assert row["temporalSplitSignedCalibrationGapLateHalf"] == pytest.approx(-.3)
+    assert row["temporalSplitSignedCalibrationGapLateMinusEarly"] == pytest.approx(0)
+
+
+def test_temporal_calibration_detects_late_outcome_shift_without_rewriting_early():
+    s = fixture()
+    for index in range(120, 240, 2):
+        s["forecasts"][index]["outcomeUp"] = False
+    row = run(s)["groups"][0]
+    assert row["temporalSplitObservedUpFractionEarlyHalf"] == pytest.approx(1)
+    assert row["temporalSplitObservedUpFractionLateHalf"] == pytest.approx(0)
+    assert row["temporalSplitSignedCalibrationGapEarlyHalf"] == pytest.approx(-.3)
+    assert row["temporalSplitSignedCalibrationGapLateHalf"] == pytest.approx(.7)
+    assert row["temporalSplitSignedCalibrationGapLateMinusEarly"] == pytest.approx(1)
+
+
+def test_temporal_calibration_detects_issued_probability_shift():
+    s = fixture()
+    for event, row in zip(s["events"][120:], s["forecasts"][120:]):
+        event["probability"] = row["probability"] = .3
+    result = run(s)["groups"][0]
+    assert result["temporalSplitMeanIssuedProbabilityEarlyHalf"] == pytest.approx(.7)
+    assert result["temporalSplitMeanIssuedProbabilityLateHalf"] == pytest.approx(.3)
+    assert result["temporalSplitSignedCalibrationGapLateMinusEarly"] == pytest.approx(-.4)
+
+
+@pytest.mark.parametrize("mutate", ["missing", "too_few"])
+def test_temporal_calibration_withheld_under_split_gates(mutate):
+    s = fixture() if mutate == "missing" else fixture(n=130)
+    if mutate == "missing":
+        s["forecasts"][238].update(status="PENDING", resolvedAt=None, outcomeUp=None)
+    row = run(s)["groups"][0]
+    assert row["temporalSplitStatus"] != "DESCRIPTIVE_ONLY"
+    for key in (
+        "temporalSplitMeanIssuedProbabilityEarlyHalf",
+        "temporalSplitMeanIssuedProbabilityLateHalf",
+        "temporalSplitObservedUpFractionEarlyHalf",
+        "temporalSplitObservedUpFractionLateHalf",
+        "temporalSplitSignedCalibrationGapEarlyHalf",
+        "temporalSplitSignedCalibrationGapLateHalf",
+        "temporalSplitSignedCalibrationGapLateMinusEarly",
+    ):
+        assert row[key] is None
