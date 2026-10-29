@@ -47,7 +47,14 @@ timestamps appear fresh. This deliberately prevents a source-label switch
 from bypassing source-bound replay checks. A production implementation needs
 independently authenticated source transition and durable quote checkpoints
 before releasing such a hold; this diagnostic has no release mechanism.
-Different instruments are not automatically treated as a feed switch.
+A different primary instrument in the same declared session is also held
+(`quote_instrument_change_requires_external_evidence`), even if the new
+symbol's quote is fresh. This single-primary-quote snapshot cannot independently
+establish continuity across instruments; treating a new symbol as automatically
+safe would bypass same-stream replay checks. Multi-instrument production flows
+must use separately authenticated, instrument-bound quote checkpoints and
+independently verified source/instrument transitions. New sessions still require
+external reconciliation.
 
 Both failures propagate through the composite account/quote/order diagnostic.
 They are **caller-declared, read-only heuristics**, not proof of actual
@@ -115,3 +122,20 @@ by the diagnostic. Never use a clean result as authorization; every
 live order requires secure broker credentials and separately confirmed
 owner approval. Merge/deployment still require independently verified
 production recovery and authenticated health checks.
+
+
+## Decimal-equivalent exposure revisions (29 October 2026)
+
+The same-session `positions_changed_without_revision` guard compares
+`open_notional` and `open_risk` as exact decimal values rather than raw
+string spellings. For example, `1000` and `1000.0` are not different
+positions. Real numeric exposure changes with unchanged position revision
+still HOLD, and a revision increase with changed exposure but non-advancing
+inventory sync still HOLD. This avoids unnecessary diagnostic quarantines
+without weakening genuine financial-payload change detection.
+
+All these results remain unauthenticated, read-only and non-executable.
+Neither a fresh quote nor a clean caller-declared account snapshot authorizes
+paper/live submission; independently authenticated broker receipts, atomic
+risk reservations and specific positive owner approval remain prerequisites
+for any future live-order workflow.
