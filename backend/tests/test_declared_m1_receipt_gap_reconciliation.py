@@ -170,3 +170,62 @@ def test_report_excludes_raw_prices():
     report = audit([bar(T)])
     assert "open" not in report and "close" not in report
     assert "100.0" not in str(report)
+
+
+def test_receipt_lag_is_attributed_to_declared_expected_sessions_only():
+    report = audit([bar(T), bar(T + 180), bar(T + 240)])
+    assert report["declared_session_receipt_lag"] == [
+        {
+            "start_utc": T, "end_exclusive_utc": T + 120,
+            "expected_receipt_rows": 1, "late_expected_receipt_rows": 0,
+            "max_declared_receipt_lag_seconds": 5,
+        },
+        {
+            "start_utc": T + 180, "end_exclusive_utc": T + 300,
+            "expected_receipt_rows": 2, "late_expected_receipt_rows": 0,
+            "max_declared_receipt_lag_seconds": 5,
+        },
+    ]
+    assert report["unexpected_receipt_rows"] == 0
+    assert report["late_unexpected_receipt_rows"] == 0
+    assert report["status"] == "DECLARED_RECONCILED_UNVERIFIED"
+
+
+def test_session_late_receipt_is_localized_and_requires_review():
+    report = audit([
+        bar(T, received_at_utc=T + 200),
+        bar(T + 180), bar(T + 240),
+    ], max_receipt_lag_seconds=100)
+    assert report["receipt_census"]["late_receipt_rows"] == 1
+    assert [x["late_expected_receipt_rows"]
+            for x in report["declared_session_receipt_lag"]] == [1, 0]
+    assert [x["max_declared_receipt_lag_seconds"]
+            for x in report["declared_session_receipt_lag"]] == [140, 5]
+    assert report["status"] == "REVIEW_REQUIRED"
+
+
+def test_late_closure_receipt_does_not_contaminate_open_session_lag():
+    report = audit([
+        bar(T), bar(T + 60, received_at_utc=T + 260),
+        bar(T + 180), bar(T + 240),
+    ], max_receipt_lag_seconds=100)
+    assert report["receipt_census"]["late_receipt_rows"] == 1
+    assert report["unexpected_receipt_rows"] == 1
+    assert report["late_unexpected_receipt_rows"] == 1
+    assert sum(x["late_expected_receipt_rows"]
+               for x in report["declared_session_receipt_lag"]) == 0
+    assert report["status"] == "REVIEW_REQUIRED"
+
+
+def test_duplicate_and_empty_receipts_preserve_lag_population_accounting():
+    duplicated = audit([bar(T), bar(T), bar(T + 180), bar(T + 240)])
+    assert [x["expected_receipt_rows"]
+            for x in duplicated["declared_session_receipt_lag"]] == [2, 2]
+    assert duplicated["duplicate_receipt_rows"] == 1
+    empty = audit([])
+    assert [x["expected_receipt_rows"]
+            for x in empty["declared_session_receipt_lag"]] == [0, 0]
+    assert all(x["max_declared_receipt_lag_seconds"] is None
+               for x in empty["declared_session_receipt_lag"])
+    assert empty["late_unexpected_receipt_rows"] == 0
+    assert empty["status"] == "REVIEW_REQUIRED"
