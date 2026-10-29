@@ -296,3 +296,31 @@ market data or provider receipts, grant permission to send/retry, create paper
 fills, authorize live orders, or establish profitable forecasts. Operational
 activation still requires independently verified completed-candle provenance,
 recipient opt-in, durable one-attempt reconciliation, and release-safety checks.
+
+## Next uncertain-claim delay warning deadline (29 October 2026)
+
+The disconnected health census now returns
+`nextUncertainDelayWarningSecondsRemaining` and
+`nextUncertainDelayWarningKeys`. For each
+`IN_FLIGHT_UNCERTAIN` claim whose age is strictly less than
+`uncertain_warning_seconds`, the audit reports the nearest positive
+countdown to `UNCERTAIN_DELAY_WARNING` and all tied, sorted
+`[sessionId, forecastId]` identities. At the exact threshold the
+claim enters the existing delay warning instead of this upcoming-deadline
+inventory. Empty, queued, cancelled, acknowledged and already-overdue
+populations have no upcoming uncertain-delay deadline.
+
+An uncertain claim remains unreconciled even if its declared alert expiry
+passes, so expiry does **not** preempt this delay warning. This differs
+deliberately from queued-alert delay deadlines, where expiry takes precedence.
+Every uncertain claim already requires immediate operator review; the new
+countdown is only an additional timing diagnostic, **not** a grace period
+or permission to retry. Three synthetic regression tests cover ties,
+order independence, exact boundaries, expired-but-unreconciled claims,
+custom budgets and empty/mixed populations.
+
+All timestamps and expected identities are caller-declared. The countdown
+does not prove provider acceptance, human delivery, authenticated completed
+candles, a trusted UTC clock, a live quote, profitable forecasts, or paper
+fills. No sender, retry worker, broker access, production route or trading
+authority is enabled.
