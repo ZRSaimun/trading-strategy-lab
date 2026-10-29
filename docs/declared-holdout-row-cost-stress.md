@@ -26,3 +26,22 @@ drawdown, but it is **not** a bound on unobserved intraperiod mark-to-market
 equity, margin liquidation, bid/ask execution, or broker financing. Both clocks
 and all costs remain caller-declared and unauthenticated. No order permissions
 are granted.
+
+## Adverse-cost-induced losing observations
+
+For released populations (at least 30), each scenario additionally reports the
+number of observations with **negative declared net cash** before stress, the
+number with negative net cash after stress, and the subset that became negative
+**only after additional adverse costs**. Exact-zero baseline net is non-losing;
+a one-unit (0.0001 settlement-currency cash) extra debit can make it losing.
+The report also gives the sum of absolute stressed negative observation cash
+amounts (`stressed_gross_loss_cash`), without offsetting profitable rows.
+These four fields are `null` for populations below 30.
+
+Because all extra costs must be nonnegative, the losing-observation population
+cannot shrink under stress. The metrics reconcile against source/row-bound
+receipt outcomes; no inferred intratrade price path, margin, drawdown, risk
+probability or statistically validated loss frequency is implied. Observations
+are not guaranteed independent trades, and the declared source, cash and
+receipt identities are not externally authenticated. No trade permissions
+are granted.
