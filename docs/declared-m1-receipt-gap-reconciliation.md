@@ -33,6 +33,19 @@ is an offline review signal, not proof of clock tampering; the declared
 available under `receipt_census` and `session_gap_audit`; they expose no raw
 OHLC prices. Fingerprints are local reproducibility hashes, not signatures.
 
+The optional session-local lag breakdown `declared_session_receipt_lag`
+reports each declared session's expected receipt **row** count (duplicates
+included), late expected receipt row count, and maximum caller-declared
+close-to-receipt lag in seconds (null if none). Receipt rows whose bar starts
+are not expected, including observations in declared closures, are counted
+separately under `unexpected_receipt_rows` and
+`late_unexpected_receipt_rows`. Both complete populations reconcile exactly
+against the original receipt census, failing closed on disagreement. These
+metrics help localize a suspected delayed feed by declared session; they do
+**not** authenticate network arrival, distinguish a backfill from a real-time
+feed, establish provider SLA performance, or permit forecasting. Do not
+interpret a zero late count as evidence of a connected feed.
+
 All results explicitly keep `independent_calendar_verified`,
 `source_authenticated`, `provider_entitlement_verified`,
 `server_receipt_clock_attested`, `executable_bid_ask_verified`, `live`,
