@@ -115,6 +115,61 @@ def _prior_metadata(previous: Any, now: int, max_transport_lag_ms: int) -> tuple
     return prev, failures
 
 
+
+def _cross_snapshot_integrity(expected: dict, previous: dict, current: dict) -> set[str]:
+    """Compare declared order/fill identities across snapshots; never broker proof."""
+    failures: set[str] = set()
+    attempted = {row["client_order_id"]: row["attempted_at_ms"]
+                 for row in expected["unresolved_orders"]}
+    prior = {row["client_order_id"]: row
+             for page in previous["pages"] for row in page["orders"]}
+    latest = {row["client_order_id"]: row
+              for page in current["pages"] for row in page["orders"]}
+    prior_observed = previous["observed_at_ms"]
+    for client_id, old in prior.items():
+        # The earlier checkpoint has already passed strict schema validation.
+        for fill in old["fills"]:
+            if client_id in attempted and fill["filled_at_ms"] < attempted[client_id]:
+                failures.add("previous_fill_before_order_attempt")
+        new = latest.get(client_id)
+        if new is None:
+            failures.add("previous_order_disappeared")
+            continue
+        if old["broker_order_id"] != new["broker_order_id"]:
+            failures.add("broker_order_identity_changed")
+        if any(old[key] != new[key] for key in ("instrument", "side")) or (
+            _qty(old["quantity"], "previous quantity")
+            != _qty(new["quantity"], "current quantity")
+        ):
+            failures.add("order_contract_changed")
+        if (_qty(new["filled_quantity"], "current filled quantity")
+                < _qty(old["filled_quantity"], "previous filled quantity")):
+            failures.add("cumulative_fill_regressed")
+        if old["status"] in ("FILLED", "CANCELLED", "REJECTED") and (
+            old["status"] != new["status"]
+        ):
+            failures.add("terminal_order_state_changed")
+        if old["status"] == "PARTIAL" and new["status"] == "OPEN":
+            failures.add("partial_order_state_regressed")
+        old_fills = {fill["fill_id"]: fill for fill in old["fills"]}
+        new_fills = {fill["fill_id"]: fill for fill in new["fills"]}
+        for fill_id, fill in old_fills.items():
+            if fill_id not in new_fills or (
+                _qty(fill["quantity"], "previous fill quantity")
+                != _qty(new_fills[fill_id]["quantity"], "current fill quantity")
+                or fill["filled_at_ms"] != new_fills[fill_id]["filled_at_ms"]
+            ):
+                failures.add("previous_fill_missing_or_changed")
+        for fill_id, fill in new_fills.items():
+            if fill_id not in old_fills and fill["filled_at_ms"] <= prior_observed:
+                failures.add("new_fill_backdated_before_prior_observation")
+    for client_id in latest.keys() - prior.keys():
+        if client_id in attempted and attempted[client_id] <= prior_observed:
+            failures.add("order_missing_from_prior_snapshot")
+    return failures
+
+
+
 def inspect_declared_inventory_continuity(
     expected: dict, previous: dict | None, current: dict, now_ms: int,
 ) -> dict[str, Any]:
@@ -135,6 +190,7 @@ def inspect_declared_inventory_continuity(
             previous, now, expected["max_transport_lag_ms"]
         )
         failures.update(prior_failures)
+        failures.update(_cross_snapshot_integrity(expected, prev, current))
         if (prev["broker"], prev["account_alias"]) != (
             expected["broker"], expected["account_alias"]
         ):

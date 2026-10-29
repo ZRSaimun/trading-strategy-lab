@@ -300,3 +300,79 @@ def test_previous_order_economics_invalid_schema_raises(edit):
     edit(p["pages"][0]["orders"][0])
     with pytest.raises(ValueError):
         inspect_declared_inventory_continuity(e, p, c, NOW)
+
+
+@pytest.mark.parametrize("edit,reason", [
+    (lambda e,p,c: p["pages"][0]["orders"][0].update(broker_order_id="broker-old"),
+     "broker_order_identity_changed"),
+    (lambda e,p,c: p["pages"][0]["orders"][0].update(instrument="XAGUSD"),
+     "order_contract_changed"),
+    (lambda e,p,c: p["pages"][0]["orders"][0].update(side="SELL"),
+     "order_contract_changed"),
+    (lambda e,p,c: p["pages"][0]["orders"][0].update(quantity="2", status="PARTIAL"),
+     "order_contract_changed"),
+    (lambda e,p,c: c["pages"][0]["orders"][0].update(
+        status="CANCELLED", filled_quantity="0", fills=[]),
+     "cumulative_fill_regressed"),
+    (lambda e,p,c: c["pages"][0]["orders"][0].update(
+        status="CANCELLED", filled_quantity="0", fills=[]),
+     "terminal_order_state_changed"),
+    (lambda e,p,c: p["pages"][0]["orders"][0]["fills"][0].update(
+        filled_at_ms=NOW - 11000),
+     "previous_fill_before_order_attempt"),
+])
+def test_cross_snapshot_order_regression_holds(edit, reason):
+    result = inspect(edit)
+    assert result["status"] == "HOLD_INVENTORY_CONTINUITY"
+    assert reason in result["failed_checks"]
+    assert result["may_clear_unknown"] is False
+    assert result["may_submit_real_order"] is False
+
+
+def test_prior_fill_receipt_mutation_holds():
+    e, p, c = sample()
+    prior = p["pages"][0]["orders"][0]
+    prior.update(status="PARTIAL", filled_quantity="0.5")
+    prior["fills"][0]["quantity"] = "0.5"
+    result = inspect_declared_inventory_continuity(e, p, c, NOW)
+    assert "previous_fill_missing_or_changed" in result["failed_checks"]
+    assert result["status"] == "HOLD_INVENTORY_CONTINUITY"
+
+
+def test_backdated_new_fill_after_prior_open_snapshot_holds():
+    e, p, c = sample()
+    prior = p["pages"][0]["orders"][0]
+    prior.update(status="OPEN", filled_quantity="0", fills=[])
+    result = inspect_declared_inventory_continuity(e, p, c, NOW)
+    assert "new_fill_backdated_before_prior_observation" in result["failed_checks"]
+    assert result["may_clear_unknown"] is False
+
+
+def test_missing_prior_order_attempted_before_checkpoint_holds():
+    e, p, c = sample()
+    p["pages"][0]["orders"] = []
+    result = inspect_declared_inventory_continuity(e, p, c, NOW)
+    assert "order_missing_from_prior_snapshot" in result["failed_checks"]
+    assert result["status"] == "HOLD_INVENTORY_CONTINUITY"
+
+
+def test_order_first_attempted_after_prior_checkpoint_remains_unverified():
+    e, p, c = sample()
+    p["pages"][0]["orders"] = []
+    e["unresolved_orders"][0]["attempted_at_ms"] = NOW - 1000
+    c["pages"][0]["orders"][0]["fills"][0]["filled_at_ms"] = NOW - 800
+    result = inspect_declared_inventory_continuity(e, p, c, NOW)
+    assert result["status"] == "DECLARED_INVENTORY_CONTINUITY_UNVERIFIED"
+    assert result["may_clear_unknown"] is False
+    assert result["may_submit_real_order"] is False
+
+
+def test_prior_partial_state_cannot_revert_to_open():
+    e, p, c = sample()
+    p["pages"][0]["orders"][0].update(
+        status="PARTIAL", quantity="2")
+    c["pages"][0]["orders"][0].update(
+        status="OPEN", filled_quantity="0", fills=[])
+    result = inspect_declared_inventory_continuity(e, p, c, NOW)
+    assert "partial_order_state_regressed" in result["failed_checks"]
+    assert result["status"] == "HOLD_INVENTORY_CONTINUITY"
