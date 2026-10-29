@@ -74,3 +74,26 @@ Loop 1 handoff: independently authenticated entitled prospective completed
 candles, trusted server UTC custody, provider/side/session lineage and
 missing-issuance reconciliation. Keep draft/undeployed until exact-head CI,
 restorable backup, rollback rehearsal and authenticated production health.
+
+
+### Fixed chronological disjoint half-split (29 October 2026)
+
+When a model/horizon has at least **60** scored nonoverlapping forecasts,
+passes the existing causal training and evaluation gates, and has **zero**
+unavailable outcomes in its baseline-eligible census, the comparator reports
+an early-versus-late split of the same chronological scored census. The
+early half has floor(scored/2) observations, the late half has the rest;
+each must contain at least 30. It exposes early and late paired Brier and
+log-loss regrets (issued minus causal baseline), and LateMinusEarly
+differences. Positive regret means issued forecasts score worse than the
+historical causal comparator; a positive late-minus-early difference
+indicates descriptive relative deterioration. These are NOT tests of
+statistical significance, stationarity, independence or tradeable edge.
+
+temporalSplitStatus explains abstention: BASELINE_SCORE_WITHHELD,
+MISSING_ELIGIBLE_OUTCOMES, or INSUFFICIENT_TEMPORAL_SPLIT_SAMPLE.
+All counts and split losses are null when withheld. Missing labels are
+never silently dropped to construct favorable-looking regime halves.
+The fixed disjoint census is unchanged, and no future label enters a
+past causal baseline. This offline diagnostic neither authenticates
+market data nor authorizes notifications, paper fills or broker orders.
