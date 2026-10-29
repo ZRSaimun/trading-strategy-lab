@@ -228,3 +228,30 @@ Synthetic tests:
 Keep draft and undeployed pending exact-head CI, source-rights/provenance,
 independent prospective receipts, restorable backup, rollback rehearsal and
 authenticated production health.
+
+### Localizing worst chronological underperformance spans (29 October 2026)
+
+The same disconnected regret-run audit now reports the **zero-based inclusive
+start and end indices** of the worst cumulative adverse Brier and log-loss
+regret excursions and of the longest consecutive strictly positive-regret
+streaks. Fields are named
+`maxCumulativeBrierExcursionStartIndex`/`EndIndex`,
+`maxCumulativeLogLossExcursionStartIndex`/`EndIndex`,
+`longestConsecutiveBrierStartIndex`/`EndIndex`, and
+`longestConsecutiveLogLossStartIndex`/`EndIndex`.
+They index the already-frozen, nonoverlapping **scored** model/horizon cohort,
+not raw issuance rows, market bars, UTC minutes or an executable price tape.
+
+A negative regret can partially offset an excursion without ending it; a
+nonpositive running sum resets the excursion. Tied maxima preserve the
+earliest observed span, and a zero adverse run has null span indices.
+Insufficient scored observations also withhold all spans. The comparator's
+existing missing-eligible-outcome gate continues to withhold the whole run
+report, so selective missing settlements cannot generate misleading dates.
+The audit does not identify independent market regimes, prove drift,
+authenticate data, calculate money drawdown, or authorize notifications,
+paper fills or real orders.
+
+Synthetic regression: `cd backend && PYTHONPATH=. pytest -q
+tests/test_forecast_regret_run_audit.py`. Full exact-head CI and production
+recovery gates remain mandatory before any merge or deployment.
