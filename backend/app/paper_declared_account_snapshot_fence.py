@@ -199,6 +199,15 @@ def inspect_declared_account_snapshot_fence(
                     failures.add("quote_observation_time_rollback")
                 if q["received_at_ms"] < previous_quote["received_at_ms"]:
                     failures.add("quote_receipt_time_rollback")
+                # A quote observed at the same instant cannot silently acquire
+                # different prices merely by advancing its account envelope.
+                if (q["observed_at_ms"] == previous_quote["observed_at_ms"]
+                        and (q["bid"], q["ask"]) != (previous_quote["bid"], previous_quote["ask"])):
+                    failures.add("quote_payload_changed_without_new_observation")
+            elif q["instrument"] == previous_quote["instrument"]:
+                # Switching the claimed primary source would otherwise evade
+                # same-source timestamp and payload continuity checks.
+                failures.add("quote_source_change_requires_external_evidence")
     return {
         "status": "HOLD_ACCOUNT_SNAPSHOT_REVIEW" if failures else "DECLARED_ACCOUNT_SNAPSHOT_UNVERIFIED",
         "failed_checks": sorted(failures),
