@@ -40,10 +40,18 @@ def audit_causal_climatology(snapshot, *, evaluation_as_of, min_training=30,
         matured = eligible = unavailable = training_rejected = scored = 0
         baseline_brier = issued_brier = baseline_log = issued_log = 0.0
         first_baseline = min_history = max_history = None
+        last_evaluation_target = -1
+        overlapping_matured_excluded = 0
         for i, current in enumerate(rows):
             if current["targetStart"] + seconds > evaluation_as_of:
                 continue
             matured += 1
+            # Fix the evaluation census BEFORE looking at training support or
+            # outcomes. Shared base/target closes are not independent trials.
+            if current["baseStart"] <= last_evaluation_target:
+                overlapping_matured_excluded += 1
+                continue
+            last_evaluation_target = current["targetStart"]
             last_target = -1
             census = []
             for previous in rows[:i]:
@@ -81,6 +89,8 @@ def audit_causal_climatology(snapshot, *, evaluation_as_of, min_training=30,
         results.append({
             "modelVersion": model, "horizonCandles": horizon,
             "issued": len(rows), "maturedAtDeclaredCutoff": matured,
+            "nonoverlappingMaturedCensus": matured - overlapping_matured_excluded,
+            "overlappingMaturedExcluded": overlapping_matured_excluded,
             "trainingRejected": training_rejected, "baselineEligible": eligible,
             "scored": scored, "unavailable": unavailable,
             "unavailableFraction": missing_fraction,
