@@ -719,3 +719,70 @@ def test_late_final_fold_decision_updates_gap_without_rewriting_inputs():
     assert report["holdout_untouched_independently_verified"] is False
     assert report["may_execute_demo_order"] is False
     assert report["may_execute_real_order"] is False
+
+
+def _place_decisions_on_quarter_boundaries(fold, count):
+    """Synthetic exact half-open quarter boundaries; not market coverage."""
+    manifest = fold["manifest"]
+    start = manifest["holdout_start_at_utc"]
+    duration = manifest["holdout_end_at_utc"] - start
+    fold["census"] = fold["census"][:count]
+    for quarter, row in enumerate(fold["census"]):
+        # Ceiling ensures exact quarter assignment for non-divisible durations.
+        decision = start + (quarter * duration + 3) // 4
+        row["decision_at_utc"] = decision
+        row["label_available_at_utc"] = decision + 1
+    manifest["expected_holdout_count"] = count
+    manifest["holdout_census_sha256"] = (
+        prepare_declared_holdout_census_sha256(fold["census"])
+    )
+
+
+def test_declared_decision_quarter_counts_expose_early_concentration():
+    folds = _valid()
+    before = copy.deepcopy(folds)
+    result = audit_declared_holdout_fold_isolation(folds)
+    assert [x["declared_decision_quarter_counts"] for x in result["folds"]] == [
+        [40, 0, 0, 0], [40, 0, 0, 0], [40, 0, 0, 0]
+    ]
+    assert result["min_declared_nonempty_decision_quarter_count"] == 1
+    assert result["sparsest_declared_decision_quarters_fold_index"] == 0
+    assert folds == before
+    assert result["may_execute_demo_order"] is False
+    assert result["may_execute_real_order"] is False
+    assert "net_cash" not in result
+
+
+@pytest.mark.parametrize("active_quarters", [1, 2, 3, 4])
+def test_declared_decision_quarter_exact_boundaries(active_quarters):
+    folds = _valid()
+    _place_decisions_on_quarter_boundaries(folds[2], active_quarters)
+    before = copy.deepcopy(folds)
+    result = audit_declared_holdout_fold_isolation(folds)
+    summary = result["folds"][2]
+    assert summary["declared_decision_quarter_counts"] == (
+        [1] * active_quarters + [0] * (4 - active_quarters)
+    )
+    assert summary["declared_nonempty_decision_quarter_count"] == active_quarters
+    assert sum(summary["declared_decision_quarter_counts"]) == active_quarters
+    assert folds == before
+    assert result["profitable_edge_verified"] is False
+    assert result["may_execute_demo_order"] is False
+    assert result["may_execute_real_order"] is False
+    assert "net_cash" not in result
+
+
+def test_declared_decision_quarter_study_minimum_selects_sparse_final_fold():
+    folds = _valid()
+    for fold in folds[:2]:
+        _place_decisions_on_quarter_boundaries(fold, 4)
+    _place_decisions_on_quarter_boundaries(folds[2], 1)
+    before = copy.deepcopy(folds)
+    result = audit_declared_holdout_fold_isolation(folds)
+    assert [x["declared_nonempty_decision_quarter_count"] for x in result["folds"]] == [4, 4, 1]
+    assert result["min_declared_nonempty_decision_quarter_count"] == 1
+    assert result["sparsest_declared_decision_quarters_fold_index"] == 2
+    assert folds == before
+    assert result["holdout_untouched_independently_verified"] is False
+    assert result["may_execute_real_order"] is False
+    assert "net_cash" not in result
