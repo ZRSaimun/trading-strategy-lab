@@ -76,6 +76,7 @@ def audit_declared_holdout_row_cost_stress(
     by_id = {row["observation_id"]: row for row in census}
     names = set()
     reports = []
+    per_scenario_costs = {}
     with localcontext() as ctx:
         ctx.prec = 80
         for scenario in scenarios:
@@ -112,6 +113,7 @@ def audit_declared_holdout_row_cost_stress(
                 extra_by_id[key] = per_row
             if seen != set(by_id):
                 raise ValueError("Incomplete row-cost population")
+            per_scenario_costs[name] = extra_by_id
             withheld = baseline["outcome_metrics_withheld"]
             extra = sum(totals.values(), Decimal(0))
             # Input concentration is diagnostic, not an executable-cost estimate.
@@ -223,7 +225,49 @@ def audit_declared_holdout_row_cost_stress(
                     for field in _COSTS
                 },
             })
+    # A scenario with at least as much additional cash debit on every row
+    # must not improve any row-wise monotonic loss diagnostic. Aggregate cost
+    # alone cannot establish this ordering: shocks may affect different rows.
     reports.sort(key=lambda row: row["scenario_id"])
+    by_name = {row["scenario_id"]: row for row in reports}
+    dominance_pairs = []
+    incomparable_pairs = 0
+    sorted_names = sorted(per_scenario_costs)
+    for i, first in enumerate(sorted_names):
+        for second in sorted_names[i + 1:]:
+            first_costs = per_scenario_costs[first]
+            second_costs = per_scenario_costs[second]
+            first_le_second = all(
+                first_costs[key] <= second_costs[key] for key in by_id
+            )
+            second_le_first = all(
+                second_costs[key] <= first_costs[key] for key in by_id
+            )
+            if not first_le_second and not second_le_first:
+                incomparable_pairs += 1
+                continue
+            # Identical per-row totals have deterministic lexical orientation.
+            lower, higher = (
+                (first, second) if first_le_second else (second, first)
+            )
+            identical = first_le_second and second_le_first
+            dominance_pairs.append({
+                "lower_or_equal_cost_scenario_id": lower,
+                "higher_or_equal_cost_scenario_id": higher,
+                "identical_per_row_total_costs": identical,
+            })
+            if not baseline["outcome_metrics_withheld"]:
+                a, b = by_name[lower], by_name[higher]
+                if (
+                    Decimal(b["stressed_net_cash"]) > Decimal(a["stressed_net_cash"])
+                    or b["stressed_losing_observation_count"] < a["stressed_losing_observation_count"]
+                    or b["additional_cost_induced_losing_observation_count"] < a["additional_cost_induced_losing_observation_count"]
+                    or b["additional_cost_erased_positive_observation_count"] < a["additional_cost_erased_positive_observation_count"]
+                    or Decimal(b["stressed_gross_loss_cash"]) < Decimal(a["stressed_gross_loss_cash"])
+                    or Decimal(b["positive_observation_cash_eroded_by_stress"]) < Decimal(a["positive_observation_cash_eroded_by_stress"])
+                    or Decimal(b["worst_observation_stressed_net_cash"]) > Decimal(a["worst_observation_stressed_net_cash"])
+                ):
+                    raise AssertionError("Row-wise adverse-cost dominance violated")
     withheld = baseline["outcome_metrics_withheld"]
     worst = None if withheld else min(
         reports, key=lambda row: (
@@ -239,6 +283,8 @@ def audit_declared_holdout_row_cost_stress(
         "outcome_metrics_withheld": withheld,
         "baseline_net_cash": baseline["net_cash"],
         "scenarios": reports,
+        "scenario_cost_dominance_pairs": None if withheld else dominance_pairs,
+        "scenario_cost_incomparable_pair_count": None if withheld else incomparable_pairs,
         "worst_scenario_id": None if withheld else worst["scenario_id"],
         "worst_stressed_net_cash": None if withheld else worst["stressed_net_cash"],
         "source_bytes_independently_authenticated": False,
@@ -251,6 +297,6 @@ def audit_declared_holdout_row_cost_stress(
                    "Full-row coverage is not broker calibration or independent "
                    "holdout protection. No executable quotes, financing, margin "
                    "or intraperiod equity risk are verified. Receipt-second cash "
-                   "drawdowns, cost concentration and losing-observation counts do not bound "
+                   "drawdowns, cost concentration, scenario dominance and losing-observation counts do not bound "
                    "unobserved broker-equity losses.",
     }
