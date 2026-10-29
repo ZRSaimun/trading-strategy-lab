@@ -374,3 +374,42 @@ def test_issued_time_hold_does_not_mutate_inputs():
     original = deepcopy((prev, curr))
     assert "appended_review_issued_before_prior_snapshot" in inspect(prev, curr)["failed_checks"]
     assert (prev, curr) == original
+
+
+@pytest.mark.parametrize("expires", [NOW - 1, NOW])
+def test_new_approval_expired_by_evaluation_holds(expires):
+    prev, curr = snapshots()
+    curr["events"][1]["expires_at_ms"] = expires
+    result = inspect(prev, curr)
+    assert "appended_approval_expired_at_evaluation" in result["failed_checks"]
+    assert result["status"] == "HOLD_DECLARED_REVIEW_HISTORY"
+    assert result["may_submit_paper_order"] is False
+    assert result["may_submit_real_order"] is False
+
+
+def test_new_approval_expires_after_evaluation_is_still_unverified():
+    prev, curr = snapshots()
+    curr["events"][1]["expires_at_ms"] = NOW + 1
+    result = inspect(prev, curr)
+    assert result["failed_checks"] == []
+    assert result["status"] == "DECLARED_REVIEW_HISTORY_UNVERIFIED"
+    assert result["may_submit_real_order"] is False
+
+
+def test_expired_historical_approval_does_not_block_unrelated_rejection():
+    prev, curr = snapshots()
+    prev["events"][0]["expires_at_ms"] = NOW - 200
+    curr["events"][0]["expires_at_ms"] = NOW - 200
+    curr["events"][1]["decision"] = "REJECT"
+    result = inspect(prev, curr)
+    assert result["failed_checks"] == []
+    assert result["status"] == "DECLARED_REVIEW_HISTORY_UNVERIFIED"
+    assert result["may_submit_paper_order"] is False
+
+
+def test_expired_new_approval_check_does_not_mutate_history():
+    prev, curr = snapshots()
+    curr["events"][1]["expires_at_ms"] = NOW
+    original = deepcopy((prev, curr))
+    assert "appended_approval_expired_at_evaluation" in inspect(prev, curr)["failed_checks"]
+    assert (prev, curr) == original
