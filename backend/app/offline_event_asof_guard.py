@@ -36,9 +36,16 @@ def _decimal(value):
         d = Decimal(value)
     except InvalidOperation as exc:
         raise ValueError("Invalid economic value") from exc
-    if not d.is_finite() or abs(d) > Decimal("1e30"):
+    if not d.is_finite() or d.copy_abs() > Decimal("1e30"):
         raise ValueError("Finite bounded economic value required")
-    return str(d.normalize())
+    # Decimal.normalize() uses the ambient 28-digit context and can silently
+    # round longer economic values. Preserve every accepted decimal digit.
+    if not -30 <= d.as_tuple().exponent <= 30:
+        raise ValueError("Bounded decimal exponent required")
+    if d.is_zero():
+        return "0"
+    exact = format(d, "f")
+    return exact.rstrip("0").rstrip(".") if "." in exact else exact
 
 
 def audit_declared_event_asof(revisions, *, decision_utc, source_id):
@@ -89,6 +96,7 @@ def audit_declared_event_asof(revisions, *, decision_utc, source_id):
             raise ValueError("First revision must be a schedule")
         previous = None
         seen_result = False
+        last_schedule = None
         for idx, entry in enumerate(entries):
             if entry["revision"] != idx + 1:
                 raise ValueError("Missing or duplicate revision")
@@ -98,6 +106,13 @@ def audit_declared_event_asof(revisions, *, decision_utc, source_id):
             previous = observed
             if seen_result and entry["kind"] != "result":
                 raise ValueError("Schedule revision after result forbidden")
+            if entry["kind"] == "schedule":
+                last_schedule = entry
+            elif (entry["scheduled_utc"] != last_schedule["scheduled_utc"]
+                  or entry["forecast"] != last_schedule["forecast"]):
+                # A post-release record must not rewrite the pre-release
+                # schedule or forecast used to measure economic surprise.
+                raise ValueError("Result must match latest schedule and forecast")
             seen_result |= entry["kind"] == "result"
         eligible = [e for e in entries if _utc(e["observed_utc"]) <= cutoff]
         if not eligible:

@@ -102,3 +102,34 @@ def test_result_decimal_string_normalization():
     rows = [row(), row(2, "result", published="2026-10-28T18:00:00Z",
                        observed="2026-10-28T18:00:00Z", actual="3.700")]
     assert run(rows, "2026-10-28T18:01:00Z")["events"][0]["actual"] == "3.7"
+
+
+def test_result_cannot_rewrite_pre_release_schedule():
+    rows = [row(), row(2, "result", scheduled="2026-10-28T17:00:00Z",
+                       published="2026-10-28T18:01:00Z",
+                       observed="2026-10-28T18:02:00Z", actual="3.7")]
+    with pytest.raises(ValueError, match="latest schedule"):
+        run(rows, "2026-10-28T18:03:00Z")
+
+
+def test_result_cannot_rewrite_pre_release_forecast():
+    rows = [row(), row(2, "result", published="2026-10-28T18:01:00Z",
+                       observed="2026-10-28T18:02:00Z", forecast="4.0",
+                       actual="3.7")]
+    with pytest.raises(ValueError, match="latest schedule"):
+        run(rows, "2026-10-28T18:03:00Z")
+
+
+def test_long_decimal_preserved_without_context_rounding():
+    precise = "1.234567890123456789012345678901"
+    assert run([row(forecast=precise)])["events"][0]["forecast"] == precise
+
+
+@pytest.mark.parametrize("value", ["1e-31", "0e-1000000", "1e31"])
+def test_unbounded_or_oversized_decimal_rejected(value):
+    with pytest.raises(ValueError, match="Bounded|Finite"):
+        run([row(forecast=value)])
+
+
+def test_negative_zero_is_canonical_and_deterministic():
+    assert run([row(forecast="-0.000")])["events"][0]["forecast"] == "0"
