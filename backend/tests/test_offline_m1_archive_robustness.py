@@ -87,7 +87,7 @@ def test_oversized_count_fails_closed():
     a[0] = receipt('a', 'c', count=500001, mean=0)
     a[0]['bar_count'] = 500002
     rehash(a[0])
-    with pytest.raises(ValueError, match='outcome count'):
+    with pytest.raises(ValueError, match='bar count'):
         audit_m1_archive_robustness(a)
 
 
