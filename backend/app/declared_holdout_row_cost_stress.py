@@ -140,10 +140,13 @@ def audit_declared_holdout_row_cost_stress(
             )
             worst_row = drawdown = adverse_drawdown = None
             baseline_losing = stressed_losing = cost_induced_losing = None
+            positive_erased = positive_cash_eroded = None
             stressed_gross_loss = cost_induced_gross_loss = None
             largest_stressed_loss = Decimal(0)
             if not withheld:
                 baseline_losing = stressed_losing = cost_induced_losing = 0
+                positive_erased = 0
+                positive_cash_eroded = Decimal(0)
                 stressed_gross_loss = cost_induced_gross_loss = Decimal(0)
                 stressed_nets = {}
                 for outcome in outcomes:
@@ -160,6 +163,12 @@ def audit_declared_holdout_row_cost_stress(
                     )
                     stressed_row_net = baseline_row_net - extra_by_id[key]
                     stressed_nets[key] = stressed_row_net
+                    if baseline_row_net > 0:
+                        # Exactly-zero outcomes erase wins, but are not losses.
+                        # Do not double count costs exceeding original gains.
+                        positive_cash_eroded += min(extra_by_id[key], baseline_row_net)
+                        if stressed_row_net <= 0:
+                            positive_erased += 1
                     if baseline_row_net < 0:
                         baseline_losing += 1
                     if stressed_row_net < 0:
@@ -197,6 +206,9 @@ def audit_declared_holdout_row_cost_stress(
                 "baseline_losing_observation_count": baseline_losing,
                 "stressed_losing_observation_count": stressed_losing,
                 "additional_cost_induced_losing_observation_count": cost_induced_losing,
+                "additional_cost_erased_positive_observation_count": positive_erased,
+                "positive_observation_cash_eroded_by_stress":
+                    None if withheld else format(positive_cash_eroded, ".4f"),
                 "stressed_gross_loss_cash":
                     None if withheld else format(stressed_gross_loss, ".4f"),
                 "additional_cost_induced_gross_loss_cash":

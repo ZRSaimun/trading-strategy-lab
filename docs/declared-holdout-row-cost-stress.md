@@ -104,3 +104,24 @@ declared spread, slippage, commission and FX costs. This is a deterministic
 **cost-fragility accounting diagnostic**, not a calibrated break-even
 probability, independently verified edge, or broker-executable cost.
 It does not grant any paper/demo or live order permission.
+
+
+## Positive observation erasure under row-specific costs
+
+For released populations (30+ observations),
+`additional_cost_erased_positive_observation_count` counts rows with
+**strictly positive** baseline net that become **zero or negative** after
+additional declared cash debits. This is distinct from the existing
+cost-induced *losing* count: exact zero is no longer profitable, but it is not
+a negative loss. Previously nonpositive rows never count as erased wins.
+
+`positive_observation_cash_eroded_by_stress` sums, for each initially
+positive row, the smaller of that row's additional cost and its original
+positive net cash. This measures the amount of **original positive cash
+consumed**, without counting an overshoot below zero twice as erased gains.
+It uses exact-decimal arithmetic, signed baseline financing and full
+source-bound row coverage; the sum is zero if no positive row is affected.
+Both metrics are `null` for fewer than 30 observations. They are descriptive
+of caller-declared cash outcomes, **not** independently verified profitable
+trades, broker fills, executable costs, or predictive performance. Neither
+metric grants demo or real order permission.

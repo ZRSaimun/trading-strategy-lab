@@ -59,6 +59,8 @@ def test_row_specific_components_and_maximum_reconcile():
         "baseline_losing_observation_count": 0,
         "stressed_losing_observation_count": 0,
         "additional_cost_induced_losing_observation_count": 0,
+        "additional_cost_erased_positive_observation_count": 0,
+        "positive_observation_cash_eroded_by_stress": "2.0000",
         "stressed_gross_loss_cash": "0.0000",
         "additional_cost_induced_gross_loss_cash": "0.0000",
         "max_single_stressed_loss_share_bps": None,
@@ -121,6 +123,8 @@ def test_small_holdout_withholds_all_outcome_and_cost_metrics(count):
     assert entry["baseline_losing_observation_count"] is None
     assert entry["stressed_losing_observation_count"] is None
     assert entry["additional_cost_induced_losing_observation_count"] is None
+    assert entry["additional_cost_erased_positive_observation_count"] is None
+    assert entry["positive_observation_cash_eroded_by_stress"] is None
     assert entry["stressed_gross_loss_cash"] is None
     assert entry["additional_cost_induced_gross_loss_cash"] is None
     assert entry["max_single_stressed_loss_share_bps"] is None
@@ -470,3 +474,70 @@ def test_signed_financing_credit_affects_positive_net_erosion_denominator():
     assert entry["additional_cost_share_of_positive_baseline_net_bps"] == 5000
     assert entry["positive_baseline_net_erased_by_stress"] is False
     assert report["may_execute_demo_order"] is False
+
+
+def test_adverse_cost_erases_positive_row_without_double_counting_overshoot():
+    data = _fixture()
+    entry = _audit(data, [_scenario(data, per_row={
+        0: {"spread_extra_cash": "5.0000"},
+    })])["scenarios"][0]
+    assert entry["additional_cost_erased_positive_observation_count"] == 1
+    assert entry["positive_observation_cash_eroded_by_stress"] == "1.9000"
+    assert entry["additional_cost_induced_gross_loss_cash"] == "3.1000"
+
+
+@pytest.mark.parametrize(("extra", "erased"), [
+    ("1.8999", 0),
+    ("1.9000", 1),
+    ("1.9001", 1),
+])
+def test_positive_row_erasure_includes_exact_zero_boundary(extra, erased):
+    data = _fixture()
+    entry = _audit(data, [_scenario(data, per_row={
+        0: {"slippage_extra_cash": extra},
+    })])["scenarios"][0]
+    assert entry["additional_cost_erased_positive_observation_count"] == erased
+    assert entry["positive_observation_cash_eroded_by_stress"] == format(
+        min(Decimal(extra), Decimal("1.9000")), ".4f"
+    )
+
+
+def test_preexisting_losing_row_does_not_count_as_erased_positive():
+    data = _fixture()
+    data[3][0]["gross_cash"] = "-1.0000"
+    entry = _audit(data, [_scenario(data, per_row={
+        0: {"commission_extra_cash": "5.0000"},
+    })])["scenarios"][0]
+    assert entry["additional_cost_erased_positive_observation_count"] == 0
+    assert entry["positive_observation_cash_eroded_by_stress"] == "0.0000"
+    assert entry["stressed_losing_observation_count"] == 1
+
+
+def test_two_erased_positive_rows_have_capped_additive_cash_erosion():
+    data = _fixture()
+    entry = _audit(data, [_scenario(data, per_row={
+        0: {"spread_extra_cash": "5.0000"},
+        1: {"financing_extra_cash": "5.0000"},
+    })])["scenarios"][0]
+    assert entry["additional_cost_erased_positive_observation_count"] == 2
+    assert entry["positive_observation_cash_eroded_by_stress"] == "3.6000"
+    assert entry["stressed_gross_loss_cash"] == "6.4000"
+
+
+def test_erased_positive_cash_uses_signed_baseline_financing():
+    data = _fixture()
+    data[3][0]["financing_cash"] = "-0.2000"
+    entry = _audit(data, [_scenario(data, per_row={
+        0: {"fx_extra_cash": "2.0000"},
+    })])["scenarios"][0]
+    assert entry["additional_cost_erased_positive_observation_count"] == 1
+    assert entry["positive_observation_cash_eroded_by_stress"] == "2.0000"
+
+
+def test_erased_positive_metrics_withheld_below_thirty():
+    data = _fixture(29)
+    entry = _audit(data, [_scenario(data, per_row={
+        0: {"spread_extra_cash": "5.0000"},
+    })])["scenarios"][0]
+    assert entry["additional_cost_erased_positive_observation_count"] is None
+    assert entry["positive_observation_cash_eroded_by_stress"] is None
