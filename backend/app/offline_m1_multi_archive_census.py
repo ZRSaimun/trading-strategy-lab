@@ -108,6 +108,8 @@ def _check(report):
     counts = ("bar_count", "confirmed_count", "censored_gap_or_end", "excluded_overlap")
     if any(type(report.get(k)) is not int or report[k] < 0 for k in counts) or report["bar_count"] == 0:
         raise ValueError("Invalid population counts")
+    if report["bar_count"] > 500_000:
+        raise ValueError("Original M1 bar count exceeds source engine bound")
     # Counters are part of the original M1 engine's source-wall scan.
     # A valid self-hash alone cannot establish that these declarations agree.
     diagnostic_counts = (
