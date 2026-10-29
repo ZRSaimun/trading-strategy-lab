@@ -344,3 +344,92 @@ def test_v2_empty_history_binds_source_and_cutoff():
     assert a["visible_revision_history_sha256"] == b["visible_revision_history_sha256"]
     assert a["research_envelope_v2_sha256"] != b["research_envelope_v2_sha256"]
     assert a["research_envelope_v2_sha256"] != c["research_envelope_v2_sha256"]
+
+
+# Research-only proximity census: a match is NOT a safe/unsafe broker decision.
+from app.offline_event_asof_guard import audit_declared_event_window
+
+
+def window(rows, decision, before=30, after=15, source="synthetic-calendar"):
+    return audit_declared_event_window(
+        rows, decision_utc=decision, source_id=source,
+        before_minutes=before, after_minutes=after
+    )
+
+
+def test_event_window_before_and_after_inclusive():
+    rows = [row()]
+    at_start = window(rows, "2026-10-28T17:30:00Z", 30, 10)
+    assert at_start["within_declared_event_window"] is True
+    assert at_start["matched_events"][0]["minutes_until_event"] == 30
+    assert window(rows, "2026-10-28T17:29:00Z", 30, 10)["matched_event_count"] == 0
+    assert window(rows, "2026-10-28T18:00:00Z", 30, 10)["matched_events"][0]["minutes_until_event"] == 0
+    assert window(rows, "2026-10-28T18:10:00Z", 30, 10)["matched_events"][0]["minutes_until_event"] == -10
+    assert window(rows, "2026-10-28T18:11:00Z", 30, 10)["matched_event_count"] == 0
+
+
+def test_event_window_same_minute_schedule_receipt_not_visible():
+    rows = [row(published="2026-10-28T17:29:00Z",
+                observed="2026-10-28T17:30:00Z")]
+    assert window(rows, "2026-10-28T17:30:00Z")["matched_event_count"] == 0
+    assert window(rows, "2026-10-28T17:31:00Z")["matched_event_count"] == 1
+
+
+def test_event_window_future_revision_does_not_change_prior_audit():
+    base = [row()]
+    future = row(2, "schedule", scheduled="2026-10-28T19:00:00Z",
+                 published="2026-10-28T17:31:00Z",
+                 observed="2026-10-28T17:32:00Z")
+    before = window(base, "2026-10-28T17:30:00Z")
+    assert before == window(base + [future], "2026-10-28T17:30:00Z")
+
+
+def test_event_window_reschedule_only_after_observation():
+    rows = [row(), row(2, "schedule", scheduled="2026-10-28T19:00:00Z",
+                       published="2026-10-28T17:01:00Z",
+                       observed="2026-10-28T17:02:00Z")]
+    assert window(rows, "2026-10-28T17:02:00Z", 60)["matched_event_count"] == 1
+    assert window(rows, "2026-10-28T17:03:00Z", 60)["matched_event_count"] == 0
+
+
+def test_event_window_result_receipt_does_not_rewrite_schedule():
+    rows = [row(), row(2, "result", published="2026-10-28T18:00:00Z",
+                       observed="2026-10-28T18:01:00Z", actual="3.7")]
+    assert window(rows, "2026-10-28T18:02:00Z")["matched_events"][0]["minutes_until_event"] == -2
+
+
+def test_event_window_empty_inventory_never_grants_trade_clearance():
+    report = window([], "2026-10-28T17:30:00Z")
+    assert report["matched_event_count"] == 0
+    assert report["within_declared_event_window"] is False
+    assert report["coverage_verified"] is False
+    assert report["authenticated_calendar"] is False
+    assert report["trade_authorized"] is False
+
+
+@pytest.mark.parametrize("before,after", [
+    (-1, 15), (30, -1), (1441, 15), (30, 1441),
+    (True, 15), (30, False), (30.0, 15), ("30", 15),
+])
+def test_event_window_invalid_parameters_fail_closed(before, after):
+    with pytest.raises(ValueError, match="integer"):
+        window([row()], "2026-10-28T17:30:00Z", before, after)
+
+
+def test_event_window_deterministic_order_and_source_bound_hash():
+    rows = [row(event_id="A"), row(event_id="B")]
+    a = window(rows, "2026-10-28T17:30:00Z")
+    b = window(list(reversed(rows)), "2026-10-28T17:30:00Z")
+    c = window(rows, "2026-10-28T17:30:00Z", source="other")
+    d = window(rows, "2026-10-28T17:30:00Z", before=31)
+    assert a == b
+    assert [x["event_id"] for x in a["matched_events"]] == ["A", "B"]
+    assert a["window_audit_sha256"] != c["window_audit_sha256"]
+    assert a["window_audit_sha256"] != d["window_audit_sha256"]
+
+
+def test_event_window_invalid_calendar_still_fails_closed():
+    with pytest.raises(ValueError, match="before its event"):
+        window([row(observed="2026-10-28T18:00:00Z",
+                    published="2026-10-28T18:00:00Z")],
+               "2026-10-28T18:01:00Z")
