@@ -34,8 +34,21 @@ def _declared_receipt_risk(outcomes, stressed_nets):
 
     running = peak = drawdown = Decimal(0)
     adverse_running = adverse_peak = adverse_drawdown = Decimal(0)
+    negative_batches = streak = longest_streak = 0
+    streak_loss = max_streak_loss = Decimal(0)
     for observed_at in sorted(batches):
         batch_net, positive, negative = batches[observed_at]
+        # A batch is one observed UTC second, not one independent trade.
+        # Zero or positive batch cash ends a negative-batch run.
+        if batch_net < 0:
+            negative_batches += 1
+            streak += 1
+            streak_loss -= batch_net
+            longest_streak = max(longest_streak, streak)
+            max_streak_loss = max(max_streak_loss, streak_loss)
+        else:
+            streak = 0
+            streak_loss = Decimal(0)
         running += batch_net
         peak = max(peak, running)
         drawdown = max(drawdown, peak - running)
@@ -52,7 +65,8 @@ def _declared_receipt_risk(outcomes, stressed_nets):
         )
         adverse_peak = max(adverse_peak, adverse_running + positive)
         adverse_running = adverse_end
-    return worst, drawdown, adverse_drawdown
+    return (worst, drawdown, adverse_drawdown, negative_batches,
+            longest_streak, max_streak_loss)
 
 
 def audit_declared_holdout_row_cost_stress(
@@ -141,6 +155,8 @@ def audit_declared_holdout_row_cost_stress(
                 None if withheld else positive_baseline and net <= 0
             )
             worst_row = drawdown = adverse_drawdown = None
+            negative_receipt_batches = longest_negative_streak = None
+            longest_negative_streak_loss = None
             baseline_losing = stressed_losing = cost_induced_losing = None
             positive_erased = positive_cash_eroded = None
             stressed_gross_loss = cost_induced_gross_loss = None
@@ -184,7 +200,9 @@ def audit_declared_holdout_row_cost_stress(
                     raise AssertionError("Adverse costs cannot reduce losing row count")
                 if sum(stressed_nets.values(), Decimal(0)) != net:
                     raise AssertionError("Stressed per-row cash failed reconciliation")
-                worst_row, drawdown, adverse_drawdown = _declared_receipt_risk(
+                (worst_row, drawdown, adverse_drawdown,
+                 negative_receipt_batches, longest_negative_streak,
+                 longest_negative_streak_loss) = _declared_receipt_risk(
                     outcomes, stressed_nets
                 )
             reports.append({
@@ -205,6 +223,10 @@ def audit_declared_holdout_row_cost_stress(
                     None if withheld else format(drawdown, ".4f"),
                 "max_receipt_time_ordering_drawdown_cash_upper_bound":
                     None if withheld else format(adverse_drawdown, ".4f"),
+                "negative_receipt_batch_count": negative_receipt_batches,
+                "max_consecutive_negative_receipt_batches": longest_negative_streak,
+                "max_consecutive_negative_receipt_batches_loss_cash":
+                    None if withheld else format(longest_negative_streak_loss, ".4f"),
                 "baseline_losing_observation_count": baseline_losing,
                 "stressed_losing_observation_count": stressed_losing,
                 "additional_cost_induced_losing_observation_count": cost_induced_losing,
@@ -297,6 +319,6 @@ def audit_declared_holdout_row_cost_stress(
                    "Full-row coverage is not broker calibration or independent "
                    "holdout protection. No executable quotes, financing, margin "
                    "or intraperiod equity risk are verified. Receipt-second cash "
-                   "drawdowns, cost concentration, scenario dominance and losing-observation counts do not bound "
+                   "drawdowns, negative receipt-batch streaks, cost concentration, scenario dominance and losing-observation counts do not bound "
                    "unobserved broker-equity losses.",
     }
