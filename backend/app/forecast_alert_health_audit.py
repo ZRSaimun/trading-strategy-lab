@@ -114,6 +114,8 @@ def audit_forecast_alert_health(records, expected_keys, *, as_of,
     next_queue_delay_warning = None
     next_queue_delay_keys = []
     oldest_uncertain = 0
+    next_uncertain_delay_warning = None
+    next_uncertain_delay_keys = []
     max_ack_lag = 0
     oldest_unverified_ack = 0
     next_ack_escalation = None
@@ -198,6 +200,16 @@ def audit_forecast_alert_health(records, expected_keys, *, as_of,
             if age >= uncertain_warning_seconds:
                 counts["UNCERTAIN_DELAY_WARNING"] += 1
                 warn(key, "UNCERTAIN_DELAY_WARNING")
+            else:
+                # Uncertain claims remain unreconciled after expiry. Unlike
+                # queued delay warnings, expiry does not preempt this deadline.
+                remaining_delay = uncertain_warning_seconds - age
+                if (next_uncertain_delay_warning is None or
+                        remaining_delay < next_uncertain_delay_warning):
+                    next_uncertain_delay_warning = remaining_delay
+                    next_uncertain_delay_keys = [key]
+                elif remaining_delay == next_uncertain_delay_warning:
+                    next_uncertain_delay_keys.append(key)
             if as_of >= state["expiresAt"]:
                 counts["EXPIRED_IN_FLIGHT_UNCERTAIN"] += 1
                 warn(key, "EXPIRED_IN_FLIGHT_UNCERTAIN")
@@ -254,6 +266,8 @@ def audit_forecast_alert_health(records, expected_keys, *, as_of,
             "nextQueueDelayWarningSecondsRemaining": next_queue_delay_warning,
             "nextQueueDelayWarningKeys": [list(key) for key in sorted(next_queue_delay_keys)],
             "oldestUncertainSeconds": oldest_uncertain,
+            "nextUncertainDelayWarningSecondsRemaining": next_uncertain_delay_warning,
+            "nextUncertainDelayWarningKeys": [list(key) for key in sorted(next_uncertain_delay_keys)],
             "maxSelfAttestedAckLagSeconds": max_ack_lag,
             "oldestUnverifiedAckAgeSeconds": oldest_unverified_ack,
             "nextUnverifiedAckEscalationSecondsRemaining": next_ack_escalation,
