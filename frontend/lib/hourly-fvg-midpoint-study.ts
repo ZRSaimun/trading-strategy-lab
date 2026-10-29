@@ -7,7 +7,7 @@
  */
 import type {Bar} from './research.ts';
 
-export const HOURLY_FVG_VERSION='hourly-fvg-first-midpoint-touch-v71';
+export const HOURLY_FVG_VERSION='hourly-fvg-first-midpoint-touch-v72';
 export type Evidence='PASS'|'FAIL'|'INSUFFICIENT_DATA';
 // First-touch volume evidence is not independent broker/source authentication.
 export type VolumeEvidenceReason='NOT_EVALUATED'|'SOURCE_UNVERIFIED'|
@@ -892,54 +892,12 @@ function summarizeCoverage(bars:readonly Bar[]):FvgCoverage{
 export function studyHourlyFvgMidpoint(
  suppliedBars:readonly Bar[],source:FvgSource,config:FvgConfig={},
 ):FvgStudy{
- // Capture each supplied candle field exactly once before validation.
- // Accessor-backed/mutable input objects must not change between the
- // evidence check and the later formation, volume or return calculation.
- // Bound the array before copying; holes/invalid fields fail validation.
+ // Freeze caller-declared source and study settings before reading candle
+ // accessors: an observed bar getter must not rewrite its own provenance,
+ // volume classification, or hypothetical cost axis. Then snapshot each
+ // candle exactly once, preserving a bounded, reviewable BID-only archive.
  if(!Array.isArray(suppliedBars)||suppliedBars.length>20000)
   throw Error('Invalid or oversized hourly research window');
- // Snapshot the population size as well as each candle. A getter may append
- // or remove elements while we read them; never let the loop expand to
- // include those late arrivals or silently accept a truncated population.
- const barCount=suppliedBars.length;
- validateBarArraySchema(suppliedBars,barCount);
- // Do not invoke a caller-controlled Symbol.iterator: a short Array can
- // otherwise yield unbounded or substituted candles despite the length cap.
- // Indexed reads keep the snapshot bounded and preserve sparse-hole rejection.
- const bars:Bar[]=[];
- const originalRows:Bar[]=[];
- for(let index=0;index<barCount;index++){
-  // A hole may resolve through Array.prototype or a custom prototype to a
-  // plausible candle. That is not an observed archive row: fail closed.
-  if(!Object.prototype.hasOwnProperty.call(suppliedBars,index))
-   throw Error('Hourly research array contains missing own-index candle evidence');
-  const b=suppliedBars[index];
-  if(!b||typeof b!=='object'||!CANDLE_FIELDS.every(field=>hasOwnField(b,field)))
-   throw Error('Hourly research candle lacks own field evidence');
-  // Undeclared price-side or broker-certification metadata must not be
-  // silently dropped from a report describing a seven-field BID candle.
-  // Inspect keys before any unknown accessor can execute.
-  for(const key of Reflect.ownKeys(b)){
-   if(!CANDLE_FIELDS.some(field=>field===key))
-    throw Error('Unexpected FVG candle field outside frozen archive schema');
-  }
-  bars.push({
-   time:b.time,open:b.open,high:b.high,low:b.low,close:b.close,
-   volume:b.volume,observed_minutes:b.observed_minutes,
-  });
-  originalRows.push(b);
- }
- if(suppliedBars.length!==barCount)
-  throw Error('Hourly research candle array length changed during snapshot');
- // A candle accessor may add undeclared ASK/source fields to the array or
- // earlier rows after the initial preflight. Check schema again without
- // rereading any candle values or caller-controlled iterators.
- validateBarArraySchema(suppliedBars,barCount);
- for(const row of originalRows){
-  if(!CANDLE_FIELDS.every(field=>hasOwnField(row,field))||
-   Reflect.ownKeys(row).some(key=>!CANDLE_FIELDS.some(field=>field===key)))
-   throw Error('Hourly research candle schema changed during snapshot');
- }
  // A research setting must be explicitly supplied or use its frozen default.
  // An inherited prototype value can silently shorten the touch window,
  // change the wick/volume threshold or replace the cost scenarios.
@@ -1060,6 +1018,48 @@ export function studyHourlyFvgMidpoint(
   costs.some((x,i)=>!Number.isFinite(x)||x<0||x>1000||
    (i>0&&x<=costs[i-1])))
   throw Error('Invalid source identity, volume provenance or frozen FVG study settings');
+ // Snapshot the population size as well as each candle. A getter may append
+ // or remove elements while we read them; never let the loop expand to
+ // include those late arrivals or silently accept a truncated population.
+ const barCount=suppliedBars.length;
+ validateBarArraySchema(suppliedBars,barCount);
+ // Do not invoke a caller-controlled Symbol.iterator: a short Array can
+ // otherwise yield unbounded or substituted candles despite the length cap.
+ // Indexed reads keep the snapshot bounded and preserve sparse-hole rejection.
+ const bars:Bar[]=[];
+ const originalRows:Bar[]=[];
+ for(let index=0;index<barCount;index++){
+  // A hole may resolve through Array.prototype or a custom prototype to a
+  // plausible candle. That is not an observed archive row: fail closed.
+  if(!Object.prototype.hasOwnProperty.call(suppliedBars,index))
+   throw Error('Hourly research array contains missing own-index candle evidence');
+  const b=suppliedBars[index];
+  if(!b||typeof b!=='object'||!CANDLE_FIELDS.every(field=>hasOwnField(b,field)))
+   throw Error('Hourly research candle lacks own field evidence');
+  // Undeclared price-side or broker-certification metadata must not be
+  // silently dropped from a report describing a seven-field BID candle.
+  // Inspect keys before any unknown accessor can execute.
+  for(const key of Reflect.ownKeys(b)){
+   if(!CANDLE_FIELDS.some(field=>field===key))
+    throw Error('Unexpected FVG candle field outside frozen archive schema');
+  }
+  bars.push({
+   time:b.time,open:b.open,high:b.high,low:b.low,close:b.close,
+   volume:b.volume,observed_minutes:b.observed_minutes,
+  });
+  originalRows.push(b);
+ }
+ if(suppliedBars.length!==barCount)
+  throw Error('Hourly research candle array length changed during snapshot');
+ // A candle accessor may add undeclared ASK/source fields to the array or
+ // earlier rows after the initial preflight. Check schema again without
+ // rereading any candle values or caller-controlled iterators.
+ validateBarArraySchema(suppliedBars,barCount);
+ for(const row of originalRows){
+  if(!CANDLE_FIELDS.every(field=>hasOwnField(row,field))||
+   Reflect.ownKeys(row).some(key=>!CANDLE_FIELDS.some(field=>field===key)))
+   throw Error('Hourly research candle schema changed during snapshot');
+ }
  validateBars(bars);
  const observations:FvgObservation[]=[];
  for(let i=2;i<bars.length;i++){
