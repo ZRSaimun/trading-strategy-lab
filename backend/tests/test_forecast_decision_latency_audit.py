@@ -111,7 +111,7 @@ def test_conflicting_abstention_never_supplies_latency():
 
 def test_unexpected_forecast_withholds_complete_percentiles():
     expected = keys()
-    other = ("other", 1, 2000)
+    other = ("other", 1, 2040)
     r = audit(snapshot(expected + [other]), IDENTITY, expected, [], as_of=4000)
     assert r["p50DeclaredLatencySeconds"] is None
     assert r["status"] == "OPERATOR_REVIEW_REQUIRED"
