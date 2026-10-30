@@ -39,11 +39,18 @@ included), late expected receipt row count, and maximum caller-declared
 close-to-receipt lag in seconds (null if none). It also reports
 `unique_expected_minutes_with_receipts` and
 `duplicate_expected_receipt_rows`, so repeated receipt bursts cannot be
-misrepresented as additional completed-minute coverage. The per-session unique
+misrepresented as additional completed-minute coverage. The fields
+`late_first_expected_minutes` and `late_duplicate_expected_receipt_rows`
+separate late **first-seen** declared observations from late repeated rows;
+their sum must equal `late_expected_receipt_rows` for each session. The per-session unique
 counts must equal the independent gap audit's per-session observed coverage.
 Receipt rows whose bar starts are not expected, including observations in
 declared closures, are counted separately under `unexpected_receipt_rows`,
 `late_unexpected_receipt_rows`, and `duplicate_unexpected_receipt_rows`.
+`late_first_unexpected_minutes` and `late_duplicate_unexpected_receipt_rows`
+partition unexpected late rows without counting duplicate closures as new
+observed minutes. First-seen means **first in the supplied row order**, not a
+verified initial provider publication or independently timed arrival.
 The expected-session and unexpected duplicate populations must add up exactly
 to the original receipt census's total duplicate count; disagreements raise
 `ValueError`. These remain caller-declared rows, not authenticated arrivals. These
