@@ -192,6 +192,8 @@ def _audit_head_matches(db, key, raw, state, reserved):
         ).order_by(Audit.id.asc()).limit(_MAX_AUDIT_HISTORY_ROWS + 1)).all()
         if len(history) != state["revision"] + 1:
             return False
+        previous_entry = None
+        historical_orders = set()
         for expected, (history_action, history_actor, history_detail) in enumerate(history):
             entry = _audit_json(history_detail)
             if (history_actor != "paper-risk-store"
@@ -245,6 +247,37 @@ def _audit_head_matches(db, key, raw, state, reserved):
                         or (op == "emergency_kill" and not latched)
                         or (op != "emergency_kill" and latched)):
                     return False
+                # The full retained receipt sequence must describe possible
+                # transitions, not just individually plausible snapshots.
+                # No reservation is ever released by this prototype.
+                if expected == 1:
+                    # Initialization starts killed, with no cash or orders.
+                    if (op == "reserve" or count != 0 or cash != 0
+                            or (op == "emergency_kill" and cap != 0)):
+                        return False
+                else:
+                    prior_count = previous_entry["reservation_count"]
+                    prior_cash = _audit_cash(previous_entry["reserved_cash"])
+                    prior_cap = _money(previous_entry["limit_cash"])
+                    if previous_entry["emergency_latched"]:
+                        return False  # No writes after an emergency latch.
+                    if op == "reserve":
+                        if (previous_entry["kill_switch"]
+                                or count != prior_count + 1 or cap != prior_cap):
+                            return False
+                    elif (count != prior_count or cash != prior_cash
+                          or (op == "emergency_kill" and cap != prior_cap)):
+                        return False
+                if op == "reserve":
+                    if order in historical_orders or order not in state["reservations"]:
+                        return False
+                    historical_orders.add(order)
+                    if (expected > 1 and cash != prior_cash + _money(
+                            state["reservations"][order], positive=True)):
+                        return False
+            previous_entry = entry
+        if historical_orders != set(state["reservations"]):
+            return False
         if state["revision"] == 0:
             if len(audits) != 1:
                 return False
