@@ -1089,3 +1089,76 @@ def test_adjacent_cash_conservation_accepts_policy_cap_change_and_tiny_cash(setu
     assert s.engage_kill_switch("paper-acct-0001")
     assert s.verify_audit_head("paper-acct-0001")
     assert s.load("paper-acct-0001")["reserved_cash"] == "3E-8"
+
+
+@pytest.mark.parametrize("latest,forgery", [
+    ("reserve", "absent"),
+    ("reserve", "reused_current"),
+    ("policy", "absent"),
+])
+def test_adjacent_reservation_receipt_identity_requires_retained_distinct_id(
+    setup, latest, forgery
+):
+    """A predecessor reserve cannot name a missing or newly created order."""
+    s = store(setup)
+    enabled(s)
+    assert s.reserve("paper-acct-0001", 1,
+                     client_order_id="order-00001", risk_cash="25")
+    if latest == "reserve":
+        assert s.reserve("paper-acct-0001", 2,
+                         client_order_id="order-00002", risk_cash="10")
+    else:
+        assert s.set_policy("paper-acct-0001", 2, limit_cash="100.00",
+                            kill_switch=False, owner_reviewed=True)
+    assert s.initialize("paper-acct-0002")
+    before = s.load("paper-acct-0001")
+    assert before["audit_head_verified"] is True
+    account_hash = s._key("paper-acct-0001").split(":", 1)[1]
+    with setup[1].begin() as db:
+        rows = db.scalars(select(Audit).where(
+            Audit.detail.like('%"account_hash":"' + account_hash + '"%')
+        ).order_by(Audit.id.desc()).limit(2)).all()
+        assert len(rows) == 2
+        predecessor = rows[1]
+        detail = json.loads(predecessor.detail)
+        assert detail["operation"] == "reserve"
+        detail["reservation_order_hash"] = (
+            "0" * 64 if forgery == "absent" else s._order_hash("order-00002")
+        )
+        predecessor.detail = json.dumps(detail, sort_keys=True, separators=(",", ":"))
+    with setup[1]() as db:
+        audit_count = len(db.scalars(select(Audit)).all())
+    assert store(setup).load("paper-acct-0001") == {
+        **before, "audit_head_verified": False,
+        "reservable_risk_capacity_cash": "0",
+    }
+    assert not s.verify_audit_head("paper-acct-0001")
+    assert s.verify_audit_head("paper-acct-0002")
+    for action in (
+        lambda: s.reserve("paper-acct-0001", 3,
+                          client_order_id="order-00003", risk_cash="1"),
+        lambda: s.set_policy("paper-acct-0001", 3, limit_cash="100.00",
+                             kill_switch=True, owner_reviewed=True),
+        lambda: s.engage_kill_switch("paper-acct-0001"),
+    ):
+        with pytest.raises(ValueError, match="audit head"):
+            action()
+    with setup[1]() as db:
+        assert len(db.scalars(select(Audit)).all()) == audit_count
+
+
+def test_adjacent_reservation_identity_allows_legitimate_distinct_orders(setup):
+    """Real retained IDs remain valid across reserve, policy and emergency CAS."""
+    s = store(setup)
+    enabled(s)
+    assert s.reserve("paper-acct-0001", 1,
+                     client_order_id="order-00001", risk_cash="25")
+    assert s.reserve("paper-acct-0001", 2,
+                     client_order_id="order-00002", risk_cash="10")
+    assert s.verify_audit_head("paper-acct-0001")
+    assert s.set_policy("paper-acct-0001", 3, limit_cash="120.00",
+                        kill_switch=False, owner_reviewed=True)
+    assert s.verify_audit_head("paper-acct-0001")
+    assert s.engage_kill_switch("paper-acct-0001")
+    assert s.verify_audit_head("paper-acct-0001")
+    assert s.load("paper-acct-0001")["reservation_count"] == 2

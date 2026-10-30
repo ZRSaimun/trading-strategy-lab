@@ -202,3 +202,23 @@ receipts quarantine reservable capacity and prevent further audit mutations.
 This verifies **only the adjacent self-attested receipts**, not the full
 historical chain, signed broker evidence, actual losses or trade profitability.
 No route, broker order, merge or deployment is enabled.
+
+
+## Adjacent reservation identity provenance (30 October 2026)
+
+The read-only audit-head preflight now requires a preceding `reserve` receipt's
+SHA-256 client-order digest to exist among the account's **currently retained**
+reservation IDs. When the latest transition is another reservation, its order
+digest must differ from the predecessor's. This catches a syntactically valid
+but invented predecessor identity and an impossible replay of the newest order
+as its own predecessor. Three synthetic SQLite tampering cases check
+fail-closed snapshots, blocked transitions, unchanged audit counts and
+unaffected interleaved accounts; a positive case preserves legitimate
+distinct reservations across policy changes and emergency stop.
+
+This checks only the **adjacent self-attested** receipt, not the full audit
+history or cryptographic broker identity. No raw client-order IDs, real market
+prices, private data, order sender or production deployment are introduced.
+Keep PR #26 draft until main integration, atomic journal reconciliation,
+authenticated broker BID/ASK and positions, crash recovery and owner-approved
+backup/rollback are independently verified.
