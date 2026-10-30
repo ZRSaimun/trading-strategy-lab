@@ -680,7 +680,10 @@ def test_audit_head_mismatch_blocks_all_new_risk_transitions(setup):
     ):
         with pytest.raises(ValueError, match="audit head"):
             action()
-    assert s.load("paper-acct-0001") == before
+    assert s.load("paper-acct-0001") == {
+        **before, "audit_head_verified": False,
+        "reservable_risk_capacity_cash": "0",
+    }
     with setup[1]() as db:
         assert len(db.scalars(select(Audit)).all()) == audit_before
 
@@ -746,7 +749,10 @@ def test_policy_audit_head_rejects_foreign_actor_and_schema_drift(setup, tamper)
     ):
         with pytest.raises(ValueError, match="audit head"):
             operation()
-    assert s.load("paper-acct-0001") == before
+    assert s.load("paper-acct-0001") == {
+        **before, "audit_head_verified": False,
+        "reservable_risk_capacity_cash": "0",
+    }
     with setup[1]() as db:
         assert len(db.scalars(select(Audit)).all()) == audit_count
 
@@ -812,6 +818,56 @@ def test_audit_operation_must_match_committed_paper_state(setup, tamper):
     ):
         with pytest.raises(ValueError, match="audit head"):
             operation()
-    assert s.load("paper-acct-0001") == before
+    assert s.load("paper-acct-0001") == {
+        **before, "audit_head_verified": False,
+        "reservable_risk_capacity_cash": "0",
+    }
     with setup[1]() as db:
         assert len(db.scalars(select(Audit)).all()) == audit_count
+
+
+@pytest.mark.parametrize("damage", ["missing_latest", "altered_latest"])
+def test_read_only_snapshot_quarantines_capacity_when_audit_head_is_unverified(setup, damage):
+    """Valid state bytes cannot advertise reservable headroom after audit loss."""
+    s = store(setup)
+    enabled(s)
+    assert s.reserve("paper-acct-0001", 1,
+                     client_order_id="order-00001", risk_cash="25")
+    before = s.load("paper-acct-0001")
+    assert before["audit_head_verified"] is True
+    assert before["remaining_risk_capacity_cash"] == "75.00"
+    assert before["reservable_risk_capacity_cash"] == "75.00"
+    with setup[1].begin() as db:
+        latest = db.scalars(select(Audit).where(Audit.action == "paper.risk.cas")
+                            .order_by(Audit.id.desc())).first()
+        if damage == "missing_latest":
+            db.delete(latest)
+        else:
+            detail = json.loads(latest.detail)
+            detail["state_sha256"] = "0" * 64
+            latest.detail = json.dumps(detail, sort_keys=True, separators=(",", ":"))
+    with setup[1]() as db:
+        count = len(db.scalars(select(Audit)).all())
+    quarantined = store(setup).load("paper-acct-0001")
+    assert quarantined["audit_head_verified"] is False
+    assert quarantined["remaining_risk_capacity_cash"] == "75.00"
+    assert quarantined["reservable_risk_capacity_cash"] == "0"
+    assert quarantined["may_execute_paper_order"] is False
+    assert quarantined["may_execute_real_order"] is False
+    with pytest.raises(ValueError, match="audit head"):
+        s.reserve("paper-acct-0001", 2,
+                  client_order_id="order-00002", risk_cash="1")
+    with setup[1]() as db:
+        assert len(db.scalars(select(Audit)).all()) == count
+
+
+def test_read_only_snapshot_reports_verified_zero_capacity_after_emergency_stop(setup):
+    """A healthy emergency latch is distinguishable from missing audit proof."""
+    s = store(setup)
+    enabled(s)
+    assert s.engage_kill_switch("paper-acct-0001")
+    snapshot = store(setup).load("paper-acct-0001")
+    assert snapshot["audit_head_verified"] is True
+    assert snapshot["kill_switch"] is True
+    assert snapshot["emergency_latched"] is True
+    assert snapshot["reservable_risk_capacity_cash"] == "0"
