@@ -72,6 +72,16 @@ def _validate(state):
     # another committed revision after that initial policy transition.
     if len(reservations) > max(0, state["revision"] - 1):
         raise ValueError("Paper reservation count exceeds post-policy revision capacity")
+    # A retained reservation was created while enabled. A currently killed
+    # account must also have a separate subsequent policy-stop or emergency
+    # transition; a stop cannot share the final reservation's revision.
+    if state["kill_switch"] and reservations and len(reservations) > state["revision"] - 2:
+        raise ValueError("Disabled paper reservations require a later stop revision")
+    # From the zero-cap initialized state, a positive-cap emergency latch
+    # requires both a policy transition and a separate emergency transition.
+    # An immediate emergency latch at revision one is valid only at zero cap.
+    if state["emergency_latched"] and limit > 0 and state["revision"] < 2:
+        raise ValueError("Positive-cap emergency latch requires a prior policy revision")
     # Revision zero is created only by initialize(): no policy, reservation,
     # or emergency transition can legitimately exist before revision one.
     # Reject checksum-recomputed imports that invent a pre-policy cash cap.

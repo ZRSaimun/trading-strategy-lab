@@ -341,7 +341,7 @@ def test_maximum_valid_reservation_count_fits_envelope_budget():
         _MAX_ENVELOPE_BYTES, _MAX_RESERVATIONS, _decode, _encode
     )
     state = {
-        "version": 2, "revision": 501, "kill_switch": True,
+        "version": 2, "revision": 502, "kill_switch": True,
         "emergency_latched": False, "limit_cash": "1",
         "reservations": {
             hashlib.sha256(f"synthetic-order-{i:08d}".encode()).hexdigest(): "0.00000001"
@@ -494,3 +494,100 @@ def test_legitimate_initial_revision_still_allows_first_policy_transition(setup)
     assert s.set_policy("paper-acct-0001", 0, limit_cash="100",
                         kill_switch=False, owner_reviewed=True)
     assert s.load("paper-acct-0001")["revision"] == 1
+
+
+@pytest.mark.parametrize("emergency", [False, True])
+def test_stopped_account_cannot_reuse_last_reservation_revision(setup, emergency):
+    """A reservation and the later stop cannot occupy the same revision."""
+    import hashlib
+    from app.paper_risk_reservations import _encode
+
+    s = store(setup)
+    enabled(s)
+    assert s.reserve("paper-acct-0001", 1,
+                     client_order_id="order-00001", risk_cash="1")
+    key = s._key("paper-acct-0001")
+    with setup[1].begin() as db:
+        row = db.get(Record, key)
+        envelope = json.loads(row.value)
+        assert envelope["state"]["revision"] == 2
+        envelope["state"]["kill_switch"] = True
+        envelope["state"]["emergency_latched"] = emergency
+        with pytest.raises(ValueError, match="stop revision"):
+            _encode(envelope["state"], key=key)
+        canonical = json.dumps(envelope["state"], sort_keys=True, separators=(",", ":"))
+        envelope["sha256"] = hashlib.sha256(canonical.encode()).hexdigest()
+        row.value = json.dumps(envelope)
+    with setup[1]() as db:
+        audit_before = len(db.scalars(select(Audit)).all())
+    for action in (
+        lambda: s.load("paper-acct-0001"),
+        lambda: s.set_policy("paper-acct-0001", 2, limit_cash="100",
+                             kill_switch=True, owner_reviewed=True),
+        lambda: s.reserve("paper-acct-0001", 2,
+                          client_order_id="order-00002", risk_cash="1"),
+        lambda: s.engage_kill_switch("paper-acct-0001"),
+    ):
+        with pytest.raises(ValueError, match="corrupt"):
+            action()
+    with setup[1]() as db:
+        assert len(db.scalars(select(Audit)).all()) == audit_before
+
+
+def test_positive_cap_emergency_latch_needs_two_distinct_revisions(setup):
+    """A revision-one positive-cap policy cannot already be emergency latched."""
+    import hashlib
+    from app.paper_risk_reservations import _encode
+
+    s = store(setup)
+    assert s.initialize("paper-acct-0001")
+    assert s.set_policy("paper-acct-0001", 0, limit_cash="100",
+                        kill_switch=True, owner_reviewed=True)
+    key = s._key("paper-acct-0001")
+    with setup[1].begin() as db:
+        row = db.get(Record, key)
+        envelope = json.loads(row.value)
+        assert envelope["state"]["revision"] == 1
+        envelope["state"]["emergency_latched"] = True
+        with pytest.raises(ValueError, match="prior policy revision"):
+            _encode(envelope["state"], key=key)
+        canonical = json.dumps(envelope["state"], sort_keys=True, separators=(",", ":"))
+        envelope["sha256"] = hashlib.sha256(canonical.encode()).hexdigest()
+        row.value = json.dumps(envelope)
+    with setup[1]() as db:
+        audit_before = len(db.scalars(select(Audit)).all())
+    for action in (
+        lambda: s.load("paper-acct-0001"),
+        lambda: s.set_policy("paper-acct-0001", 1, limit_cash="100",
+                             kill_switch=True, owner_reviewed=True),
+        lambda: s.reserve("paper-acct-0001", 1,
+                          client_order_id="order-00002", risk_cash="1"),
+        lambda: s.engage_kill_switch("paper-acct-0001"),
+    ):
+        with pytest.raises(ValueError, match="corrupt"):
+            action()
+    with setup[1]() as db:
+        assert len(db.scalars(select(Audit)).all()) == audit_before
+
+
+def test_legitimate_separate_stop_revisions_remain_valid(setup):
+    """Normal and emergency stops still persist after their own transitions."""
+    s = store(setup)
+    enabled(s)
+    assert s.reserve("paper-acct-0001", 1,
+                     client_order_id="order-00001", risk_cash="1")
+    assert s.engage_kill_switch("paper-acct-0001")
+    stopped = store(setup).load("paper-acct-0001")
+    assert stopped["revision"] == 3
+    assert stopped["reservation_count"] == 1
+    assert stopped["emergency_latched"] is True
+    assert stopped["may_execute_paper_order"] is False
+
+    assert s.initialize("paper-acct-0002")
+    assert s.set_policy("paper-acct-0002", 0, limit_cash="100",
+                        kill_switch=True, owner_reviewed=True)
+    assert s.engage_kill_switch("paper-acct-0002")
+    stopped_without_reservations = store(setup).load("paper-acct-0002")
+    assert stopped_without_reservations["revision"] == 2
+    assert stopped_without_reservations["emergency_latched"] is True
+    assert stopped_without_reservations["may_execute_real_order"] is False
