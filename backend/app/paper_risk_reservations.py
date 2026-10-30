@@ -263,6 +263,16 @@ def _audit_head_matches(db, key, raw, state, reserved):
                         or (previous["operation"] == "reserve"
                             and previous_order == detail.get("reservation_order_hash"))):
                     return False
+                # The last reservation's exact retained cash amount must
+                # explain the entire increase from the adjacent checkpoint.
+                # A merely smaller preceding total is not sufficient proof.
+                latest_order = detail.get("reservation_order_hash")
+                if (not isinstance(latest_order, str)
+                        or latest_order not in state["reservations"]
+                        or previous_cash + _money(
+                            state["reservations"][latest_order], positive=True
+                        ) != reserved):
+                    return False
             else:
                 if previous_cash != reserved:
                     return False

@@ -222,3 +222,21 @@ prices, private data, order sender or production deployment are introduced.
 Keep PR #26 draft until main integration, atomic journal reconciliation,
 authenticated broker BID/ASK and positions, crash recovery and owner-approved
 backup/rollback are independently verified.
+
+
+## Exact adjacent reservation cash delta (30 October 2026)
+
+When the latest audit transition is a `reserve`, its hashed order identity
+must exist in the current retained reservation collection **and** the
+previous checkpoint's reserved cash plus that order's exact `Decimal` amount
+must equal the current total. Merely checking that the preceding total is
+smaller was insufficient: a forged but plausible prior cash balance could
+previously pass. Three synthetic SQLite tampering cases alter the preceding
+total above or below the true amount while preserving a valid current state;
+the resulting snapshots quarantine reservable capacity and all attempted
+mutations fail without new audit entries. A separate account remains valid.
+Existing precision regressions cover canonical eight-decimal cash values.
+
+This is only adjacent self-attested audit consistency, not cryptographic
+authentication, full historical reconciliation, broker-sourced positions,
+or profitability evidence. Keep the PR draft, unmerged and undeployed.

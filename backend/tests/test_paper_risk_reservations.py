@@ -1162,3 +1162,54 @@ def test_adjacent_reservation_identity_allows_legitimate_distinct_orders(setup):
     assert s.engage_kill_switch("paper-acct-0001")
     assert s.verify_audit_head("paper-acct-0001")
     assert s.load("paper-acct-0001")["reservation_count"] == 2
+
+
+@pytest.mark.parametrize("forged_previous_cash", [
+    "20", "24.99999999", "25.00000001",
+])
+def test_adjacent_reservation_cash_requires_exact_latest_order_delta(
+    setup, forged_previous_cash
+):
+    """A plausible but incorrect preceding total cannot pass a reserve CAS."""
+    s = store(setup)
+    enabled(s)
+    assert s.reserve("paper-acct-0001", 1,
+                     client_order_id="order-00001", risk_cash="25")
+    assert s.reserve("paper-acct-0001", 2,
+                     client_order_id="order-00002", risk_cash="10")
+    assert s.initialize("paper-acct-0002")
+    before = s.load("paper-acct-0001")
+    assert before["audit_head_verified"] is True
+    assert before["reserved_cash"] == "35"
+    account_hash = s._key("paper-acct-0001").split(":", 1)[1]
+    with setup[1].begin() as db:
+        rows = db.scalars(select(Audit).where(
+            Audit.detail.like('%"account_hash":"' + account_hash + '"%')
+        ).order_by(Audit.id.desc()).limit(2)).all()
+        assert len(rows) == 2
+        preceding = json.loads(rows[1].detail)
+        assert preceding["operation"] == "reserve"
+        assert preceding["reserved_cash"] == "25"
+        preceding["reserved_cash"] = forged_previous_cash
+        rows[1].detail = json.dumps(
+            preceding, sort_keys=True, separators=(",", ":")
+        )
+    with setup[1]() as db:
+        count_before = len(db.scalars(select(Audit)).all())
+    assert store(setup).load("paper-acct-0001") == {
+        **before, "audit_head_verified": False,
+        "reservable_risk_capacity_cash": "0",
+    }
+    assert not s.verify_audit_head("paper-acct-0001")
+    assert s.verify_audit_head("paper-acct-0002")
+    for attempt in (
+        lambda: s.reserve("paper-acct-0001", 3,
+                          client_order_id="order-00003", risk_cash="1"),
+        lambda: s.set_policy("paper-acct-0001", 3, limit_cash="100.00",
+                             kill_switch=True, owner_reviewed=True),
+        lambda: s.engage_kill_switch("paper-acct-0001"),
+    ):
+        with pytest.raises(ValueError, match="audit head"):
+            attempt()
+    with setup[1]() as db:
+        assert len(db.scalars(select(Audit)).all()) == count_before
