@@ -290,17 +290,22 @@ class PaperRiskReservationStore:
         key = self._key(account_id)
         with self.session_factory() as db:
             raw = db.scalar(select(Record.value).where(Record.key == key))
-        if raw is None:
-            return None  # Absence is NOT permission to trade.
-        state, reserved = _decode(raw, key=key)
+            if raw is None:
+                return None  # Absence is NOT permission to trade.
+            state, reserved = _decode(raw, key=key)
+            # Keep the snapshot and its audit-head check in one DB session.
+            # This is a conservative diagnostic, not authenticated evidence.
+            audit_verified = _audit_head_matches(db, key, raw, state, reserved)
         return {"revision": state["revision"], "kill_switch": state["kill_switch"],
+                "audit_head_verified": audit_verified,
                 "emergency_latched": state["emergency_latched"], "limit_cash": state["limit_cash"],
                 "reserved_cash": str(reserved),
                 "remaining_risk_capacity_cash": str(_money(state["limit_cash"]) - reserved),
-                # A disabled/latching account has no usable reservation capacity.
-                # Remaining capacity above is accounting headroom only.
+                # Accounting headroom is not usable when the audit checkpoint
+                # is absent or inconsistent, even if the persisted switch is off.
                 "reservable_risk_capacity_cash": (
-                    "0" if state["kill_switch"] else str(_money(state["limit_cash"]) - reserved)
+                    "0" if state["kill_switch"] or not audit_verified
+                    else str(_money(state["limit_cash"]) - reserved)
                 ),
                 "reservation_count": len(state["reservations"]),
                 # A snapshot is never permission to submit even a paper order:
