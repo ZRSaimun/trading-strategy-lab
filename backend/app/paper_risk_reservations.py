@@ -32,6 +32,17 @@ def _money(value, *, positive=False):
     return number
 
 
+def _audit_cash(value):
+    """Parse the canonical Decimal audit representation, including 1E-8."""
+    if not isinstance(value, str) or len(value) > 48:
+        raise ValueError("Invalid paper audit cash amount")
+    amount = Decimal(value)
+    if (not amount.is_finite() or amount < 0
+            or amount.as_tuple().exponent < -8 or str(amount) != value):
+        raise ValueError("Invalid paper audit cash amount")
+    return amount
+
+
 def _unique_json(raw):
     def unique(pairs):
         result = {}
@@ -193,6 +204,19 @@ def _audit_head_matches(db, key, raw, state, reserved):
                         or (previous["operation"] == "reserve"
                             and (previous["kill_switch"] or previous_count == 0))):
                     return False
+                # The preceding receipt must be financially possible, even
+                # when its own state envelope is no longer the current one.
+                previous_cash = _audit_cash(previous.get("reserved_cash"))
+                previous_limit = _money(previous.get("limit_cash"))
+                previous_order = previous.get("reservation_order_hash")
+                if (previous_cash > previous_limit
+                        or (previous_count == 0) != (previous_cash == 0)
+                        or (not previous["kill_switch"] and previous_limit <= 0)
+                        or (previous["operation"] == "reserve"
+                            and (not isinstance(previous_order, str)
+                                 or not re.fullmatch(r"[0-9a-f]{64}", previous_order)))
+                        or (previous["operation"] != "reserve" and previous_order is not None)):
+                    return False
         detail = _unique_json(audit.detail)
         if (not isinstance(detail, dict)
                 or detail.get("account_hash") != account_hash
@@ -225,8 +249,20 @@ def _audit_head_matches(db, key, raw, state, reserved):
             expected_previous_count = len(state["reservations"]) - int(operation == "reserve")
             if previous["reservation_count"] != expected_previous_count:
                 return False
-            if operation == "reserve" and previous["kill_switch"]:
-                return False
+            # Reservation increases committed cash risk; policy/emergency
+            # cannot silently release it. Only an owner-reviewed policy may
+            # change the cap, never a reserve or emergency-stop transition.
+            if operation == "reserve":
+                if (previous["kill_switch"]
+                        or previous["limit_cash"] != state["limit_cash"]
+                        or previous_cash >= reserved):
+                    return False
+            else:
+                if previous_cash != reserved:
+                    return False
+                if (operation == "emergency_kill"
+                        and previous["limit_cash"] != state["limit_cash"]):
+                    return False
         order_hash = detail.get("reservation_order_hash")
         # The audit operation must be possible for the state it claims to
         # checkpoint. Matching fields/checksum alone cannot turn a policy

@@ -1020,3 +1020,71 @@ def test_nonreservation_audit_keeps_predecessor_reservation_count(setup):
     assert store(setup).load("paper-acct-0001")["reservable_risk_capacity_cash"] == "0"
     with pytest.raises(ValueError, match="audit head"):
         s.engage_kill_switch("paper-acct-0001")
+
+
+@pytest.mark.parametrize("mode,field,forged", [
+    ("reserve", "reserved_cash", "99"),
+    ("reserve", "reserved_cash", "0"),
+    ("reserve", "reserved_cash", "NaN"),
+    ("reserve", "limit_cash", "90"),
+    ("reserve", "reservation_order_hash", "not-a-sha256"),
+    ("policy", "reserved_cash", "24"),
+    ("emergency", "limit_cash", "90"),
+])
+def test_adjacent_audit_cash_and_cap_conservation_fails_closed(setup, mode, field, forged):
+    """A plausible final audit cannot conceal a forged prior cash/cap receipt."""
+    s = store(setup)
+    enabled(s)
+    assert s.reserve("paper-acct-0001", 1,
+                     client_order_id="order-00001", risk_cash="25")
+    if mode == "reserve":
+        assert s.reserve("paper-acct-0001", 2,
+                         client_order_id="order-00002", risk_cash="10")
+    elif mode == "policy":
+        assert s.set_policy("paper-acct-0001", 2, limit_cash="80",
+                            kill_switch=True, owner_reviewed=True)
+    else:
+        assert s.engage_kill_switch("paper-acct-0001")
+    before = s.load("paper-acct-0001")
+    assert before["audit_head_verified"] is True
+    account_hash = s._key("paper-acct-0001").split(":", 1)[1]
+    with setup[1].begin() as db:
+        rows = db.scalars(select(Audit).where(
+            Audit.detail.like('%"account_hash":"' + account_hash + '"%')
+        ).order_by(Audit.id.desc()).limit(2)).all()
+        assert len(rows) == 2
+        predecessor = rows[1]
+        detail = json.loads(predecessor.detail)
+        assert detail["operation"] == "reserve"
+        detail[field] = forged
+        predecessor.detail = json.dumps(detail, sort_keys=True, separators=(",", ":"))
+    with setup[1]() as db:
+        audit_count = len(db.scalars(select(Audit)).all())
+    snapshot = store(setup).load("paper-acct-0001")
+    assert snapshot == {
+        **before, "audit_head_verified": False,
+        "reservable_risk_capacity_cash": "0",
+    }
+    assert not s.verify_audit_head("paper-acct-0001")
+    with pytest.raises(ValueError, match="audit head"):
+        s.engage_kill_switch("paper-acct-0001")
+    with setup[1]() as db:
+        assert len(db.scalars(select(Audit)).all()) == audit_count
+
+
+def test_adjacent_cash_conservation_accepts_policy_cap_change_and_tiny_cash(setup):
+    """Canonical Decimal 1E-8 must remain valid through policy and emergency CAS."""
+    s = store(setup)
+    enabled(s)
+    assert s.reserve("paper-acct-0001", 1,
+                     client_order_id="order-00001", risk_cash="0.00000001")
+    assert s.verify_audit_head("paper-acct-0001")
+    assert s.set_policy("paper-acct-0001", 2, limit_cash="150.00",
+                        kill_switch=False, owner_reviewed=True)
+    assert s.verify_audit_head("paper-acct-0001")
+    assert s.reserve("paper-acct-0001", 3,
+                     client_order_id="order-00002", risk_cash="0.00000002")
+    assert s.verify_audit_head("paper-acct-0001")
+    assert s.engage_kill_switch("paper-acct-0001")
+    assert s.verify_audit_head("paper-acct-0001")
+    assert s.load("paper-acct-0001")["reserved_cash"] == "3E-8"

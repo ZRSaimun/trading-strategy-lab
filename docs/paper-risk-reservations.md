@@ -181,3 +181,24 @@ Synthetic SQLite regressions cover all three tampering modes, a duplicate initia
 The latest two same-account risk audit checkpoints now receive a **causal transition consistency** check in addition to their revision/schema checks. The immediately preceding CAS must have a typed, bounded retained-reservation count, typed stop flags, and a reachable non-emergency state. A previous emergency latch cannot be followed by another mutation; a preceding reservation cannot claim to have occurred while disabled. The current reservation event must add exactly one retained order identity relative to that predecessor; policy and emergency transitions must retain the same count. A reservation also cannot directly follow a disabled checkpoint without an intervening enabling policy transition.
 
 Five parameterized SQLite tampering regressions cover incorrect or boolean predecessor counts, forged previous stop/latch flags and a retroactively renamed emergency event. A sixth test checks unchanged reservation population across a subsequent policy stop. Failed preflights quarantine reservable capacity and reject reservation/policy/emergency writes without appending audit events. This is **adjacent self-attested continuity only**, not full historical audit-chain verification, a cryptographic signature, broker reconciliation, independently authenticated quotes, a live-order permission or evidence of profitable trading. PR #26 stays **DRAFT / NO MERGE / NO DEPLOY / NO ORDERS** pending main integration, atomic journal coupling, crash recovery and authorized market/broker evidence.
+
+## Adjacent audit cash/cap conservation (30 October 2026)
+
+The disconnected PAPER reservation preflight now checks the **immediately preceding**
+same-account CAS receipt for canonical, finite nonnegative Decimal reserved cash
+(including legitimate `1E-8` notation), a valid positive cap when enabled,
+reserved cash not exceeding its cap, and agreement between zero/nonzero
+reserved cash and the retained reservation population. Prior reservation
+receipts must contain a SHA-256-shaped order digest; non-reservation receipts
+must have a null order digest. Across an adjacent transition, `reserve` must
+increase reserved cash and retain the identical cap; `policy` and
+`emergency_kill` must preserve reserved cash, and an emergency stop cannot
+change the cap. Owner-reviewed policy cap changes remain allowed.
+
+Seven synthetic SQLite tampering variants cover forged prior cash/caps/order
+digests across reserve, policy and emergency transitions; a separate positive
+regression covers policy cap changes and exact eight-decimal cash. Invalid
+receipts quarantine reservable capacity and prevent further audit mutations.
+This verifies **only the adjacent self-attested receipts**, not the full
+historical chain, signed broker evidence, actual losses or trade profitability.
+No route, broker order, merge or deployment is enabled.
