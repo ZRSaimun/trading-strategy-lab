@@ -141,16 +141,45 @@ def _audit_head_matches(db, key, raw, state, reserved):
     account_hash = _account_hash(key)
     # Audit details are emitted by _canonical, with no whitespace.
     # Restrict by exact account-hash JSON field, not raw account ID.
-    audit = db.scalar(select(Audit).where(
+    audits = db.scalars(select(Audit).where(
         Audit.action.in_(("paper.risk.init", "paper.risk.cas")),
         Audit.detail.like('%"account_hash":"' + account_hash + '"%')
-    ).order_by(Audit.id.desc()).limit(1))
-    # These audit rows are written only by this disconnected store. An
-    # unrelated actor or a schema-drifted event must not corroborate a
-    # persisted reservation checkpoint, even when its other fields match.
-    if audit is None or audit.actor != "paper-risk-store":
+    ).order_by(Audit.id.desc()).limit(2)).all()
+    # The latest checkpoint alone cannot reveal a deleted immediately prior
+    # transition or a duplicated/replayed head. Check the adjacent revision
+    # without pretending to authenticate the entire audit history.
+    if not audits or audits[0].actor != "paper-risk-store":
         return False
+    audit = audits[0]
     try:
+        if state["revision"] == 0:
+            if len(audits) != 1:
+                return False
+        else:
+            if len(audits) != 2:
+                return False
+            predecessor = audits[1]
+            previous = _unique_json(predecessor.detail)
+            expected_action = ("paper.risk.init" if state["revision"] == 1
+                               else "paper.risk.cas")
+            if (predecessor.actor != "paper-risk-store"
+                    or predecessor.action != expected_action
+                    or not isinstance(previous, dict)
+                    or previous.get("account_hash") != account_hash
+                    or type(previous.get("revision")) is not int
+                    or previous["revision"] != state["revision"] - 1):
+                return False
+            if state["revision"] == 1:
+                if (set(previous) != {"account_hash", "operation", "revision", "kill_switch"}
+                        or previous.get("operation") != "initialize"
+                        or previous.get("kill_switch") is not True):
+                    return False
+            elif (set(previous) != {
+                "account_hash", "operation", "revision", "kill_switch",
+                "emergency_latched", "reserved_cash", "limit_cash",
+                "reservation_count", "reservation_order_hash", "state_sha256"
+            } or previous.get("operation") not in ("policy", "reserve", "emergency_kill")):
+                return False
         detail = _unique_json(audit.detail)
         if (not isinstance(detail, dict)
                 or detail.get("account_hash") != account_hash
