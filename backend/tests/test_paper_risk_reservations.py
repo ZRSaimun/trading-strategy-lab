@@ -940,3 +940,83 @@ def test_duplicate_initial_paper_audit_blocks_first_policy_transition(setup):
                      kill_switch=False, owner_reviewed=True)
     with setup[1]() as db:
         assert len(db.scalars(select(Audit)).all()) == 2
+
+@pytest.mark.parametrize("damage", [
+    "wrong_count", "boolean_count", "prior_disabled", "prior_latched",
+    "prior_emergency_operation",
+])
+def test_adjacent_paper_audit_predecessor_semantics_fail_closed(setup, damage):
+    """A valid head cannot conceal an impossible preceding PAPER transition."""
+    s = store(setup)
+    enabled(s)
+    assert s.reserve("paper-acct-0001", 1,
+                     client_order_id="order-00001", risk_cash="25")
+    assert s.reserve("paper-acct-0001", 2,
+                     client_order_id="order-00002", risk_cash="10")
+    assert s.initialize("paper-acct-0002")
+    before = s.load("paper-acct-0001")
+    assert before["audit_head_verified"] is True
+    key_hash = s._key("paper-acct-0001").split(":", 1)[1]
+    with setup[1].begin() as db:
+        rows = db.scalars(select(Audit).where(
+            Audit.detail.like('%"account_hash":"' + key_hash + '"%')
+        ).order_by(Audit.id.desc())).all()
+        assert [json.loads(row.detail)["revision"] for row in rows] == [3, 2, 1, 0]
+        predecessor = rows[1]
+        detail = json.loads(predecessor.detail)
+        assert detail["operation"] == "reserve"
+        assert detail["reservation_count"] == 1
+        if damage == "wrong_count":
+            detail["reservation_count"] = 0
+        elif damage == "boolean_count":
+            detail["reservation_count"] = True  # bool == 1 must not pass.
+        elif damage == "prior_disabled":
+            detail["kill_switch"] = True
+        elif damage == "prior_latched":
+            detail["emergency_latched"] = True
+        else:
+            detail["operation"] = "emergency_kill"
+        predecessor.detail = json.dumps(detail, sort_keys=True, separators=(",", ":"))
+    with setup[1]() as db:
+        audit_count = len(db.scalars(select(Audit)).all())
+    assert store(setup).load("paper-acct-0001") == {
+        **before, "audit_head_verified": False,
+        "reservable_risk_capacity_cash": "0",
+    }
+    assert not s.verify_audit_head("paper-acct-0001")
+    assert s.verify_audit_head("paper-acct-0002")
+    for action in (
+        lambda: s.reserve("paper-acct-0001", 3,
+                          client_order_id="order-00003", risk_cash="1"),
+        lambda: s.set_policy("paper-acct-0001", 3, limit_cash="100",
+                             kill_switch=True, owner_reviewed=True),
+        lambda: s.engage_kill_switch("paper-acct-0001"),
+    ):
+        with pytest.raises(ValueError, match="audit head"):
+            action()
+    with setup[1]() as db:
+        assert len(db.scalars(select(Audit)).all()) == audit_count
+
+
+def test_nonreservation_audit_keeps_predecessor_reservation_count(setup):
+    """A policy CAS cannot conceal a retroactively rewritten prior ID count."""
+    s = store(setup)
+    enabled(s)
+    assert s.reserve("paper-acct-0001", 1,
+                     client_order_id="order-00001", risk_cash="25")
+    assert s.set_policy("paper-acct-0001", 2, limit_cash="100",
+                        kill_switch=True, owner_reviewed=True)
+    assert s.verify_audit_head("paper-acct-0001")
+    key_hash = s._key("paper-acct-0001").split(":", 1)[1]
+    with setup[1].begin() as db:
+        rows = db.scalars(select(Audit).where(
+            Audit.detail.like('%"account_hash":"' + key_hash + '"%')
+        ).order_by(Audit.id.desc())).all()
+        detail = json.loads(rows[1].detail)
+        assert detail["reservation_count"] == 1
+        detail["reservation_count"] = 0
+        rows[1].detail = json.dumps(detail, sort_keys=True, separators=(",", ":"))
+    assert not store(setup).verify_audit_head("paper-acct-0001")
+    assert store(setup).load("paper-acct-0001")["reservable_risk_capacity_cash"] == "0"
+    with pytest.raises(ValueError, match="audit head"):
+        s.engage_kill_switch("paper-acct-0001")

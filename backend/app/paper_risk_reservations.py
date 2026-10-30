@@ -180,6 +180,19 @@ def _audit_head_matches(db, key, raw, state, reserved):
                 "reservation_count", "reservation_order_hash", "state_sha256"
             } or previous.get("operation") not in ("policy", "reserve", "emergency_kill")):
                 return False
+            if state["revision"] > 1:
+                # The adjacent checkpoint must describe a reachable previous
+                # state, not merely have a matching revision and field names.
+                previous_count = previous.get("reservation_count")
+                if (type(previous_count) is not int
+                        or not 0 <= previous_count <= _MAX_RESERVATIONS
+                        or type(previous.get("kill_switch")) is not bool
+                        or type(previous.get("emergency_latched")) is not bool
+                        or previous["emergency_latched"]
+                        or previous["operation"] == "emergency_kill"
+                        or (previous["operation"] == "reserve"
+                            and (previous["kill_switch"] or previous_count == 0))):
+                    return False
         detail = _unique_json(audit.detail)
         if (not isinstance(detail, dict)
                 or detail.get("account_hash") != account_hash
@@ -205,6 +218,15 @@ def _audit_head_matches(db, key, raw, state, reserved):
                 or detail.get("reservation_count") != len(state["reservations"])
                 or detail.get("reserved_cash") != str(reserved)):
             return False
+        if state["revision"] > 1:
+            # A reserve adds exactly one retained ID; policy and emergency
+            # transitions never add or release IDs. A reserve also cannot
+            # follow a disabled checkpoint without an intervening policy CAS.
+            expected_previous_count = len(state["reservations"]) - int(operation == "reserve")
+            if previous["reservation_count"] != expected_previous_count:
+                return False
+            if operation == "reserve" and previous["kill_switch"]:
+                return False
         order_hash = detail.get("reservation_order_hash")
         # The audit operation must be possible for the state it claims to
         # checkpoint. Matching fields/checksum alone cannot turn a policy
