@@ -10,7 +10,7 @@ import re
 import time
 from decimal import Decimal, InvalidOperation
 
-from sqlalchemy import insert, select, update
+from sqlalchemy import func, insert, select, update
 from sqlalchemy.exc import IntegrityError
 
 from .db import Audit, Record, Session
@@ -186,6 +186,13 @@ def _audit_head_matches(db, key, raw, state, reserved):
     # Never accept an unbounded scan as evidence of a verified audit history.
     # Revision 0 has one init receipt; each CAS adds exactly one more.
     if state["revision"] >= _MAX_AUDIT_HISTORY_ROWS:
+        return False
+    # Do not materialize unbounded audit text into Python just to discover
+    # that it exceeds the receipt limit. SQL length is character-based on
+    # SQLite/PostgreSQL; _audit_json still enforces the UTF-8 byte bound.
+    if db.scalar(select(Audit.id).where(
+        account_match, func.length(Audit.detail) > _MAX_AUDIT_DETAIL_BYTES
+    ).limit(1)) is not None:
         return False
     audits = db.scalars(select(Audit).where(
         account_match
