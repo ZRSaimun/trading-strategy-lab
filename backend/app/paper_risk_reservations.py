@@ -10,7 +10,7 @@ import re
 import time
 from decimal import Decimal, InvalidOperation
 
-from sqlalchemy import insert, select, update
+from sqlalchemy import func, insert, select, update
 from sqlalchemy.exc import IntegrityError
 
 from .db import Audit, Record, Session
@@ -165,9 +165,15 @@ def _audit_head_matches(db, key, raw, state, reserved):
     account_hash = _account_hash(key)
     # Audit details are emitted by _canonical, with no whitespace.
     # Restrict by exact account-hash JSON field, not raw account ID.
+    actions = Audit.action.in_(("paper.risk.init", "paper.risk.cas"))
+    account_match = Audit.detail.like('%"account_hash":"' + account_hash + '"%')
+    # Initialization adds one receipt, each CAS adds exactly one more.
+    # The two-row head check alone misses gaps or duplicates further back.
+    receipt_count = db.scalar(select(func.count(Audit.id)).where(actions, account_match))
+    if receipt_count != state["revision"] + 1:
+        return False
     audits = db.scalars(select(Audit).where(
-        Audit.action.in_(("paper.risk.init", "paper.risk.cas")),
-        Audit.detail.like('%"account_hash":"' + account_hash + '"%')
+        actions, account_match
     ).order_by(Audit.id.desc()).limit(2)).all()
     # The latest checkpoint alone cannot reveal a deleted immediately prior
     # transition or a duplicated/replayed head. Check the adjacent revision
