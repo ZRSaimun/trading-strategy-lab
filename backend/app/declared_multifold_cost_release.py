@@ -99,6 +99,19 @@ def audit_declared_multifold_cost_release(
                     "additional_cost_cash": format(sum(extras, Decimal(0)), ".4f"),
                     "worst_fold_stressed_net_cash": format(min(nets), ".4f"),
                     "negative_net_fold_count": sum(net < 0 for net in nets),
+                    "positive_net_fold_count": sum(net > 0 for net in nets),
+                    # Fixed, preregistered fold membership is preserved.
+                    # These are leave-one-fold-out diagnostics, NOT a new
+                    # candidate selection or a permission to omit a fold.
+                    "leave_one_fold_out_min_net_cash": format(
+                        sum(nets, Decimal(0)) - max(nets), ".4f"
+                    ),
+                    "leave_one_fold_out_max_net_cash": format(
+                        sum(nets, Decimal(0)) - min(nets), ".4f"
+                    ),
+                    "any_leave_one_fold_out_net_nonpositive": any(
+                        sum(nets, Decimal(0)) - net <= 0 for net in nets
+                    ),
                 })
     return {
         "protocol": "declared-multifold-cost-release-v1",
