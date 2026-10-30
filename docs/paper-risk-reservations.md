@@ -281,3 +281,18 @@ authenticated broker receipt. Anyone with database write access can forge
 a mutually consistent state and hashes. Full history, atomic paper journal,
 crash recovery, verified broker BID/ASK and owner-approved release/rollback
 remain blockers. Keep PR #26 draft, unmerged and undeployed.
+
+
+## Historical receipt population census (30 October 2026)
+
+The PAPER risk preflight now checks that the number of retained same-account
+initialization/CAS receipts equals the stored revision plus one. A SQL COUNT
+catches deleted early initialization/policy rows or extra old receipts even
+when the latest two checkpoints match. SQLite regressions exercise these
+fail-closed cases, unchanged rejected writes, and independent accounts.
+
+This is **not** full-chain content verification, a bounded database scan,
+cryptographic authentication, broker reconciliation, or trading approval.
+Coordinated deletion and insertion can preserve the count. Keep PR #26 draft,
+unmerged and undeployed pending main integration, atomic journal coupling,
+verified broker BID/ASK and positions, crash recovery, and backup/rollback.
