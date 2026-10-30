@@ -341,7 +341,7 @@ def test_maximum_valid_reservation_count_fits_envelope_budget():
         _MAX_ENVELOPE_BYTES, _MAX_RESERVATIONS, _decode, _encode
     )
     state = {
-        "version": 2, "revision": 500, "kill_switch": True,
+        "version": 2, "revision": 501, "kill_switch": True,
         "emergency_latched": False, "limit_cash": "1",
         "reservations": {
             hashlib.sha256(f"synthetic-order-{i:08d}".encode()).hexdigest(): "0.00000001"
@@ -386,6 +386,43 @@ def test_impossible_reservation_count_revision_fails_closed_with_matching_checks
     ):
         with pytest.raises(ValueError, match="corrupt"):
             operation()
+    with setup[1]() as db:
+        assert len(db.scalars(select(Audit)).all()) == audit_before
+
+
+def test_first_revision_cannot_claim_reservation_with_matching_checksum(setup):
+    """An initialized killed account needs a policy transition before any reserve."""
+    import hashlib
+    from app.paper_risk_reservations import _encode
+    s = store(setup)
+    enabled(s)
+    assert s.reserve("paper-acct-0001", 1,
+                     client_order_id="order-00001", risk_cash="1")
+    legitimate = s.load("paper-acct-0001")
+    assert legitimate["revision"] == 2
+    assert legitimate["reservation_count"] == 1
+    key = s._key("paper-acct-0001")
+    with setup[1].begin() as db:
+        record = db.get(Record, key)
+        envelope = json.loads(record.value)
+        envelope["state"]["revision"] = 1
+        canonical = json.dumps(envelope["state"], sort_keys=True, separators=(",", ":"))
+        envelope["sha256"] = hashlib.sha256(canonical.encode()).hexdigest()
+        with pytest.raises(ValueError, match="revision"):
+            _encode(envelope["state"], key=key)
+        record.value = json.dumps(envelope)
+    with setup[1]() as db:
+        audit_before = len(db.scalars(select(Audit)).all())
+    for action in (
+        lambda: s.load("paper-acct-0001"),
+        lambda: s.set_policy("paper-acct-0001", 1, limit_cash="100",
+                             kill_switch=True, owner_reviewed=True),
+        lambda: s.reserve("paper-acct-0001", 1,
+                          client_order_id="order-00002", risk_cash="1"),
+        lambda: s.engage_kill_switch("paper-acct-0001"),
+    ):
+        with pytest.raises(ValueError, match="corrupt"):
+            action()
     with setup[1]() as db:
         assert len(db.scalars(select(Audit)).all()) == audit_before
 

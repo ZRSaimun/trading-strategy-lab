@@ -67,10 +67,11 @@ def _validate(state):
     reservations = state["reservations"]
     if not isinstance(reservations, dict) or len(reservations) > _MAX_RESERVATIONS:
         raise ValueError("Invalid paper reservation collection")
-    # IDs are never released or pruned; each was added by its own revision.
-    # A snapshot with more IDs than committed revisions is impossible here.
-    if len(reservations) > state["revision"]:
-        raise ValueError("Paper reservation count exceeds state revision")
+    # The first transition must be a policy change: initialize() is killed,
+    # so no reservation can occur at revision one. Each retained ID needs
+    # another committed revision after that initial policy transition.
+    if len(reservations) > max(0, state["revision"] - 1):
+        raise ValueError("Paper reservation count exceeds post-policy revision capacity")
     # Revision zero is created only by initialize(): no policy, reservation,
     # or emergency transition can legitimately exist before revision one.
     # Reject checksum-recomputed imports that invent a pre-policy cash cap.
