@@ -194,6 +194,8 @@ def _audit_head_matches(db, key, raw, state, reserved):
             return False
         previous_entry = None
         historical_orders = set()
+        historical_reservations = {}
+        historical_reserved = Decimal(0)
         for expected, (history_action, history_actor, history_detail) in enumerate(history):
             entry = _audit_json(history_detail)
             if (history_actor != "paper-risk-store"
@@ -275,6 +277,23 @@ def _audit_head_matches(db, key, raw, state, reserved):
                     if (expected > 1 and cash != prior_cash + _money(
                             state["reservations"][order], positive=True)):
                         return False
+                    historical_reservations[order] = state["reservations"][order]
+                    historical_reserved += _money(state["reservations"][order], positive=True)
+                # Verify every older receipt against its reconstructed prefix,
+                # not only the latest two adjacent audit checkpoints.
+                if cash != historical_reserved:
+                    return False
+                historical_state = {
+                    "version": 2,
+                    "revision": expected,
+                    "kill_switch": stopped,
+                    "emergency_latched": latched,
+                    "limit_cash": entry["limit_cash"],
+                    "reservations": dict(historical_reservations),
+                }
+                historical_envelope = _encode(historical_state, key=key)
+                if checksum != hashlib.sha256(historical_envelope.encode()).hexdigest():
+                    return False
             previous_entry = entry
         if historical_orders != set(state["reservations"]):
             return False

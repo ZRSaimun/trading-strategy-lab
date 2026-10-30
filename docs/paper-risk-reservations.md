@@ -334,3 +334,22 @@ The bounded account-specific audit walk now checks **transitions between every r
 Six synthetic SQLite regressions cover plausible but inconsistent old cash totals, duplicate historical order identity, silent policy cash changes, reserve-time cap changes, count jumps and retroactive cap changes. They retain valid latest-two receipts and verify fail-closed capacity, blocked writes, unchanged audit count and unrelated-account isolation. Run `PYTHONPATH=. python -m pytest -q tests/test_paper_risk_audit_census.py` from `backend`.
 
 **Limits:** All receipts and retained order amounts are self-attested in the same database. An actor able to rewrite all stored states, receipts and checksums can still forge a consistent chain. Historical receipt scanning is bounded to 4,096 entries and costs database work; the account is quarantined above that bound. No broker execution, journal integration, actual BID/ASK quote authentication, daily realized-loss verification, production migration, merge or Render deployment is authorized by these tests.
+
+
+## Historical PAPER receipt digest reconstruction (30 October 2026)
+
+The bounded account-specific audit walk now reconstructs the exact retained
+reservation prefix at **every** historical CAS revision and verifies each
+receipt's `state_sha256` against the canonical version-2 envelope at that
+revision. It also reconciles each old reserved-cash total against its prefix.
+Older policy/reservation receipts with plausible but incorrect checksums
+cannot hide behind two intact latest checkpoints. Three synthetic SQLite
+tampering cases and one positive precision/restart/emergency regression
+are in `backend/tests/test_paper_risk_historical_digests.py`.
+
+These are **self-attested** database digests, not signed evidence: a database
+writer can rewrite a coordinated history. Full-history scans remain bounded
+to 4,096 receipts and add cost. This does not authenticate broker quotes,
+reconcile orders or positions, prove crash recovery or authorize execution.
+PR #26 remains DRAFT / PAPER ONLY / NO MERGE / NO DEPLOY without separate
+approval and all documented evidence gates.
