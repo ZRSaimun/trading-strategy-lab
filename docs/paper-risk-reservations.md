@@ -164,3 +164,7 @@ without creating another audit event. This is internal consistency only:
 the audit remains unkeyed/self-attested, not authenticated broker evidence,
 an execution permission, or a substitute for journal reconciliation.
 Keep the draft unmerged and undeployed pending the existing release gates.
+
+## Fail-closed read-only capacity on audit mismatch (30 October 2026)
+
+The disconnected PAPER `load(account_id)` snapshot now reports `audit_head_verified` (a local, **self-attested** latest-checkpoint consistency result). The snapshot and latest same-account audit are inspected within one database session. If the checkpoint is absent, malformed, or disagrees with the stored state, `reservable_risk_capacity_cash` is **"0"**, even when the stored kill switch is off. `remaining_risk_capacity_cash` remains a clearly separate arithmetic balance, **not** usable risk or broker buying power. Both execution flags stay false in every case. An uninitialized account still returns `None`; corrupt state still raises rather than being repaired or silently accepted. A concurrent writer can cause a conservative false negative; no positive audit result is trading authorization. Synthetic SQLite regressions cover missing and altered latest audits, preserved accounting totals, blocked reservations, restart-safe reads and a valid emergency stop. This does not authenticate an audit writer, validate broker positions, or authorize deployment or orders.
