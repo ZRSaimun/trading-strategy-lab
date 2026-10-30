@@ -69,7 +69,14 @@ def _audit_json(raw):
     if (not isinstance(raw, str) or len(raw) > _MAX_AUDIT_DETAIL_BYTES
             or len(raw.encode("utf-8")) > _MAX_AUDIT_DETAIL_BYTES):
         raise ValueError("Paper risk audit detail exceeds size limit")
-    return _unique_json(raw)
+    # Every receipt written by this store uses _canonical(). Accepting a
+    # semantically equivalent but byte-different receipt would conceal a
+    # textual audit mutation (whitespace, escapes, key order or numeric form).
+    # This is an integrity preflight, NOT a signature or authenticated ledger.
+    detail = _unique_json(raw)
+    if raw != _canonical(detail):
+        raise ValueError("Noncanonical paper risk audit detail")
+    return detail
 
 
 def _canonical(value):
