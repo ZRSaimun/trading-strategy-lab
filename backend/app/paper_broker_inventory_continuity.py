@@ -127,6 +127,11 @@ def _cross_snapshot_integrity(expected: dict, previous: dict, current: dict) -> 
               for page in current["pages"] for row in page["orders"]}
     prior_observed = previous["observed_at_ms"]
     for client_id, old in prior.items():
+        # A prior inventory cannot contain an order before its declared attempt.
+        # In particular, terminal REJECTED/CANCELLED rows have no fills to
+        # expose this impossible chronology through fill-timing checks.
+        if client_id in attempted and attempted[client_id] > prior_observed:
+            failures.add("prior_order_precedes_attempt")
         # The earlier checkpoint has already passed strict schema validation.
         for fill in old["fills"]:
             if client_id in attempted and fill["filled_at_ms"] < attempted[client_id]:
