@@ -381,3 +381,25 @@ This is **not** a cryptographic signature, trusted external ledger, broker
 reconciliation, or proof of market-data authenticity or trading performance.
 A database writer can still forge a mutually consistent canonical history.
 PR #26 remains DRAFT / PAPER ONLY / NO MERGE / NO DEPLOY / NO ORDERS.
+
+
+## Unknown-action PAPER audit receipt census (30 October 2026)
+
+The bounded account-specific audit verifier now considers **every** retained
+receipt whose detail contains the exact canonical `account_hash` field, not
+only receipts already labelled `paper.risk.init` or `paper.risk.cas`.
+An unrecognized action carrying that account hash therefore invalidates the
+expected revision population and quarantines reservable capacity. Previously,
+a foreign/unknown action could be inserted without affecting the known-action
+census. Three synthetic SQLite regressions cover an unexpected action before
+the initialization receipt, after the latest CAS, and an unrelated action name;
+blocked policy/reservation/emergency writes and unrelated-account isolation
+are asserted in `backend/tests/test_paper_risk_unknown_actions.py`.
+
+Run `cd backend && PYTHONPATH=. python -m pytest -q tests/test_paper_risk_unknown_actions.py`.
+This remains a **self-attested** audit: the exact-text account-hash locator
+cannot discover a forged receipt that omits or rewrites the field, and a
+privileged database writer can rewrite coordinated evidence. It does not
+prove broker authenticity, complete audit integrity, crash recovery,
+positive expectancy, or permission to execute. **DRAFT / PAPER ONLY / NO MERGE /
+NO DEPLOY / NO ORDERS.**

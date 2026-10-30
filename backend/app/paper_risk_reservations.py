@@ -179,14 +179,16 @@ def _audit_head_matches(db, key, raw, state, reserved):
     account_hash = _account_hash(key)
     # Audit details are emitted by _canonical, with no whitespace.
     # Restrict by exact account-hash JSON field, not raw account ID.
-    actions = Audit.action.in_(("paper.risk.init", "paper.risk.cas"))
+    # Count every receipt carrying this account hash, including unknown
+    # actions. Filtering to known actions silently hides unauthorized writes.
+    # The exact JSON-field locator is self-attested, not authenticated.
     account_match = Audit.detail.like('%"account_hash":"' + account_hash + '"%')
     # Never accept an unbounded scan as evidence of a verified audit history.
     # Revision 0 has one init receipt; each CAS adds exactly one more.
     if state["revision"] >= _MAX_AUDIT_HISTORY_ROWS:
         return False
     audits = db.scalars(select(Audit).where(
-        actions, account_match
+        account_match
     ).order_by(Audit.id.desc()).limit(2)).all()
     # The latest checkpoint alone cannot reveal a deleted immediately prior
     # transition or a duplicated/replayed head. Check the adjacent revision
@@ -200,7 +202,7 @@ def _audit_head_matches(db, key, raw, state, reserved):
         # append order and require exact consecutive revisions, actor and
         # operation schema. The latest two still receive stronger state checks.
         history = db.execute(select(Audit.action, Audit.actor, Audit.detail).where(
-            actions, account_match
+            account_match
         ).order_by(Audit.id.asc()).limit(_MAX_AUDIT_HISTORY_ROWS + 1)).all()
         if len(history) != state["revision"] + 1:
             return False
