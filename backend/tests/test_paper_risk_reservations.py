@@ -871,3 +871,72 @@ def test_read_only_snapshot_reports_verified_zero_capacity_after_emergency_stop(
     assert snapshot["kill_switch"] is True
     assert snapshot["emergency_latched"] is True
     assert snapshot["reservable_risk_capacity_cash"] == "0"
+
+
+@pytest.mark.parametrize("damage", [
+    "missing_predecessor", "duplicate_head", "changed_predecessor_revision",
+])
+def test_adjacent_paper_audit_revision_continuity_fails_closed(setup, damage):
+    """A matching head cannot conceal a lost, duplicated or rewritten prior step."""
+    s = store(setup)
+    enabled(s)
+    assert s.reserve("paper-acct-0001", 1,
+                     client_order_id="order-00001", risk_cash="25")
+    assert s.initialize("paper-acct-0002")  # Interleaved other-account audit.
+    before = s.load("paper-acct-0001")
+    assert before["audit_head_verified"] is True
+    key_hash = s._key("paper-acct-0001").split(":", 1)[1]
+    with setup[1].begin() as db:
+        rows = db.scalars(select(Audit).where(
+            Audit.detail.like('%"account_hash":"' + key_hash + '"%')
+        ).order_by(Audit.id.desc())).all()
+        assert [json.loads(row.detail)["revision"] for row in rows] == [2, 1, 0]
+        latest, predecessor = rows[:2]
+        if damage == "missing_predecessor":
+            db.delete(predecessor)
+        elif damage == "duplicate_head":
+            db.add(Audit(time=latest.time, actor=latest.actor,
+                         action=latest.action, detail=latest.detail))
+        else:
+            detail = json.loads(predecessor.detail)
+            detail["revision"] = 0
+            predecessor.detail = json.dumps(detail, sort_keys=True, separators=(",", ":"))
+    with setup[1]() as db:
+        audit_count = len(db.scalars(select(Audit)).all())
+    quarantined = store(setup).load("paper-acct-0001")
+    assert quarantined == {
+        **before, "audit_head_verified": False,
+        "reservable_risk_capacity_cash": "0",
+    }
+    assert s.verify_audit_head("paper-acct-0001") is False
+    assert s.verify_audit_head("paper-acct-0002") is True
+    for operation in (
+        lambda: s.reserve("paper-acct-0001", 2,
+                          client_order_id="order-00002", risk_cash="1"),
+        lambda: s.set_policy("paper-acct-0001", 2, limit_cash="100",
+                             kill_switch=True, owner_reviewed=True),
+        lambda: s.engage_kill_switch("paper-acct-0001"),
+    ):
+        with pytest.raises(ValueError, match="audit head"):
+            operation()
+    with setup[1]() as db:
+        assert len(db.scalars(select(Audit)).all()) == audit_count
+
+
+def test_duplicate_initial_paper_audit_blocks_first_policy_transition(setup):
+    """Even a copied valid initialization row must not masquerade as continuity."""
+    s = store(setup)
+    assert s.initialize("paper-acct-0001")
+    with setup[1].begin() as db:
+        row = db.scalars(select(Audit)).one()
+        db.add(Audit(time=row.time, actor=row.actor,
+                     action=row.action, detail=row.detail))
+    assert not s.verify_audit_head("paper-acct-0001")
+    snapshot = s.load("paper-acct-0001")
+    assert snapshot["audit_head_verified"] is False
+    assert snapshot["reservable_risk_capacity_cash"] == "0"
+    with pytest.raises(ValueError, match="audit head"):
+        s.set_policy("paper-acct-0001", 0, limit_cash="100",
+                     kill_switch=False, owner_reviewed=True)
+    with setup[1]() as db:
+        assert len(db.scalars(select(Audit)).all()) == 2
