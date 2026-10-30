@@ -318,3 +318,10 @@ not independently reconstructed against historical database snapshots, and
 a database writer can still forge a consistent history. This does not
 establish cryptographic integrity, atomic journal coupling, broker quote
 authenticity or trading profitability. PR #26 stays draft; no merge/deploy.
+
+
+## Historical CAS receipt plausibility gate (30 October 2026)
+
+The bounded account-specific audit walk now validates the **types and basic financial/operation plausibility of every retained CAS receipt**, not just its revision, actor and field names. Older receipts with malformed or noncanonical cash, boolean-as-count values, invalid state SHA-256 digests, unexpected order digests, contradictory emergency latch flags, zero caps on enabled policies, or impossible reserved cash/count relationships fail closed. The latest two checkpoints retain their stronger state reconstruction and cash reconciliation checks. Six additional synthetic SQLite tampering cases cover old policy receipts while keeping the last two receipts untouched and the audit count unchanged; the existing valid interleaved-account regression remains.
+
+This is **not** full historical financial reconstruction or cryptographic authentication: a coordinated database rewrite can still forge plausible receipts and hashes. The 4,096-receipt bound and repeated scan cost remain. No broker data, real prices, order path, production data, deployment or policy activation is introduced. Keep PR #26 draft and unmerged pending integration, broker reconciliation, crash recovery and rollback review.

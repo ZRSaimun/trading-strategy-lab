@@ -217,6 +217,34 @@ def _audit_head_matches(db, key, raw, state, reserved):
                     }
                     or entry.get("operation") not in ("policy", "reserve", "emergency_kill")):
                 return False
+            else:
+                # Older receipts must still describe a *possible* PAPER
+                # checkpoint. A contiguous revision number and field names
+                # alone would allow malformed cash, bools or order digests to
+                # pass the historical audit census.
+                op = entry["operation"]
+                count = entry["reservation_count"]
+                stopped = entry["kill_switch"]
+                latched = entry["emergency_latched"]
+                order = entry["reservation_order_hash"]
+                checksum = entry["state_sha256"]
+                cash = _audit_cash(entry["reserved_cash"])
+                cap = _money(entry["limit_cash"])
+                if (type(count) is not int or not 0 <= count <= _MAX_RESERVATIONS
+                        or type(stopped) is not bool or type(latched) is not bool
+                        or not isinstance(checksum, str)
+                        or not re.fullmatch(r"[0-9a-f]{64}", checksum)
+                        or cash > cap or (count == 0) != (cash == 0)
+                        or (not stopped and cap <= 0)
+                        or (latched and not stopped)
+                        or (op == "reserve" and (
+                            stopped or latched or count == 0
+                            or not isinstance(order, str)
+                            or not re.fullmatch(r"[0-9a-f]{64}", order)))
+                        or (op != "reserve" and order is not None)
+                        or (op == "emergency_kill" and not latched)
+                        or (op != "emergency_kill" and latched)):
+                    return False
         if state["revision"] == 0:
             if len(audits) != 1:
                 return False

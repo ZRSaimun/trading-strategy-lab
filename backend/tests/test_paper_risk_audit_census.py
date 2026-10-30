@@ -1,4 +1,6 @@
 """SQLite-only nonadjacent PAPER risk audit census regressions."""
+import json
+
 import pytest
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
@@ -81,6 +83,8 @@ def test_census_allows_interleaved_valid_accounts(tmp_path):
 @pytest.mark.parametrize("tamper", [
     "duplicate_early_revision", "swap_early_revisions",
     "foreign_early_actor", "oversized_early_receipt",
+    "old_bad_cash", "old_bool_count", "old_malformed_digest",
+    "old_unexpected_order", "old_inconsistent_stop", "old_zero_cap_enabled",
 ])
 def test_count_preserving_old_receipt_tampering_quarantines_account(tmp_path, tamper):
     """An unchanged receipt count and valid last two rows are not enough."""
@@ -111,8 +115,23 @@ def test_count_preserving_old_receipt_tampering_quarantines_account(tmp_path, ta
                 rows[0].detail, rows[1].detail = rows[1].detail, rows[0].detail
             elif tamper == "foreign_early_actor":
                 rows[1].actor = "untrusted-audit-writer"
-            else:
+            elif tamper == "oversized_early_receipt":
                 rows[1].detail += " " * 4097
+            else:
+                entry = json.loads(rows[1].detail)
+                if tamper == "old_bad_cash":
+                    entry["reserved_cash"] = "NaN"
+                elif tamper == "old_bool_count":
+                    entry["reservation_count"] = True
+                elif tamper == "old_malformed_digest":
+                    entry["state_sha256"] = "not-a-sha256"
+                elif tamper == "old_unexpected_order":
+                    entry["reservation_order_hash"] = "a" * 64
+                elif tamper == "old_inconsistent_stop":
+                    entry["emergency_latched"] = True
+                elif tamper == "old_zero_cap_enabled":
+                    entry["limit_cash"] = "0"
+                rows[1].detail = json.dumps(entry, sort_keys=True, separators=(",", ":"))
         with factory() as db:
             count_before = len(db.scalars(select(Audit)).all())
         assert s.load("paper-acct-0001") == {
