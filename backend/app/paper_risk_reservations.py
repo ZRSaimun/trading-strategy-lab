@@ -10,7 +10,7 @@ import re
 import time
 from decimal import Decimal, InvalidOperation
 
-from sqlalchemy import func, insert, select, update
+from sqlalchemy import case, func, insert, select, update
 from sqlalchemy.exc import IntegrityError
 
 from .db import Audit, Record, Session
@@ -172,6 +172,28 @@ def _decode(raw, *, key):
         return doc["state"], reserved
     except (TypeError, ValueError, RecursionError, OverflowError) as exc:
         raise ValueError("Stored paper risk state is corrupt; keep execution disabled") from exc
+
+
+
+def _read_bounded_state(db, key):
+    """SQL-side size preflight: never materialize an oversized risk envelope.
+
+    SQL length is character-based on SQLite/PostgreSQL. _decode separately
+    enforces the UTF-8 byte limit after fetching a bounded character payload.
+    CASE and the length result are from one statement, avoiding a preflight
+    read/write race. Missing rows remain distinct from corrupt oversized rows.
+    """
+    length = func.length(Record.value)
+    row = db.execute(select(
+        length,
+        case((length > _MAX_ENVELOPE_BYTES, None), else_=Record.value),
+    ).where(Record.key == key)).one_or_none()
+    if row is None:
+        return None
+    char_count, raw = row
+    if char_count is None or char_count > _MAX_ENVELOPE_BYTES or raw is None:
+        raise ValueError("Stored paper risk state is corrupt; keep execution disabled")
+    return raw
 
 
 def _audit_head_matches(db, key, raw, state, reserved):
@@ -495,7 +517,7 @@ class PaperRiskReservationStore:
         if type(expected_revision) is not int or not 0 <= expected_revision < _MAX_REVISION:
             raise ValueError("Invalid expected risk revision")
         with self.session_factory() as db:
-            raw = db.scalar(select(Record.value).where(Record.key == key))
+            raw = _read_bounded_state(db, key)
             if raw is None:
                 return False
             state, reserved = _decode(raw, key=key)
@@ -556,7 +578,7 @@ class PaperRiskReservationStore:
         """
         key = self._key(account_id)
         with self.session_factory() as db:
-            raw = db.scalar(select(Record.value).where(Record.key == key))
+            raw = _read_bounded_state(db, key)
             if raw is None:
                 return False
             state, reserved = _decode(raw, key=key)
@@ -565,7 +587,7 @@ class PaperRiskReservationStore:
     def load(self, account_id):
         key = self._key(account_id)
         with self.session_factory() as db:
-            raw = db.scalar(select(Record.value).where(Record.key == key))
+            raw = _read_bounded_state(db, key)
             if raw is None:
                 return None  # Absence is NOT permission to trade.
             state, reserved = _decode(raw, key=key)
@@ -631,7 +653,7 @@ class PaperRiskReservationStore:
         key = self._key(account_id)
         for _ in range(20):
             with self.session_factory() as db:
-                raw = db.scalar(select(Record.value).where(Record.key == key))
+                raw = _read_bounded_state(db, key)
             if raw is None:
                 return False
             state, _ = _decode(raw, key=key)
