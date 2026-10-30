@@ -178,6 +178,8 @@ def test_receipt_lag_is_attributed_to_declared_expected_sessions_only():
         {
             "start_utc": T, "end_exclusive_utc": T + 120,
             "expected_receipt_rows": 1, "late_expected_receipt_rows": 0,
+            "late_first_expected_minutes": 0,
+            "late_duplicate_expected_receipt_rows": 0,
             "unique_expected_minutes_with_receipts": 1,
             "duplicate_expected_receipt_rows": 0,
             "max_declared_receipt_lag_seconds": 5,
@@ -185,6 +187,8 @@ def test_receipt_lag_is_attributed_to_declared_expected_sessions_only():
         {
             "start_utc": T + 180, "end_exclusive_utc": T + 300,
             "expected_receipt_rows": 2, "late_expected_receipt_rows": 0,
+            "late_first_expected_minutes": 0,
+            "late_duplicate_expected_receipt_rows": 0,
             "unique_expected_minutes_with_receipts": 2,
             "duplicate_expected_receipt_rows": 0,
             "max_declared_receipt_lag_seconds": 5,
@@ -271,3 +275,66 @@ def test_empty_and_zero_sample_limits_preserve_unique_session_accounting():
     assert [b["duplicate_expected_receipt_rows"]
             for b in duplicated["declared_session_receipt_lag"]] == [1, 0]
     assert duplicated["status"] == "REVIEW_REQUIRED"
+
+
+def test_late_duplicate_does_not_masquerade_as_late_first_issuance():
+    # The first declared observation is prompt; only its repeated row is late.
+    report = audit([
+        bar(T, received_at_utc=T + 65),
+        bar(T, received_at_utc=T + 200),
+        bar(T + 180), bar(T + 240),
+    ], max_receipt_lag_seconds=100)
+    first = report["declared_session_receipt_lag"][0]
+    assert first["late_expected_receipt_rows"] == 1
+    assert first["late_first_expected_minutes"] == 0
+    assert first["late_duplicate_expected_receipt_rows"] == 1
+    assert report["receipt_census"]["late_receipt_rows"] == 1
+    assert report["status"] == "REVIEW_REQUIRED"
+    assert report["forecast_ready"] is False
+
+
+def test_late_first_and_late_duplicate_are_both_counted_without_double_coverage():
+    report = audit([
+        bar(T, received_at_utc=T + 200),
+        bar(T, received_at_utc=T + 210),
+        bar(T + 180), bar(T + 240),
+    ], max_receipt_lag_seconds=100)
+    first = report["declared_session_receipt_lag"][0]
+    assert first["unique_expected_minutes_with_receipts"] == 1
+    assert first["late_expected_receipt_rows"] == 2
+    assert first["late_first_expected_minutes"] == 1
+    assert first["late_duplicate_expected_receipt_rows"] == 1
+    assert report["receipt_census"]["late_receipt_rows"] == 2
+    assert report["status"] == "REVIEW_REQUIRED"
+
+
+def test_late_unexpected_closure_duplicate_is_not_expected_first_delay():
+    report = audit([
+        bar(T), bar(T + 60, received_at_utc=T + 125),
+        bar(T + 60, received_at_utc=T + 220),
+        bar(T + 180), bar(T + 240),
+    ], max_receipt_lag_seconds=50)
+    assert report["late_unexpected_receipt_rows"] == 1
+    assert report["late_first_unexpected_minutes"] == 0
+    assert report["late_duplicate_unexpected_receipt_rows"] == 1
+    assert report["duplicate_unexpected_receipt_rows"] == 1
+    assert all(bucket["late_first_expected_minutes"] == 0
+               for bucket in report["declared_session_receipt_lag"])
+    assert report["status"] == "REVIEW_REQUIRED"
+
+
+def test_late_first_unexpected_and_empty_population_accounting():
+    report = audit([
+        bar(T), bar(T + 60, received_at_utc=T + 200),
+        bar(T + 180), bar(T + 240),
+    ], max_receipt_lag_seconds=50, sample_limit=0)
+    assert report["late_first_unexpected_minutes"] == 1
+    assert report["late_duplicate_unexpected_receipt_rows"] == 0
+    assert report["late_unexpected_receipt_rows"] == 1
+    empty = audit([], sample_limit=0)
+    assert empty["late_first_unexpected_minutes"] == 0
+    assert empty["late_duplicate_unexpected_receipt_rows"] == 0
+    assert all(bucket["late_first_expected_minutes"] == 0
+               and bucket["late_duplicate_expected_receipt_rows"] == 0
+               for bucket in empty["declared_session_receipt_lag"])
+    assert empty["status"] == "REVIEW_REQUIRED"
