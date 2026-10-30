@@ -1267,3 +1267,79 @@ def test_paper_audit_json_byte_boundary_and_unicode_limit():
     assert len(multibyte.encode("utf-8")) > _MAX_AUDIT_DETAIL_BYTES
     with pytest.raises(ValueError, match="size limit"):
         _audit_json(multibyte)
+
+
+@pytest.mark.parametrize("latest,field,forged", [
+    ("reserve", "state_sha256", "0" * 64),
+    ("policy", "state_sha256", "0" * 64),
+    ("emergency", "state_sha256", "0" * 64),
+    ("policy", "limit_cash", "90"),
+])
+def test_adjacent_prior_envelope_digest_detects_receipt_tampering(
+    setup, latest, field, forged
+):
+    """A plausible adjacent receipt must match its reconstructed state envelope."""
+    s = store(setup)
+    enabled(s)
+    assert s.reserve("paper-acct-0001", 1,
+                     client_order_id="order-00001", risk_cash="25")
+    if latest == "reserve":
+        assert s.reserve("paper-acct-0001", 2,
+                         client_order_id="order-00002", risk_cash="10")
+    elif latest == "policy":
+        assert s.set_policy("paper-acct-0001", 2, limit_cash="150",
+                            kill_switch=False, owner_reviewed=True)
+    else:
+        assert s.engage_kill_switch("paper-acct-0001")
+    assert s.initialize("paper-acct-0002")
+    before = s.load("paper-acct-0001")
+    assert before["audit_head_verified"] is True
+    account_hash = s._key("paper-acct-0001").split(":", 1)[1]
+    with setup[1].begin() as db:
+        rows = db.scalars(select(Audit).where(
+            Audit.detail.like('%"account_hash":"' + account_hash + '"%')
+        ).order_by(Audit.id.desc()).limit(2)).all()
+        assert len(rows) == 2
+        previous = json.loads(rows[1].detail)
+        assert previous["operation"] == "reserve"
+        previous[field] = forged
+        rows[1].detail = json.dumps(previous, sort_keys=True, separators=(",", ":"))
+    with setup[1]() as db:
+        count_before = len(db.scalars(select(Audit)).all())
+    assert store(setup).load("paper-acct-0001") == {
+        **before, "audit_head_verified": False,
+        "reservable_risk_capacity_cash": "0",
+    }
+    assert not s.verify_audit_head("paper-acct-0001")
+    assert s.verify_audit_head("paper-acct-0002")
+    for attempt in (
+        lambda: s.reserve("paper-acct-0001", 3,
+                          client_order_id="order-00003", risk_cash="1"),
+        lambda: s.set_policy("paper-acct-0001", 3, limit_cash="150",
+                             kill_switch=True, owner_reviewed=True),
+        lambda: s.engage_kill_switch("paper-acct-0001"),
+    ):
+        with pytest.raises(ValueError, match="audit head"):
+            attempt()
+    with setup[1]() as db:
+        assert len(db.scalars(select(Audit)).all()) == count_before
+
+
+def test_adjacent_envelope_reconstruction_accepts_valid_policy_stop_restart(setup):
+    """Legitimate cap changes, stops and restarts preserve receipt continuity."""
+    s = store(setup)
+    enabled(s)
+    assert s.reserve("paper-acct-0001", 1,
+                     client_order_id="order-00001", risk_cash="0.00000001")
+    assert s.set_policy("paper-acct-0001", 2, limit_cash="150.00",
+                        kill_switch=True, owner_reviewed=True)
+    assert store(setup).verify_audit_head("paper-acct-0001")
+    assert s.set_policy("paper-acct-0001", 3, limit_cash="150.00",
+                        kill_switch=False, owner_reviewed=True)
+    assert store(setup).verify_audit_head("paper-acct-0001")
+    assert s.reserve("paper-acct-0001", 4,
+                     client_order_id="order-00002", risk_cash="0.00000002")
+    assert store(setup).verify_audit_head("paper-acct-0001")
+    assert s.engage_kill_switch("paper-acct-0001")
+    assert store(setup).verify_audit_head("paper-acct-0001")
+    assert store(setup).load("paper-acct-0001")["reserved_cash"] == "3E-8"

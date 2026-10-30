@@ -289,6 +289,27 @@ def _audit_head_matches(db, key, raw, state, reserved):
                 if (operation == "emergency_kill"
                         and previous["limit_cash"] != state["limit_cash"]):
                     return False
+            # Every CAS receipt records the digest of its full persisted
+            # envelope. Reconstruct the immediately preceding state using
+            # the retained IDs and the prior policy fields, then verify that
+            # receipt. This catches inconsistent adjacent history but is not
+            # authentication: a database writer can recompute both hashes.
+            prior_reservations = dict(state["reservations"])
+            if operation == "reserve":
+                prior_reservations.pop(detail["reservation_order_hash"])
+            prior_state = {
+                **state,
+                "revision": state["revision"] - 1,
+                "kill_switch": previous["kill_switch"],
+                "emergency_latched": previous["emergency_latched"],
+                "limit_cash": previous["limit_cash"],
+                "reservations": prior_reservations,
+            }
+            prior_envelope = _encode(prior_state, key=key)
+            if previous.get("state_sha256") != hashlib.sha256(
+                prior_envelope.encode()
+            ).hexdigest():
+                return False
         order_hash = detail.get("reservation_order_hash")
         # The audit operation must be possible for the state it claims to
         # checkpoint. Matching fields/checksum alone cannot turn a policy

@@ -254,3 +254,30 @@ JSON and reject 4,097-byte and multibyte-overflow details.
 This is a local parser/resource bound, **not** a database query-size limit,
 authenticated audit history, complete-chain verification, broker reconciliation
 or trade approval. No production migration, order, merge or deployment is authorized.
+
+
+## Adjacent prior-envelope digest reconstruction (30 October 2026)
+
+For revisions above one, the disconnected PAPER risk audit verifier now
+reconstructs the immediately preceding persisted version-2 state from the
+current retained reservation set and the predecessor receipt's cap, stop
+flags and revision. A new reservation is removed from that reconstructed
+prior set. The reconstructed **canonical account-bound envelope SHA-256**
+must match the predecessor's recorded `state_sha256`. Previously, the
+predecessor digest was not checked at all, so a plausible-looking prior
+receipt could contain a mismatched hash or an altered old cap while the
+current state and latest receipt still agreed.
+
+Four synthetic SQLite tampering cases cover altered predecessor hashes
+before reservation, policy and emergency transitions, plus a forged prior
+cap during a legitimate cap change. A positive restart test covers tiny
+eight-decimal reservations, a reviewed cap change, ordinary policy stop,
+re-enablement and irreversible emergency stop. Failed verification sets
+reservable capacity to zero, rejects subsequent mutations and preserves
+audit history and unrelated accounts.
+
+This is **adjacent consistency**, not a signed ledger or independently
+authenticated broker receipt. Anyone with database write access can forge
+a mutually consistent state and hashes. Full history, atomic paper journal,
+crash recovery, verified broker BID/ASK and owner-approved release/rollback
+remain blockers. Keep PR #26 draft, unmerged and undeployed.
