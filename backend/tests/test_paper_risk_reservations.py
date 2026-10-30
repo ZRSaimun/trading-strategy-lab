@@ -1259,7 +1259,11 @@ def test_paper_audit_json_byte_boundary_and_unicode_limit():
     from app.paper_risk_reservations import _audit_json, _MAX_AUDIT_DETAIL_BYTES
     small = '{"operation":"policy"}'
     exact = small + " " * (_MAX_AUDIT_DETAIL_BYTES - len(small))
-    assert _audit_json(exact) == {"operation": "policy"}
+    assert _audit_json(small) == {"operation": "policy"}
+    # Exactly 4096 bytes is within the parser limit, but the receipt is
+    # noncanonical; size and canonical-encoding checks are independent.
+    with pytest.raises(ValueError, match="Noncanonical"):
+        _audit_json(exact)
     with pytest.raises(ValueError, match="size limit"):
         _audit_json(exact + " ")
     multibyte = json.dumps({"padding": "é" * 2100}, ensure_ascii=False)
