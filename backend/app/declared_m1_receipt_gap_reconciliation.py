@@ -75,6 +75,8 @@ def audit_declared_m1_receipt_gap_reconciliation(
             "end_exclusive_utc": end,
             "expected_receipt_rows": 0,
             "late_expected_receipt_rows": 0,
+            "late_first_expected_minutes": 0,
+            "late_duplicate_expected_receipt_rows": 0,
             "max_declared_receipt_lag_seconds": None,
         }
         for start, end in manifest.sessions_utc
@@ -85,17 +87,29 @@ def audit_declared_m1_receipt_gap_reconciliation(
     seen_expected_by_session: list[set[int]] = [set() for _ in manifest.sessions_utc]
     unexpected_receipt_rows = 0
     late_unexpected_receipt_rows = 0
+    late_first_unexpected_minutes = 0
+    late_duplicate_unexpected_receipt_rows = 0
+    seen_unexpected_minutes: set[int] = set()
     for row in receipts:
-        lag = row["received_at_utc"] - row["bar_start_utc"] - 60
-        session_index = session_by_expected_minute.get(row["bar_start_utc"])
+        minute = row["bar_start_utc"]
+        lag = row["received_at_utc"] - minute - 60
+        late = lag > max_receipt_lag_seconds
+        session_index = session_by_expected_minute.get(minute)
         if session_index is None:
+            first = minute not in seen_unexpected_minutes
+            seen_unexpected_minutes.add(minute)
             unexpected_receipt_rows += 1
-            late_unexpected_receipt_rows += lag > max_receipt_lag_seconds
+            late_unexpected_receipt_rows += late
+            late_first_unexpected_minutes += first and late
+            late_duplicate_unexpected_receipt_rows += not first and late
             continue
         bucket = session_receipt_lag[session_index]
-        seen_expected_by_session[session_index].add(row["bar_start_utc"])
+        first = minute not in seen_expected_by_session[session_index]
+        seen_expected_by_session[session_index].add(minute)
         bucket["expected_receipt_rows"] += 1
-        bucket["late_expected_receipt_rows"] += lag > max_receipt_lag_seconds
+        bucket["late_expected_receipt_rows"] += late
+        bucket["late_first_expected_minutes"] += first and late
+        bucket["late_duplicate_expected_receipt_rows"] += not first and late
         previous_max = bucket["max_declared_receipt_lag_seconds"]
         bucket["max_declared_receipt_lag_seconds"] = (
             lag if previous_max is None else max(previous_max, lag)
@@ -108,10 +122,17 @@ def audit_declared_m1_receipt_gap_reconciliation(
         )
         if unique_count != gaps["declared_session_coverage"][index]["observed_expected_minutes"]:
             raise ValueError("Declared session unique-minute reconciliation failed")
+        if (bucket["late_first_expected_minutes"]
+                + bucket["late_duplicate_expected_receipt_rows"]
+                != bucket["late_expected_receipt_rows"]):
+            raise ValueError("Declared session first/duplicate lag reconciliation failed")
     duplicate_unexpected_receipt_rows = (
         unexpected_receipt_rows - gaps["unexpected_unique_minutes"]
     )
     if (duplicate_unexpected_receipt_rows < 0
+            or len(seen_unexpected_minutes) != gaps["unexpected_unique_minutes"]
+            or late_first_unexpected_minutes + late_duplicate_unexpected_receipt_rows
+               != late_unexpected_receipt_rows
             or sum(row["unique_expected_minutes_with_receipts"]
                    for row in session_receipt_lag) != gaps["unique_observed_expected_minutes"]
             or sum(row["duplicate_expected_receipt_rows"]
@@ -157,6 +178,8 @@ def audit_declared_m1_receipt_gap_reconciliation(
         "declared_session_receipt_lag": session_receipt_lag,
         "unexpected_receipt_rows": unexpected_receipt_rows,
         "late_unexpected_receipt_rows": late_unexpected_receipt_rows,
+        "late_first_unexpected_minutes": late_first_unexpected_minutes,
+        "late_duplicate_unexpected_receipt_rows": late_duplicate_unexpected_receipt_rows,
         "duplicate_unexpected_receipt_rows": duplicate_unexpected_receipt_rows,
         "receipt_census": census,
         "session_gap_audit": gaps,
