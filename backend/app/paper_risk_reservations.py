@@ -20,6 +20,8 @@ _CASH = re.compile(r"(?:0|[1-9][0-9]{0,11})(?:\.[0-9]{1,8})?\Z")
 _MAX_RESERVATIONS = 500
 # Hard bound on persisted envelopes before parsing untrusted/corrupt JSON.
 _MAX_ENVELOPE_BYTES = 64 * 1024
+# Bound self-attested audit JSON before parsing; this does not authenticate it.
+_MAX_AUDIT_DETAIL_BYTES = 4 * 1024
 _MAX_REVISION = 2**53 - 1
 
 
@@ -58,6 +60,14 @@ def _unique_json(raw):
         raise ValueError("Non-integer risk-state JSON number")
     return json.loads(raw, object_pairs_hook=unique, parse_float=reject_number,
                       parse_constant=reject_number)
+
+
+def _audit_json(raw):
+    """Reject oversized audit receipts before allocating parsed JSON objects."""
+    if (not isinstance(raw, str) or len(raw) > _MAX_AUDIT_DETAIL_BYTES
+            or len(raw.encode("utf-8")) > _MAX_AUDIT_DETAIL_BYTES):
+        raise ValueError("Paper risk audit detail exceeds size limit")
+    return _unique_json(raw)
 
 
 def _canonical(value):
@@ -173,7 +183,7 @@ def _audit_head_matches(db, key, raw, state, reserved):
             if len(audits) != 2:
                 return False
             predecessor = audits[1]
-            previous = _unique_json(predecessor.detail)
+            previous = _audit_json(predecessor.detail)
             expected_action = ("paper.risk.init" if state["revision"] == 1
                                else "paper.risk.cas")
             if (predecessor.actor != "paper-risk-store"
@@ -221,7 +231,7 @@ def _audit_head_matches(db, key, raw, state, reserved):
                                  or previous_order not in state["reservations"]))
                         or (previous["operation"] != "reserve" and previous_order is not None)):
                     return False
-        detail = _unique_json(audit.detail)
+        detail = _audit_json(audit.detail)
         if (not isinstance(detail, dict)
                 or detail.get("account_hash") != account_hash
                 or type(detail.get("revision")) is not int
