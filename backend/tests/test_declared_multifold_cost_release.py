@@ -157,3 +157,56 @@ def test_cross_fold_source_currency_mismatch_is_not_aggregated():
     folds[1]["anchor"]["manifest_sha256"] = _hash(folds[1]["manifest"])
     with pytest.raises(ValueError, match="source convention changed"):
         audit(folds, "0" * 64, release)
+
+
+def test_leave_one_fold_out_balanced_synthetic_costs_are_not_single_fold_driven():
+    folds, release = _study()
+    result = audit(folds, _commit(folds), release)
+    scenarios = {row["scenario_id"]: row for row in result["scenarios"]}
+    base = scenarios["base"]
+    adverse = scenarios["adverse"]
+    assert base["positive_net_fold_count"] == 3
+    assert base["leave_one_fold_out_min_net_cash"] == "80.0000"
+    assert base["leave_one_fold_out_max_net_cash"] == "80.0000"
+    assert base["any_leave_one_fold_out_net_nonpositive"] is False
+    assert adverse["leave_one_fold_out_min_net_cash"] == "60.0000"
+    assert adverse["leave_one_fold_out_max_net_cash"] == "60.0000"
+    assert adverse["any_leave_one_fold_out_net_nonpositive"] is False
+
+
+def test_leave_one_fold_out_flags_single_dominant_fold_despite_positive_aggregate():
+    folds, release = _study()
+    for row in folds[0]["outcomes"]:
+        row["gross_cash"] = "5.0000"
+    for fold in folds[1:]:
+        for row in fold["outcomes"]:
+            row["gross_cash"] = "-1.0000"
+    result = audit(folds, _commit(folds), release)
+    scenarios = {row["scenario_id"]: row for row in result["scenarios"]}
+    base = scenarios["base"]
+    assert base["stressed_net_cash"] == "120.0000"
+    assert base["positive_net_fold_count"] == 1
+    assert base["negative_net_fold_count"] == 2
+    assert base["leave_one_fold_out_min_net_cash"] == "-80.0000"
+    assert base["leave_one_fold_out_max_net_cash"] == "160.0000"
+    assert base["any_leave_one_fold_out_net_nonpositive"] is True
+    adverse = scenarios["adverse"]
+    assert adverse["stressed_net_cash"] == "90.0000"
+    assert adverse["leave_one_fold_out_min_net_cash"] == "-100.0000"
+    assert adverse["leave_one_fold_out_max_net_cash"] == "140.0000"
+    assert adverse["any_leave_one_fold_out_net_nonpositive"] is True
+
+
+def test_two_fold_leave_one_out_exact_zero_boundary_is_nonpositive():
+    folds, release = _study()
+    folds = folds[:2]
+    for row in folds[1]["outcomes"]:
+        row["gross_cash"] = "0.0000"
+    result = audit(folds, _commit(folds), release)
+    base = next(row for row in result["scenarios"] if row["scenario_id"] == "base")
+    assert base["stressed_net_cash"] == "40.0000"
+    assert base["positive_net_fold_count"] == 1
+    assert base["negative_net_fold_count"] == 0
+    assert base["leave_one_fold_out_min_net_cash"] == "0.0000"
+    assert base["leave_one_fold_out_max_net_cash"] == "40.0000"
+    assert base["any_leave_one_fold_out_net_nonpositive"] is True
