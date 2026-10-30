@@ -145,7 +145,10 @@ def _audit_head_matches(db, key, raw, state, reserved):
         Audit.action.in_(("paper.risk.init", "paper.risk.cas")),
         Audit.detail.like('%"account_hash":"' + account_hash + '"%')
     ).order_by(Audit.id.desc()).limit(1))
-    if audit is None:
+    # These audit rows are written only by this disconnected store. An
+    # unrelated actor or a schema-drifted event must not corroborate a
+    # persisted reservation checkpoint, even when its other fields match.
+    if audit is None or audit.actor != "paper-risk-store":
         return False
     try:
         detail = _unique_json(audit.detail)
@@ -157,9 +160,15 @@ def _audit_head_matches(db, key, raw, state, reserved):
             return False
         if state["revision"] == 0:
             return (audit.action == "paper.risk.init"
+                    and set(detail) == {"account_hash", "operation", "revision", "kill_switch"}
                     and detail.get("operation") == "initialize")
         operation = detail.get("operation")
         if (audit.action != "paper.risk.cas"
+                or set(detail) != {
+                    "account_hash", "operation", "revision", "kill_switch",
+                    "emergency_latched", "reserved_cash", "limit_cash",
+                    "reservation_count", "reservation_order_hash", "state_sha256"
+                }
                 or operation not in ("policy", "reserve", "emergency_kill")
                 or detail.get("state_sha256") != hashlib.sha256(raw.encode()).hexdigest()
                 or detail.get("emergency_latched") is not state["emergency_latched"]
