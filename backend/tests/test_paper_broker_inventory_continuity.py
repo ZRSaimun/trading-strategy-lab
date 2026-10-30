@@ -383,3 +383,34 @@ def test_prior_partial_state_cannot_revert_to_open():
     result = inspect_declared_inventory_continuity(e, p, c, NOW)
     assert "partial_order_state_regressed" in result["failed_checks"]
     assert result["status"] == "HOLD_INVENTORY_CONTINUITY"
+
+
+def test_prior_terminal_order_before_attempt_holds_without_fills():
+    e, p, c = sample()
+    # A prior REJECTED row has no fill to trigger the existing fill-time check.
+    # Its presence before the declared attempt is still impossible.
+    e["unresolved_orders"][0]["attempted_at_ms"] = NOW - 1000
+    for snap in (p, c):
+        snap["pages"][0]["orders"][0].update(
+            status="REJECTED", filled_quantity="0", fills=[])
+    result = inspect_declared_inventory_continuity(e, p, c, NOW)
+    assert result["status"] == "HOLD_INVENTORY_CONTINUITY"
+    assert "prior_order_precedes_attempt" in result["failed_checks"]
+    assert result["current_inventory_failed_checks"] == []
+    assert result["may_clear_unknown"] is False
+    assert result["may_submit_real_order"] is False
+
+
+def test_prior_order_at_exact_attempt_boundary_remains_unverified():
+    e, p, c = sample()
+    e["unresolved_orders"][0]["attempted_at_ms"] = p["observed_at_ms"]
+    for snap in (p, c):
+        snap["pages"][0]["orders"][0].update(
+            status="REJECTED", filled_quantity="0", fills=[])
+    original = deepcopy((e, p, c))
+    result = inspect_declared_inventory_continuity(e, p, c, NOW)
+    assert result["status"] == "DECLARED_INVENTORY_CONTINUITY_UNVERIFIED"
+    assert "prior_order_precedes_attempt" not in result["failed_checks"]
+    assert (e, p, c) == original
+    assert result["may_submit_paper_order"] is False
+    assert result["may_submit_real_order"] is False
