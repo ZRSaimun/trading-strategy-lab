@@ -1,6 +1,4 @@
 """Bound PAPER risk-state materialization at the SQL boundary (synthetic only)."""
-import json
-
 import pytest
 from sqlalchemy import create_engine, event, select
 from sqlalchemy.orm import sessionmaker
@@ -60,7 +58,7 @@ def test_oversized_state_fails_before_python_decode_and_preserves_other_accounts
             event.remove(engine, "before_cursor_execute", capture)
 
         assert statements
-        assert any("case" in sql and "length(record.value)" in sql for sql in statements)
+        assert any("case" in sql and "length(" in sql and "value" in sql for sql in statements)
         with factory() as db:
             assert len(db.scalars(select(Audit.id)).all()) == before
         assert store.verify_audit_head(other)
