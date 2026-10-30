@@ -157,6 +157,11 @@ def _decode(raw, *, key):
                 or len(raw.encode("utf-8")) > _MAX_ENVELOPE_BYTES):
             raise ValueError("Invalid paper risk-state envelope size")
         doc = _unique_json(raw)
+        # _encode always emits canonical bytes. A valid inner checksum alone
+        # must not authorize a byte-rewritten persisted account envelope,
+        # including revision-zero snapshots with no state digest in audit.
+        if raw != _canonical(doc):
+            raise ValueError("Noncanonical paper risk-state envelope")
         if (not isinstance(doc, dict) or set(doc) != {"state", "sha256", "account_hash"}
                 or doc["account_hash"] != account_hash):
             raise ValueError("Risk envelope does not belong to this account")

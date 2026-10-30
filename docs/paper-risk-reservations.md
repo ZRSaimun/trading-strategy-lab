@@ -359,3 +359,25 @@ approval and all documented evidence gates.
 The disconnected PAPER reservation verifier now requires each retained account-specific audit JSON receipt to match the exact canonical encoding emitted by the store (sorted keys, compact separators, canonical JSON escaping and numeric spelling). A receipt with identical decoded fields but changed whitespace, escaped key names or field order is no longer accepted as unchanged evidence. This check applies to historical receipts as well as the latest two checkpoints, after the existing 4,096-byte size preflight and duplicate-key validation.
 
 Seven synthetic SQLite cases in `backend/tests/test_paper_risk_canonical_audit.py` cover three byte-only alterations at an older and latest receipt, blocked reservations/policy/emergency writes, unchanged audit count, unaffected unrelated account, and legitimate restart/emergency transitions. Run `cd backend && PYTHONPATH=. python -m pytest -q tests/test_paper_risk_canonical_audit.py`. Canonical formatting is **not** a signature, trusted timestamp, append-only ledger or proof of external broker authenticity: a database writer able to forge both receipts and their unkeyed checksums can still fabricate a consistent history. Existing source, journal, crash-recovery, main-branch integration and owner-approved deployment blockers remain. **DRAFT / PAPER ONLY / NO MERGE / NO DEPLOY / NO ORDERS.**
+
+## Canonical persisted PAPER account envelopes (30 October 2026)
+
+The disconnected reservation store now rejects a byte-rewritten persisted
+account envelope even when its parsed fields and inner state checksum are
+unchanged. Every store-generated envelope uses canonical sorted-key, compact
+JSON; `_decode` requires the retained bytes to match that encoding before
+validating the account, state and checksum. This also protects revision-zero
+initialization snapshots, whose initialization audit receipt does not carry a
+state-envelope digest. Noncanonical states raise a corrupt-state error and
+block all reservation, policy and emergency mutations without adding audit
+receipts. Six synthetic SQLite regressions cover whitespace, escaped-key and
+key-order rewrites at revisions zero and two; a positive restart/precision/
+emergency regression preserves valid store-generated envelopes. An existing
+checksum-without-audit regression now writes canonical forged bytes so it
+continues to exercise the separate audit-mismatch gate.
+
+Run `cd backend && PYTHONPATH=. python -m pytest -q tests/test_paper_risk_canonical_envelope.py tests/test_paper_risk_reservations.py`.
+This is **not** a cryptographic signature, trusted external ledger, broker
+reconciliation, or proof of market-data authenticity or trading performance.
+A database writer can still forge a mutually consistent canonical history.
+PR #26 remains DRAFT / PAPER ONLY / NO MERGE / NO DEPLOY / NO ORDERS.

@@ -627,7 +627,9 @@ def test_recomputed_risk_state_checksum_without_audit_head_fails_preflight(setup
         envelope["state"]["limit_cash"] = "200"
         canonical = json.dumps(envelope["state"], sort_keys=True, separators=(",", ":"))
         envelope["sha256"] = hashlib.sha256(canonical.encode()).hexdigest()
-        row.value = json.dumps(envelope)
+        # Keep this tampered envelope canonical to exercise the independent
+        # state-vs-audit mismatch, not the encoding preflight.
+        row.value = json.dumps(envelope, sort_keys=True, separators=(",", ":"))
     with setup[1]() as db:
         audit_before = len(db.scalars(select(Audit)).all())
     assert s.load("paper-acct-0001")["limit_cash"] == "200"
