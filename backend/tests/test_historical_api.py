@@ -1,6 +1,7 @@
 """Authenticated API regression tests for imported historical datasets."""
 from zipfile import ZipFile
 
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
@@ -251,3 +252,33 @@ def test_candle_cursor_rejects_out_of_range_epoch_without_server_error(tmp_path)
     unaligned = client.get(endpoint, params={
         'timeframe': '1M', 'before': '253402300740'})
     assert unaligned.status_code == 422, unaligned.text
+
+
+def test_quarantined_and_legacy_ready_rejected_rows_never_exposed(tmp_path):
+    """Protect backtests from partial imports, including previously labelled READY."""
+    p = tmp_path / "bad.zip"
+    with ZipFile(p, "w") as archive:
+        archive.writestr("source.csv",
+                         "20261001 090000;1;2;0.5;1.5;0\n"
+                         "20261001 090000;3;4;2.5;3.5;0\n")
+    e = create_engine("sqlite:///" + str(tmp_path / "research.db"))
+    create_schema(e)
+    result = ingest(e, p, instrument="XAUUSD-CFD", provider="HistData",
+                    rights_confirmed=True)
+    assert result["state"] == "QUARANTINED"
+    app = FastAPI()
+    app.include_router(attach_history(lambda: "owner", e))
+    client = TestClient(app)
+    path = f"/api/history/{result['dataset_id']}/candles"
+    assert client.get("/api/history/datasets").json() == []
+    assert client.get(path).status_code == 404
+
+    # Simulate legacy importer/admin state; the read-only API still blocks it.
+    with e.begin() as connection:
+        connection.execute(datasets.update().where(
+            datasets.c.id == result["dataset_id"]).values(state="READY"))
+    assert client.get("/api/history/datasets").json() == []
+    assert client.get(path).status_code == 404
+    with pytest.raises(ValueError, match="rejected or incomplete"):
+        ingest(e, p, instrument="XAUUSD-CFD", provider="HistData",
+               rights_confirmed=True)

@@ -34,7 +34,7 @@ def test_import_preserves_quotes_timezone_and_quarantine(tmp_path):
     p = archive(tmp_path, ascii_rows())
     result = ingest(e, p, instrument="XAUUSD-CFD", provider="HistData",
                     rights_confirmed=True, chunk_rows=2)
-    assert (result["state"], result["accepted"], result["rejected"]) == ("READY", 4, 2)
+    assert (result["state"], result["accepted"], result["rejected"]) == ("QUARANTINED", 4, 2)
     with e.connect() as con:
         rows = con.execute(select(candles).order_by(candles.c.time)).mappings().all()
         assert len(rows) == 4
@@ -42,8 +42,9 @@ def test_import_preserves_quotes_timezone_and_quarantine(tmp_path):
         assert rows[0]["time"] == 1790863200
         assert rows[0]["open"] == 1.0 and rows[0]["volume"] == 0
         assert con.scalar(select(func.count()).select_from(issues)) == 2
-    assert ingest(e, p, instrument="XAUUSD-CFD", provider="HistData",
-                  rights_confirmed=True)["already_complete"]
+    again = ingest(e, p, instrument="XAUUSD-CFD", provider="HistData",
+                   rights_confirmed=True)
+    assert again["already_complete"] and again["state"] == "QUARANTINED"
 
 
 def test_resume_after_committed_chunk(tmp_path):
@@ -56,6 +57,7 @@ def test_resume_after_committed_chunk(tmp_path):
                     rights_confirmed=True, chunk_rows=2)
     assert second["accepted"] == 4
     assert second["rejected"] == 2
+    assert second["state"] == "QUARANTINED"
     with e.connect() as con:
         assert con.scalar(select(func.count()).select_from(candles)) == 4
 
@@ -99,3 +101,20 @@ def test_requires_schema_and_rejects_bad_zip(tmp_path):
     p.write_bytes(b"not a zip")
     with pytest.raises(Exception):
         ingest(e, p, instrument="XAUUSD-CFD", provider="HistData", rights_confirmed=True)
+
+
+def test_clean_archive_only_becomes_ready_when_all_rows_accepted(tmp_path):
+    e = engine(tmp_path)
+    p = archive(tmp_path, "20261001 090000;1;2;0.5;1.5;0\n"
+                          "20261001 090100;2;3;1;2.5;0\n")
+    result = ingest(e, p, instrument="XAUUSD-CFD", provider="HistData",
+                    rights_confirmed=True)
+    assert (result["state"], result["accepted"], result["rejected"]) == ("READY", 2, 0)
+
+
+def test_empty_archive_is_quarantined_not_ready(tmp_path):
+    e = engine(tmp_path)
+    p = archive(tmp_path, "")
+    result = ingest(e, p, instrument="XAUUSD-CFD", provider="HistData",
+                    rights_confirmed=True)
+    assert (result["state"], result["accepted"], result["rejected"]) == ("QUARANTINED", 0, 0)
