@@ -7,6 +7,8 @@ release UNKNOWN attempts, and never authorizes any paper or live order.
 from __future__ import annotations
 
 from decimal import Decimal
+from hashlib import sha256
+import json
 from typing import Any
 
 from app.paper_broker_inventory_census import (
@@ -175,6 +177,30 @@ def _cross_snapshot_integrity(expected: dict, previous: dict, current: dict) -> 
 
 
 
+def _declared_evidence_sha256(expected: dict, previous: dict | None,
+                              current: dict) -> str:
+    """Stable correlation fingerprint only; never authenticated broker proof.
+
+    The census/continuity validators have already bounded and checked every
+    nested order and fill field. A malformed page-complete flag must not allow
+    arbitrary caller objects into the JSON encoder.
+    """
+    for snapshot in (previous, current):
+        if snapshot is not None:
+            for page in snapshot["pages"]:
+                if type(page["complete"]) is not bool:
+                    raise ValueError("Invalid declared page completeness type")
+    try:
+        canonical = json.dumps(
+            {"expected": expected, "previous": previous, "current": current},
+            sort_keys=True, separators=(",", ":"), ensure_ascii=True,
+            allow_nan=False,
+        )
+    except (TypeError, ValueError) as exc:
+        raise ValueError("Invalid declared evidence encoding") from exc
+    return sha256(canonical.encode("utf-8")).hexdigest()
+
+
 def inspect_declared_inventory_continuity(
     expected: dict, previous: dict | None, current: dict, now_ms: int,
 ) -> dict[str, Any]:
@@ -224,6 +250,7 @@ def inspect_declared_inventory_continuity(
         "failed_checks": sorted(failures),
         "current_inventory_status": census["status"],
         "current_inventory_failed_checks": census["failed_checks"],
+        "declared_evidence_sha256": _declared_evidence_sha256(expected, previous, current),
         "prior_checkpoint_authenticated": False,
         "broker_authenticated": False,
         "inventory_continuity_authenticated": False,
