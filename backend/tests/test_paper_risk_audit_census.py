@@ -76,3 +76,61 @@ def test_census_allows_interleaved_valid_accounts(tmp_path):
         assert s.verify_audit_head("paper-acct-0002")
     finally:
         engine.dispose()
+
+
+@pytest.mark.parametrize("tamper", [
+    "duplicate_early_revision", "swap_early_revisions",
+    "foreign_early_actor", "oversized_early_receipt",
+])
+def test_count_preserving_old_receipt_tampering_quarantines_account(tmp_path, tamper):
+    """An unchanged receipt count and valid last two rows are not enough."""
+    engine = create_engine("sqlite:///" + str(tmp_path / "sequence.db"))
+    Base.metadata.create_all(engine)
+    factory = sessionmaker(engine)
+    s = PaperRiskReservationStore(factory)
+    try:
+        assert s.initialize("paper-acct-0001")
+        assert s.set_policy("paper-acct-0001", 0, limit_cash="100",
+                            kill_switch=False, owner_reviewed=True)
+        assert s.reserve("paper-acct-0001", 1,
+                         client_order_id="order-00001", risk_cash="25")
+        assert s.reserve("paper-acct-0001", 2,
+                         client_order_id="order-00002", risk_cash="10")
+        assert s.initialize("paper-acct-0002")
+        good = s.load("paper-acct-0001")
+        assert good["audit_head_verified"]
+        account_hash = s._key("paper-acct-0001").split(":", 1)[1]
+        with factory.begin() as db:
+            rows = db.scalars(select(Audit).where(
+                Audit.detail.like('%"account_hash":"' + account_hash + '"%')
+            ).order_by(Audit.id.asc())).all()
+            assert len(rows) == 4
+            if tamper == "duplicate_early_revision":
+                rows[0].detail = rows[1].detail
+            elif tamper == "swap_early_revisions":
+                rows[0].detail, rows[1].detail = rows[1].detail, rows[0].detail
+            elif tamper == "foreign_early_actor":
+                rows[1].actor = "untrusted-audit-writer"
+            else:
+                rows[1].detail += " " * 4097
+        with factory() as db:
+            count_before = len(db.scalars(select(Audit)).all())
+        assert s.load("paper-acct-0001") == {
+            **good, "audit_head_verified": False,
+            "reservable_risk_capacity_cash": "0",
+        }
+        assert not s.verify_audit_head("paper-acct-0001")
+        assert s.verify_audit_head("paper-acct-0002")
+        for attempt in (
+            lambda: s.reserve("paper-acct-0001", 3,
+                              client_order_id="order-00003", risk_cash="1"),
+            lambda: s.set_policy("paper-acct-0001", 3, limit_cash="100",
+                                 kill_switch=True, owner_reviewed=True),
+            lambda: s.engage_kill_switch("paper-acct-0001"),
+        ):
+            with pytest.raises(ValueError, match="audit head"):
+                attempt()
+        with factory() as db:
+            assert len(db.scalars(select(Audit)).all()) == count_before
+    finally:
+        engine.dispose()

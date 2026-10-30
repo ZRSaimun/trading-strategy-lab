@@ -296,3 +296,25 @@ cryptographic authentication, broker reconciliation, or trading approval.
 Coordinated deletion and insertion can preserve the count. Keep PR #26 draft,
 unmerged and undeployed pending main integration, atomic journal coupling,
 verified broker BID/ASK and positions, crash recovery, and backup/rollback.
+
+
+## Bounded historical revision sequence verification (30 October 2026)
+
+A matching receipt count can conceal a coordinated deletion and replacement
+of an older event. PAPER risk preflight now walks the **account-specific**
+receipts in append order and verifies every retained revision from zero through
+the persisted head, with the expected writer, operation shape, exact account
+hash and bounded JSON parsing. It detects count-preserving older duplicates,
+reordered revisions, foreign actors and oversized old details even when the
+latest two receipts are unchanged. Four synthetic SQLite regressions assert
+fail-closed capacity, blocked mutations, unchanged audit count and account
+isolation.
+
+The walk is deliberately capped at **4,096 receipts per account**. Accounts
+exceeding that cap are quarantined rather than treated as verified; this is
+a safety bound, not a production-scale audit architecture. Repeated full
+history scans can be expensive. Older receipt fields are schema-checked but
+not independently reconstructed against historical database snapshots, and
+a database writer can still forge a consistent history. This does not
+establish cryptographic integrity, atomic journal coupling, broker quote
+authenticity or trading profitability. PR #26 stays draft; no merge/deploy.

@@ -10,7 +10,7 @@ import re
 import time
 from decimal import Decimal, InvalidOperation
 
-from sqlalchemy import func, insert, select, update
+from sqlalchemy import insert, select, update
 from sqlalchemy.exc import IntegrityError
 
 from .db import Audit, Record, Session
@@ -22,6 +22,8 @@ _MAX_RESERVATIONS = 500
 _MAX_ENVELOPE_BYTES = 64 * 1024
 # Bound self-attested audit JSON before parsing; this does not authenticate it.
 _MAX_AUDIT_DETAIL_BYTES = 4 * 1024
+# Bound historical verification work; oversized histories require manual review.
+_MAX_AUDIT_HISTORY_ROWS = 4096
 _MAX_REVISION = 2**53 - 1
 
 
@@ -167,10 +169,9 @@ def _audit_head_matches(db, key, raw, state, reserved):
     # Restrict by exact account-hash JSON field, not raw account ID.
     actions = Audit.action.in_(("paper.risk.init", "paper.risk.cas"))
     account_match = Audit.detail.like('%"account_hash":"' + account_hash + '"%')
-    # Initialization adds one receipt, each CAS adds exactly one more.
-    # The two-row head check alone misses gaps or duplicates further back.
-    receipt_count = db.scalar(select(func.count(Audit.id)).where(actions, account_match))
-    if receipt_count != state["revision"] + 1:
+    # Never accept an unbounded scan as evidence of a verified audit history.
+    # Revision 0 has one init receipt; each CAS adds exactly one more.
+    if state["revision"] >= _MAX_AUDIT_HISTORY_ROWS:
         return False
     audits = db.scalars(select(Audit).where(
         actions, account_match
@@ -182,6 +183,40 @@ def _audit_head_matches(db, key, raw, state, reserved):
         return False
     audit = audits[0]
     try:
+        # A receipt COUNT alone can be preserved by deleting an old event and
+        # inserting a duplicate. Walk the bounded account-specific history in
+        # append order and require exact consecutive revisions, actor and
+        # operation schema. The latest two still receive stronger state checks.
+        history = db.execute(select(Audit.action, Audit.actor, Audit.detail).where(
+            actions, account_match
+        ).order_by(Audit.id.asc()).limit(_MAX_AUDIT_HISTORY_ROWS + 1)).all()
+        if len(history) != state["revision"] + 1:
+            return False
+        for expected, (history_action, history_actor, history_detail) in enumerate(history):
+            entry = _audit_json(history_detail)
+            if (history_actor != "paper-risk-store"
+                    or not isinstance(entry, dict)
+                    or entry.get("account_hash") != account_hash
+                    or type(entry.get("revision")) is not int
+                    or entry["revision"] != expected):
+                return False
+            if expected == 0:
+                if (history_action != "paper.risk.init"
+                        or entry != {
+                            "account_hash": account_hash,
+                            "operation": "initialize",
+                            "revision": 0,
+                            "kill_switch": True,
+                        }):
+                    return False
+            elif (history_action != "paper.risk.cas"
+                    or set(entry) != {
+                        "account_hash", "operation", "revision", "kill_switch",
+                        "emergency_latched", "reserved_cash", "limit_cash",
+                        "reservation_count", "reservation_order_hash", "state_sha256"
+                    }
+                    or entry.get("operation") not in ("policy", "reserve", "emergency_kill")):
+                return False
         if state["revision"] == 0:
             if len(audits) != 1:
                 return False
