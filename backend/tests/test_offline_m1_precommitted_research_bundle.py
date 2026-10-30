@@ -232,3 +232,11 @@ def test_cross_auditor_safety_flag_drift_fails_closed(monkeypatch):
     monkeypatch.setattr(bundle, "audit_m1_cost_frontier", drift)
     with pytest.raises(ValueError, match="safety flags"):
         bundle.audit_m1_precommitted_research_bundle(reports, _digest(reports))
+
+
+def test_all_empty_archives_remain_quarantined_without_false_success():
+    reports = [_receipt("a", "b", 0), _receipt("c", "d", 0)]
+    output = bundle.audit_m1_precommitted_research_bundle(reports, _digest(reports))
+    assert output["groups"][0]["status"] == "INCOMPLETE_ARCHIVE_COVERAGE"
+    assert output["groups"][0]["evaluated_outcome_count"] == 0
+    assert output["groups"][0]["fixed_direction_net_bps_at_5_illustrative"] is None
