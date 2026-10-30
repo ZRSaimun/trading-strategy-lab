@@ -129,3 +129,23 @@ Before any PAPER reservation, owner-reviewed policy change or emergency-stop com
 This is **not** a cryptographic audit chain, broker reconciliation or authenticated owner approval. A writer who can forge both state and audit can still defeat it; concurrent independent audit tampering and actual process-kill recovery are not certified. No order route or broker sender is enabled. PR #26 remains draft, unmerged and undeployed pending independent production and market-evidence gates.
 
 Audit cash totals are compared to the exact canonical `str(Decimal)` representation produced by the writer, rather than parsing them as user-supplied money. This preserves fail-closed exactness for valid eight-decimal micro-reservations whose canonical audit total is `1E-8`. The strict user-input cash grammar is unchanged; the existing capacity regression now explicitly checks that the micro-reservation audit verifies before the next legitimate reservation.
+
+
+## Audit writer and exact event-schema fence (30 October 2026)
+
+The mutation-time and read-only audit-head checks now require the retained
+account-specific audit row to have actor `paper-risk-store` and the **exact**
+fields emitted by this prototype's initialization or compare-and-swap writer.
+Unknown or missing event fields, and a matching-looking event attributed to
+another actor, fail closed. Six parameterized synthetic SQLite regression cases
+cover foreign actors, unexpected fields and missing fields at both revision
+zero and a committed policy revision. Failed policy, reservation and emergency
+transitions leave the account and audit count unchanged.
+
+This only rejects accidental schema drift and some malformed/foreign audit
+records. The actor string is **self-declared, not authenticated**; the database
+audit is neither signed nor immutable. A writer who can rewrite both account
+state and audit history can still forge a matching event. This change does not
+supply broker reconciliation, atomic coupling to the paper journal, executable
+quotes, process-death recovery or live trading permission. Keep PR #26 draft,
+unmerged, disconnected and undeployed pending independent release evidence.
