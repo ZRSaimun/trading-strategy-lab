@@ -1213,3 +1213,57 @@ def test_adjacent_reservation_cash_requires_exact_latest_order_delta(
             attempt()
     with setup[1]() as db:
         assert len(db.scalars(select(Audit)).all()) == count_before
+
+
+@pytest.mark.parametrize("which", ["latest", "predecessor"])
+def test_oversized_paper_audit_detail_quarantines_capacity_without_writes(setup, which):
+    """Oversized but otherwise valid JSON cannot count as usable audit proof."""
+    s = store(setup)
+    enabled(s)
+    assert s.reserve("paper-acct-0001", 1,
+                     client_order_id="order-00001", risk_cash="10")
+    assert s.initialize("paper-acct-0002")
+    before = s.load("paper-acct-0001")
+    assert before["audit_head_verified"] is True
+    account_hash = s._key("paper-acct-0001").split(":", 1)[1]
+    with setup[1].begin() as db:
+        rows = db.scalars(select(Audit).where(
+            Audit.detail.like('%"account_hash":"' + account_hash + '"%')
+        ).order_by(Audit.id.desc()).limit(2)).all()
+        receipt = rows[0 if which == "latest" else 1]
+        receipt.detail += " " * (4097 - len(receipt.detail.encode("utf-8")))
+        assert len(receipt.detail.encode("utf-8")) == 4097
+    with setup[1]() as db:
+        count_before = len(db.scalars(select(Audit)).all())
+    assert s.load("paper-acct-0001") == {
+        **before, "audit_head_verified": False,
+        "reservable_risk_capacity_cash": "0",
+    }
+    assert not s.verify_audit_head("paper-acct-0001")
+    assert s.verify_audit_head("paper-acct-0002")
+    for action in (
+        lambda: s.reserve("paper-acct-0001", 2,
+                          client_order_id="order-00002", risk_cash="1"),
+        lambda: s.set_policy("paper-acct-0001", 2, limit_cash="100",
+                             kill_switch=True, owner_reviewed=True),
+        lambda: s.engage_kill_switch("paper-acct-0001"),
+    ):
+        with pytest.raises(ValueError, match="audit head"):
+            action()
+    with setup[1]() as db:
+        assert len(db.scalars(select(Audit)).all()) == count_before
+
+
+def test_paper_audit_json_byte_boundary_and_unicode_limit():
+    """UTF-8 byte size matters even when the character count is below the cap."""
+    from app.paper_risk_reservations import _audit_json, _MAX_AUDIT_DETAIL_BYTES
+    small = '{"operation":"policy"}'
+    exact = small + " " * (_MAX_AUDIT_DETAIL_BYTES - len(small))
+    assert _audit_json(exact) == {"operation": "policy"}
+    with pytest.raises(ValueError, match="size limit"):
+        _audit_json(exact + " ")
+    multibyte = json.dumps({"padding": "é" * 2100}, ensure_ascii=False)
+    assert len(multibyte) < _MAX_AUDIT_DETAIL_BYTES
+    assert len(multibyte.encode("utf-8")) > _MAX_AUDIT_DETAIL_BYTES
+    with pytest.raises(ValueError, match="size limit"):
+        _audit_json(multibyte)
