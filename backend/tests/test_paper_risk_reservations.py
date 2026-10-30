@@ -652,3 +652,63 @@ def test_risk_audit_head_preflight_rejects_missing_and_inconsistent_audit(setup)
             db.delete(audit)
     assert not store(setup).verify_audit_head("paper-acct-0001")
     assert s.load("paper-acct-0001")["may_execute_real_order"] is False
+
+
+def test_audit_head_mismatch_blocks_all_new_risk_transitions(setup):
+    """A valid state checksum is insufficient when its committed audit diverges."""
+    s = store(setup)
+    enabled(s)
+    key = s._key("paper-acct-0001")
+    before = s.load("paper-acct-0001")
+    with setup[1].begin() as db:
+        latest = db.scalars(select(Audit).where(Audit.action == "paper.risk.cas")
+                            .order_by(Audit.id.desc())).first()
+        detail = json.loads(latest.detail)
+        detail["state_sha256"] = "0" * 64
+        latest.detail = json.dumps(detail, sort_keys=True, separators=(",", ":"))
+    assert s.verify_audit_head("paper-acct-0001") is False
+    with setup[1]() as db:
+        audit_before = len(db.scalars(select(Audit)).all())
+    for action in (
+        lambda: s.reserve("paper-acct-0001", 1,
+                          client_order_id="order-00001", risk_cash="1"),
+        lambda: s.set_policy("paper-acct-0001", 1, limit_cash="90",
+                             kill_switch=True, owner_reviewed=True),
+        lambda: s.engage_kill_switch("paper-acct-0001"),
+    ):
+        with pytest.raises(ValueError, match="audit head"):
+            action()
+    assert s.load("paper-acct-0001") == before
+    with setup[1]() as db:
+        assert len(db.scalars(select(Audit)).all()) == audit_before
+
+
+def test_missing_initial_audit_blocks_first_policy_write(setup):
+    """No account can be enabled when its initialization audit is missing."""
+    s = store(setup)
+    assert s.initialize("paper-acct-0001")
+    with setup[1].begin() as db:
+        for row in db.scalars(select(Audit)).all():
+            db.delete(row)
+    assert not s.verify_audit_head("paper-acct-0001")
+    with pytest.raises(ValueError, match="audit head"):
+        s.set_policy("paper-acct-0001", 0, limit_cash="100",
+                     kill_switch=False, owner_reviewed=True)
+    assert s.load("paper-acct-0001")["revision"] == 0
+    with setup[1]() as db:
+        assert db.scalars(select(Audit)).all() == []
+
+
+def test_latched_emergency_retry_requires_retained_audit_head(setup):
+    """Already-latched retries must not report success after audit loss."""
+    s = store(setup)
+    enabled(s)
+    assert s.engage_kill_switch("paper-acct-0001")
+    with setup[1].begin() as db:
+        latest = db.scalars(select(Audit).order_by(Audit.id.desc())).first()
+        assert json.loads(latest.detail)["operation"] == "emergency_kill"
+        db.delete(latest)
+    assert not s.verify_audit_head("paper-acct-0001")
+    with pytest.raises(ValueError, match="audit head"):
+        store(setup).engage_kill_switch("paper-acct-0001")
+    assert s.load("paper-acct-0001")["emergency_latched"] is True
