@@ -14,7 +14,17 @@ audits must all pass. Duplicate outcome receipt hashes **across folds** fail.
 
 The release returns aggregate baseline and stressed settlement-currency cash
 results, per-scenario additional costs, worst fold and number of negative
-folds. It reports no profit probability or executable return. **If any fold
+folds. It reports no profit probability or executable return.
+
+It also reports, for each predeclared cost scenario, the number of folds with
+positive stressed net cash, the minimum and maximum **leave-one-fold-out**
+stressed net cash, and whether removing any single fold would leave a
+nonpositive aggregate. These are concentration/fragility diagnostics computed
+from the *same fixed committed fold cohort*; they must never be used to
+retrospectively drop an unfavorable fold, reselect a candidate, or claim a
+profitable strategy. A zero remainder is nonpositive. They are withheld along
+with all other outcome metrics if any fold contains fewer than 30 observations.
+ **If any fold
 contains fewer than 30 observations, every fold and aggregate outcome metric
 and receipt digest is withheld** (including otherwise sufficiently populated
 folds). Invalid or incomplete outcomes reject the entire release. Distinct
