@@ -153,3 +153,79 @@ def test_count_preserving_old_receipt_tampering_quarantines_account(tmp_path, ta
             assert len(db.scalars(select(Audit)).all()) == count_before
     finally:
         engine.dispose()
+
+
+@pytest.mark.parametrize("tamper", [
+    "old_reserve_cash_delta", "old_reserve_order_identity",
+    "old_policy_cash_change", "old_reserve_cap_change",
+    "old_reserve_count_jump", "old_policy_cap_change",
+])
+def test_historical_transition_reconciliation_fails_closed(tmp_path, tamper):
+    """Plausible old receipts cannot silently rewrite a no-release ledger."""
+    engine = create_engine("sqlite:///" + str(tmp_path / "historical-transitions.db"))
+    Base.metadata.create_all(engine)
+    factory = sessionmaker(engine)
+    store = PaperRiskReservationStore(factory)
+    account = "paper-acct-0001"
+    other = "paper-acct-0002"
+    try:
+        assert store.initialize(account)
+        assert store.set_policy(account, 0, limit_cash="100",
+                                kill_switch=False, owner_reviewed=True)
+        assert store.reserve(account, 1, client_order_id="order-00001", risk_cash="25")
+        # Legitimate policy cap changes must remain possible.
+        assert store.set_policy(account, 2, limit_cash="120",
+                                kill_switch=False, owner_reviewed=True)
+        assert store.reserve(account, 3, client_order_id="order-00002", risk_cash="10")
+        assert store.reserve(account, 4, client_order_id="order-00003", risk_cash="5")
+        assert store.set_policy(account, 5, limit_cash="120",
+                                kill_switch=True, owner_reviewed=True)
+        assert store.initialize(other)
+        assert store.verify_audit_head(account)
+        good = store.load(account)
+        assert good["audit_head_verified"]
+        assert good["reservation_count"] == 3
+        account_hash = store._key(account).split(":", 1)[1]
+        with factory.begin() as db:
+            rows = db.scalars(select(Audit).where(
+                Audit.detail.like('%"account_hash":"' + account_hash + '"%')
+            ).order_by(Audit.id.asc())).all()
+            assert len(rows) == 7
+            old = rows[3] if tamper in (
+                "old_policy_cash_change", "old_policy_cap_change"
+            ) else rows[2]
+            detail = json.loads(old.detail)
+            if tamper == "old_reserve_cash_delta":
+                detail["reserved_cash"] = "24"
+            elif tamper == "old_reserve_order_identity":
+                detail["reservation_order_hash"] = store._order_hash("order-00003")
+            elif tamper == "old_policy_cash_change":
+                detail["reserved_cash"] = "24"
+            elif tamper == "old_reserve_cap_change":
+                detail["limit_cash"] = "110"
+            elif tamper == "old_reserve_count_jump":
+                detail["reservation_count"] = 2
+            elif tamper == "old_policy_cap_change":
+                detail["limit_cash"] = "130"
+            old.detail = json.dumps(detail, sort_keys=True, separators=(",", ":"))
+        with factory() as db:
+            before = len(db.scalars(select(Audit)).all())
+        assert store.load(account) == {
+            **good, "audit_head_verified": False,
+            "reservable_risk_capacity_cash": "0",
+        }
+        assert not store.verify_audit_head(account)
+        assert store.verify_audit_head(other)
+        for attempt in (
+            lambda: store.reserve(account, 6, client_order_id="order-00004",
+                                  risk_cash="1"),
+            lambda: store.set_policy(account, 6, limit_cash="120",
+                                     kill_switch=True, owner_reviewed=True),
+            lambda: store.engage_kill_switch(account),
+        ):
+            with pytest.raises(ValueError, match="audit head"):
+                attempt()
+        with factory() as db:
+            assert len(db.scalars(select(Audit)).all()) == before
+    finally:
+        engine.dispose()
