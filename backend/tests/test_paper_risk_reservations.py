@@ -714,3 +714,64 @@ def test_latched_emergency_retry_requires_retained_audit_head(setup):
     with pytest.raises(ValueError, match="audit head"):
         store(setup).engage_kill_switch("paper-acct-0001")
     assert s.load("paper-acct-0001")["emergency_latched"] is True
+
+
+@pytest.mark.parametrize("tamper", ["foreign_actor", "extra_field", "missing_field"])
+def test_policy_audit_head_rejects_foreign_actor_and_schema_drift(setup, tamper):
+    """A plausible CAS audit is not corroboration if its writer/schema changed."""
+    s = store(setup)
+    enabled(s)
+    before = s.load("paper-acct-0001")
+    with setup[1].begin() as db:
+        latest = db.scalars(select(Audit).where(Audit.action == "paper.risk.cas")
+                            .order_by(Audit.id.desc())).first()
+        if tamper == "foreign_actor":
+            latest.actor = "untrusted-paper-actor"
+        else:
+            detail = json.loads(latest.detail)
+            if tamper == "extra_field":
+                detail["unexpected_approval"] = True
+            else:
+                del detail["reservation_count"]
+            latest.detail = json.dumps(detail, sort_keys=True, separators=(",", ":"))
+    assert not s.verify_audit_head("paper-acct-0001")
+    with setup[1]() as db:
+        audit_count = len(db.scalars(select(Audit)).all())
+    for operation in (
+        lambda: s.reserve("paper-acct-0001", 1,
+                          client_order_id="order-00001", risk_cash="1"),
+        lambda: s.set_policy("paper-acct-0001", 1, limit_cash="90",
+                             kill_switch=True, owner_reviewed=True),
+        lambda: s.engage_kill_switch("paper-acct-0001"),
+    ):
+        with pytest.raises(ValueError, match="audit head"):
+            operation()
+    assert s.load("paper-acct-0001") == before
+    with setup[1]() as db:
+        assert len(db.scalars(select(Audit)).all()) == audit_count
+
+
+@pytest.mark.parametrize("tamper", ["foreign_actor", "extra_field", "missing_field"])
+def test_initial_audit_head_rejects_foreign_actor_and_schema_drift(setup, tamper):
+    """A forged initialization event cannot authorize the first policy change."""
+    s = store(setup)
+    assert s.initialize("paper-acct-0001")
+    with setup[1].begin() as db:
+        latest = db.scalars(select(Audit).where(Audit.action == "paper.risk.init")
+                            .order_by(Audit.id.desc())).first()
+        if tamper == "foreign_actor":
+            latest.actor = "untrusted-paper-actor"
+        else:
+            detail = json.loads(latest.detail)
+            if tamper == "extra_field":
+                detail["unexpected_approval"] = True
+            else:
+                del detail["operation"]
+            latest.detail = json.dumps(detail, sort_keys=True, separators=(",", ":"))
+    assert not s.verify_audit_head("paper-acct-0001")
+    with pytest.raises(ValueError, match="audit head"):
+        s.set_policy("paper-acct-0001", 0, limit_cash="100",
+                     kill_switch=False, owner_reviewed=True)
+    assert s.load("paper-acct-0001")["revision"] == 0
+    with setup[1]() as db:
+        assert len(db.scalars(select(Audit)).all()) == 1
