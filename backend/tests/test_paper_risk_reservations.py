@@ -775,3 +775,43 @@ def test_initial_audit_head_rejects_foreign_actor_and_schema_drift(setup, tamper
     assert s.load("paper-acct-0001")["revision"] == 0
     with setup[1]() as db:
         assert len(db.scalars(select(Audit)).all()) == 1
+
+@pytest.mark.parametrize("tamper", [
+    "policy_as_emergency", "emergency_as_policy", "emergency_as_reserve"
+])
+def test_audit_operation_must_match_committed_paper_state(setup, tamper):
+    """Matching checksums and schemas cannot excuse impossible audit operations."""
+    s = store(setup)
+    enabled(s)
+    if tamper != "policy_as_emergency":
+        assert s.reserve("paper-acct-0001", 1,
+                         client_order_id="order-00001", risk_cash="1")
+        assert s.engage_kill_switch("paper-acct-0001")
+    before = s.load("paper-acct-0001")
+    with setup[1].begin() as db:
+        latest = db.scalars(select(Audit).where(Audit.action == "paper.risk.cas")
+                            .order_by(Audit.id.desc())).first()
+        detail = json.loads(latest.detail)
+        if tamper == "policy_as_emergency":
+            detail["operation"] = "emergency_kill"
+        elif tamper == "emergency_as_policy":
+            detail["operation"] = "policy"
+        else:
+            detail["operation"] = "reserve"
+            detail["reservation_order_hash"] = s._order_hash("order-00001")
+        latest.detail = json.dumps(detail, sort_keys=True, separators=(",", ":"))
+    assert not store(setup).verify_audit_head("paper-acct-0001")
+    with setup[1]() as db:
+        audit_count = len(db.scalars(select(Audit)).all())
+    for operation in (
+        lambda: s.reserve("paper-acct-0001", before["revision"],
+                          client_order_id="order-00002", risk_cash="1"),
+        lambda: s.set_policy("paper-acct-0001", before["revision"],
+                             limit_cash="100", kill_switch=True, owner_reviewed=True),
+        lambda: s.engage_kill_switch("paper-acct-0001"),
+    ):
+        with pytest.raises(ValueError, match="audit head"):
+            operation()
+    assert s.load("paper-acct-0001") == before
+    with setup[1]() as db:
+        assert len(db.scalars(select(Audit)).all()) == audit_count
