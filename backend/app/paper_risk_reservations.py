@@ -8,7 +8,7 @@ import hashlib
 import json
 import re
 import time
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 
 from sqlalchemy import insert, select, update
 from sqlalchemy.exc import IntegrityError
@@ -36,7 +36,10 @@ def _audit_cash(value):
     """Parse the canonical Decimal audit representation, including 1E-8."""
     if not isinstance(value, str) or len(value) > 48:
         raise ValueError("Invalid paper audit cash amount")
-    amount = Decimal(value)
+    try:
+        amount = Decimal(value)
+    except InvalidOperation as exc:
+        raise ValueError("Invalid paper audit cash amount") from exc
     if (not amount.is_finite() or amount < 0
             or amount.as_tuple().exponent < -8 or str(amount) != value):
         raise ValueError("Invalid paper audit cash amount")

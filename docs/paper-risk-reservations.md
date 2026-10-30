@@ -195,7 +195,7 @@ increase reserved cash and retain the identical cap; `policy` and
 `emergency_kill` must preserve reserved cash, and an emergency stop cannot
 change the cap. Owner-reviewed policy cap changes remain allowed.
 
-Seven synthetic SQLite tampering variants cover forged prior cash/caps/order
+Eight synthetic SQLite tampering variants cover forged prior cash/caps/order
 digests across reserve, policy and emergency transitions; a separate positive
 regression covers policy cap changes and exact eight-decimal cash. Invalid
 receipts quarantine reservable capacity and prevent further audit mutations.

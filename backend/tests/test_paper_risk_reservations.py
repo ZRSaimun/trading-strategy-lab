@@ -1026,6 +1026,7 @@ def test_nonreservation_audit_keeps_predecessor_reservation_count(setup):
     ("reserve", "reserved_cash", "99"),
     ("reserve", "reserved_cash", "0"),
     ("reserve", "reserved_cash", "NaN"),
+    ("reserve", "reserved_cash", "not-a-money"),
     ("reserve", "limit_cash", "90"),
     ("reserve", "reservation_order_hash", "not-a-sha256"),
     ("policy", "reserved_cash", "24"),
