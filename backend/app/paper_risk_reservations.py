@@ -177,8 +177,18 @@ def _audit_head_matches(db, key, raw, state, reserved):
                 or detail.get("reserved_cash") != str(reserved)):
             return False
         order_hash = detail.get("reservation_order_hash")
-        return (order_hash in state["reservations"] if operation == "reserve"
-                else order_hash is None)
+        # The audit operation must be possible for the state it claims to
+        # checkpoint. Matching fields/checksum alone cannot turn a policy
+        # transition into an emergency stop or a stopped state into a reserve.
+        if operation == "reserve":
+            return (not state["kill_switch"] and not state["emergency_latched"]
+                    and order_hash in state["reservations"])
+        if order_hash is not None:
+            return False
+        if operation == "emergency_kill":
+            return state["kill_switch"] and state["emergency_latched"]
+        return not state["emergency_latched"]  # A policy CAS cannot latch an emergency.
+
     except (TypeError, ValueError, RecursionError, OverflowError):
         return False
 
