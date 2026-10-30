@@ -87,8 +87,11 @@ def audit_m1_precommitted_research_bundle(reports, expected_source_cohort_sha256
 
         incomplete = base["status"] == "INCOMPLETE_ARCHIVE_COVERAGE"
         if incomplete:
-            if (any(g["status"] != "INCOMPLETE_ARCHIVE_COVERAGE"
-                    for g in (robust, deleted, mirror, costs))
+            expected_robust_status = ("NO_EVALUATED_ARCHIVES" if n == 0
+                                      else "INCOMPLETE_ARCHIVE_COVERAGE")
+            if (robust["status"] != expected_robust_status
+                    or any(g["status"] != "INCOMPLETE_ARCHIVE_COVERAGE"
+                           for g in (deleted, mirror, costs))
                     or any(base["weighted_mean_net_bps_by_illustrative_cost"][str(c)] is not None
                            for c in COSTS)
                     or costs["break_even_roundtrip_cost_intervals_bps"] is not None):
