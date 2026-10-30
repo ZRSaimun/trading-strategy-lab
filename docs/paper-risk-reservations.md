@@ -353,3 +353,9 @@ to 4,096 receipts and add cost. This does not authenticate broker quotes,
 reconcile orders or positions, prove crash recovery or authorize execution.
 PR #26 remains DRAFT / PAPER ONLY / NO MERGE / NO DEPLOY without separate
 approval and all documented evidence gates.
+
+## Canonical retained audit receipts (30 October 2026)
+
+The disconnected PAPER reservation verifier now requires each retained account-specific audit JSON receipt to match the exact canonical encoding emitted by the store (sorted keys, compact separators, canonical JSON escaping and numeric spelling). A receipt with identical decoded fields but changed whitespace, escaped key names or field order is no longer accepted as unchanged evidence. This check applies to historical receipts as well as the latest two checkpoints, after the existing 4,096-byte size preflight and duplicate-key validation.
+
+Seven synthetic SQLite cases in `backend/tests/test_paper_risk_canonical_audit.py` cover three byte-only alterations at an older and latest receipt, blocked reservations/policy/emergency writes, unchanged audit count, unaffected unrelated account, and legitimate restart/emergency transitions. Run `cd backend && PYTHONPATH=. python -m pytest -q tests/test_paper_risk_canonical_audit.py`. Canonical formatting is **not** a signature, trusted timestamp, append-only ledger or proof of external broker authenticity: a database writer able to forge both receipts and their unkeyed checksums can still fabricate a consistent history. Existing source, journal, crash-recovery, main-branch integration and owner-approved deployment blockers remain. **DRAFT / PAPER ONLY / NO MERGE / NO DEPLOY / NO ORDERS.**
