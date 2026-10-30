@@ -240,3 +240,17 @@ Existing precision regressions cover canonical eight-decimal cash values.
 This is only adjacent self-attested audit consistency, not cryptographic
 authentication, full historical reconciliation, broker-sourced positions,
 or profitability evidence. Keep the PR draft, unmerged and undeployed.
+
+## Bounded retained PAPER audit receipt parsing (30 October 2026)
+
+The disconnected reservation preflight rejects an initialization or CAS
+receipt whose retained JSON detail exceeds **4,096 UTF-8 bytes**, before JSON
+object allocation. This applies to the latest and immediately preceding
+same-account audit rows; oversized but otherwise valid JSON (including trailing
+whitespace) fails closed. Snapshots quarantine reservable cash and mutations
+cannot append new audit events. Boundary regressions preserve valid 4,096-byte
+JSON and reject 4,097-byte and multibyte-overflow details.
+
+This is a local parser/resource bound, **not** a database query-size limit,
+authenticated audit history, complete-chain verification, broker reconciliation
+or trade approval. No production migration, order, merge or deployment is authorized.
