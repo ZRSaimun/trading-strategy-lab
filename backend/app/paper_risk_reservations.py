@@ -165,7 +165,7 @@ def _audit_head_matches(db, key, raw, state, reserved):
                 or detail.get("emergency_latched") is not state["emergency_latched"]
                 or detail.get("limit_cash") != state["limit_cash"]
                 or detail.get("reservation_count") != len(state["reservations"])
-                or _money(detail.get("reserved_cash")) != reserved):
+                or detail.get("reserved_cash") != str(reserved)):
             return False
         order_hash = detail.get("reservation_order_hash")
         return (order_hash in state["reservations"] if operation == "reserve"
@@ -210,9 +210,7 @@ class PaperRiskReservationStore:
             # before any policy or reservation mutation is attempted.
             if not _audit_head_matches(db, key, raw, state, reserved):
                 raise ValueError("Paper risk audit head is missing or inconsistent; halt orders")
-            # CAS still protects against a competing state transition.
-            if state["revision"] != expected_revision:
-                return False
+            # The conditional SQL UPDATE below still protects against races.
             updated = change(state)
             if updated is None:
                 return False

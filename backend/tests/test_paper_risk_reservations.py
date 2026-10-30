@@ -224,6 +224,8 @@ def test_snapshot_reports_exact_remaining_capacity_without_execution_permission(
     partial = store(setup).load("paper-acct-0001")
     assert partial["remaining_risk_capacity_cash"] == "99.99999999"
     assert partial["reserved_cash"] == "1E-8"
+    # Audit uses Decimal's exact canonical string, including exponent form.
+    assert store(setup).verify_audit_head("paper-acct-0001")
     assert partial["may_execute_paper_order"] is False
 
     assert s.reserve("paper-acct-0001", 2, client_order_id="order-00002",
