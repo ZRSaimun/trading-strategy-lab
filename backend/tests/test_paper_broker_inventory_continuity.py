@@ -414,3 +414,52 @@ def test_prior_order_at_exact_attempt_boundary_remains_unverified():
     assert (e, p, c) == original
     assert result["may_submit_paper_order"] is False
     assert result["may_submit_real_order"] is False
+
+
+def test_declared_evidence_digest_is_stable_and_non_authorizing():
+    e, p, c = sample()
+    original = deepcopy((e, p, c))
+    first = inspect_declared_inventory_continuity(e, p, c, NOW)
+    second = inspect_declared_inventory_continuity(e, p, c, NOW)
+    digest = first["declared_evidence_sha256"]
+    assert len(digest) == 64
+    assert all(char in "0123456789abcdef" for char in digest)
+    assert digest == second["declared_evidence_sha256"]
+    assert (e, p, c) == original
+    assert first["broker_authenticated"] is False
+    assert first["may_clear_unknown"] is False
+    assert first["may_submit_real_order"] is False
+
+
+def test_declared_evidence_digest_changes_with_evidence_not_only_reasons():
+    e, p, c = sample()
+    baseline = inspect_declared_inventory_continuity(e, p, c, NOW)
+    c["received_at_ms"] -= 1  # Still a clean declared transition.
+    changed = inspect_declared_inventory_continuity(e, p, c, NOW)
+    assert baseline["failed_checks"] == changed["failed_checks"] == []
+    assert baseline["declared_evidence_sha256"] != changed["declared_evidence_sha256"]
+    assert changed["may_submit_paper_order"] is False
+
+
+def test_declared_evidence_digest_canonicalizes_mapping_key_order():
+    e, p, c = sample()
+    baseline = inspect_declared_inventory_continuity(e, p, c, NOW)
+    reversed_e = dict(reversed(list(e.items())))
+    reversed_p = dict(reversed(list(p.items())))
+    reversed_c = dict(reversed(list(c.items())))
+    reordered = inspect_declared_inventory_continuity(reversed_e, reversed_p, reversed_c, NOW)
+    assert baseline["declared_evidence_sha256"] == reordered["declared_evidence_sha256"]
+
+
+def test_invalid_page_completeness_type_fails_closed_before_fingerprinting():
+    e, p, c = sample()
+    p["pages"][0]["complete"] = {"untrusted": ["not a boolean"]}
+    with pytest.raises(ValueError, match="Invalid declared page completeness type"):
+        inspect_declared_inventory_continuity(e, p, c, NOW)
+
+
+def test_missing_previous_digest_remains_a_hold():
+    result = inspect(prior=False)
+    assert len(result["declared_evidence_sha256"]) == 64
+    assert result["status"] == "HOLD_INVENTORY_CONTINUITY"
+    assert result["may_clear_unknown"] is False
