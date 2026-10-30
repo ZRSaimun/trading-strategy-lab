@@ -209,6 +209,54 @@ class PaperRiskReservationStore:
                 db.rollback()
                 return False
 
+    def verify_audit_head(self, account_id):
+        """Read-only PAPER checkpoint consistency; NOT authenticated audit proof.
+
+        False means the latest retained per-account audit does not corroborate
+        the stored state. A concurrent transition may produce a transient false;
+        never interpret false, missing, or corrupt evidence as permission.
+        """
+        key = self._key(account_id)
+        account_hash = key.split(":", 1)[1]
+        with self.session_factory() as db:
+            raw = db.scalar(select(Record.value).where(Record.key == key))
+            if raw is None:
+                return False
+            state, reserved = _decode(raw, key=key)
+            # Audit details are emitted by _canonical, with no whitespace.
+            # Restrict by exact account-hash JSON field, not raw account ID.
+            audit = db.scalar(select(Audit).where(
+                Audit.action.in_(("paper.risk.init", "paper.risk.cas")),
+                Audit.detail.like('%"account_hash":"' + account_hash + '"%')
+            ).order_by(Audit.id.desc()).limit(1))
+            if audit is None:
+                return False
+            try:
+                detail = _unique_json(audit.detail)
+                if (not isinstance(detail, dict)
+                        or detail.get("account_hash") != account_hash
+                        or type(detail.get("revision")) is not int
+                        or detail["revision"] != state["revision"]
+                        or detail.get("kill_switch") is not state["kill_switch"]):
+                    return False
+                if state["revision"] == 0:
+                    return (audit.action == "paper.risk.init"
+                            and detail.get("operation") == "initialize")
+                operation = detail.get("operation")
+                if (audit.action != "paper.risk.cas"
+                        or operation not in ("policy", "reserve", "emergency_kill")
+                        or detail.get("state_sha256") != hashlib.sha256(raw.encode()).hexdigest()
+                        or detail.get("emergency_latched") is not state["emergency_latched"]
+                        or detail.get("limit_cash") != state["limit_cash"]
+                        or detail.get("reservation_count") != len(state["reservations"])
+                        or _money(detail.get("reserved_cash")) != reserved):
+                    return False
+                order_hash = detail.get("reservation_order_hash")
+                return (order_hash in state["reservations"] if operation == "reserve"
+                        else order_hash is None)
+            except (TypeError, ValueError, RecursionError, OverflowError):
+                return False
+
     def load(self, account_id):
         key = self._key(account_id)
         with self.session_factory() as db:

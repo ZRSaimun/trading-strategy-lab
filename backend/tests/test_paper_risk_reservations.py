@@ -591,3 +591,64 @@ def test_legitimate_separate_stop_revisions_remain_valid(setup):
     assert stopped_without_reservations["revision"] == 2
     assert stopped_without_reservations["emergency_latched"] is True
     assert stopped_without_reservations["may_execute_real_order"] is False
+
+
+def test_read_only_risk_audit_head_corresponds_to_committed_state(setup):
+    """Each completed PAPER transition leaves a matching per-account audit head."""
+    s = store(setup)
+    assert not s.verify_audit_head("paper-acct-0001")
+    assert s.initialize("paper-acct-0001")
+    assert s.verify_audit_head("paper-acct-0001")
+    assert s.set_policy("paper-acct-0001", 0, limit_cash="100",
+                        kill_switch=False, owner_reviewed=True)
+    assert s.verify_audit_head("paper-acct-0001")
+    assert s.reserve("paper-acct-0001", 1,
+                     client_order_id="order-00001", risk_cash="12.50")
+    assert store(setup).verify_audit_head("paper-acct-0001")
+    assert s.engage_kill_switch("paper-acct-0001")
+    assert store(setup).verify_audit_head("paper-acct-0001")
+    assert s.initialize("paper-acct-0002")
+    assert store(setup).verify_audit_head("paper-acct-0002")
+    assert s.load("paper-acct-0001")["may_execute_paper_order"] is False
+
+
+def test_recomputed_risk_state_checksum_without_audit_head_fails_preflight(setup):
+    """An unkeyed envelope checksum cannot forge a matching committed CAS audit."""
+    import hashlib
+    s = store(setup)
+    enabled(s)
+    assert s.verify_audit_head("paper-acct-0001")
+    key = s._key("paper-acct-0001")
+    with setup[1].begin() as db:
+        row = db.get(Record, key)
+        envelope = json.loads(row.value)
+        envelope["state"]["limit_cash"] = "200"
+        canonical = json.dumps(envelope["state"], sort_keys=True, separators=(",", ":"))
+        envelope["sha256"] = hashlib.sha256(canonical.encode()).hexdigest()
+        row.value = json.dumps(envelope)
+    with setup[1]() as db:
+        audit_before = len(db.scalars(select(Audit)).all())
+    assert s.load("paper-acct-0001")["limit_cash"] == "200"
+    assert s.verify_audit_head("paper-acct-0001") is False
+    with setup[1]() as db:
+        assert len(db.scalars(select(Audit)).all()) == audit_before
+
+
+def test_risk_audit_head_preflight_rejects_missing_and_inconsistent_audit(setup):
+    """Audit-head absence or mismatched revision fails closed without new writes."""
+    s = store(setup)
+    enabled(s)
+    key = s._key("paper-acct-0001")
+    assert s.verify_audit_head("paper-acct-0001")
+    with setup[1].begin() as db:
+        latest = db.scalars(select(Audit).where(Audit.action == "paper.risk.cas")
+                            .order_by(Audit.id.desc())).first()
+        detail = json.loads(latest.detail)
+        detail["revision"] = 0
+        latest.detail = json.dumps(detail, sort_keys=True, separators=(",", ":"))
+    assert not store(setup).verify_audit_head("paper-acct-0001")
+    with setup[1].begin() as db:
+        for audit in db.scalars(select(Audit)).all():
+            db.delete(audit)
+    assert not store(setup).verify_audit_head("paper-acct-0001")
+    assert s.load("paper-acct-0001")["may_execute_real_order"] is False
