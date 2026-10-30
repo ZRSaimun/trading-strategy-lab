@@ -149,3 +149,18 @@ state and audit history can still forge a matching event. This change does not
 supply broker reconciliation, atomic coupling to the paper journal, executable
 quotes, process-death recovery or live trading permission. Keep PR #26 draft,
 unmerged, disconnected and undeployed pending independent release evidence.
+
+## Audit operation/state coherence (30 October 2026)
+
+The opt-in PAPER risk-store audit-head verifier now checks that the declared
+operation could have produced its checkpoint: a `reserve` event requires an
+enabled, non-emergency-latched account and a retained hashed order ID; an
+`emergency_kill` event requires both the kill switch and emergency latch; and
+a `policy` event cannot claim an emergency latch. Policy and emergency events
+must not carry a reservation-order digest. Three synthetic SQLite regressions
+replace otherwise schema-valid, checksum-matching audit operations and verify
+that preflight, reservations, policy writes and emergency retries fail closed
+without creating another audit event. This is internal consistency only:
+the audit remains unkeyed/self-attested, not authenticated broker evidence,
+an execution permission, or a substitute for journal reconciliation.
+Keep the draft unmerged and undeployed pending the existing release gates.
