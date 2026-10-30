@@ -403,3 +403,12 @@ privileged database writer can rewrite coordinated evidence. It does not
 prove broker authenticity, complete audit integrity, crash recovery,
 positive expectancy, or permission to execute. **DRAFT / PAPER ONLY / NO MERGE /
 NO DEPLOY / NO ORDERS.**
+
+
+## Bounded SQL audit-detail preflight (30 October 2026)
+
+Before loading any account-specific PAPER audit receipt text into Python, the read-only verifier now asks SQLite/PostgreSQL whether a matching retained row exceeds **4,096 characters**. If so, it fails closed without fetching that oversized detail or calling the JSON parser. This reduces memory exposure from malformed or adversarially inflated audit rows. The existing `_audit_json` parser separately enforces **4,096 UTF-8 bytes** (and canonical encoding) because SQL `length()` measures characters, not UTF-8 bytes. The SQL check is an early rejection, not a replacement for the byte bound.
+
+`backend/tests/test_paper_risk_audit_sql_size_preflight.py` uses a synthetic 1 MiB same-account audit row to prove that the verifier never reaches Python JSON parsing or loads an Audit ORM row before denying capacity. It also verifies blocked reservation/policy/emergency writes, unchanged audit count, account isolation, and a multibyte UTF-8 row whose character count passes SQL but whose byte count must fail the parser. All fixtures are synthetic; no raw broker data or secrets are included.
+
+This is **resource hardening**, not a cryptographic audit signature, authenticated broker reconciliation, full audit provenance, or a profitability claim. The database must still evaluate the account-hash text match and SQL length expression; this does not bound database-side scanning, validate receipts that omit the account locator, or make the disconnected prototype suitable for execution. Keep PR #26 draft, paper-only, unmerged and undeployed until its integration and independent evidence gates are satisfied.
