@@ -1,0 +1,160 @@
+"""Fail closed before persisting self-invalidating PAPER audit timestamps.
+
+Synthetic SQLite only; no trusted-clock, broker, or execution evidence.
+"""
+import pytest
+from sqlalchemy import create_engine, func, select, update
+from sqlalchemy.orm import sessionmaker
+
+from app import paper_risk_reservations as risk
+from app.db import Audit, Base, Record
+
+
+@pytest.mark.parametrize("clock_value", [0, -1, 0.5, float("nan"), float("inf")])
+def test_invalid_clock_cannot_initialize_account(tmp_path, monkeypatch, clock_value):
+    engine = create_engine("sqlite:///" + str(tmp_path / "invalid-init-clock.db"))
+    Base.metadata.create_all(engine)
+    factory = sessionmaker(engine)
+    store = risk.PaperRiskReservationStore(factory)
+    try:
+        with monkeypatch.context() as patch:
+            patch.setattr(risk.time, "time", lambda: clock_value)
+            with pytest.raises(ValueError, match="audit clock"):
+                store.initialize("paper-acct-0001")
+        with factory() as db:
+            assert db.scalar(select(func.count(Record.key))) == 0
+            assert db.scalar(select(func.count(Audit.id))) == 0
+        assert store.initialize("paper-acct-0001")
+        assert store.verify_audit_head("paper-acct-0001")
+    finally:
+        engine.dispose()
+
+
+@pytest.mark.parametrize("clock_value", [0, -1, 0.5, float("nan"), float("inf")])
+def test_invalid_clock_cannot_commit_policy_reservation_or_emergency(
+        tmp_path, monkeypatch, clock_value):
+    engine = create_engine("sqlite:///" + str(tmp_path / "invalid-cas-clock.db"))
+    Base.metadata.create_all(engine)
+    factory = sessionmaker(engine)
+    store = risk.PaperRiskReservationStore(factory)
+    account, other = "paper-acct-0001", "paper-acct-0002"
+    try:
+        assert store.initialize(account)
+        assert store.set_policy(account, 0, limit_cash="100",
+                                kill_switch=False, owner_reviewed=True)
+        assert store.initialize(other)
+        before = store.load(account)
+        with factory() as db:
+            count = db.scalar(select(func.count(Audit.id)))
+            raw = db.scalar(select(Record.value).where(
+                Record.key == store._key(account)))
+        with monkeypatch.context() as patch:
+            patch.setattr(risk.time, "time", lambda: clock_value)
+            with pytest.raises(ValueError, match="audit clock"):
+                store.reserve(account, 1, client_order_id="order-00001",
+                              risk_cash="10")
+            with pytest.raises(ValueError, match="audit clock"):
+                store.set_policy(account, 1, limit_cash="90",
+                                 kill_switch=False, owner_reviewed=True)
+            with pytest.raises(ValueError, match="audit clock"):
+                store.engage_kill_switch(account)
+        with factory() as db:
+            assert db.scalar(select(func.count(Audit.id))) == count
+            assert db.scalar(select(Record.value).where(
+                Record.key == store._key(account))) == raw
+        assert store.load(account) == before
+        assert store.verify_audit_head(other)
+        # Restoring a valid clock must leave the account usable for PAPER
+        # accounting; no poisoned audit revision was committed.
+        assert store.reserve(account, 1, client_order_id="order-00001",
+                             risk_cash="10")
+        assert store.verify_audit_head(account)
+    finally:
+        engine.dispose()
+
+
+@pytest.mark.parametrize("clock_value", [
+    2**31, float(2**31), 2**31 - 1 + 0.25, 2**31 - 1 + 0.75, 10**40,
+])
+def test_postgres_int4_clock_overflow_fails_before_sql_writes(tmp_path, monkeypatch, clock_value):
+    """SQLite must not certify audit times PostgreSQL Integer cannot persist."""
+    engine = create_engine("sqlite:///" + str(tmp_path / "overflow-clock.db"))
+    Base.metadata.create_all(engine)
+    factory = sessionmaker(engine)
+    store = risk.PaperRiskReservationStore(factory)
+    try:
+        with monkeypatch.context() as patch:
+            patch.setattr(risk.time, "time", lambda: clock_value)
+            with pytest.raises(ValueError, match="audit clock"):
+                store.initialize("paper-acct-0001")
+        with factory() as db:
+            assert db.scalar(select(func.count(Record.key))) == 0
+            assert db.scalar(select(func.count(Audit.id))) == 0
+        assert store.initialize("paper-acct-0001")
+        assert store.set_policy("paper-acct-0001", 0, limit_cash="100",
+                                kill_switch=False, owner_reviewed=True)
+        with factory() as db:
+            before = db.scalar(select(func.count(Audit.id)))
+        with monkeypatch.context() as patch:
+            patch.setattr(risk.time, "time", lambda: clock_value)
+            with pytest.raises(ValueError, match="audit clock"):
+                store.reserve("paper-acct-0001", 1, client_order_id="order-00001",
+                              risk_cash="10")
+            with pytest.raises(ValueError, match="audit clock"):
+                store.engage_kill_switch("paper-acct-0001")
+        with factory() as db:
+            assert db.scalar(select(func.count(Audit.id))) == before
+        assert store.verify_audit_head("paper-acct-0001")
+    finally:
+        engine.dispose()
+
+
+def test_out_of_range_historical_timestamp_blocks_mutations(tmp_path):
+    """SQLite's wider integer storage must not mask invalid old INT4 receipts."""
+    engine = create_engine("sqlite:///" + str(tmp_path / "historical-overflow.db"))
+    Base.metadata.create_all(engine)
+    factory = sessionmaker(engine)
+    store = risk.PaperRiskReservationStore(factory)
+    account, other = "paper-acct-0001", "paper-acct-0002"
+    try:
+        assert store.initialize(account)
+        assert store.set_policy(account, 0, limit_cash="100",
+                                kill_switch=False, owner_reviewed=True)
+        assert store.initialize(other)
+        account_hash = risk._account_hash(store._key(account))
+        with factory() as db:
+            db.execute(update(Audit).where(
+                Audit.action == "paper.risk.init",
+                Audit.detail.like('%"account_hash":"' + account_hash + '"%')
+            ).values(time=2**31))
+            db.commit()
+            count = db.scalar(select(func.count(Audit.id)))
+        assert store.load(account)["audit_head_verified"] is False
+        with pytest.raises(ValueError, match="audit head"):
+            store.reserve(account, 1, client_order_id="order-00001", risk_cash="10")
+        with pytest.raises(ValueError, match="audit head"):
+            store.engage_kill_switch(account)
+        with factory() as db:
+            assert db.scalar(select(func.count(Audit.id))) == count
+        assert store.verify_audit_head(other)
+    finally:
+        engine.dispose()
+
+
+def test_maximum_int4_epoch_remains_verifiable(tmp_path, monkeypatch):
+    engine = create_engine("sqlite:///" + str(tmp_path / "int4-boundary.db"))
+    Base.metadata.create_all(engine)
+    store = risk.PaperRiskReservationStore(sessionmaker(engine))
+    try:
+        with monkeypatch.context() as patch:
+            patch.setattr(risk.time, "time", lambda: 2**31 - 1)
+            assert store.initialize("paper-acct-0001")
+            # Fractional epochs strictly below the INT4 maximum are valid.
+            patch.setattr(risk.time, "time", lambda: 2**31 - 1 - 0.25)
+            assert store.initialize("paper-acct-0002")
+        with sessionmaker(engine)() as db:
+            assert sorted(db.scalars(select(Audit.time)).all()) == [2**31 - 2, 2**31 - 1]
+        assert store.verify_audit_head("paper-acct-0001")
+        assert store.verify_audit_head("paper-acct-0002")
+    finally:
+        engine.dispose()
