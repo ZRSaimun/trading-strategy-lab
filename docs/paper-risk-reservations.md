@@ -603,3 +603,27 @@ denial without changing unrelated accounts. This is a cross-engine
 consistency check, **not** cryptographic authenticity, trusted time, broker
 reconciliation, a signed audit log, or an authorization to trade. The
 existing paper-only, draft, no-merge/no-deploy safeguards remain in force.
+
+## Generated audit-ID INT4 commit guard (31 October 2026)
+
+The account-local historical verifier already rejects audit primary keys above
+2,147,483,647, but SQLite can **generate** such a ROWID when an existing
+receipt occupies the upper boundary. Without a writer-side guard, a new
+PAPER policy, reservation, emergency stop, or account initialization could
+commit a state mutation paired with an audit ID that the verifier immediately
+rejects. The store now flushes each new audit receipt **within the same
+database transaction** and checks the actual generated primary key before
+committing. An out-of-range ID rolls back both the receipt and any paired
+state change. A PostgreSQL sequence overflow can fail at flush instead;
+neither case grants execution permission. A failed emergency-stop persistence
+attempt must be treated as **halt all orders**, never as a successful latch.
+
+Four synthetic SQLite regression cases in
+`backend/tests/test_paper_risk_generated_audit_id.py` exercise initialization,
+owner policy, reservation and emergency latch at the exact INT4 boundary.
+They verify unchanged persisted state/audit counts after rejection, intact
+existing-account audit evidence, and successful retry only after a controlled
+test-only restoration of the original primary key. This is database
+portability and transactional consistency, **not** cryptographic audit
+authenticity, broker reconciliation, trusted market data, or live readiness.
+PR #26 stays **DRAFT / PAPER ONLY / NO MERGE / NO RENDER DEPLOY**.

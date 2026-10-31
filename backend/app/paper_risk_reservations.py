@@ -56,6 +56,23 @@ def _audit_timestamp():
     return timestamp
 
 
+def _commit_with_checked_audit_id(db, audit):
+    """Do not commit state if the generated audit PK is invalid for INT4.
+
+    Flush within the caller's transaction so SQLite's permissive ROWID
+    allocation cannot silently create an unverifiable receipt. PostgreSQL
+    may instead reject an exhausted sequence during flush. Neither case
+    permits the paired state mutation to commit.
+    """
+    db.add(audit)
+    db.flush()
+    if type(audit.id) is not int or not 0 < audit.id <= _MAX_AUDIT_ID:
+        db.rollback()
+        raise ValueError("Invalid PAPER risk audit ID; halt orders")
+    db.commit()
+
+
+
 def _money(value, *, positive=False):
     if not isinstance(value, str) or not _CASH.fullmatch(value):
         raise ValueError("Cash amount must be a nonnegative decimal string with at most 8 places")
@@ -651,7 +668,7 @@ class PaperRiskReservationStore:
             if changed.rowcount != 1:
                 db.rollback()
                 return False
-            db.add(Audit(time=audit_time, actor="paper-risk-store", action="paper.risk.cas",
+            audit = Audit(time=audit_time, actor="paper-risk-store", action="paper.risk.cas",
                          detail=_canonical({"account_hash": key.split(":", 1)[1],
                                             "operation": operation,
                                             "revision": updated["revision"],
@@ -661,8 +678,8 @@ class PaperRiskReservationStore:
                                             "limit_cash": updated["limit_cash"],
                                             "reservation_count": len(updated["reservations"]),
                                             "reservation_order_hash": order_hash if operation == "reserve" else None,
-                                            "state_sha256": hashlib.sha256(new_raw.encode()).hexdigest()})))
-            db.commit()
+                                            "state_sha256": hashlib.sha256(new_raw.encode()).hexdigest()}))
+            _commit_with_checked_audit_id(db, audit)
             return True
 
     def initialize(self, account_id):
@@ -681,11 +698,11 @@ class PaperRiskReservationStore:
             audit_time = _audit_timestamp()  # Fail before creating state or audit.
             try:
                 db.execute(insert(Record).values(key=key, value=_encode(state, key=key)))
-                db.add(Audit(time=audit_time, actor="paper-risk-store", action="paper.risk.init",
+                audit = Audit(time=audit_time, actor="paper-risk-store", action="paper.risk.init",
                              detail=_canonical({"account_hash": key.split(":", 1)[1],
                                                 "operation": "initialize",
-                                                "revision": 0, "kill_switch": True})))
-                db.commit()
+                                                "revision": 0, "kill_switch": True}))
+                _commit_with_checked_audit_id(db, audit)
                 return True
             except IntegrityError:
                 db.rollback()
