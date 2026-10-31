@@ -2,8 +2,6 @@
 
 Synthetic SQLite only; no trusted-clock, broker, or execution evidence.
 """
-import math
-
 import pytest
 from sqlalchemy import create_engine, func, select
 from sqlalchemy.orm import sessionmaker
