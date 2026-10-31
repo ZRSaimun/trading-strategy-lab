@@ -1,0 +1,582 @@
+"""Synthetic-only holdout gate regression; no market or brokerage data."""
+import copy
+import random
+
+import pytest
+
+from app.declared_holdout_release_gate import (
+    audit_declared_holdout_release,
+    prepare_declared_holdout_census_sha256,
+    prepare_declared_holdout_manifest_sha256,
+)
+
+
+def fixture(count=35):
+    census = [dict(observation_id=f"o{i:04d}", row_sha256=f"{i + 1:064x}",
+                   source_sha256="a" * 64, decision_at_utc=2100 + i * 100,
+                   label_available_at_utc=2150 + i * 100)
+              for i in range(count)]
+    manifest = dict(study_id="study-1", candidate_id="frozen-candidate",
+                    candidate_config_sha256="b" * 64,
+                    selection_evidence_sha256="c" * 64,
+                    validation_end_at_utc=1000, selected_at_utc=1200,
+                    registered_at_utc=1250, holdout_start_at_utc=2000,
+                    holdout_end_at_utc=max(20000, 2100 + count * 100), embargo_seconds=100,
+                    expected_holdout_count=count,
+                    holdout_census_sha256=prepare_declared_holdout_census_sha256(census),
+                    source=dict(provider="Synthetic", venue="Demo", instrument="XAUUSD-CFD",
+                                quote_side="BID", account_alias="test-1",
+                                settlement_currency="GBP", utc_convention="UTC",
+                                archive_sha256="a" * 64))
+    anchor = dict(manifest_sha256=prepare_declared_holdout_manifest_sha256(manifest),
+                  anchored_at_utc=1300, anchor_reference="external-registry-id",
+                  external_record_sha256="d" * 64)
+    outcomes = [dict(row, observed_at_utc=row["label_available_at_utc"] + 25,
+                     gross_cash="-5.00" if i == 5 else "10.00",
+                     spread_cash="1.00", slippage_cash="1.00",
+                     commission_cash="1.00", financing_cash="0.50", fx_cash="0.50",
+                     receipt_sha256=f"{i + 100:064x}")
+                for i, row in enumerate(census)]
+    return manifest, census, anchor, outcomes, manifest["holdout_end_at_utc"] + 1
+
+
+def audit(data=None):
+    return audit_declared_holdout_release(*(fixture() if data is None else data))
+
+
+def test_complete_declared_release_and_no_trade_permissions():
+    result = audit()
+    assert result["status"] == "DECLARED_EVALUATION_ONLY"
+    assert result["observation_count"] == 35
+    assert result["net_cash"] == "195.0000"  # 34 x 6, one x -9
+    assert result["worst_observation_net_cash"] == "-9.0000"
+    assert result["max_observation_end_drawdown_cash"] == "9.0000"
+    assert result["anchor_independently_authenticated"] is False
+    assert result["one_time_release_enforced"] is False
+    assert result["holdout_untouched_independently_verified"] is False
+    assert result["may_execute_demo_order"] is False
+    assert result["may_execute_real_order"] is False
+    assert result["profitable_edge_verified"] is False
+
+
+def test_small_sample_withheld_even_if_net_positive():
+    result = audit(fixture(2))
+    assert result["status"] == "WITHHELD_INSUFFICIENT_HOLDOUT"
+    assert result["outcome_metrics_withheld"] is True
+    for key in ("net_cash", "worst_observation_net_cash",
+                "max_observation_end_drawdown_cash",
+                "max_receipt_time_ordering_drawdown_cash_upper_bound",
+                "outcome_receipts_sha256"):
+        assert result[key] is None
+
+
+def test_withheld_holdout_does_not_leak_outcome_changes():
+    data = fixture(29)
+    baseline = audit(data)
+    modified = copy.deepcopy(data)
+    for i, row in enumerate(modified[3]):
+        row["gross_cash"] = "-999.00" if i % 2 else "999.00"
+        row["financing_cash"] = "-500.00" if i % 2 else "500.00"
+        row["receipt_sha256"] = f"{i + 5000:064x}"
+    assert audit(modified) == baseline
+    assert baseline["observation_count"] == 29
+    assert baseline["outcome_metrics_withheld"] is True
+
+
+def test_release_threshold_exposes_only_declared_not_verified_results():
+    result = audit(fixture(30))
+    assert result["status"] == "DECLARED_EVALUATION_ONLY"
+    assert result["outcome_metrics_withheld"] is False
+    assert result["net_cash"] is not None
+    assert result["outcome_receipts_sha256"] is not None
+    assert result["profitable_edge_verified"] is False
+
+
+
+def test_drawdown_uses_receipt_observation_time_not_decision_time():
+    # A later decision can close before an earlier decision. Decision-time
+    # ordering would report 60 rather than the 40 actually observable from
+    # the declared receipt chronology in this synthetic example.
+    data = list(fixture(30))
+    for row in data[3]:
+        row.update(gross_cash="0", spread_cash="0", slippage_cash="0",
+                   commission_cash="0", financing_cash="0", fx_cash="0")
+    for index, gross in enumerate(("20", "-30", "-30", "20")):
+        data[3][index]["gross_cash"] = gross
+    assert audit(data)["max_observation_end_drawdown_cash"] == "60.0000"
+    late_receipt = copy.deepcopy(data)
+    late_receipt[3][2]["observed_at_utc"] = 10000
+    result = audit(late_receipt)
+    assert result["max_observation_end_drawdown_cash"] == "40.0000"
+    assert result["net_cash"] == "-20.0000"
+    assert result["profitable_edge_verified"] is False
+
+
+def test_same_second_receipts_are_batched_without_fabricated_order():
+    data = list(fixture(30))
+    for row in data[3]:
+        row.update(gross_cash="0", spread_cash="0", slippage_cash="0",
+                   commission_cash="0", financing_cash="0", fx_cash="0")
+    data[3][0]["gross_cash"] = "20"
+    data[3][1]["gross_cash"] = "-30"
+    data[3][0]["observed_at_utc"] = 10000
+    data[3][1]["observed_at_utc"] = 10000
+    result = audit(data)
+    assert result["net_cash"] == "-10.0000"
+    assert result["max_observation_end_drawdown_cash"] == "10.0000"
+    assert result["broker_costs_verified"] is False
+
+
+def test_outcome_order_independent_and_no_input_mutation():
+    data = fixture()
+    original = copy.deepcopy(data)
+    result = audit(data)
+    rng = random.Random(20261027)
+    rng.shuffle(data[3])
+    reordered = audit(data)
+    assert result == reordered
+    assert original[0] == data[0] and original[1] == data[1]
+    assert original[2] == data[2]
+
+
+def test_one_missing_or_duplicate_observation_rejected():
+    data = list(fixture())
+    data[3].pop()
+    with pytest.raises(ValueError):
+        audit(data)
+    data = list(fixture())
+    data[3][-1] = copy.deepcopy(data[3][0])
+    with pytest.raises(ValueError):
+        audit(data)
+
+
+def test_frozen_census_change_rejected_even_if_count_same():
+    data = list(fixture())
+    data[1][3]["row_sha256"] = "f" * 64
+    data[3][3]["row_sha256"] = "f" * 64
+    with pytest.raises(ValueError, match="commitment"):
+        audit(data)
+
+
+def test_future_receipt_not_available_at_release():
+    data = list(fixture())
+    data[3][0]["observed_at_utc"] = data[4] + 1
+    with pytest.raises(ValueError):
+        audit(data)
+
+
+def test_release_only_after_holdout_end():
+    data = list(fixture())
+    data[4] = 10000
+    with pytest.raises(ValueError):
+        audit(data)
+
+
+def test_future_outcome_mutation_changes_only_outcome_receipts_and_net():
+    data = fixture()
+    before = audit(data)
+    changed = copy.deepcopy(data)
+    changed[3][-1]["gross_cash"] = "-100.00"
+    after = audit(changed)
+    assert before["manifest_sha256"] == after["manifest_sha256"]
+    assert before["holdout_census_sha256"] == after["holdout_census_sha256"]
+    assert before["net_cash"] != after["net_cash"]
+    assert before["outcome_receipts_sha256"] != after["outcome_receipts_sha256"]
+
+
+@pytest.mark.parametrize("mutate", [
+    lambda d: d[0].update(holdout_profit="100000"),
+    lambda d: d[0].update(registered_at_utc=2000),
+    lambda d: d[0].update(registered_at_utc=1199),
+    lambda d: d[0].update(selected_at_utc=1099),
+    lambda d: d[0].update(selected_at_utc=True),
+    lambda d: d[0].update(embargo_seconds=0),
+    lambda d: d[0].update(embargo_seconds=2_592_001),
+    lambda d: d[0].update(expected_holdout_count=1),
+    lambda d: d[0].update(expected_holdout_count=True),
+    lambda d: d[0].update(candidate_id=""),
+    lambda d: d[0].update(candidate_config_sha256="bad"),
+    lambda d: d[0].update(holdout_census_sha256="bad"),
+    lambda d: d[0]["source"].update(extra="leak"),
+    lambda d: d[0]["source"].update(archive_sha256="bad"),
+    lambda d: d[0]["source"].update(quote_side="BID_ASK"),
+    lambda d: d[0]["source"].update(utc_convention="LOCAL_DST"),
+    lambda d: d[0]["source"].update(settlement_currency="gbp"),
+    lambda d: d[0]["source"].update(account_alias=""),
+    lambda d: d[1][0].update(gross_cash="100"),
+    lambda d: d[1][0].update(source_sha256="b" * 64),
+    lambda d: d[1][0].update(row_sha256="bad"),
+    lambda d: d[1][0].update(decision_at_utc=2000 - 1),
+    lambda d: d[1][0].update(label_available_at_utc=2100),
+    lambda d: d[1][0].update(decision_at_utc=True),
+    lambda d: d[1][0].update(observation_id="o0001"),
+    lambda d: d[1][0].update(row_sha256=d[1][1]["row_sha256"]),
+    lambda d: d[1].reverse(),
+    lambda d: d[2].update(anchor_reference=""),
+    lambda d: d[2].update(anchored_at_utc=2000),
+    lambda d: d[2].update(anchored_at_utc=1249),
+    lambda d: d[2].update(anchored_at_utc=True),
+    lambda d: d[2].update(manifest_sha256="f" * 64),
+    lambda d: d[2].update(external_record_sha256="bad"),
+    lambda d: d[2].update(verified=True),
+    lambda d: d[3][0].update(holdout_rank=1),
+    lambda d: d[3][0].update(observation_id="o0001"),
+    lambda d: d[3][0].update(row_sha256="f" * 64),
+    lambda d: d[3][0].update(source_sha256="f" * 64),
+    lambda d: d[3][0].update(decision_at_utc=2101),
+    lambda d: d[3][0].update(label_available_at_utc=2151),
+    lambda d: d[3][0].update(observed_at_utc=2149),
+    lambda d: d[3][0].update(observed_at_utc=True),
+    lambda d: d[3][0].update(gross_cash="NaN"),
+    lambda d: d[3][0].update(gross_cash="1e9"),
+    lambda d: d[3][0].update(gross_cash="-0"),
+    lambda d: d[3][0].update(gross_cash=10.0),
+    lambda d: d[3][0].update(gross_cash="10000000000"),
+    lambda d: d[3][0].update(spread_cash="-1.00"),
+    lambda d: d[3][0].update(slippage_cash="-0.00"),
+    lambda d: d[3][0].update(commission_cash="-1"),
+    lambda d: d[3][0].update(fx_cash="-1"),
+    lambda d: d[3][0].update(financing_cash="-0.0"),
+    lambda d: d[3][0].update(receipt_sha256="bad"),
+    lambda d: d[3][0].update(receipt_sha256=d[3][1]["receipt_sha256"]),
+    lambda d: d[4].__class__ is int and d.__setitem__(4, True),
+])
+def test_malformed_or_leaking_declarations_fail_closed(mutate):
+    data = list(copy.deepcopy(fixture()))
+    mutate(data)
+    with pytest.raises(ValueError):
+        audit(data)
+
+
+def test_large_synthetic_holdout_population_and_randomized_costs():
+    data = list(fixture(1000))
+    rng = random.Random(20261027)
+    for row in data[3]:
+        row["gross_cash"] = str(rng.randint(-200, 200))
+        row["spread_cash"] = str(rng.randint(0, 20))
+        row["financing_cash"] = str(rng.randint(-20, 20))
+    result = audit(data)
+    assert result["observation_count"] == 1000
+    assert result["may_execute_real_order"] is False
+    # Independently recompute the signed exact-decimal sum.
+    from decimal import Decimal
+    expected = sum((Decimal(x["gross_cash"]) - Decimal(x["spread_cash"]) -
+                    Decimal(x["slippage_cash"]) - Decimal(x["commission_cash"]) -
+                    Decimal(x["financing_cash"]) - Decimal(x["fx_cash"]) for x in data[3]), Decimal(0))
+    assert Decimal(result["net_cash"]) == expected
+
+
+def test_empty_and_oversized_populations_rejected():
+    with pytest.raises(ValueError):
+        prepare_declared_holdout_census_sha256([])
+    with pytest.raises(ValueError):
+        prepare_declared_holdout_census_sha256([{}])
+    with pytest.raises(ValueError):
+        prepare_declared_holdout_census_sha256([fixture(1)[1][0]] * 10001)
+
+def test_randomized_receipt_batch_drawdown_matches_independent_decimal_oracle():
+    """Synthetic property regression: observation-time batches, not decision order.
+
+    Deliberately place every receipt after all labels, then shuffle receipt
+    chronology and outcome-list order independently. This is a diagnostic cash
+    path, not an executable broker-equity or intraperiod drawdown.
+    """
+    from collections import defaultdict
+    from decimal import Decimal
+
+    rng = random.Random(20261028)
+    for _ in range(32):
+        data = list(fixture(35))
+        cash_by_second = defaultdict(lambda: Decimal(0))
+        expected_net = Decimal(0)
+        expected_worst = None
+        for row in data[3]:
+            row["observed_at_utc"] = rng.choice((7000, 7100, 7200, 7300, 7400))
+            row["gross_cash"] = str(rng.randint(-150, 150))
+            row["spread_cash"] = str(rng.randint(0, 9))
+            row["slippage_cash"] = str(rng.randint(0, 9))
+            row["commission_cash"] = str(rng.randint(0, 9))
+            row["financing_cash"] = str(rng.randint(-12, 12))
+            row["fx_cash"] = str(rng.randint(0, 9))
+            net = (Decimal(row["gross_cash"]) - Decimal(row["spread_cash"])
+                   - Decimal(row["slippage_cash"]) - Decimal(row["commission_cash"])
+                   - Decimal(row["financing_cash"]) - Decimal(row["fx_cash"]))
+            cash_by_second[row["observed_at_utc"]] += net
+            expected_net += net
+            expected_worst = net if expected_worst is None else min(expected_worst, net)
+        running = peak = expected_drawdown = Decimal(0)
+        for second in sorted(cash_by_second):
+            running += cash_by_second[second]
+            peak = max(peak, running)
+            expected_drawdown = max(expected_drawdown, peak - running)
+        expected = {
+            "net_cash": format(expected_net, ".4f"),
+            "worst_observation_net_cash": format(expected_worst, ".4f"),
+            "max_observation_end_drawdown_cash": format(expected_drawdown, ".4f"),
+        }
+        first = audit(data)
+        for key, value in expected.items():
+            assert first[key] == value
+        rng.shuffle(data[3])
+        shuffled = audit(data)
+        assert shuffled == first
+        assert shuffled["profitable_edge_verified"] is False
+        assert shuffled["may_execute_real_order"] is False
+
+
+def test_receipt_batch_recovery_does_not_erase_prior_peak_drawdown():
+    data = list(fixture(30))
+    for row in data[3]:
+        row.update(gross_cash="0", spread_cash="0", slippage_cash="0",
+                   commission_cash="0", financing_cash="0", fx_cash="0")
+    for i, gross in enumerate(("100", "-80", "70", "-90", "120")):
+        data[3][i]["gross_cash"] = gross
+        data[3][i]["observed_at_utc"] = 8000 + i * 100
+    result = audit(data)
+    assert result["net_cash"] == "120.0000"
+    assert result["max_observation_end_drawdown_cash"] == "100.0000"
+    assert result["worst_observation_net_cash"] == "-90.0000"
+    assert result["broker_costs_verified"] is False
+
+
+def test_same_second_adverse_ordering_can_exceed_batched_drawdown():
+    # Earlier peak is real within the declared receipt chronology. A later
+    # same-second debit-first ordering could fall below the batched endpoint.
+    data = list(fixture(30))
+    for row in data[3]:
+        row.update(gross_cash="0", spread_cash="0", slippage_cash="0",
+                   commission_cash="0", financing_cash="0", fx_cash="0")
+    for i, (cash, second) in enumerate(
+            (("100", 7000), ("-100", 7100), ("20", 7200), ("-30", 7200))):
+        data[3][i]["gross_cash"] = cash
+        data[3][i]["observed_at_utc"] = second
+    result = audit(data)
+    assert result["net_cash"] == "-10.0000"
+    assert result["max_observation_end_drawdown_cash"] == "110.0000"
+    assert result["max_receipt_time_ordering_drawdown_cash_upper_bound"] == "130.0000"
+    assert result["broker_costs_verified"] is False
+
+
+@pytest.mark.parametrize("first,second", [
+    ((15, -8, 4), (-20, 7)),
+    ((-30, 10), (5, -2, 7)),
+    ((-4, -6), (20, -9, 1)),
+])
+def test_adverse_same_second_bound_matches_exhaustive_orderings(first, second):
+    # Independent brute-force oracle: every ordering of each UTC-second batch.
+    # All other 30-observation census receipts are zero and occur earlier.
+    from itertools import permutations, product
+    from decimal import Decimal
+
+    data = list(fixture(30))
+    for row in data[3]:
+        row.update(gross_cash="0", spread_cash="0", slippage_cash="0",
+                   commission_cash="0", financing_cash="0", fx_cash="0")
+    values = list(first) + list(second)
+    for i, value in enumerate(values):
+        data[3][i]["gross_cash"] = str(value)
+        data[3][i]["observed_at_utc"] = 8000 if i < len(first) else 8100
+
+    worst_possible = Decimal(0)
+    for ordered_first, ordered_second in product(
+            set(permutations(first)), set(permutations(second))):
+        cash = peak = drawdown = Decimal(0)
+        for value in ordered_first + ordered_second:
+            cash += Decimal(value)
+            peak = max(peak, cash)
+            drawdown = max(drawdown, peak - cash)
+        worst_possible = max(worst_possible, drawdown)
+
+    report = audit(data)
+    assert report["max_receipt_time_ordering_drawdown_cash_upper_bound"] == (
+        format(worst_possible, ".4f")
+    )
+    assert (Decimal(report["max_observation_end_drawdown_cash"]) <=
+            Decimal(report["max_receipt_time_ordering_drawdown_cash_upper_bound"]))
+    shuffled = copy.deepcopy(data)
+    random.Random(20261028).shuffle(shuffled[3])
+    assert audit(shuffled) == report
+    assert report["profitable_edge_verified"] is False
+
+
+def test_seeded_fractional_execution_costs_and_same_second_adverse_bound_oracle():
+    """48 synthetic two-batch trials against an independent permutation oracle.
+
+    Spread, slippage, commission, FX and signed financing are declared cash,
+    not broker evidence. Receipts share a second; their order is unknowable.
+    """
+    from decimal import Decimal
+    from itertools import permutations, product
+
+    rng = random.Random(20261028)
+    for _ in range(48):
+        data = list(fixture(30))
+        for row in data[3]:
+            row.update(gross_cash="0", spread_cash="0", slippage_cash="0",
+                       commission_cash="0", financing_cash="0", fx_cash="0",
+                       observed_at_utc=7000)
+        batches = []
+        for batch_index in range(2):
+            values = []
+            for j in range(3):
+                row = data[3][3 * batch_index + j]
+                row["observed_at_utc"] = 8000 + batch_index * 100
+                row["gross_cash"] = format(
+                    Decimal(rng.randint(-200, 200)) / 10, ".1f")
+                for field in ("spread_cash", "slippage_cash",
+                              "commission_cash", "fx_cash"):
+                    row[field] = format(
+                        Decimal(rng.randint(0, 40)) / 100, ".2f")
+                row["financing_cash"] = format(
+                    Decimal(rng.randint(-30, 30)) / 100, ".2f")
+                net = (Decimal(row["gross_cash"])
+                       - sum((Decimal(row[field]) for field in
+                              ("spread_cash", "slippage_cash",
+                               "commission_cash", "financing_cash", "fx_cash")),
+                             Decimal(0)))
+                values.append(net)
+            batches.append(values)
+
+        expected_worst_drawdown = Decimal(0)
+        for first, second in product(permutations(batches[0]),
+                                     permutations(batches[1])):
+            cash = peak = drawdown = Decimal(0)
+            for amount in first + second:
+                cash += amount
+                peak = max(peak, cash)
+                drawdown = max(drawdown, peak - cash)
+            expected_worst_drawdown = max(expected_worst_drawdown, drawdown)
+
+        report = audit(data)
+        assert report["max_receipt_time_ordering_drawdown_cash_upper_bound"] == (
+            format(expected_worst_drawdown, ".4f"))
+        assert Decimal(report["net_cash"]) == sum(
+            (value for batch in batches for value in batch), Decimal(0))
+        assert Decimal(report["max_observation_end_drawdown_cash"]) <= (
+            expected_worst_drawdown)
+        shuffled = copy.deepcopy(data)
+        rng.shuffle(shuffled[3])
+        assert audit(shuffled) == report
+        assert report["broker_costs_verified"] is False
+        assert report["profitable_edge_verified"] is False
+        assert report["may_execute_demo_order"] is False
+        assert report["may_execute_real_order"] is False
+
+
+def test_maximum_declared_population_same_second_fractional_cost_boundary():
+    """10,000 invented receipts at the accepted census cap, with one UTC-second
+    ordering ambiguity and exact four-place signed-financing arithmetic.
+
+    This stresses the cardinality boundary, not real execution throughput,
+    market liquidity, broker-equity risk or actual multi-year returns.
+    """
+    from decimal import Decimal
+
+    data = list(fixture(10000))
+    receipt_time = data[4]
+    positive = Decimal("0.7463")
+    negative = Decimal("-1.2237")
+    for index, row in enumerate(data[3]):
+        row["observed_at_utc"] = receipt_time
+        row["gross_cash"] = "1.0000" if index % 2 == 0 else "-1.0000"
+        row["spread_cash"] = "0.1250"
+        row["slippage_cash"] = "0.0625"
+        row["commission_cash"] = "0.0312"
+        row["financing_cash"] = "0.0200" if index % 2 == 0 else "-0.0100"
+        row["fx_cash"] = "0.0150"
+
+    expected_net = 5000 * (positive + negative)
+    expected_adverse_drawdown = -5000 * negative
+    report = audit(data)
+    assert report["observation_count"] == 10000
+    assert report["net_cash"] == format(expected_net, ".4f")
+    assert report["worst_observation_net_cash"] == format(negative, ".4f")
+    assert report["max_observation_end_drawdown_cash"] == format(-expected_net, ".4f")
+    assert report["max_receipt_time_ordering_drawdown_cash_upper_bound"] == (
+        format(expected_adverse_drawdown, ".4f")
+    )
+    assert report["outcome_metrics_withheld"] is False
+    assert report["anchor_independently_authenticated"] is False
+    assert report["broker_costs_verified"] is False
+    assert report["profitable_edge_verified"] is False
+    assert report["may_execute_demo_order"] is False
+    assert report["may_execute_real_order"] is False
+
+    # A caller-supplied list order is not an executable fill sequence.
+    data[3].reverse()
+    assert audit(data) == report
+
+
+def test_four_receipt_batches_adverse_ordering_matches_exhaustive_decimal_oracle():
+    """Synthetic 4-batch exact-decimal permutation oracle, not broker equity.
+
+    Earlier regressions exhaustively cover two ambiguous receipt seconds. Four
+    successive seconds exercise carry-forward peaks/troughs and cost signs
+    across several independently unordered groups (6**4 possible sequences).
+    """
+    from decimal import Decimal
+    from itertools import permutations, product
+
+    rng = random.Random(20261028)
+    for _ in range(16):
+        data = list(fixture(30))
+        for row in data[3]:
+            row.update(gross_cash="0", spread_cash="0", slippage_cash="0",
+                       commission_cash="0", financing_cash="0", fx_cash="0",
+                       observed_at_utc=7000)
+
+        batches = []
+        for batch_index in range(4):
+            values = []
+            for receipt_index in range(3):
+                row = data[3][batch_index * 3 + receipt_index]
+                row["observed_at_utc"] = 8000 + batch_index * 100
+                row["gross_cash"] = format(
+                    Decimal(rng.randint(-30000, 30000)) / 10000, ".4f")
+                for field in ("spread_cash", "slippage_cash",
+                              "commission_cash", "fx_cash"):
+                    row[field] = format(
+                        Decimal(rng.randint(0, 3000)) / 10000, ".4f")
+                row["financing_cash"] = format(
+                    Decimal(rng.randint(-3000, 3000)) / 10000, ".4f")
+                values.append(
+                    Decimal(row["gross_cash"]) -
+                    sum((Decimal(row[field]) for field in (
+                        "spread_cash", "slippage_cash", "commission_cash",
+                        "financing_cash", "fx_cash")), Decimal(0))
+                )
+            batches.append(values)
+
+        # Enumerate every permissible ordering within each UTC second while
+        # preserving chronological order between distinct receipt seconds.
+        expected_adverse = Decimal(0)
+        for sequence in product(*(permutations(batch) for batch in batches)):
+            cash = peak = drawdown = Decimal(0)
+            for ordered_batch in sequence:
+                for net in ordered_batch:
+                    cash += net
+                    peak = max(peak, cash)
+                    drawdown = max(drawdown, peak - cash)
+            expected_adverse = max(expected_adverse, drawdown)
+
+        cash = peak = expected_batched = Decimal(0)
+        for batch in batches:
+            cash += sum(batch, Decimal(0))
+            peak = max(peak, cash)
+            expected_batched = max(expected_batched, peak - cash)
+
+        report = audit(data)
+        assert report["net_cash"] == format(
+            sum((net for batch in batches for net in batch), Decimal(0)), ".4f")
+        assert report["max_observation_end_drawdown_cash"] == (
+            format(expected_batched, ".4f"))
+        assert report["max_receipt_time_ordering_drawdown_cash_upper_bound"] == (
+            format(expected_adverse, ".4f"))
+        assert expected_batched <= expected_adverse
+        assert report["broker_costs_verified"] is False
+        assert report["profitable_edge_verified"] is False
+        assert report["may_execute_demo_order"] is False
+        assert report["may_execute_real_order"] is False
+
+        rng.shuffle(data[3])
+        assert audit(data) == report
