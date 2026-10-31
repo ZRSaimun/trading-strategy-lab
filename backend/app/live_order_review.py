@@ -197,7 +197,11 @@ def compare_review(packet, revised_order, *, now_ms, max_quote_age_ms=3000,
                                   ttl_ms=expires-issued,
                                   max_quote_age_ms=max_quote_age_ms,
                                   max_transport_lag_ms=max_transport_lag_ms)
-    matches = current['review_sha256'] == digest
+    # A matching input fingerprint alone does not protect the unsigned packet's
+    # displayed checks, risk amounts or execution flags from local modification.
+    # Compare the entire deterministic packet against a fresh recomputation.
+    # This is consistency validation, NOT broker authenticity or a signature.
+    matches = current['review_sha256'] == digest and packet == current
     # An unchanged order can still have a quote that became stale after the
     # packet was issued. Re-evaluate the timestamp gate against CURRENT time.
     observed = revised_order['quote_observed_at_ms']

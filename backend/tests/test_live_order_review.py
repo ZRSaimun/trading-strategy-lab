@@ -99,6 +99,44 @@ def test_canonical_decimal_equivalence_and_expiry():
     assert compare_review(p, intent(), now_ms=NOW-1)['requires_new_human_review']
 
 
+
+@pytest.mark.parametrize('field,forged', [
+    ('assumption_checks_pass', False),
+    ('failed_checks', ['quote_fresh']),
+    ('stressed_loss_cash', '0'),
+    ('quote_authenticated', True),
+    ('may_execute_real_order', True),
+    ('may_execute_paper_order', True),
+    ('warnings', []),
+    ('checks', {'quote_fresh': False}),
+    ('schema', 'live-order-review-v2'),
+])
+def test_modified_review_output_requires_fresh_human_review(field, forged):
+    original = packet()
+    altered = deepcopy(original)
+    altered[field] = forged
+    assert altered['review_sha256'] == original['review_sha256']
+    assert compare_review(original, intent(), now_ms=NOW+1)['review_matches_exact_intent']
+    result = compare_review(altered, intent(), now_ms=NOW+1)
+    assert result['review_matches_exact_intent'] is False
+    assert result['requires_new_human_review'] is True
+    assert result['may_execute_paper_order'] is False
+    assert result['may_execute_real_order'] is False
+
+
+def test_missing_or_extra_review_field_requires_fresh_human_review():
+    original = packet()
+    missing = deepcopy(original)
+    del missing['quote_authenticated']
+    extra = deepcopy(original)
+    extra['owner_note'] = 'not part of the reviewed packet'
+    for altered in (missing, extra):
+        result = compare_review(altered, intent(), now_ms=NOW+1)
+        assert not result['review_matches_exact_intent']
+        assert result['requires_new_human_review']
+    assert compare_review(original, intent(), now_ms=NOW+1)['review_matches_exact_intent']
+
+
 def test_review_policy_change_invalidates_digest():
     p = packet()
     assert not compare_review(p, intent(), now_ms=NOW+1, max_quote_age_ms=2500)['review_matches_exact_intent']
