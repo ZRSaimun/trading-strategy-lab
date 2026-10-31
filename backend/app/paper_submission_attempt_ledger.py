@@ -1,0 +1,591 @@
+"""Offline, fail-closed SQLite fence for non-idempotent broker submissions.
+
+Records paper/demo/live-labelled *evidence only*. No network, credentials,
+orders, approval, broker authentication or execution permission exists here.
+The irreversible UNKNOWN transition must be committed BEFORE a future adapter
+attempts a non-idempotent submission; it can never be retried by this module.
+"""
+import hashlib
+import os
+import json
+import re
+import sqlite3
+import stat
+from pathlib import Path
+
+SCHEMA_VERSION = 1
+MAX_EVENTS = 10000
+# Local SQLite evidence only: bound database bytes and decoded SQLite values
+# before scanning an untrusted or corrupted ledger. No automatic truncation.
+MAX_LEDGER_BYTES = 32 * 1024 * 1024
+MAX_SQLITE_VALUE_BYTES = 4096
+MAX_TIME = 8_640_000_000_000_000
+ZERO = '0' * 64
+IDENTIFIER = re.compile(r'[A-Za-z0-9][A-Za-z0-9._:/+-]{0,79}\Z')
+DIGEST = re.compile(r'[0-9a-f]{64}\Z')
+BROKERS = frozenset({'PAPER-LOCAL', 'T212-INVEST-DEMO', 'T212-STOCKSISA-DEMO',
+                     'T212-INVEST-LIVE', 'T212-STOCKSISA-LIVE'})
+EVENTS = frozenset({'PREPARED', 'ATTEMPT_UNKNOWN', 'RECONCILED_FILLED',
+                    'RECONCILED_REJECTED', 'RECONCILED_CANCELLED'})
+
+# Compare reviewed DDL, not just object names: a same-named replacement index
+# or permissive table must never silently pass a safety-critical audit.
+EXPECTED_SCHEMA_OBJECTS = {
+    ('table', 'intents'): (
+        'CREATE TABLE intents (broker TEXT NOT NULL, account TEXT NOT NULL, '
+        'order_id TEXT NOT NULL, intent_sha TEXT NOT NULL, status TEXT NOT NULL, '
+        'PRIMARY KEY (broker, account, order_id)) WITHOUT ROWID'),
+    ('index', 'unique_account_intent'): (
+        'CREATE UNIQUE INDEX unique_account_intent ON intents (broker, account, intent_sha)'),
+    ('table', 'events'): (
+        'CREATE TABLE events (seq INTEGER PRIMARY KEY, broker TEXT NOT NULL, '
+        'account TEXT NOT NULL, order_id TEXT NOT NULL, event TEXT NOT NULL, '
+        'evidence_sha TEXT NOT NULL, recorded_at_ms INTEGER NOT NULL, '
+        'prev_hash TEXT NOT NULL, event_hash TEXT NOT NULL)'),
+}
+
+
+def _id(value, field):
+    if not isinstance(value, str) or not IDENTIFIER.fullmatch(value):
+        raise ValueError(f'{field}: invalid identifier')
+    return value
+
+
+def _sha(value, field):
+    if not isinstance(value, str) or not DIGEST.fullmatch(value) or value == ZERO:
+        raise ValueError(f'{field}: expected nonzero lowercase SHA-256 hex')
+    return value
+
+
+def _time(value):
+    if type(value) is not int or not 0 <= value <= MAX_TIME:
+        raise ValueError('recorded_at_ms: invalid UTC epoch milliseconds')
+    return value
+
+
+def _identity(broker, account_alias, client_order_id):
+    if _id(broker, 'broker') not in BROKERS:
+        raise ValueError('Unsupported broker label; CFD API execution is unsupported')
+    return (broker, _id(account_alias, 'account_alias'),
+            _id(client_order_id, 'client_order_id'))
+
+
+def _event_hash(seq, broker, account, order, event, evidence, stamp, previous):
+    payload = [SCHEMA_VERSION, seq, broker, account, order, event,
+               evidence, stamp, previous]
+    return hashlib.sha256(json.dumps(payload, separators=(',', ':'),
+                                     ensure_ascii=True).encode('ascii')).hexdigest()
+
+
+def _private_parent(path):
+    """Reject unsafe SQLite sidecar directories before opening any ledger."""
+    if os.name != 'posix' or not hasattr(os, 'geteuid'):
+        raise ValueError('Ledger storage requires POSIX owner and mode checks')
+    # Path.absolute() retains '..' components. Checking only the resulting
+    # parent/ancestors can miss an intermediate symlink in 'link/../private':
+    # the kernel traverses 'link' before processing '..'. Reject rather than
+    # trusting a non-canonical pathname for SQLite's journal and DB opens.
+    if '..' in path.parts:
+        raise ValueError('Ledger path must not contain parent traversal components')
+    # A ledger named "orders.sqlite-journal" (or -wal/-shm) aliases the
+    # SQLite sidecar of another database in the same directory. Reject it
+    # before creation/opening so this ledger cannot consume or overwrite
+    # another database's recovery evidence.
+    lower_name = path.name.lower()
+    # SQLite multi-database commits can create randomized super-journal
+    # files with a -mj suffix. Never use such a recovery filename as a ledger.
+    if (lower_name.endswith(('-journal', '-wal', '-shm'))
+            or re.search(r'-mj[a-z0-9]*\Z', lower_name)):
+        raise ValueError('Ledger filename collides with a SQLite sidecar suffix')
+    parent = path.absolute().parent
+    # A symlink anywhere in the directory path can redirect SQLite's journal
+    # and database opens even when the final ledger path is not a symlink.
+    if any(part.is_symlink() for part in (parent, *parent.parents)):
+        raise ValueError('Ledger parent path must not contain symlinks')
+    try:
+        info = parent.lstat()
+    except OSError as exc:
+        raise ValueError('Ledger private parent directory unavailable') from exc
+    if (not stat.S_ISDIR(info.st_mode)
+            or stat.S_IMODE(info.st_mode) & 0o077
+            or info.st_uid != os.geteuid()):
+        raise ValueError('Ledger parent must be a service-owned private directory (0700)')
+    # A private immediate parent is insufficient when an untrusted user can
+    # rename that entire directory through a writable ancestor. A root- or
+    # service-owned sticky ancestor (for example /tmp) protects its child
+    # entries; ordinary group/world-writable ancestors do not. Capture every
+    # ancestor inode so later storage checks detect parent-chain replacement.
+    ancestor_identities = []
+    for ancestor in parent.parents:
+        try:
+            ancestor_info = ancestor.lstat()
+        except OSError as exc:
+            raise ValueError('Ledger ancestor directory unavailable') from exc
+        if not stat.S_ISDIR(ancestor_info.st_mode):
+            raise ValueError('Ledger ancestor path must contain directories')
+        if stat.S_IMODE(ancestor_info.st_mode) & 0o022:
+            if not (ancestor_info.st_mode & stat.S_ISVTX
+                    and ancestor_info.st_uid in (0, os.geteuid())):
+                raise ValueError('Ledger ancestor directory permits unsafe renaming')
+        ancestor_identities.append((ancestor_info.st_dev, ancestor_info.st_ino))
+    return (info.st_dev, info.st_ino, tuple(ancestor_identities))
+
+
+def _private_file(info):
+    """Prevent other users and hardlinks from bypassing the evidence boundary."""
+    if not stat.S_ISREG(info.st_mode):
+        raise ValueError('Existing regular ledger file required; initialize separately')
+    if stat.S_IMODE(info.st_mode) != 0o600:
+        raise ValueError('Ledger file must have private mode 0600')
+    if info.st_uid != os.geteuid():
+        raise ValueError('Ledger file must be owned by the service user')
+    if info.st_nlink != 1:
+        raise ValueError('Ledger file hardlinks are forbidden')
+
+
+def _reject_wal_sidecars(path):
+    """Refuse unreviewed SQLite WAL/SHM evidence, including dangling symlinks.
+
+    A WAL may contain committed transactions absent from the main DB file.
+    This research ledger uses rollback journaling only; never auto-delete or
+    checkpoint a sidecar whose provenance has not been established.
+    """
+    if any(os.path.lexists(str(path) + suffix) for suffix in ('-wal', '-shm')):
+        raise ValueError('Unreviewed SQLite WAL/SHM sidecar; quarantine ledger')
+
+
+def _validate_rollback_journal(path):
+    """Allow ordinary SQLite crash recovery, reject unsafe journal path types.
+
+    A hot DELETE-mode rollback journal may be essential for recovery; never
+    remove or rewrite it. The private parent prevents other users creating
+    sidecars, but a pre-existing symlink, hardlink or special file must not be
+    handed to SQLite as an implicit read/write target. Reject group/other\n    writable journal modes, while allowing SQLite's ordinary 0644 journals\n    inside the mandatory private 0700 parent directory.
+    """
+    journal = Path(str(path) + '-journal')
+    try:
+        info = journal.lstat()
+    except FileNotFoundError:
+        return
+    except OSError as exc:
+        raise ValueError('SQLite rollback journal cannot be inspected') from exc
+    if (not stat.S_ISREG(info.st_mode) or info.st_uid != os.geteuid()
+            or info.st_nlink != 1 or stat.S_IMODE(info.st_mode) & 0o022
+            or info.st_size > MAX_LEDGER_BYTES * 2):
+        raise ValueError('Unsafe SQLite rollback journal; quarantine ledger')
+
+
+
+def _reject_nonempty_readonly_journal(path):
+    """Do not let a read-only audit implicitly consume pending recovery state.
+
+    An existing ledger can require rollback recovery after a process death.
+    Recovery belongs to a separately reviewed write-capable maintenance path,
+    never to a diagnostic claimed to be read-only. Preserve journal evidence.
+    """
+    journal = Path(str(path) + '-journal')
+    try:
+        info = journal.lstat()
+    except FileNotFoundError:
+        return
+    except OSError as exc:
+        raise ValueError('SQLite rollback journal cannot be inspected') from exc
+    # The caller first validates file type, owner, links, permissions and size.
+    if info.st_size:
+        raise ValueError('Nonempty rollback journal; read-only audit requires recovery')
+
+
+
+def _reject_orphan_rollback_journal(path):
+    """A new ledger has no transaction to recover; never adopt an orphan journal.
+
+    Existing ledgers still accept a validated rollback journal for crash
+    recovery. Initialization has no such history, so even an ordinary regular
+    journal may belong to a previous database and must be preserved untouched.
+    """
+    if os.path.lexists(str(path) + '-journal'):
+        raise ValueError('Orphan SQLite rollback journal; quarantine initialization')
+
+
+def _connect(path, *, read_only=False):
+    if not isinstance(path, (str, Path)):
+        raise ValueError('Database path required')
+    p = Path(path)
+    parent_identity = _private_parent(p)
+    if p.is_symlink() or not p.is_file():
+        raise ValueError('Existing regular ledger file required; initialize separately')
+    try:
+        before = p.lstat()
+    except FileNotFoundError as exc:
+        raise ValueError('Ledger disappeared before SQLite open') from exc
+    _private_file(before)
+    _reject_wal_sidecars(p)
+    _validate_rollback_journal(p)
+    if read_only:
+        _reject_nonempty_readonly_journal(p)
+    if before.st_size > MAX_LEDGER_BYTES:
+        raise ValueError('Ledger file exceeds reviewed byte capacity')
+    # mode=ro/rw prevents sqlite3's default rwc mode from recreating a ledger
+    # removed between the filesystem preflight and SQLite's actual open.
+    # Use a URI to preserve escaping of spaces, '?' and '#' in the path.
+    uri = p.absolute().as_uri() + ('?mode=ro' if read_only else '?mode=rw')
+    conn = sqlite3.connect(uri, timeout=5, isolation_level=None, uri=True)
+    try:
+        # A replacement or symlink introduced after preflight must not pass
+        # silently into a ledger transition. This is a best-effort identity
+        # check, NOT an atomic openat/O_NOFOLLOW guarantee against a privileged
+        # attacker who swaps the file away and back during SQLite's open.
+        try:
+            after = p.lstat()
+        except FileNotFoundError as exc:
+            raise ValueError('Ledger disappeared during SQLite open') from exc
+        if _private_parent(p) != parent_identity:
+            raise ValueError('Ledger parent identity changed during SQLite open')
+        if (not stat.S_ISREG(after.st_mode)
+                or (after.st_dev, after.st_ino) != (before.st_dev, before.st_ino)):
+            raise ValueError('Ledger file identity changed during SQLite open')
+        _private_file(after)
+        _reject_wal_sidecars(p)
+        _validate_rollback_journal(p)
+        if read_only:
+            _reject_nonempty_readonly_journal(p)
+        if after.st_size > MAX_LEDGER_BYTES:
+            raise ValueError('Ledger file exceeds reviewed byte capacity')
+        # Python 3.12/SQLite limits apply to values decoded from malicious rows,
+        # not merely the number of rows returned by LIMIT.
+        conn.setlimit(sqlite3.SQLITE_LIMIT_LENGTH, MAX_SQLITE_VALUE_BYTES)
+        # The on-disk SQLite header can request WAL even after sidecar files
+        # have been removed. Query only: never silently switch journal modes.
+        if conn.execute('PRAGMA journal_mode').fetchone() != ('delete',):
+            raise ValueError('Unexpected SQLite journal mode; quarantine ledger')
+        conn.execute('PRAGMA trusted_schema=OFF')
+        conn.execute('PRAGMA foreign_keys=ON')
+        conn.execute('PRAGMA busy_timeout=5000')
+    except BaseException:
+        conn.close()
+        raise
+    return conn
+
+
+
+def _storage_fingerprint(path):
+    """Recheck private storage and file identity around long-running audits.
+
+    This is a best-effort pathname fence, not atomic binding of SQLite's fd.
+    The journal may legitimately appear/disappear within a transaction.
+    """
+    p = Path(path)
+    parent = _private_parent(p)
+    try:
+        info = p.lstat()
+    except OSError as exc:
+        raise ValueError('Ledger storage disappeared during operation') from exc
+    _private_file(info)
+    _reject_wal_sidecars(p)
+    _validate_rollback_journal(p)
+    if info.st_size > MAX_LEDGER_BYTES:
+        raise ValueError('Ledger file exceeds reviewed byte capacity')
+    return (parent, info.st_dev, info.st_ino)
+
+
+def _require_storage_fingerprint(path, expected):
+    if _storage_fingerprint(path) != expected:
+        raise ValueError('Ledger storage identity changed during operation')
+
+
+def initialize_ledger(path):
+    """Explicit one-time creation. Never silently recreate or repair an existing DB."""
+    p = Path(path)
+    parent_identity = _private_parent(p)
+    if p.exists() or p.is_symlink():
+        raise ValueError('Ledger already exists; refusing overwrite')
+    _reject_wal_sidecars(p)
+    _validate_rollback_journal(p)
+    _reject_orphan_rollback_journal(p)
+    # Create mode 0600 regardless of a permissive process umask. O_EXCL
+    # refuses an existing file, including a symlink. Never auto-recreate it.
+    fd = os.open(p, os.O_CREAT | os.O_EXCL | os.O_WRONLY
+                 | getattr(os, 'O_NOFOLLOW', 0), 0o600)
+    try:
+        created = os.fstat(fd)
+        _private_file(created)
+    finally:
+        os.close(fd)
+
+    def require_original_file():
+        if _private_parent(p) != parent_identity:
+            raise ValueError('Ledger parent identity changed during initialization')
+        try:
+            current = p.lstat()
+        except FileNotFoundError as exc:
+            raise ValueError('New ledger disappeared during initialization') from exc
+        if (not stat.S_ISREG(current.st_mode)
+                or (current.st_dev, current.st_ino)
+                != (created.st_dev, created.st_ino)):
+            raise ValueError('New ledger file identity changed during initialization')
+        _private_file(current)
+        # SQLite may have opened successfully before an unsafe recovery
+        # sidecar appeared. Recheck throughout one-time initialization,
+        # including immediately before and after committing schema DDL.
+        _reject_wal_sidecars(p)
+        _validate_rollback_journal(p)
+        if current.st_size > MAX_LEDGER_BYTES:
+            raise ValueError('Ledger file exceeds reviewed byte capacity')
+
+    try:
+        # Existing-only SQLite URI: a removed freshly created file must not
+        # silently become a different, empty ledger at connection time.
+        conn = _connect(p)
+        try:
+            require_original_file()
+            # No transaction has begun: an intervening journal is untrusted.
+            _reject_orphan_rollback_journal(p)
+            conn.execute('PRAGMA synchronous=FULL')
+            conn.execute('BEGIN EXCLUSIVE')
+            conn.execute('CREATE TABLE intents (broker TEXT NOT NULL, account TEXT NOT NULL, '
+                         'order_id TEXT NOT NULL, intent_sha TEXT NOT NULL, status TEXT NOT NULL, '
+                         'PRIMARY KEY (broker, account, order_id)) WITHOUT ROWID')
+            conn.execute('CREATE UNIQUE INDEX unique_account_intent ON intents (broker, account, intent_sha)')
+            conn.execute('CREATE TABLE events (seq INTEGER PRIMARY KEY, broker TEXT NOT NULL, '
+                         'account TEXT NOT NULL, order_id TEXT NOT NULL, event TEXT NOT NULL, '
+                         'evidence_sha TEXT NOT NULL, recorded_at_ms INTEGER NOT NULL, '
+                         'prev_hash TEXT NOT NULL, event_hash TEXT NOT NULL)')
+            conn.execute(f'PRAGMA user_version={SCHEMA_VERSION}')
+            require_original_file()
+            conn.execute('COMMIT')
+            require_original_file()
+        finally:
+            conn.close()
+    except BaseException:
+        # Never auto-remove a possibly valuable partial DB. Quarantine manually.
+        raise
+
+
+def _verify(conn):
+    if conn.execute('PRAGMA user_version').fetchone()[0] != SCHEMA_VERSION:
+        raise ValueError('Unexpected ledger schema version')
+    if conn.execute('PRAGMA integrity_check').fetchone()[0] != 'ok':
+        raise ValueError('SQLite integrity check failed')
+    # Include SQLite-owned auxiliary tables (notably sqlite_stat1 from
+    # ANALYZE). The prior sqlite_% filter silently ignored unreviewed
+    # persistent schema objects. Bound enumeration before materialization.
+    schema_rows = conn.execute(
+        'SELECT type,name,sql FROM sqlite_master LIMIT ?',
+        (len(EXPECTED_SCHEMA_OBJECTS) + 1,)).fetchall()
+    objects = {(kind, name): sql for kind, name, sql in schema_rows}
+    if (len(schema_rows) != len(EXPECTED_SCHEMA_OBJECTS)
+            or objects != EXPECTED_SCHEMA_OBJECTS):
+        raise ValueError('Ledger schema objects differ from reviewed DDL')
+    # Bound the SQL result before fetching: a hostile oversized ledger must not
+    # allocate arbitrary process memory prior to the MAX_EVENTS check.
+    rows = conn.execute('SELECT seq,broker,account,order_id,event,evidence_sha,'
+                        'recorded_at_ms,prev_hash,event_hash FROM events ORDER BY seq '
+                        'LIMIT ?', (MAX_EVENTS + 1,)).fetchall()
+    if len(rows) > MAX_EVENTS:
+        raise ValueError('Ledger event capacity reached; no automatic truncation')
+    state = {}
+    # Reconstruct the same per-account UNKNOWN quarantine enforced by _write.
+    # A locally rehashed history is not trusted merely because its final
+    # projection matches; every intermediate transition must be legal.
+    unresolved_accounts = {}
+    # A terminal receipt digest must not be reused for a different order on
+    # the same broker/account. This is only local anti-replay, not proof that
+    # the receipt originated from the broker.
+    reconciliation_receipts = set()
+    intent_fingerprints = set()
+    previous = ZERO
+    last_time = -1
+    for n, row in enumerate(rows, 1):
+        seq, broker, account, order, event, evidence, stamp, prev, digest = row
+        _identity(broker, account, order)
+        _sha(evidence, 'evidence_sha')
+        _time(stamp)
+        if seq != n or event not in EVENTS or prev != previous or stamp < last_time:
+            raise ValueError('Ledger audit sequence or clock is inconsistent')
+        if digest != _event_hash(seq, broker, account, order, event, evidence, stamp, prev):
+            raise ValueError('Ledger audit hash mismatch')
+        key = (broker, account, order)
+        old = state.get(key)
+        account_key = (broker, account)
+        if event == 'PREPARED':
+            if old is not None:
+                raise ValueError('Repeated preparation in audit')
+            if account_key in unresolved_accounts:
+                raise ValueError('Unresolved broker submission for account in audit history')
+            # A terminal receipt is not an order-intent fingerprint, even
+            # when a locally rehashed history claims otherwise.
+            if (broker, account, evidence) in reconciliation_receipts:
+                raise ValueError('Reused terminal receipt as intent fingerprint in audit')
+            intent_fingerprints.add((broker, account, evidence))
+            state[key] = (evidence, 'PREPARED')
+        elif event == 'ATTEMPT_UNKNOWN':
+            if old is None or old[1] != 'PREPARED' or evidence != old[0]:
+                raise ValueError('Invalid attempt transition')
+            if account_key in unresolved_accounts:
+                raise ValueError('Unresolved broker submission for account in audit history')
+            state[key] = (old[0], 'ATTEMPT_UNKNOWN')
+            unresolved_accounts[account_key] = key
+        else:
+            if old is None or old[1] != 'ATTEMPT_UNKNOWN':
+                raise ValueError('Invalid reconciliation transition')
+            # A fingerprint of the original intent is not independent
+            # reconciliation evidence, even if a local hash chain is rebuilt.
+            if evidence == old[0]:
+                raise ValueError('Reconciliation evidence reuses intent fingerprint')
+            if unresolved_accounts.get(account_key) != key:
+                raise ValueError('Unresolved broker submission for account in audit history')
+            receipt_key = (broker, account, evidence)
+            if receipt_key in intent_fingerprints:
+                raise ValueError('Reconciliation evidence reuses account intent fingerprint')
+            if receipt_key in reconciliation_receipts:
+                raise ValueError('Reused reconciliation evidence in audit history')
+            reconciliation_receipts.add(receipt_key)
+            state[key] = (old[0], event)
+            del unresolved_accounts[account_key]
+        previous = digest
+        last_time = stamp
+    # A hostile projection may contain far more rows than the audit. Never
+    # materialize an unbounded intents table before discovering corruption.
+    projection_rows = conn.execute(
+        'SELECT broker,account,order_id,intent_sha,status FROM intents LIMIT ?',
+        (MAX_EVENTS + 1,)).fetchall()
+    if len(projection_rows) > MAX_EVENTS:
+        raise ValueError('Ledger intent capacity reached; no automatic truncation')
+    actual = {(b, a, o): (h, s) for b, a, o, h, s in projection_rows}
+    if state != actual:
+        raise ValueError('Ledger projection differs from audit history')
+    return len(rows), previous, last_time, state
+
+
+def _append(conn, key, event, evidence, stamp, count, previous):
+    if count >= MAX_EVENTS:
+        raise ValueError('Ledger event capacity reached')
+    seq = count + 1
+    digest = _event_hash(seq, *key, event, evidence, stamp, previous)
+    conn.execute('INSERT INTO events VALUES (?,?,?,?,?,?,?,?,?)',
+                 (seq, *key, event, evidence, stamp, previous, digest))
+    return digest
+
+
+def _write(path, key, event, evidence, stamp):
+    conn = _connect(path)
+    try:
+        expected_storage = _storage_fingerprint(path)
+        conn.execute('PRAGMA synchronous=FULL')
+        conn.execute('BEGIN IMMEDIATE')
+        count, previous, last_time, state = _verify(conn)
+        # A long audit can race a path or journal replacement. Recheck before
+        # the first mutation, while rollback is still read-only.
+        _require_storage_fingerprint(path, expected_storage)
+        if stamp < last_time:
+            raise ValueError('Clock regression; cannot append evidence')
+        old = state.get(key)
+        # One ambiguous broker submission is enough to quarantine further
+        # submissions for that broker/account. Already-prepared orders cannot
+        # bypass the fence by attempting after another order becomes UNKNOWN.
+        # Declared terminal reconciliation is NOT authenticated broker proof;
+        # this local fence never grants order submission permission.
+        if event in ('PREPARED', 'ATTEMPT_UNKNOWN') and any(
+                b == key[0] and a == key[1] and order != key[2]
+                and status == 'ATTEMPT_UNKNOWN'
+                for (b, a, order), (_, status) in state.items()):
+            raise ValueError('Unresolved broker submission for account; hold new order evidence')
+        if event == 'PREPARED':
+            if old is not None:
+                raise ValueError('Duplicate client order ID, even if intent is identical')
+            # Do not repurpose a previously declared terminal receipt as a
+            # new intent digest in this broker/account evidence namespace.
+            if conn.execute(
+                    "SELECT 1 FROM events WHERE broker=? AND account=? "
+                    "AND evidence_sha=? AND event IN "
+                    "('RECONCILED_FILLED','RECONCILED_REJECTED','RECONCILED_CANCELLED') "
+                    "LIMIT 1", (key[0], key[1], evidence)).fetchone():
+                raise ValueError('Reused terminal receipt as intent fingerprint')
+            conn.execute('INSERT INTO intents VALUES (?,?,?,?,?)', (*key, evidence, event))
+        elif event == 'ATTEMPT_UNKNOWN':
+            if old is None or old != (evidence, 'PREPARED'):
+                raise ValueError('Unknown or already attempted order; retry forbidden')
+            conn.execute('UPDATE intents SET status=? WHERE broker=? AND account=? AND order_id=?',
+                         (event, *key))
+        else:
+            if old is None or old[1] != 'ATTEMPT_UNKNOWN':
+                raise ValueError('Reconciliation requires one unresolved attempt')
+            if evidence == old[0]:
+                raise ValueError('Reconciliation evidence reuses intent fingerprint')
+            # A claimed receipt must not equal ANY intent digest in this
+            # account, including another order prepared before this attempt.
+            if conn.execute(
+                    'SELECT 1 FROM intents WHERE broker=? AND account=? '
+                    'AND intent_sha=? LIMIT 1',
+                    (key[0], key[1], evidence)).fetchone():
+                raise ValueError('Reconciliation evidence reuses account intent fingerprint')
+            # Reject a previously claimed receipt for another order in this
+            # broker/account, even when the first attempt is now terminal.
+            # The transaction serializes competing writers; no auto-retry.
+            if conn.execute(
+                    "SELECT 1 FROM events WHERE broker=? AND account=? "
+                    "AND evidence_sha=? AND event IN "
+                    "('RECONCILED_FILLED','RECONCILED_REJECTED','RECONCILED_CANCELLED') "
+                    "LIMIT 1", (key[0], key[1], evidence)).fetchone():
+                raise ValueError('Reused reconciliation evidence for broker account')
+            conn.execute('UPDATE intents SET status=? WHERE broker=? AND account=? AND order_id=?',
+                         (event, *key))
+        digest = _append(conn, key, event, evidence, stamp, count, previous)
+        _require_storage_fingerprint(path, expected_storage)
+        conn.execute('COMMIT')
+        _require_storage_fingerprint(path, expected_storage)
+        return {'status': event, 'audit_sha256': digest,
+                'may_submit_paper_order': False, 'may_submit_real_order': False,
+                'requires_independent_reconciliation': True}
+    except BaseException:
+        if conn.in_transaction:
+            conn.execute('ROLLBACK')
+        raise
+    finally:
+        conn.close()
+
+
+def prepare_intent(path, *, broker, account_alias, client_order_id,
+                   intent_sha256, recorded_at_ms):
+    return _write(path, _identity(broker, account_alias, client_order_id),
+                  'PREPARED', _sha(intent_sha256, 'intent_sha256'), _time(recorded_at_ms))
+
+
+def mark_attempt_unknown(path, *, broker, account_alias, client_order_id,
+                         intent_sha256, recorded_at_ms):
+    """Commit UNKNOWN before ANY external submission. Never grants permission."""
+    return _write(path, _identity(broker, account_alias, client_order_id),
+                  'ATTEMPT_UNKNOWN', _sha(intent_sha256, 'intent_sha256'), _time(recorded_at_ms))
+
+
+def record_declared_reconciliation(path, *, broker, account_alias, client_order_id,
+                                    outcome, evidence_sha256, recorded_at_ms):
+    if outcome not in ('FILLED', 'REJECTED', 'CANCELLED'):
+        raise ValueError('Invalid declared outcome')
+    return _write(path, _identity(broker, account_alias, client_order_id),
+                  'RECONCILED_' + outcome, _sha(evidence_sha256, 'evidence_sha256'),
+                  _time(recorded_at_ms))
+
+
+def inspect_ledger(path):
+    """Read-only audit, never a clearance or submission capability."""
+    conn = _connect(path, read_only=True)
+    try:
+        expected_storage = _storage_fingerprint(path)
+        conn.execute('BEGIN')
+        count, digest, last_time, state = _verify(conn)
+        _require_storage_fingerprint(path, expected_storage)
+        _reject_nonempty_readonly_journal(path)
+        conn.execute('COMMIT')
+        _require_storage_fingerprint(path, expected_storage)
+        _reject_nonempty_readonly_journal(path)
+        return {'schema': 'paper-submission-attempt-ledger-v1', 'event_count': count,
+                'order_count': len(state), 'audit_tip_sha256': digest,
+                'last_recorded_at_ms': last_time if count else None,
+                'orders': [{'broker': b, 'account_alias': a, 'client_order_id': o,
+                            'status': v[1]} for (b, a, o), v in sorted(state.items())],
+                'status': 'HOLD_RECONCILIATION',
+                'may_submit_paper_order': False, 'may_submit_real_order': False,
+                'warning': 'Local hashes are not externally anchored; declared reconciliation is not broker authentication.'}
+    finally:
+        conn.close()
