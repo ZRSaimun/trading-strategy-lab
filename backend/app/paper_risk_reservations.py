@@ -227,16 +227,20 @@ def _audit_head_matches(db, key, raw, state, reserved):
     # actions. Filtering to known actions silently hides unauthorized writes.
     # The exact JSON-field locator is self-attested, not authenticated.
     account_match = _account_audit_match(key)
-    # Reject foreign actors and unknown actions in SQL before materializing
-    # historical ORM rows. SQLite does not enforce String(80) column lengths:
-    # a corrupt actor/action may contain megabytes or embedded NUL bytes.
-    # This is a bounded-materialization preflight, not audit authentication.
+    # Reject invalid receipt metadata in SQL before materializing ORM rows.
+    # The writer records positive integral epoch seconds. SQLite can store
+    # text in an INTEGER column, so compare its actual storage type as well.
+    # Do not assert timestamp freshness/order: there is no trusted clock.
+    invalid_time = or_(Audit.time.is_(None), Audit.time <= 0)
+    if db.get_bind().dialect.name == "sqlite":
+        invalid_time = or_(invalid_time, func.typeof(Audit.time) != "integer")
     if db.scalar(select(Audit.id).where(
         account_match,
         or_(Audit.actor.is_(None),
             Audit.actor != "paper-risk-store",
             Audit.action.is_(None),
-            Audit.action.not_in(("paper.risk.init", "paper.risk.cas"))),
+            Audit.action.not_in(("paper.risk.init", "paper.risk.cas")),
+            invalid_time),
     ).limit(1)) is not None:
         return False
     # Never accept an unbounded scan as evidence of a verified audit history.

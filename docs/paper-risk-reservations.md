@@ -461,3 +461,23 @@ Four synthetic SQLite regressions in `backend/tests/test_paper_risk_sql_octet_pr
 The account-specific audit verifier now rejects **unexpected actors and action names in SQL before fetching any historical ORM audit rows**. SQLite does not enforce the declared `String(80)` length for these columns, so a corrupt or adversarial actor/action can otherwise carry megabytes (including embedded NUL characters) into Python before the existing history verifier rejects it. The SQL check covers the **entire located account history**, including older receipts; it does not assume the latest two records suffice.
 
 Four synthetic SQLite regressions mutate an older initialization receipt's actor/action with 1 MiB or NUL-suffixed text. They verify that JSON parsing is not reached, snapshots report zero reservable capacity, reservations/policy/emergency writes fail closed without new audit records, and another account remains unaffected. This is **resource safety and self-attested audit consistency**, not authenticated broker evidence or tamper-proof storage. The account locator still depends on the exact canonical hash field; omitted/obfuscated hashes remain outside this check. Keep PR #26 draft, PAPER-only, unmerged and undeployed.
+
+
+## Retained PAPER audit timestamp schema preflight (31 October 2026)
+
+The disconnected reservation verifier now rejects same-account retained audit
+rows whose timestamp is zero, negative or NULL **in SQL before reading the
+audit receipt**. SQLite's permissive INTEGER affinity can also store arbitrary
+text, so the SQLite preflight checks the actual `typeof(time)` is `integer`.
+PostgreSQL already enforces the INTEGER column type. Three synthetic SQLite
+regressions in `backend/tests/test_paper_risk_audit_time_preflight.py` corrupt
+an **older** initialization timestamp while leaving the latest policy receipt
+untouched; read-only capacity fails closed, policy/reservation/emergency writes
+are blocked, audit counts remain unchanged and an unrelated account remains
+usable. Run `cd backend && PYTHONPATH=. python -m pytest -q tests/test_paper_risk_audit_time_preflight.py`.
+
+This is only a local audit **schema-consistency** check, not a trusted time
+source. Positive forged timestamps, clock drift, reordered real-world events
+and coordinated database rewrites are not authenticated or ruled out. No broker
+receipts, real orders, data releases, main merges or Render deployments are
+introduced. Keep PR #26 DRAFT / PAPER ONLY / NO MERGE / NO DEPLOY.
