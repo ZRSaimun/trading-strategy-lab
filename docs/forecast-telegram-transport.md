@@ -1,0 +1,154 @@
+# Loop 5 — Disconnected Telegram forecast-review transport
+
+This change adds backend/app/forecast_telegram_transport.py as a narrowly scoped, opt-in one-attempt Telegram Bot API transport. It is not imported by the application and has no scheduler, route, credentials, worker, webhook, notification channel or broker/order path. Importing it makes no network calls. No actual notification has been sent.
+
+## Operational contract
+
+Before calling, a future authorized worker must independently verify user and recipient opt-in, account authorization, an entitled and authenticated prospective completed-candle source, exact feed identity and price side, server-owned receipt timestamps, unexpired forecast, and a durable one-time ForecastAlertOutbox claim. It must persist attempt metadata before sending. Timeout, malformed/mismatched response, redirect, process crash or ambiguous provider response leaves the claim IN_FLIGHT_UNCERTAIN. **Never automatically retry an uncertain attempt:** Telegram may already have accepted the request. A successful Bot API sendMessage response proves at most provider acceptance, not device delivery or human reading. Existing ACK_RECORDED_UNVERIFIED remains unverified. Keep tokens in secret storage and never log URLs, raw exceptions, response bodies or message text.
+
+The adapter uses the official Telegram Bot API HTTPS sendMessage endpoint with fixed api.telegram.org host, strict token/chat-ID validation, JSON POST, 1–10-second timeout, disabled redirects, 16-KiB response cap, duplicate-key rejection, exact recipient ID and positive integer message ID validation. No internal retry, arbitrary destination URL or order capability. Source authentication and provider entitlement are NOT established by this module.
+
+## Verification
+
+Run from backend: PYTHONPATH=. pytest -q tests/test_forecast_telegram_transport.py
+
+22 isolated deterministic synthetic tests cover accepted response without delivery proof, malformed/oversized/mismatched replies, duplicate keys, network failures, timeout-like errors, argument bounds and redacted exceptions. Injected fake HTTP opener means **zero actual network requests**. These tests do not demonstrate real provider delivery or production uptime.
+
+## Activation gates and handoffs
+
+Do not connect or deploy this sender until legitimate Telegram bot and opted-in recipient, securely scoped secrets, independently authenticated prospective source receipts, source/session/gap checks, durable claim/reconciliation worker, concurrency and process-crash acceptance, full latest-head CI, restorable backup, rollback and post-release health are verified. Historical BID and replay observations are never live executable broker quotes. No measured forward returns, drawdown or profitable edge.
+
+**Loop 1:** Provide licensed/authenticated completed-candle receipts, trusted server clocks, expected-bar and session register, exact provider/venue/side identity and stale/gap rejection. **Loop 4:** Broker risk, demo fill reconciliation and owner-specific real-order approval are separate; this transport can never place orders.
+
+## Malformed-response and uncertain-outcome hardening (26 October 2026)
+
+The single-attempt adapter now maps incomplete HTTP response reads, HTTP framing errors, decoder recursion failures, and malformed injected HTTP response objects to a sanitized `DeliveryUncertain` exception. An HTTP failure can occur after the provider accepted a send: **do not automatically retry** an uncertain claim. Never log raw HTTP exception bodies, token-bearing request URLs or response text. This hardening does not authenticate market observations, establish provider delivery or authorize any send.
+
+Five additional isolated synthetic cases bring the transport suite to **27 passing tests locally** on Python 3.13. Tests use fake openers and zero network calls. Full latest-head GitHub CI is required before considering any integration; no production deployment, credential configuration, broker order or notification was performed.
+
+## Unicode safety hardening (26 October 2026)
+
+The disconnected transport now rejects Unicode bidirectional controls, zero-width formatting marks, lone surrogate code points, Unicode paragraph/line separators, carriage returns and other control characters **before opening a connection**. Ordinary non-ASCII letters and emoji remain permitted. This prevents a direct caller from visually disguising the mandatory research-only / non-trade warning or triggering an unexpected encoding exception. Only newline and tab controls are permitted in a review message.
+
+Thirteen additional isolated fake-opener tests exercise rejection before any network call and acceptance of safe Unicode. This is **message-integrity hardening, not source authentication, delivery verification, or trading authorization**. The adapter remains disconnected, and ambiguous provider outcomes remain non-retryable. Run the isolated transport tests and exact-head CI before any merge. No Telegram messages or broker orders were sent.
+
+
+## Exact provider-response correlation (26 October 2026)
+
+The adapter now requires the Telegram `sendMessage` success payload to echo
+the **exact text submitted**, in addition to matching the numeric chat ID and
+positive message ID. Missing, non-string, altered, whitespace-shifted or
+Unicode-normalized-differently text yields `DeliveryUncertain` and **must not
+be automatically retried**. This prevents a structurally successful but
+unrelated or mismatched response from being recorded as acceptance of the
+forecast-review text. It does not prove that the recipient received or read
+the message, nor does it authenticate the market feed. Synthetic fake-opener
+tests exercise the mismatches without network access.
+
+## Mandatory non-tradable message boundary (26 October 2026)
+
+The review-only Telegram adapter now rejects any outbound text that does not begin with the exact formatter warning `UNVERIFIED RESEARCH FORECAST - NOT LIVE / NOT A TRADE` and end with the exact `Source NOT authenticated; no broker BID/ASK or fill. NO BUY/SELL SIGNAL. NO PAPER OR LIVE ORDER.` disclaimer. These markers match the existing disconnected forecast-review formatter. This prevents an accidental direct call from sending an unlabeled forecast or a misleading buy/sell message through the review-only transport. The check is local and runs before HTTP; it does **not** authenticate the underlying data or permit real notification activation. Additional synthetic negative tests ensure no network attempt on missing/altered warnings. Do not use this research-only adapter for authenticated live alerts without a separately reviewed design.
+
+
+## Strict provider acceptance identity (27 October 2026)
+
+The disconnected adapter now requires Telegram's echoed `result.chat.id` to be
+a JSON **integer** (not a numeric string, float, boolean or null) and to match
+the exact requested recipient. It also caps the positive `message_id` at
+`2**53 - 1`, matching the downstream disconnected
+`forecast_delivery_acceptance_audit` contract. An oversized message ID or
+incorrect chat-ID type yields a sanitized `DeliveryUncertain` result **after
+one attempt**, never an automatic retry: a provider may already have accepted
+the request. This closes an internal acceptance/reconciliation mismatch, not
+a demonstrated provider exploit or a live-delivery failure.
+
+Seven synthetic fake-HTTP cases cover two oversized IDs, the upper valid
+boundary, and four invalid chat-ID representations. No provider request,
+real notification, paper fill or broker order was made. The test cases
+exercise only response parsing; they do not independently authenticate a
+Telegram response, market-data source, opt-in, device receipt or journal
+timestamp. Keep the sender disconnected until the existing release and
+activation gates are independently satisfied.
+
+
+## Canonical numeric recipient preflight (27 October 2026)
+
+The disconnected sender now rejects a recipient *before opening HTTP* unless
+its chat ID is a canonical decimal representation of a nonzero Telegram Bot API
+dialog ID in the documented range `-4000000000000` through
+`1099511627775`. Leading zeros, negative zero, a plus sign and out-of-range
+values are invalid. Telegram returns `result.chat.id` as a JSON integer;
+noncanonical input strings previously could be submitted but could never match
+the integer echo under the strict acceptance contract, creating an avoidable
+`DeliveryUncertain` state even after a potentially successful send.
+
+Source: [Telegram Bot API dialog ID ranges](https://core.telegram.org/api/bots/ids)
+and [Bot API Chat.id integer contract](https://core.telegram.org/bots/api#chat).
+Eleven deterministic parameterized fake-HTTP regression cases cover rejected
+forms and both inclusive range boundaries. This validation does **not** prove
+that a chat exists, belongs to the opted-in user, or can receive messages;
+the sender remains disconnected and no real Telegram message was sent.
+
+
+## Complete bounded HTTP acknowledgement consumption (27 October 2026)
+
+A successful HTTP status and a syntactically valid *prefix* of a Telegram
+`sendMessage` JSON response are not enough to record provider acceptance.
+The adapter now consumes the entire response **through EOF**, allowing
+short `read(size)` returns while enforcing a strict 16,384-byte aggregate
+bound before JSON decoding. It rejects a later invalid trailer, an oversized
+chunk (including a malformed reader returning more than requested), a
+non-bytes chunk, or an error on a subsequent read. After a POST attempt, all
+such cases remain `DeliveryUncertain` with **no automatic retry**.
+
+Nine new deterministic synthetic cases exercise split acknowledgements,
+valid-JSON prefixes followed by invalid trailers, chunked/oversized bodies,
+invalid read types, and a timeout after an otherwise valid prefix. No
+Telegram API call, real notification, market-data fetch, paper fill, order,
+secret change, or production deployment was made. These checks establish
+only local transport behavior, not authenticated provider acceptance or
+device delivery. Exact-head CI and the existing activation/release gates
+still apply.
+
+## Shared canonical recipient identity across offline audits (27 October 2026)
+
+The transport, HMAC recipient-policy audit, and declared delivery-acceptance
+correlator now share a pure numeric Telegram chat-ID validator. Signed
+allowlists and claim records can no longer pass their offline checks with
+leading-zero IDs, negative zero, noncanonical syntax or out-of-range integers
+that the one-attempt sender would refuse before HTTP. The inclusive numeric
+range is -4000000000000 through 1099511627775; zero is not a recipient.
+This prevents an internal **policy/transport mismatch**, not a demonstrated
+Telegram security incident. Valid syntax does not prove chat existence,
+consent, entitlement, provider delivery or account authorization. All
+send/order permission flags remain false and the modules stay disconnected.
+
+## Strict finite JSON acknowledgement parsing (28 October 2026)
+
+The disconnected single-attempt Telegram sender now rejects nonstandard JSON
+numeric constants (`NaN`, `Infinity`, `-Infinity`) and floating-point
+overflow (for example `1e400`) **anywhere** in an otherwise valid HTTP 200
+acknowledgement. Python's default `json.loads` accepts these nonstandard
+values, potentially recording provider acceptance from a malformed response.
+Finite JSON numbers in unrelated provider metadata remain compatible. Four
+synthetic malformed-ACK cases and one compatibility case use fake HTTP openers;
+no Telegram request is made. After any attempted POST, malformed responses
+remain `DeliveryUncertain` and **must never be automatically retried**.
+This is local protocol-integrity validation, not evidence of Telegram delivery,
+source authentication, a live signal, or financial performance. The sender
+remains disconnected pending the existing independent activation/release gates.
+
+
+## No implicit proxy for credential-bearing Bot API URLs (28 October 2026)
+
+The disconnected sender now installs an explicit empty urllib ProxyHandler
+alongside the no-redirect handler for its default HTTPS opener. This prevents
+host environment/system proxy settings from silently routing the token-bearing
+Bot API request URL through a proxy. Explicitly injected test openers remain
+unchanged. Three offline, parameterized regressions inspect the actual urllib
+handler chain under HTTPS_PROXY, https_proxy and ALL_PROXY without making a
+network call. This is transport credential-routing hardening, not a claim of
+end-to-end TLS attestation, Telegram delivery, source authentication or live
+alert authorization. If a future deployment requires a proxy, review its
+trust and credential-handling policy separately; do not silently re-enable
+environment proxy discovery. All existing activation and release gates apply.
