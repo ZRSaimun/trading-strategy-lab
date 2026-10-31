@@ -10,7 +10,7 @@ import re
 import time
 from decimal import Decimal, InvalidOperation
 
-from sqlalchemy import LargeBinary, case, cast, func, insert, select, update
+from sqlalchemy import LargeBinary, case, cast, func, insert, or_, select, update
 from sqlalchemy.exc import IntegrityError
 
 from .db import Audit, Record, Session
@@ -227,6 +227,18 @@ def _audit_head_matches(db, key, raw, state, reserved):
     # actions. Filtering to known actions silently hides unauthorized writes.
     # The exact JSON-field locator is self-attested, not authenticated.
     account_match = _account_audit_match(key)
+    # Reject foreign actors and unknown actions in SQL before materializing
+    # historical ORM rows. SQLite does not enforce String(80) column lengths:
+    # a corrupt actor/action may contain megabytes or embedded NUL bytes.
+    # This is a bounded-materialization preflight, not audit authentication.
+    if db.scalar(select(Audit.id).where(
+        account_match,
+        or_(Audit.actor.is_(None),
+            Audit.actor != "paper-risk-store",
+            Audit.action.is_(None),
+            Audit.action.not_in(("paper.risk.init", "paper.risk.cas"))),
+    ).limit(1)) is not None:
+        return False
     # Never accept an unbounded scan as evidence of a verified audit history.
     # Revision 0 has one init receipt; each CAS adds exactly one more.
     if state["revision"] >= _MAX_AUDIT_HISTORY_ROWS:
