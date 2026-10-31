@@ -169,7 +169,8 @@ JOURNAL_IDENTITY = {
 def _checkpoint_json(sequence):
     return json.dumps({
         "version": 1, "identity": JOURNAL_IDENTITY,
-        "actions": [f"synthetic-{sequence}"], "orders": [], "events": [],
+        "actions": [f"synthetic-{i}" for i in range(1, sequence + 1)],
+        "orders": [], "events": [],
     }, separators=(",", ":"))
 
 
@@ -351,3 +352,119 @@ def test_postgres_orphaned_owner_cannot_rebind_second_journal(pg_store):
     with factory() as db:
         assert len(db.scalars(select(Audit)).all()) == 1
         assert len(db.scalars(select(Record)).all()) == 3
+
+
+def test_postgres_atomic_rejects_rewritten_history_without_partial_commit(pg_store):
+    quotes, _engine, factory = pg_store
+    atomic = AtomicPaperQuoteJournalStore(factory)
+    journal = PaperJournalStore(factory)
+    assert _atomic_checkpoint(atomic, 1)["status"] == "CHECKPOINT_RECORDED_UNVERIFIED"
+    before_quote = quotes.load_marker(SOURCE)
+    before_journal = journal.load("pg-atomic-journal")
+    proposed = json.loads(_checkpoint_json(2))
+    proposed["actions"][0] = "rewritten-history"
+    result = atomic.checkpoint(
+        SOURCE, quote(2), "pg-atomic-journal", JOURNAL_IDENTITY, 0, 1,
+        json.dumps(proposed, separators=(",", ":")), now_ms=NOW + 130,
+    )
+    assert result["status"] == "HOLD_RECONCILIATION"
+    assert result["reason"] == "JOURNAL_HISTORY_CONTINUITY_FAILED"
+    assert result["paper_order_permitted"] is result["live_order_permitted"] is False
+    assert quotes.load_marker(SOURCE) == before_quote
+    assert journal.load("pg-atomic-journal") == before_journal
+    with factory() as db:
+        assert len(db.scalars(select(Audit)).all()) == 1
+
+
+def test_postgres_atomic_history_tamper_race_with_valid_append(pg_store):
+    """A forged competing revision cannot rewrite history or partially advance quote."""
+    quotes, engine, factory = pg_store
+    atomic = AtomicPaperQuoteJournalStore(factory)
+    journal = PaperJournalStore(factory)
+    assert _atomic_checkpoint(atomic, 1)["status"] == "CHECKPOINT_RECORDED_UNVERIFIED"
+
+    from threading import Lock
+    choices = iter(("tampered", "valid"))
+    lock = Lock()
+
+    def writer():
+        with lock:
+            choice = next(choices)
+        if choice == "valid":
+            return _atomic_checkpoint(atomic, 2, 0)
+        forged = json.loads(_checkpoint_json(2))
+        forged["actions"][0] = "retroactive-tamper"
+        return atomic.checkpoint(
+            SOURCE, quote(2), "pg-atomic-journal", JOURNAL_IDENTITY,
+            0, 1, json.dumps(forged, separators=(",", ":")), now_ms=NOW + 130,
+        )
+
+    # Synchronize after BOTH writers have read the same prior journal row.
+    # Synchronizing only their first quote SELECT permits a scheduling race
+    # where the rejected writer sees an already-advanced journal revision.
+    barrier = Barrier(2, timeout=15)
+    journal_key = PaperJournalStore._key("pg-atomic-journal")
+
+    def after_journal_read(_connection, _cursor, statement, params, _context, _many):
+        if (current_thread().name.startswith("atomic-history")
+                and statement.lstrip().lower().startswith("select records.value")
+                and journal_key in str(params)):
+            barrier.wait()
+
+    event.listen(engine, "after_cursor_execute", after_journal_read)
+    try:
+        with ThreadPoolExecutor(max_workers=2, thread_name_prefix="atomic-history") as pool:
+            futures = [pool.submit(writer) for _ in range(2)]
+            results = [future.result(timeout=30) for future in futures]
+    finally:
+        event.remove(engine, "after_cursor_execute", after_journal_read)
+    assert sorted(result["status"] for result in results) == [
+        "CHECKPOINT_RECORDED_UNVERIFIED", "HOLD_RECONCILIATION",
+    ]
+    assert next(r for r in results if r["status"] == "HOLD_RECONCILIATION")[
+        "reason"
+    ] == "JOURNAL_HISTORY_CONTINUITY_FAILED"
+    assert all(not r["paper_order_permitted"] and not r["live_order_permitted"]
+               for r in results)
+    assert quotes.load_marker(SOURCE)["revision"] == 1
+    assert quotes.load_marker(SOURCE)["sequence"] == 2
+    assert journal.load("pg-atomic-journal")["json"] == _checkpoint_json(2)
+    with factory() as db:
+        assert len(db.scalars(select(Audit)).all()) == 2
+        assert len(db.scalars(select(Record)).all()) == 4
+
+
+def test_postgres_atomic_revision_audit_failure_rolls_back_both_checkpoints(pg_store):
+    """A failed audit INSERT during revision 1 must undo BOTH conditional updates."""
+    quotes, engine, factory = pg_store
+    atomic = AtomicPaperQuoteJournalStore(factory)
+    journal = PaperJournalStore(factory)
+    assert _atomic_checkpoint(atomic, 1)["status"] == "CHECKPOINT_RECORDED_UNVERIFIED"
+    before_quote = quotes.load_marker(SOURCE)
+    before_journal = journal.load("pg-atomic-journal")
+
+    def fail_audit(_connection, _cursor, statement, _params, _context, _many):
+        if statement.lstrip().upper().startswith("INSERT INTO AUDIT"):
+            raise RuntimeError("synthetic revision audit interruption")
+
+    event.listen(engine, "before_cursor_execute", fail_audit)
+    try:
+        with pytest.raises(RuntimeError, match="revision audit interruption"):
+            _atomic_checkpoint(atomic, 2, 0)
+    finally:
+        event.remove(engine, "before_cursor_execute", fail_audit)
+
+    assert quotes.load_marker(SOURCE) == before_quote
+    assert journal.load("pg-atomic-journal") == before_journal
+    with factory() as db:
+        assert len(db.scalars(select(Audit)).all()) == 1
+        assert len(db.scalars(select(Record)).all()) == 4
+
+    # No automatic retry or order execution; explicit test retry only.
+    retry = _atomic_checkpoint(atomic, 2, 0)
+    assert retry["status"] == "CHECKPOINT_RECORDED_UNVERIFIED"
+    assert not retry["paper_order_permitted"] and not retry["live_order_permitted"]
+    assert quotes.load_marker(SOURCE)["revision"] == 1
+    assert journal.load("pg-atomic-journal")["revision"] == 1
+    with factory() as db:
+        assert len(db.scalars(select(Audit)).all()) == 2
