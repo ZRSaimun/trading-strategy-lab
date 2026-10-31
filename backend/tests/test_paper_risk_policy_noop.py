@@ -56,7 +56,7 @@ def test_identical_policy_rejected_without_revision_or_audit(tmp_path, stage):
 
 
 def test_identical_policy_cannot_consume_emergency_stop_slot(tmp_path, monkeypatch):
-    monkeypatch.setattr(risk, "_MAX_AUDIT_HISTORY_ROWS", 4)
+    monkeypatch.setattr(risk, "_MAX_AUDIT_HISTORY_ROWS", 5)
     engine = create_engine("sqlite:///" + str(tmp_path / "noop-stop-slot.db"))
     Base.metadata.create_all(engine)
     factory = sessionmaker(engine)
@@ -75,9 +75,12 @@ def test_identical_policy_cannot_consume_emergency_stop_slot(tmp_path, monkeypat
                                         kill_switch=False, owner_reviewed=True)
         with factory() as db:
             assert db.scalars(select(Audit.detail).order_by(Audit.id)).all() == before
+        # The no-op requests did not consume the last ordinary CAS slot.
+        assert store.reserve(account, 2, client_order_id="order-00002",
+                             risk_cash="5")  # revision 3
         assert risk.PaperRiskReservationStore(factory).engage_kill_switch(account)
         final = store.load(account)
-        assert final["revision"] == 3
+        assert final["revision"] == 4
         assert final["emergency_latched"] is True
         assert final["audit_head_verified"] is True
         assert final["reservable_risk_capacity_cash"] == "0"
