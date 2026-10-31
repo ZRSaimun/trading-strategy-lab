@@ -64,8 +64,10 @@ def test_oversized_account_audit_is_rejected_before_python_materialization(tmp_p
 
         assert statements
         assert any("length(" in statement and "audit.detail" in statement and "blob" in statement for statement in statements)
-        # Only the bounded SQL projection is allowed; do not load Audit ORM rows.
-        assert all("audit.time" not in statement for statement in statements)
+        # The new metadata preflight legitimately references audit.time in
+        # WHERE. It must not SELECT the ORM timestamp (or whole Audit rows).
+        assert all("audit.time" not in statement.partition("from")[0]
+                   for statement in statements)
         with factory() as db:
             assert len(db.scalars(select(Audit.id)).all()) == before
         assert store.verify_audit_head(other)
