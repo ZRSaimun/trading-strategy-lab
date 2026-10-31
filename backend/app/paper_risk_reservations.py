@@ -362,7 +362,11 @@ def _audit_head_matches(db, key, raw, state, reserved):
                     historical_reserved += _money(state["reservations"][order], positive=True)
                 # Verify every older receipt against its reconstructed prefix,
                 # not only the latest two adjacent audit checkpoints.
-                if cash != historical_reserved:
+                # Compare the exact Decimal serialization emitted by the
+                # writer, not only numeric equality. A rewritten old receipt
+                # with "0.00" instead of "0" or "1.0" instead of "1" is
+                # inconsistent even when its numeric value is unchanged.
+                if entry["reserved_cash"] != str(historical_reserved):
                     return False
                 historical_state = {
                     "version": 2,
