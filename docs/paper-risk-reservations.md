@@ -655,3 +655,30 @@ broker evidence, or proof of profitable trading. The branch remains
 The account-local verifier now derives the newest and preceding PAPER audit checkpoints from the **same bounded ascending-ID history query**, instead of first fetching the two newest ORM rows in a separate descending-ID statement and then fetching the full history. This removes a cross-statement head/history mismatch opportunity under PostgreSQL READ COMMITTED, while retaining all historical revision, ID, timestamp, cash and digest checks. Five synthetic SQLite regressions assert a single ordered history SELECT for initialization, policy, reservation, emergency latch and an altered prior receipt; the corrupt case must still quarantine reservable capacity. No stored schema or receipts change.
 
 **Limit:** this is a narrower read-consistency improvement, **not** a serializable transaction, row lock, independently authenticated audit, broker reconciliation or authorization to place orders. Main-branch integration, journal atomicity, verified BID/ASK and position evidence, crash recovery, backup/rollback and licensed held-out validation remain blockers. Keep the PR draft, paper-only, unmerged and undeployed.
+
+
+## Retained no-op policy audit rejection (31 October 2026)
+
+The historical PAPER audit verifier now rejects a retained `policy` receipt
+that claims to increment the revision while leaving **both** the exact
+`limit_cash` text and `kill_switch` unchanged. This matches the current
+writer's no-op policy rejection, and includes a forged first policy receipt
+that merely repeats the initialized killed/zero-cap state. Exact cash text
+matters: changing `100` to `100.00` remains an intentional, audited
+revision even though the numerical cap is equal.
+
+Three synthetic SQLite regressions in
+`backend/tests/test_paper_risk_historical_policy_noop.py` cover a
+checksum-recomputed forged no-op after initialization, one after a legitimate
+reservation, and a genuine text-only cap revision. Corrupted histories must
+show zero reservable capacity and refuse policy and emergency-stop success
+acknowledgements; unaffected accounts remain independently verifiable.
+This stricter verifier may quarantine older prototype histories containing
+previously accepted identical policy writes; **do not automatically rewrite
+or reset those records**. They require owner-reviewed migration/reconciliation
+before any integration.
+
+This is only internal consistency checking of self-attested audit data,
+not tamper-proof history, a trusted clock, broker position reconciliation,
+execution authorization, or evidence of positive trading expectancy.
+Keep the PR draft, PAPER-only, unmerged and undeployed.
