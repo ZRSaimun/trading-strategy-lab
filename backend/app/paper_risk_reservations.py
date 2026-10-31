@@ -417,6 +417,19 @@ def _audit_head_matches(db, key, raw, state, reserved):
                     elif (count != prior_count or cash != prior_cash
                           or (op == "emergency_kill" and cap != prior_cap)):
                         return False
+                # A policy write must change the exact cash-cap text or
+                # kill-switch value. The writer rejects identical reviews
+                # without consuming a revision/audit slot; a retained no-op
+                # receipt cannot legitimately explain an incremented state.
+                # Preserve text sensitivity: "100" -> "100.00" is an
+                # intentional, auditable policy change.
+                if op == "policy":
+                    prior_limit_text = ("0" if expected == 1
+                                        else previous_entry["limit_cash"])
+                    prior_stopped = (True if expected == 1
+                                     else previous_entry["kill_switch"])
+                    if entry["limit_cash"] == prior_limit_text and stopped is prior_stopped:
+                        return False
                 if op == "reserve":
                     if order in historical_orders or order not in state["reservations"]:
                         return False
