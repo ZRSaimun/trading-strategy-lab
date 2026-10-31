@@ -27,6 +27,25 @@ _MAX_AUDIT_HISTORY_ROWS = 4096
 _MAX_REVISION = 2**53 - 1
 
 
+
+def _audit_timestamp():
+    """Never commit an audit receipt that the verifier will reject on reload.
+
+    This validates only the writer's positive integer epoch representation;
+    it does not claim a trusted, synchronized or monotonic clock.
+    """
+    try:
+        observed = time.time()
+        if type(observed) not in (int, float):
+            raise ValueError("Invalid PAPER risk audit clock")
+        timestamp = int(observed)
+    except (ValueError, TypeError, OverflowError) as exc:
+        raise ValueError("Invalid PAPER risk audit clock; halt orders") from exc
+    if timestamp <= 0:
+        raise ValueError("Invalid PAPER risk audit clock; halt orders")
+    return timestamp
+
+
 def _money(value, *, positive=False):
     if not isinstance(value, str) or not _CASH.fullmatch(value):
         raise ValueError("Cash amount must be a nonnegative decimal string with at most 8 places")
@@ -589,12 +608,13 @@ class PaperRiskReservationStore:
                 return False
             updated["revision"] = expected_revision + 1
             new_raw = _encode(updated, key=key)
+            audit_time = _audit_timestamp()  # Fail before changing persisted state.
             changed = db.execute(update(Record).where(
                 Record.key == key, Record.value == raw).values(value=new_raw))
             if changed.rowcount != 1:
                 db.rollback()
                 return False
-            db.add(Audit(time=int(time.time()), actor="paper-risk-store", action="paper.risk.cas",
+            db.add(Audit(time=audit_time, actor="paper-risk-store", action="paper.risk.cas",
                          detail=_canonical({"account_hash": key.split(":", 1)[1],
                                             "operation": operation,
                                             "revision": updated["revision"],
@@ -621,9 +641,10 @@ class PaperRiskReservationStore:
                 _account_audit_match(key)
             ).limit(1)) is not None:
                 return False
+            audit_time = _audit_timestamp()  # Fail before creating state or audit.
             try:
                 db.execute(insert(Record).values(key=key, value=_encode(state, key=key)))
-                db.add(Audit(time=int(time.time()), actor="paper-risk-store", action="paper.risk.init",
+                db.add(Audit(time=audit_time, actor="paper-risk-store", action="paper.risk.init",
                              detail=_canonical({"account_hash": key.split(":", 1)[1],
                                                 "operation": "initialize",
                                                 "revision": 0, "kill_switch": True})))
