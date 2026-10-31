@@ -183,30 +183,38 @@ def build_review_packet(order, *, now_ms, max_quote_age_ms=3000,
 
 
 def _same_review_payload(received, expected):
-    """Exact non-money checks; numeric equality for equivalent decimal renderings.
+    """Compare the typed packet schema, not JSON-coerced representations.
 
-    Calculated amounts can have different trailing zeros for canonically equal
-    order inputs (e.g. quantity '2' versus '2.0'). Never trust an altered check.
+    JSON encoding would silently equate tuples with arrays, and can recurse
+    indefinitely on malformed nested values. The review packet has a fixed
+    shallow schema: check flags are booleans and diagnostic lists are strings.
+    Calculated cash amounts alone permit equivalent decimal renderings.
     """
     amount_keys = ('stressed_loss_cash', 'combined_notional_cash',
                    'combined_margin_cash', 'projected_daily_pnl_cash')
-    if set(received) != set(expected):
+    if type(received) is not dict or set(received) != set(expected):
         return False
-    for key in amount_keys:
-        amount = received[key]
-        if (not isinstance(amount, str) or len(amount) > 160
-                or not re.fullmatch(r'-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?', amount)
-                or Decimal(amount) != Decimal(expected[key])):
+    for key, wanted in expected.items():
+        value = received[key]
+        if key in amount_keys:
+            if (type(value) is not str or len(value) > 160
+                    or not re.fullmatch(r'-?(?:0|[1-9][0-9]*)(?:\\.[0-9]+)?', value)
+                    or Decimal(value) != Decimal(wanted)):
+                return False
+        elif key == 'checks':
+            if type(value) is not dict or set(value) != set(wanted):
+                return False
+            if any(type(value[name]) is not bool or value[name] is not flag
+                   for name, flag in wanted.items()):
+                return False
+        elif key in ('failed_checks', 'warnings'):
+            if (type(value) is not list or len(value) != len(wanted)
+                    or any(type(item) is not str or item != expected_item
+                           for item, expected_item in zip(value, wanted))):
+                return False
+        elif type(value) is not type(wanted) or value != wanted:
             return False
-    # JSON comparison distinguishes bool from int and checks nested flags,
-    # while ignoring harmless mapping key order.
-    other = lambda p: {k: v for k, v in p.items() if k not in amount_keys}
-    try:
-        return (json.dumps(other(received), sort_keys=True, separators=(',', ':'))
-                == json.dumps(other(expected), sort_keys=True, separators=(',', ':')))
-    except (TypeError, ValueError):
-        return False
-
+    return True
 
 def compare_review(packet, revised_order, *, now_ms, max_quote_age_ms=3000,
                    max_transport_lag_ms=1000):
