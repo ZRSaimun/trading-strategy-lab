@@ -617,6 +617,17 @@ class PaperRiskReservationStore:
             updated["revision"] = expected_revision + 1
             new_raw = _encode(updated, key=key)
             audit_time = _audit_timestamp()  # Fail before changing persisted state.
+            # A rolled-back local clock must not timestamp a new policy or
+            # risk reservation before the latest retained account receipt.
+            # Emergency latching remains possible despite clock rollback:
+            # stopping risk takes precedence over this local-clock diagnostic.
+            # This is NOT an authenticated or synchronized clock guarantee.
+            if operation != "emergency_kill":
+                latest_time = db.scalar(select(Audit.time).where(
+                    _account_audit_match(key)
+                ).order_by(Audit.id.desc()).limit(1))
+                if type(latest_time) is not int or audit_time < latest_time:
+                    raise ValueError("Paper risk audit clock moved backward; halt orders")
             changed = db.execute(update(Record).where(
                 Record.key == key, Record.value == raw).values(value=new_raw))
             if changed.rowcount != 1:
