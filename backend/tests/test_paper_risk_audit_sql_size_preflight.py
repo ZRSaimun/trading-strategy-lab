@@ -63,7 +63,7 @@ def test_oversized_account_audit_is_rejected_before_python_materialization(tmp_p
             event.remove(engine, "before_cursor_execute", capture)
 
         assert statements
-        assert any("length(audit.detail)" in statement for statement in statements)
+        assert any("length(" in statement and "audit.detail" in statement and "blob" in statement for statement in statements)
         # Only the bounded SQL projection is allowed; do not load Audit ORM rows.
         assert all("audit.time" not in statement for statement in statements)
         with factory() as db:
@@ -74,7 +74,7 @@ def test_oversized_account_audit_is_rejected_before_python_materialization(tmp_p
         engine.dispose()
 
 
-def test_utf8_bytes_remain_bounded_after_sql_character_preflight(tmp_path):
+def test_utf8_bytes_remain_bounded_after_sql_octet_preflight(tmp_path):
     engine = create_engine("sqlite:///" + str(tmp_path / "audit-utf8-preflight.db"))
     Base.metadata.create_all(engine)
     factory = sessionmaker(engine)
@@ -82,8 +82,8 @@ def test_utf8_bytes_remain_bounded_after_sql_character_preflight(tmp_path):
     try:
         assert store.initialize("paper-acct-0001")
         account_hash = store._key("paper-acct-0001").split(":", 1)[1]
-        # SQLite length() counts Unicode code points, not UTF-8 bytes.
-        # The Python parser must still reject this oversized UTF-8 payload.
+        # SQL byte length must reject this before fetching/parsing the receipt;
+        # the independent Python byte check remains defense in depth.
         unicode_detail = json.dumps(
             {"account_hash": account_hash, "padding": "é" * 3000},
             ensure_ascii=False, sort_keys=True, separators=(",", ":"),

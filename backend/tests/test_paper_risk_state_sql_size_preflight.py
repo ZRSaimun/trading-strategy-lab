@@ -67,7 +67,7 @@ def test_oversized_state_fails_before_python_decode_and_preserves_other_accounts
         engine.dispose()
 
 
-def test_sql_character_limit_does_not_override_utf8_byte_limit(tmp_path):
+def test_sql_octet_limit_rejects_utf8_payload(tmp_path):
     engine = create_engine("sqlite:///" + str(tmp_path / "utf8-state.db"))
     Base.metadata.create_all(engine)
     factory = sessionmaker(engine)
@@ -77,8 +77,8 @@ def test_sql_character_limit_does_not_override_utf8_byte_limit(tmp_path):
         key = store._key("paper-acct-0001")
         with factory.begin() as db:
             record = db.get(Record, key)
-            # SQL length() counts characters; the existing Python byte guard
-            # must still reject a shorter character string with >64 KiB UTF-8.
+            # SQL byte length must reject the payload even though its Unicode
+            # character count is below 64 KiB. Python checks remain as backup.
             record.value = record.value + ("é" * 40000)
             assert len(record.value) < risk._MAX_ENVELOPE_BYTES
             assert len(record.value.encode("utf-8")) > risk._MAX_ENVELOPE_BYTES

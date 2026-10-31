@@ -10,7 +10,7 @@ import re
 import time
 from decimal import Decimal, InvalidOperation
 
-from sqlalchemy import case, func, insert, select, update
+from sqlalchemy import LargeBinary, case, cast, func, insert, select, update
 from sqlalchemy.exc import IntegrityError
 
 from .db import Audit, Record, Session
@@ -175,15 +175,29 @@ def _decode(raw, *, key):
 
 
 
-def _read_bounded_state(db, key):
-    """SQL-side size preflight: never materialize an oversized risk envelope.
+def _sql_utf8_byte_length(db, column):
+    """Count actual stored UTF-8 bytes, including embedded NUL characters.
 
-    SQL length is character-based on SQLite/PostgreSQL. _decode separately
-    enforces the UTF-8 byte limit after fetching a bounded character payload.
-    CASE and the length result are from one statement, avoiding a preflight
-    read/write race. Missing rows remain distinct from corrupt oversized rows.
+    SQLite length(TEXT) stops at the first NUL and counts Unicode characters;
+    length(CAST(TEXT AS BLOB)) counts all bytes. PostgreSQL octet_length(TEXT)
+    counts UTF-8 bytes. Fail closed on untested SQL dialects.
     """
-    length = func.length(Record.value)
+    dialect = db.get_bind().dialect.name
+    if dialect == "sqlite":
+        return func.length(cast(column, LargeBinary))
+    if dialect == "postgresql":
+        return func.octet_length(column)
+    raise ValueError("Unsupported PAPER risk storage dialect")
+
+
+def _read_bounded_state(db, key):
+    """SQL-side byte preflight: never materialize an oversized risk envelope.
+
+    A single statement returns either the byte-bounded text or NULL. The
+    independent Python _decode check remains a defense in depth. Missing rows
+    remain distinct from corrupt oversized rows.
+    """
+    length = _sql_utf8_byte_length(db, Record.value)
     row = db.execute(select(
         length,
         case((length > _MAX_ENVELOPE_BYTES, None), else_=Record.value),
@@ -217,11 +231,11 @@ def _audit_head_matches(db, key, raw, state, reserved):
     # Revision 0 has one init receipt; each CAS adds exactly one more.
     if state["revision"] >= _MAX_AUDIT_HISTORY_ROWS:
         return False
-    # Do not materialize unbounded audit text into Python just to discover
-    # that it exceeds the receipt limit. SQL length is character-based on
-    # SQLite/PostgreSQL; _audit_json still enforces the UTF-8 byte bound.
+    # Check actual stored UTF-8 bytes in SQL before fetching receipt text.
+    # SQLite TEXT length would miss trailing bytes after an embedded NUL.
+    # _audit_json still independently enforces the byte and canonical bounds.
     if db.scalar(select(Audit.id).where(
-        account_match, func.length(Audit.detail) > _MAX_AUDIT_DETAIL_BYTES
+        account_match, _sql_utf8_byte_length(db, Audit.detail) > _MAX_AUDIT_DETAIL_BYTES
     ).limit(1)) is not None:
         return False
     audits = db.scalars(select(Audit).where(
