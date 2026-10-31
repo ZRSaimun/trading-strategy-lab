@@ -198,7 +198,7 @@ def _same_review_payload(received, expected):
         value = received[key]
         if key in amount_keys:
             if (type(value) is not str or len(value) > 160
-                    or not re.fullmatch(r'-?(?:0|[1-9][0-9]*)(?:\\.[0-9]+)?', value)
+                    or not re.fullmatch(r'-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?', value)
                     or Decimal(value) != Decimal(wanted)):
                 return False
         elif key == 'checks':
