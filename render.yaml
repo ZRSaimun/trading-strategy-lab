@@ -6,7 +6,7 @@ services:
     plan: free
     dockerfilePath: ./deploy/free.Dockerfile
     dockerContext: .
-    autoDeployTrigger: checksPass
+    autoDeployTrigger: 'off'
     healthCheckPath: /api/health
     envVars:
       - key: DEPLOYMENT_PROFILE
