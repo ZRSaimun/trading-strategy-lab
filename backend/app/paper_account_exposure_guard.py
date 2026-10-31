@@ -95,6 +95,7 @@ def evaluate_paper_account_exposure(snapshot: dict, *, now_ms: int) -> dict:
         'unique_client_order_ids': True,
         'no_uncertain_order_outcomes': True,
         'all_quotes_fresh_and_uncrossed': True,
+        'consistent_same_source_quotes': True,
         'all_stops_and_stress_sides_valid': True,
         'no_breached_protective_stops': True,
         'all_position_losses_within_cap': True,
@@ -107,6 +108,7 @@ def evaluate_paper_account_exposure(snapshot: dict, *, now_ms: int) -> dict:
         'projected_daily_downside_below_cap': True,
     }
     seen = set()
+    source_quotes = {}
     per_symbol = {}
     counts = {}
     details = []
@@ -143,6 +145,14 @@ def evaluate_paper_account_exposure(snapshot: dict, *, now_ms: int) -> dict:
             time_ok = observed <= received <= now_ms and now_ms - observed <= max_age and received - observed <= max_lag
             spread_ok = ask > bid and ((ask - bid) / bid * Decimal('10000') <= max_spread)
             checks['all_quotes_fresh_and_uncrossed'] &= time_ok and spread_ok
+            # A portfolio snapshot must not silently mix different observations
+            # for the same instrument/feed. Different feeds remain unverified.
+            source_key = (symbol, row['provider'], row['venue'])
+            source_quote = (bid, ask, observed, received)
+            if source_key in source_quotes and source_quotes[source_key] != source_quote:
+                checks['consistent_same_source_quotes'] = False
+            else:
+                source_quotes[source_key] = source_quote
             is_long = row['side'] == 'LONG'
             stop_ok = (exit_price < stop < entry) if is_long else (entry < stop < exit_price)
             # A pending fill may not assume a better entry than the current ask/bid.
@@ -219,6 +229,7 @@ def evaluate_paper_account_exposure(snapshot: dict, *, now_ms: int) -> dict:
             'Pending and uncertain orders are counted at full quantity; cancellation is not a confirmed release.',
             'Stop losses and stressed exits are scenarios, not guaranteed fills or maximum possible losses.',
             'A breached stop requires broker reconciliation; the current executable side may imply a worse loss than the stressed exit.',
+            'Quotes for the same declared instrument/provider/venue must describe one identical observation; different feeds still require reconciliation.',
             'Stress-adjusted equity is a conservative hypothetical headroom, not a verified broker margin balance or liquidation threshold.',
             'All values assume verified point-value and account-currency conversion, which this module cannot verify.',
             'No broker API, persistent reservation, human approval, or order sender is connected.',
