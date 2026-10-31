@@ -1110,7 +1110,7 @@ def test_adjacent_reservation_receipt_identity_requires_retained_distinct_id(
         assert s.reserve("paper-acct-0001", 2,
                          client_order_id="order-00002", risk_cash="10")
     else:
-        assert s.set_policy("paper-acct-0001", 2, limit_cash="100.00",
+        assert s.set_policy("paper-acct-0001", 2, limit_cash="101.00",
                             kill_switch=False, owner_reviewed=True)
     assert s.initialize("paper-acct-0002")
     before = s.load("paper-acct-0001")
