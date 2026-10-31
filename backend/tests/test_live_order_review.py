@@ -137,6 +137,23 @@ def test_missing_or_extra_review_field_requires_fresh_human_review():
     assert compare_review(original, intent(), now_ms=NOW+1)['review_matches_exact_intent']
 
 
+def test_equivalent_decimal_formatting_preserves_full_packet_consistency():
+    # Same economic intent may render computed cash amounts with trailing zeros.
+    original = build_review_packet(intent(quantity='2.0'), now_ms=NOW)
+    assert compare_review(original, intent(quantity='2'), now_ms=NOW+1)['review_matches_exact_intent']
+    assert compare_review(packet(), intent(quantity='2.0'), now_ms=NOW+1)['review_matches_exact_intent']
+    modified = deepcopy(original)
+    modified['stressed_loss_cash'] = '0'
+    assert compare_review(modified, intent(quantity='2'), now_ms=NOW+1)['requires_new_human_review']
+
+
+def test_nested_flag_type_substitution_does_not_match_review():
+    altered = packet()
+    altered['checks']['quote_fresh'] = 1  # 1 == True in Python, but not JSON.
+    assert not compare_review(altered, intent(), now_ms=NOW+1)['review_matches_exact_intent']
+    assert compare_review(altered, intent(), now_ms=NOW+1)['requires_new_human_review']
+
+
 def test_review_policy_change_invalidates_digest():
     p = packet()
     assert not compare_review(p, intent(), now_ms=NOW+1, max_quote_age_ms=2500)['review_matches_exact_intent']

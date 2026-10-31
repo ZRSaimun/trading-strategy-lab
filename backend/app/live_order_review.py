@@ -181,6 +181,33 @@ def build_review_packet(order, *, now_ms, max_quote_age_ms=3000,
             ]}
 
 
+
+def _same_review_payload(received, expected):
+    """Exact non-money checks; numeric equality for equivalent decimal renderings.
+
+    Calculated amounts can have different trailing zeros for canonically equal
+    order inputs (e.g. quantity '2' versus '2.0'). Never trust an altered check.
+    """
+    amount_keys = ('stressed_loss_cash', 'combined_notional_cash',
+                   'combined_margin_cash', 'projected_daily_pnl_cash')
+    if set(received) != set(expected):
+        return False
+    for key in amount_keys:
+        amount = received[key]
+        if (not isinstance(amount, str) or len(amount) > 160
+                or not re.fullmatch(r'-?(?:0|[1-9][0-9]*)(?:\\.[0-9]+)?', amount)
+                or Decimal(amount) != Decimal(expected[key])):
+            return False
+    # JSON comparison distinguishes bool from int and checks nested flags,
+    # while ignoring harmless mapping key order.
+    other = lambda p: {k: v for k, v in p.items() if k not in amount_keys}
+    try:
+        return (json.dumps(other(received), sort_keys=True, separators=(',', ':'))
+                == json.dumps(other(expected), sort_keys=True, separators=(',', ':')))
+    except (TypeError, ValueError):
+        return False
+
+
 def compare_review(packet, revised_order, *, now_ms, max_quote_age_ms=3000,
                    max_transport_lag_ms=1000):
     """Detect expired/changed reviews, never grant execution on a match."""
@@ -201,7 +228,7 @@ def compare_review(packet, revised_order, *, now_ms, max_quote_age_ms=3000,
     # displayed checks, risk amounts or execution flags from local modification.
     # Compare the entire deterministic packet against a fresh recomputation.
     # This is consistency validation, NOT broker authenticity or a signature.
-    matches = current['review_sha256'] == digest and packet == current
+    matches = current['review_sha256'] == digest and _same_review_payload(packet, current)
     # An unchanged order can still have a quote that became stale after the
     # packet was issued. Re-evaluate the timestamp gate against CURRENT time.
     observed = revised_order['quote_observed_at_ms']
