@@ -562,3 +562,30 @@ The disconnected PAPER risk store now checks the **untruncated** local epoch aga
 For **new PAPER policy and reservation transitions**, the disconnected store now requires the writer's valid integer audit epoch to be at least the timestamp of the latest retained receipt for that account. A local clock rollback fails closed **before** updating the state row or appending a success audit. Equal-second timestamps are permitted because multiple legitimate operations may occur within one second. The comparison is account-local; one account's future-dated checkpoint cannot freeze another account.
 
 **Emergency stop remains exempt from the nondecreasing-clock check** so an already-enabled account can still persist its irreversible emergency latch when its local clock moves backward. The receipt remains a local timestamp, not trusted chronological evidence. Historical verification deliberately does not reinterpret pre-existing clock regressions as proof of tampering. Two synthetic SQLite regressions cover denied policy/reservation writes with unchanged state and audit counts, restart-safe verification, equal-second transitions, unrelated-account isolation and a durable emergency latch despite rollback. The test is software-only: no trusted clock, authenticated broker quote, journal integration, market-data acceptance, or profitable strategy is established. Keep PR #26 draft, paper-only, unmerged and undeployed pending the existing integration and release gates.
+
+
+## Historical ordinary audit-clock ordering (31 October 2026)
+
+The bounded same-account audit census now reads each retained timestamp alongside its
+operation and checks that an ordinary policy or reservation receipt does **not**
+precede the prior receipt's epoch. A rewritten older, still-positive INT4 timestamp
+can otherwise evade the existing metadata preflight and the state/checksum
+reconstruction, even while the latest two receipts remain untouched. The
+actual rows are also revalidated after SQL preflight to avoid treating a
+separate preflight read as a locked database snapshot.
+
+**Emergency kill is deliberately exempt** from chronological ordering:
+a clock rollback must not prevent an emergency latch, and an emergency
+receipt can legitimately be earlier than the preceding policy receipt.
+Equal-second ordinary timestamps remain valid. Older prototype histories
+with previously tolerated clock regressions may now fail closed and need
+manual investigation; no automatic rewriting or re-enablement is provided.
+
+Synthetic SQLite regression coverage:
+`backend/tests/test_paper_risk_historical_clock_order.py` (two nonadjacent
+backdated policy/reservation receipts, blocked mutations, unrelated-account
+isolation, restoration, and a verifiable emergency stop during rollback).
+This detects internal chronology inconsistencies only. It is **not**
+trusted-time attestation, immutable/signed audit evidence, broker
+reconciliation, production PostgreSQL certification, or a trading edge.
+No order sender, API route, live market data, merge or deployment is added.
