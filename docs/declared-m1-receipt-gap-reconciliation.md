@@ -1,0 +1,80 @@
+# Declared receipt ↔ session-gap reconciliation (offline only)
+
+`app.declared_m1_receipt_gap_reconciliation.audit_declared_m1_receipt_gap_reconciliation`
+combines the existing prospective completed-M1 receipt census with the
+session-aware missing-minute gap audit. It is an **opt-in, pure, read-only**
+consistency check: no network, credentials, storage, vendor access, calendar
+downloads, historical repair, broker access, alerts, or orders.
+
+The caller supplies an immutable `ExpectedM1Manifest` with explicit UTC
+sessions and exclusions plus a bounded list of completed-bar receipts with
+exact source identity and OHLC. The receipt census validates receipt schema,
+chronology, OHLC and declared freshness; the gap audit separately checks
+duplicates, backward candle-start transitions, session boundaries, declared
+closures, missing runs and trailing expected-minute coverage. The wrapper
+requires exact agreement between the two algorithms on the manifest digest,
+expected population, missing population, unexpected population, duplicate rows
+and unique observed population. A disagreement raises `ValueError`, not a
+best-effort partial report.
+
+A fully consistent result is `DECLARED_RECONCILED_UNVERIFIED`, **not**
+authenticated, licensed, fresh, executable, or approved for forecasting.
+A stale/late receipt, missing candle, duplicate, unexpected candle, backward
+bar-start transition **or backward declared receipt-time transition** yields
+`REVIEW_REQUIRED`. In particular, out-of-order backfills may pass the original
+receipt census's timestamp-set completeness check but are flagged by this
+combined audit. Receipt-time reversals are counted across adjacent input rows,
+with up to `sample_limit` timestamp-only samples; equal receipt timestamps are
+allowed, and `sample_limit=0` suppresses samples without suppressing counts.
+The caller must preserve its original receipt input order: sorting by bar start
+or receipt time before this audit would destroy ordering evidence. A reversal
+is an offline review signal, not proof of clock tampering; the declared
+`received_at_utc` values are **not** server-attested timestamps. Both underlying reports remain
+available under `receipt_census` and `session_gap_audit`; they expose no raw
+OHLC prices. Fingerprints are local reproducibility hashes, not signatures.
+
+The optional session-local lag breakdown `declared_session_receipt_lag`
+reports each declared session's expected receipt **row** count (duplicates
+included), late expected receipt row count, and maximum caller-declared
+close-to-receipt lag in seconds (null if none). It also reports
+`unique_expected_minutes_with_receipts` and
+`duplicate_expected_receipt_rows`, so repeated receipt bursts cannot be
+misrepresented as additional completed-minute coverage. The fields
+`late_first_expected_minutes` and `late_duplicate_expected_receipt_rows`
+separate late **first-seen** declared observations from late repeated rows;
+their sum must equal `late_expected_receipt_rows` for each session. The per-session unique
+counts must equal the independent gap audit's per-session observed coverage.
+Receipt rows whose bar starts are not expected, including observations in
+declared closures, are counted separately under `unexpected_receipt_rows`,
+`late_unexpected_receipt_rows`, and `duplicate_unexpected_receipt_rows`.
+`late_first_unexpected_minutes` and `late_duplicate_unexpected_receipt_rows`
+partition unexpected late rows without counting duplicate closures as new
+observed minutes. First-seen means **first in the supplied row order**, not a
+verified initial provider publication or independently timed arrival.
+The expected-session and unexpected duplicate populations must add up exactly
+to the original receipt census's total duplicate count; disagreements raise
+`ValueError`. These remain caller-declared rows, not authenticated arrivals. These
+metrics help localize a suspected delayed feed by declared session; they do
+**not** authenticate network arrival, distinguish a backfill from a real-time
+feed, establish provider SLA performance, or permit forecasting. Do not
+interpret a zero late count as evidence of a connected feed.
+
+All results explicitly keep `independent_calendar_verified`,
+`source_authenticated`, `provider_entitlement_verified`,
+`server_receipt_clock_attested`, `executable_bid_ask_verified`, `live`,
+`forecast_ready` and `may_execute_order` false. A declared UTC calendar is
+not an independently verified session/DST/holiday source; a caller-declared
+receipt timestamp is not a trusted server receipt. The function does not
+authorize changing a forecast or trading state.
+
+Synthetic test command:
+
+```sh
+cd backend && PYTHONPATH=. pytest -q tests/test_declared_m1_receipt_gap_reconciliation.py
+```
+
+Activation still requires authenticated licensed provider observations,
+independent venue calendar and UTC/DST provenance, server-owned durable
+receipt timestamps, executable BID/ASK lineage when applicable, independent
+staging, backup restore, rollback and authenticated production health checks.
+The large draft PR must not be merged merely because this offline audit passes.

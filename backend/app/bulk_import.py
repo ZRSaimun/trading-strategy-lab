@@ -128,6 +128,26 @@ def _bulk_insert(connection, rows, table):
     connection.execute(stmt, rows)
 
 
+def _bounded_source_lines(stream, max_chars=1024):
+    """Yield bounded (prefix, overlong) pairs for physical source rows.
+
+    Overlong rows are consumed in bounded reads without materializing the
+    remaining text. The stream must normalize newlines (newline=None) so
+    CRLF at the length boundary cannot become a spurious extra row.
+    """
+    while True:
+        prefix = stream.readline(max_chars + 1)
+        if not prefix:
+            return
+        overlong = len(prefix) > max_chars
+        if overlong and not prefix.endswith("\n"):
+            while True:
+                chunk = stream.readline(max_chars + 1)
+                if not chunk or chunk.endswith("\n"):
+                    break
+        yield prefix, overlong
+
+
 def _flush(engine, dataset_id, accepted, rejected, zero, member, line, latest, candle_batch, issue_batch):
     # Store checkpoint and its imported candles atomically. A crash before
     # commit replays the same rows safely on restart.
@@ -188,7 +208,28 @@ def ingest(engine, path, *, instrument, provider, file_format="ascii",
                     state="IMPORTING", seen=0, accepted=0, rejected=0,
                     zero_volume=0, checkpoint_member=0, checkpoint_line=0))
             elif old["state"] == "READY":
+                # Older imports could label an archive READY after dropping bad rows.
+                # Never affirm such a partial series as research-complete.
+                if old["rejected"] != 0 or old["accepted"] <= 0 or old["seen"] != old["accepted"]:
+                    raise ValueError("Existing READY archive has rejected or incomplete rows; research blocked")
+                stored = connection.scalar(select(func.count()).select_from(candles).where(
+                    candles.c.dataset_id == identity)) or 0
+                if stored != old["accepted"]:
+                    # An earlier import may have lost rows after its checkpoint.
+                    # Downgrade the existing READY dataset atomically; do not
+                    # repair, reimport, or present it as research-complete.
+                    connection.execute(datasets.update().where(datasets.c.id == identity).values(
+                        state="QUARANTINED",
+                        error="Stored candle count disagrees with accepted checkpoint; research blocked"))
+                    return {"dataset_id": identity, "state": "QUARANTINED",
+                            "already_complete": True, "accepted": old["accepted"],
+                            "rejected": old["rejected"]}
                 return {"dataset_id": identity, "state": "READY", "already_complete": True,
+                        "accepted": old["accepted"], "rejected": old["rejected"]}
+            elif old["state"] == "QUARANTINED":
+                # Preserve immutable source identity and rejected-row evidence.
+                # A corrected archive must have a different content digest.
+                return {"dataset_id": identity, "state": "QUARANTINED", "already_complete": True,
                         "accepted": old["accepted"], "rejected": old["rejected"]}
         with engine.connect() as connection:
             state = connection.execute(select(datasets).where(datasets.c.id == identity)).mappings().one()
@@ -206,11 +247,11 @@ def ingest(engine, path, *, instrument, provider, file_format="ascii",
                     continue
                 current_member = member_idx
                 with archive.open(member) as raw:
-                    with io.TextIOWrapper(raw, encoding="utf-8-sig", errors="strict", newline="") as stream:
-                        for line_num, line in enumerate(stream, start=1):
+                    with io.TextIOWrapper(raw, encoding="utf-8-sig", errors="strict", newline=None) as stream:
+                        for line_num, (line, overlong) in enumerate(_bounded_source_lines(stream), start=1):
                             if member_idx == cp_member and line_num <= cp_line:
                                 continue
-                            if len(line) > 1024:
+                            if overlong:
                                 record = None
                                 reason = "row too long"
                             else:
@@ -257,8 +298,30 @@ def ingest(engine, path, *, instrument, provider, file_format="ascii",
                     connection.execute(datasets.update().where(datasets.c.id == identity).values(
                         checkpoint_member=member_idx+1, checkpoint_line=0))
                 cp_line = 0
+            # A ZIP can change after the initial identity hash while its members
+            # are being streamed. Never publish READY from changed source bytes.
+            # This protects completed/resumed imports; a cooperative pause
+            # remains IMPORTING and rechecks the identity when resumed.
+            if sha256_file(path) != digest:
+                raise ValueError("Archive bytes changed during import; research blocked")
             with engine.begin() as connection:
-                connection.execute(datasets.update().where(datasets.c.id == identity).values(state="READY", error=None))
+                totals = connection.execute(select(
+                    datasets.c.seen, datasets.c.accepted, datasets.c.rejected
+                ).where(datasets.c.id == identity)).mappings().one()
+                stored = connection.scalar(select(func.count()).select_from(candles).where(
+                    candles.c.dataset_id == identity)) or 0
+                complete = (totals["rejected"] == 0 and totals["accepted"] > 0
+                            and totals["seen"] == totals["accepted"]
+                            and stored == totals["accepted"])
+                # Conflict-ignored inserts, interrupted storage, or missing
+                # rows must not publish a READY dataset merely because the
+                # checkpoint counters appear consistent.
+                error = None if complete else (
+                    "Stored candle count disagrees with accepted checkpoint; research blocked"
+                    if stored != totals["accepted"]
+                    else "Excluded or empty source rows; research blocked")
+                connection.execute(datasets.update().where(datasets.c.id == identity).values(
+                    state="READY" if complete else "QUARANTINED", error=error))
         except Exception as exc:
             # Partial data is never presented as READY; checkpoint enables retry.
             with engine.begin() as connection:

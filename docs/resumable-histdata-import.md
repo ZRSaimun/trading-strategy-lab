@@ -76,3 +76,89 @@ Store JSON reports privately because they include source filenames.
 Local isolated tests cover fixed-offset parsing, malformed rows, quarantine, source isolation, no overwrite, paused/resumed imports, ASCII/MT parsing and paginated authenticated historical responses. Before production activation, perform PostgreSQL migration/recovery and authenticated browser acceptance tests against a **staging** database.
 
 This is not a live data source, a strategy profitability claim, or a completed historical backtesting engine.
+ 
+
+## Fail-closed research visibility for excluded rows
+
+An archive with **any rejected row**, or with zero accepted rows, is now marked
+`QUARANTINED` rather than `READY` when its resumable import finishes. The
+accepted candles and bounded rejection evidence remain in the isolated historical
+tables for manual inspection; nothing is deleted or repaired. Re-importing an
+identical quarantined archive reports its existing state without promoting it.
+A different corrected ZIP gets a new content-addressed dataset identity.
+
+The authenticated history listing and candle endpoints also hide **legacy**
+`READY` datasets whose metadata records rejected rows, zero accepted rows, or
+an inconsistent seen/accepted count. This is a protective read-time gate for
+existing databases; it does not rewrite old rows or claim that the remaining
+`READY` archives are licensed, authentic, session-complete or backtest-ready.
+The frontend may show fewer archives after this code is deployed. Independently
+audit previously imported data and retain backups before considering any merge.
+
+This does not implement source signatures, entitlement verification, session-aware
+gap classification, or production restore/rollback certification. Source archives
+with ambiguous repeated timestamps remain quarantined.
+
+
+## Completed-import archive identity check
+
+Before changing an import to `READY`, the importer now recomputes SHA-256
+over the original **compressed ZIP bytes** and compares it with the digest
+recorded before parsing. A mismatch raises an error and leaves the dataset
+`FAILED`, not visible to research, while preserving its private accepted
+rows and checkpoint for investigation. The same check applies after a
+paused import resumes and reaches completion. A deliberately paused
+`IMPORTING` dataset is never exposed as `READY`.
+
+This check does **not** authenticate the provider, verify licensing or source
+timestamps, guarantee a stable filesystem against malicious concurrent
+writers, prove completeness, or authorise orders. Run ingestion against
+immutable owner-controlled local copies, one process per dataset, and
+confirm permitted source use before a staging import. The original ZIP is
+not repaired or overwritten by this safeguard.
+
+## Bounded physical-line ingestion (25 October 2026)
+
+The resumable ZIP importer now reads source text through a 1,025-character
+bounded `readline` budget instead of materializing an arbitrarily long CSV
+line. Rows exceeding the existing 1,024-character limit are consumed in
+bounded chunks, rejected as `row too long`, and counted **once** at their
+original source-line ordinal. Later valid rows retain their line numbers and
+restart checkpoints. Universal newline translation avoids treating a CRLF
+split at the length boundary as a second empty row. Rejected archives remain
+`QUARANTINED`, never `READY`; private bounded issue samples are preserved.
+
+Synthetic tests cover a million-character line followed by a valid row,
+CR/LF/CRLF, bounded read sizes, and paused/resumed imports. This is a
+resource-safety improvement, **not** proof that all ZIP decompression,
+database concurrency, provider identity, licensing, timestamps, gaps or
+research suitability have been independently verified. A large but
+syntactically valid number of rows can still require substantial time and
+disk space; run only on isolated authorised infrastructure. No original
+historical ZIP is changed or approved by this update.
+
+
+## Stored-row checkpoint reconciliation (25 October 2026)
+
+At finalization, the importer now counts the actual stored `historical_candles`
+rows for the exact dataset identity inside the same transaction that decides
+`READY`. It requires this count to equal the importer `accepted` checkpoint
+counter, in addition to requiring zero rejected rows and a nonempty complete
+source. A skipped/conflict-ignored insert or a missing checkpoint row therefore
+leaves the dataset `QUARANTINED`, with its source and existing private rows
+preserved. Re-running an already-`READY` archive also checks the stored row
+count; if it differs, the dataset is atomically downgraded to `QUARANTINED`
+rather than silently reaffirmed. Identical quarantined imports are not
+automatically repaired.
+
+Synthetic regressions cover clean imports, skipped inserts, lost rows during
+pause/resume, and a previously READY archive with missing stored rows:
+`cd backend && PYTHONPATH=. pytest -q tests/test_bulk_import_row_reconciliation.py`.
+
+**Limits:** A matching row count does not prove that the stored OHLC values
+match the ZIP, that timestamps are correct, that the provider is authentic, or
+that source use is licensed. A READY archive changed externally *after* this
+check can still require the separate offline quality audit. This does not
+replace an authorized disposable PostgreSQL staging acceptance or justify
+deployment. No historical prices, broker credentials, feeds, or orders are
+changed by the test suite.

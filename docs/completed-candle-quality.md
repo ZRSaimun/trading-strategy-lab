@@ -40,3 +40,25 @@ Run `cd backend && PYTHONPATH=. pytest -q tests/test_completed_candle_quality.py
 Before a future authenticated completed-candle feed can be advertised as current, obtain the exact authorized provider/venue/instrument, exchange or broker timestamp semantics, feed-delay/closure calendar, contractual display/non-display rights, server receipt clock and monotonic append-only provenance. Preserve raw response evidence only when licensing and security permit. Never infer CFD API availability from an equity API.
 
 Trading 212 official API scope (rechecked 2026-10-24): https://docs.trading212.com/api — Invest and Stocks ISA only, not CFD.
+
+## Unpaired Unicode surrogate quarantine (29 October 2026)
+
+The Twelve Data JSON decoder now rejects isolated UTF-16 surrogate escape
+sequences in **any** response string, including object keys, nested arrays,
+unused metadata and candle fields. Python's default JSON parser can otherwise
+accept these strings even though they cannot be faithfully encoded as UTF-8
+for later custody, logging or canonicalization. Properly paired surrogate
+escapes and ordinary international Unicode text remain supported.
+
+The check runs before normalized snapshots or database imports and returns a
+sanitized provider rejection. It neither authenticates vendor responses nor
+changes the existing historical API request count. Run the offline
+`PYTHONPATH=. pytest -q tests/test_twelvedata_json_unicode_integrity.py`
+from `backend/`; tests use HTTPX MockTransport and synthetic prices.
+No provider account, entitlement, paid feed or broker is activated.
+
+## HTTP Date/Age structural integrity (29 October 2026)
+
+The bounded Twelve Data historical adapter now checks any supplied HTTP `Date` and `Age` headers **before** accepting provider JSON. Duplicate claims, malformed/noncanonical GMT dates (including incorrect weekdays), noninteger/negative/oversized ages and ambiguous combined values fail closed with a sanitized 502. Canonical dates and bounded ages are accepted; either header may be absent, and an `Age` without `Date` is not promoted into a source timestamp. This adds no vendor request, provider credential, storage, API route or new report field. Synthetic HTTPX mock cases: `cd backend && PYTHONPATH=. pytest -q tests/test_twelvedata_cache_headers.py`.
+
+These unsigned HTTP headers may originate from intermediaries or caches. The check is **structural only**: it does not prove the provider issued a candle at that time, establish exchange/venue time, verify feed freshness, authorize live display, or change any `live` / `may_execute_order` flags. Server-owned receipt clocks and independently authenticated, licensed prospective observations remain prerequisites.
