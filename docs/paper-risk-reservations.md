@@ -648,3 +648,10 @@ and preserve isolation of an unrelated account. This is **defense in depth**,
 not a serializable database snapshot, cryptographically authenticated ledger,
 broker evidence, or proof of profitable trading. The branch remains
 **DRAFT / PAPER ONLY / NO MERGE / NO RENDER DEPLOY**.
+
+
+## Single bounded audit-history read (31 October 2026)
+
+The account-local verifier now derives the newest and preceding PAPER audit checkpoints from the **same bounded ascending-ID history query**, instead of first fetching the two newest ORM rows in a separate descending-ID statement and then fetching the full history. This removes a cross-statement head/history mismatch opportunity under PostgreSQL READ COMMITTED, while retaining all historical revision, ID, timestamp, cash and digest checks. Five synthetic SQLite regressions assert a single ordered history SELECT for initialization, policy, reservation, emergency latch and an altered prior receipt; the corrupt case must still quarantine reservable capacity. No stored schema or receipts change.
+
+**Limit:** this is a narrower read-consistency improvement, **not** a serializable transaction, row lock, independently authenticated audit, broker reconciliation or authorization to place orders. Main-branch integration, journal atomicity, verified BID/ASK and position evidence, crash recovery, backup/rollback and licensed held-out validation remain blockers. Keep the PR draft, paper-only, unmerged and undeployed.
