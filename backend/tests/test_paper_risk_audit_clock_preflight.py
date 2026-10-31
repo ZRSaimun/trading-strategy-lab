@@ -73,7 +73,9 @@ def test_invalid_clock_cannot_commit_policy_reservation_or_emergency(
         engine.dispose()
 
 
-@pytest.mark.parametrize("clock_value", [2**31, float(2**31), 10**40])
+@pytest.mark.parametrize("clock_value", [
+    2**31, float(2**31), 2**31 - 1 + 0.25, 2**31 - 1 + 0.75, 10**40,
+])
 def test_postgres_int4_clock_overflow_fails_before_sql_writes(tmp_path, monkeypatch, clock_value):
     """SQLite must not certify audit times PostgreSQL Integer cannot persist."""
     engine = create_engine("sqlite:///" + str(tmp_path / "overflow-clock.db"))
@@ -147,6 +149,12 @@ def test_maximum_int4_epoch_remains_verifiable(tmp_path, monkeypatch):
         with monkeypatch.context() as patch:
             patch.setattr(risk.time, "time", lambda: 2**31 - 1)
             assert store.initialize("paper-acct-0001")
+            # Fractional epochs strictly below the INT4 maximum are valid.
+            patch.setattr(risk.time, "time", lambda: 2**31 - 1 - 0.25)
+            assert store.initialize("paper-acct-0002")
+        with sessionmaker(engine)() as db:
+            assert sorted(db.scalars(select(Audit.time)).all()) == [2**31 - 2, 2**31 - 1]
         assert store.verify_audit_head("paper-acct-0001")
+        assert store.verify_audit_head("paper-acct-0002")
     finally:
         engine.dispose()

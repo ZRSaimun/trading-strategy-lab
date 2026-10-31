@@ -41,6 +41,10 @@ def _audit_timestamp():
         observed = time.time()
         if type(observed) not in (int, float):
             raise ValueError("Invalid PAPER risk audit clock")
+        # Validate the raw fractional epoch before truncating to INT4.
+        # A clock reading of MAX + 0.25 must not silently become MAX.
+        if observed > _MAX_AUDIT_EPOCH:
+            raise ValueError("Invalid PAPER risk audit clock")
         timestamp = int(observed)
     except (ValueError, TypeError, OverflowError) as exc:
         raise ValueError("Invalid PAPER risk audit clock; halt orders") from exc

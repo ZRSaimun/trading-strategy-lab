@@ -551,3 +551,7 @@ PostgreSQL READ COMMITTED still permits concurrent changes between statements,
 and self-attested audit hashes do not authenticate broker positions or receipts.
 No orders, live permissions, production writes, merge or Render deployment.
 Keep PR #26 **DRAFT / PAPER ONLY / NO MERGE / NO DEPLOY**.
+
+## Fractional audit-clock INT4 boundary (31 October 2026)
+
+The disconnected PAPER risk store now checks the **untruncated** local epoch against the PostgreSQL signed-32-bit audit-time maximum before converting it to integer seconds. Previously, a clock reading such as `2147483647.25` could truncate to the apparently valid `2147483647`, despite already being beyond the supported database time range. Synthetic SQLite regression cases reject fractional overflow during initialization, reservation and emergency-stop writes without creating state or audit receipts, while confirming that fractional values strictly below the maximum remain usable. This is a fail-closed portability guard, **not** a trusted clock, broker receipt, year-2038 migration, or permission to execute trades.
