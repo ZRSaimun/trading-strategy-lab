@@ -113,3 +113,67 @@ def test_oversized_sqlite_audit_id_fails_closed_before_json(
         assert store.verify_audit_head(other)
     finally:
         engine.dispose()
+
+
+@pytest.mark.parametrize("invalid_id,after_policy", [
+    (0, True),
+    (risk._MAX_AUDIT_ID + 1, False),
+])
+def test_history_rechecks_id_when_sql_preflight_is_stale(
+        tmp_path, invalid_id, after_policy):
+    """A clean *earlier* SQL preflight is not proof about later history rows.
+
+    Model a stale preflight result while keeping the actual SQLite history
+    invalid. This is a deterministic read-boundary regression, not a claim
+    that SQLite permits this exact interleaving under every isolation mode.
+    """
+    engine = create_engine("sqlite:///" + str(
+        tmp_path / f"stale-id-{invalid_id}.db"))
+    Base.metadata.create_all(engine)
+    factory = sessionmaker(engine)
+    store = risk.PaperRiskReservationStore(factory)
+    account, other = "paper-acct-0001", "paper-acct-0002"
+
+    class StaleMetadataPreflight:
+        def __init__(self, session):
+            self.session = session
+            self.scalar_calls = 0
+
+        def scalar(self, statement):
+            self.scalar_calls += 1
+            if self.scalar_calls == 1:
+                # The first scalar() in _audit_head_matches is its invalid
+                # metadata/ID SQL preflight. Simulate a previously clean read.
+                return None
+            return self.session.scalar(statement)
+
+        def __getattr__(self, name):
+            return getattr(self.session, name)
+
+    try:
+        assert store.initialize(account)
+        if after_policy:
+            assert store.set_policy(account, 0, limit_cash="100",
+                                    kill_switch=False, owner_reviewed=True)
+        assert store.initialize(other)
+        key = store._key(account)
+        with factory.begin() as db:
+            oldest = db.scalar(select(Audit).where(
+                risk._account_audit_match(key)
+            ).order_by(Audit.id.asc()).limit(1))
+            assert oldest is not None
+            oldest.id = invalid_id
+
+        with factory() as db:
+            raw = risk._read_bounded_state(db, key)
+            state, reserved = risk._decode(raw, key=key)
+            stale = StaleMetadataPreflight(db)
+            # This must fail on the *actual* ID returned by the bounded
+            # history query, even though the SQL preflight was masked.
+            assert risk._audit_head_matches(stale, key, raw, state, reserved) is False
+            assert stale.scalar_calls >= 2
+
+        assert store.load(account)["reservable_risk_capacity_cash"] == "0"
+        assert store.verify_audit_head(other) is True
+    finally:
+        engine.dispose()
