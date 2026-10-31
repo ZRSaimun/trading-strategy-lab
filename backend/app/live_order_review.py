@@ -195,7 +195,7 @@ def _same_review_payload(received, expected):
     for key in amount_keys:
         amount = received[key]
         if (not isinstance(amount, str) or len(amount) > 160
-                or not re.fullmatch(r'-?(?:0|[1-9][0-9]*)(?:\\.[0-9]+)?', amount)
+                or not re.fullmatch(r'-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?', amount)
                 or Decimal(amount) != Decimal(expected[key])):
             return False
     # JSON comparison distinguishes bool from int and checks nested flags,
