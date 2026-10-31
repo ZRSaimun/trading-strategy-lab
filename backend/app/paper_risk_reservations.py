@@ -750,13 +750,16 @@ class PaperRiskReservationStore:
         for _ in range(20):
             with self.session_factory() as db:
                 raw = _read_bounded_state(db, key)
-            if raw is None:
-                return False
-            state, _ = _decode(raw, key=key)
-            if state["kill_switch"] and state["emergency_latched"]:
-                if not self.verify_audit_head(account_id):
-                    raise ValueError("Paper risk audit head is missing or inconsistent; halt orders")
-                return True
+                if raw is None:
+                    return False
+                state, reserved = _decode(raw, key=key)
+                if state["kill_switch"] and state["emergency_latched"]:
+                    # Bind the idempotent success check to the exact state
+                    # snapshot just read, not a second session's checkpoint.
+                    # This is NOT a serializable or broker-authenticated read.
+                    if not _audit_head_matches(db, key, raw, state, reserved):
+                        raise ValueError("Paper risk audit head is missing or inconsistent; halt orders")
+                    return True
             if self._transition(key, state["revision"],
                                 lambda current: {**current, "kill_switch": True,
                                                  "emergency_latched": True},

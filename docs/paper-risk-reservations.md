@@ -532,3 +532,22 @@ remains untrusted, and no broker or execution path is enabled.
 ## Reject identical PAPER policy revisions (31 October 2026)
 
 Repeated `set_policy` calls with the same **exact cash-cap text** and the same kill-switch value now return `False` without advancing the persisted revision or appending an audit receipt. This preserves the bounded 4,096-receipt history for actual risk changes and its reserved final emergency-stop slot. The owner-review flag is still **not authentication**. Different decimal text (for example, `100` versus `100.00`) remains an explicitly audited change; historical no-op receipts remain readable for compatibility. Synthetic SQLite regressions cover initialized, enabled, reserved and near-capacity accounts, unchanged receipts across restarts, account isolation, a durable emergency latch and exact-text policy changes. This is internal PAPER accounting safety, **not** broker reconciliation, an executable order path, cryptographic audit evidence or profitability.
+
+
+## Idempotent emergency latch: same-session checkpoint verification (31 October 2026)
+
+An already-latched PAPER account now checks the **exact bounded state envelope and
+audit history read in its existing database session** before acknowledging an
+idempotent emergency-stop retry. Previously it closed the state-reading session
+and called a separate read-only verifier, which could inspect a different
+checkpoint after concurrent modification. The single-session path also avoids
+an unnecessary extra database session. Two synthetic SQLite regressions in
+`backend/tests/test_paper_risk_latched_snapshot.py` check single-session
+idempotency, unchanged audit receipts, fail-closed noncanonical history and
+recovery only after manual restoration of the original valid receipt.
+
+This is a narrower read-consistency guarantee, **not** a serializable snapshot:
+PostgreSQL READ COMMITTED still permits concurrent changes between statements,
+and self-attested audit hashes do not authenticate broker positions or receipts.
+No orders, live permissions, production writes, merge or Render deployment.
+Keep PR #26 **DRAFT / PAPER ONLY / NO MERGE / NO DEPLOY**.
