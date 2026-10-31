@@ -627,3 +627,24 @@ test-only restoration of the original primary key. This is database
 portability and transactional consistency, **not** cryptographic audit
 authenticity, broker reconciliation, trusted market data, or live readiness.
 PR #26 stays **DRAFT / PAPER ONLY / NO MERGE / NO RENDER DEPLOY**.
+
+
+## Audit-ID recheck on actual retained history rows (31 October 2026)
+
+The account-local PAPER audit verifier already performs a SQL preflight for
+nonpositive and PostgreSQL-INT4-overflowed audit primary keys. That preflight
+is a separate read from the subsequent bounded historical reconstruction;
+it is **not** proof that the later rows have identical IDs. The historical
+query now selects each actual `Audit.id` and rechecks its exact positive
+signed-INT4 range before parsing its JSON receipt, alongside the existing
+timestamp recheck. A stale clean metadata preflight must never make a
+subsequently observed invalid primary key acceptable.
+
+Two synthetic SQLite regression cases in
+`backend/tests/test_paper_risk_audit_id_preflight.py` deliberately simulate
+a stale clean preflight while the actual retained history contains an older
+zero ID or an out-of-range positive ID. They require fail-closed verification
+and preserve isolation of an unrelated account. This is **defense in depth**,
+not a serializable database snapshot, cryptographically authenticated ledger,
+broker evidence, or proof of profitable trading. The branch remains
+**DRAFT / PAPER ONLY / NO MERGE / NO RENDER DEPLOY**.
