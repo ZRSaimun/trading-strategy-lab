@@ -531,6 +531,16 @@ class PaperRiskReservationStore:
             state, reserved = _decode(raw, key=key)
             if state["revision"] != expected_revision:
                 return False
+            # The verifier can inspect at most _MAX_AUDIT_HISTORY_ROWS receipts.
+            # Keep the last verifiable revision available for a persistent
+            # emergency latch: ordinary policy/reservation writes must leave
+            # one spare CAS slot. Otherwise a valid write could strand the
+            # account with an unverifiable history and no durable stop slot.
+            if operation == "emergency_kill":
+                if expected_revision >= _MAX_AUDIT_HISTORY_ROWS - 1:
+                    return False
+            elif expected_revision >= _MAX_AUDIT_HISTORY_ROWS - 2:
+                return False
             # The audit and state must agree inside this same transaction
             # before any policy or reservation mutation is attempted.
             if not _audit_head_matches(db, key, raw, state, reserved):
