@@ -123,3 +123,42 @@ def test_never_mutates_inputs_or_reserves_a_quote():
     before = (STOP, QUOTE, POLICY)
     assert run() == run()
     assert (STOP, QUOTE, POLICY) == before
+
+
+@pytest.mark.parametrize("age_ms", [60_001, 600_000, 86_400_000, 8_640_000_000_000_000])
+def test_caller_cannot_expand_stop_quote_age_beyond_one_minute(age_ms):
+    with pytest.raises(ValueError, match="quote timing policy"):
+        run(policy=replace(POLICY, max_quote_age_ms=age_ms))
+
+
+def test_sixty_second_policy_ceiling_is_allowed_but_does_not_authenticate():
+    result = run(policy=replace(POLICY, max_quote_age_ms=60_000))
+    assert result["structural_checks_pass"]
+    assert result["quote_authenticated"] is False
+    assert result["may_execute_paper_order"] is False
+    assert result["may_execute_real_order"] is False
+
+
+@pytest.mark.parametrize("missing", [
+    ("previous_sequence",),
+    ("previous_observed_at_ms",),
+    ("previous_quote_id",),
+    ("previous_sequence", "previous_observed_at_ms"),
+    ("previous_sequence", "previous_quote_id"),
+    ("previous_observed_at_ms", "previous_quote_id"),
+])
+def test_partial_replay_checkpoint_is_rejected(missing):
+    changes = {name: None for name in missing}
+    with pytest.raises(ValueError, match="Incomplete previous quote checkpoint"):
+        run(policy=replace(POLICY, **changes))
+
+
+def test_first_observation_without_checkpoint_is_explicitly_unverified():
+    first = replace(POLICY, previous_sequence=None,
+                    previous_observed_at_ms=None, previous_quote_id=None)
+    result = run(policy=first)
+    assert result["structural_checks_pass"]
+    assert result["quote_authenticated"] is False
+    assert result["position_authenticated"] is False
+    assert result["may_execute_paper_order"] is False
+    assert result["may_execute_real_order"] is False
