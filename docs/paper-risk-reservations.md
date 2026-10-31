@@ -589,3 +589,17 @@ This detects internal chronology inconsistencies only. It is **not**
 trusted-time attestation, immutable/signed audit evidence, broker
 reconciliation, production PostgreSQL certification, or a trading edge.
 No order sender, API route, live market data, merge or deployment is added.
+
+
+## PostgreSQL INT4 audit-ID portability preflight (31 October 2026)
+
+The disconnected PAPER store now rejects retained audit primary keys greater than
+2,147,483,647 in its account-local SQL preflight, before materializing audit
+JSON. SQLite can hold larger positive ROWIDs even though the existing
+PostgreSQL `Audit.id` column is a signed 32-bit `Integer`. Synthetic
+SQLite regressions exercise both initialization-only and policy-transition
+histories with out-of-range IDs; they require fail-closed capacity and mutation
+denial without changing unrelated accounts. This is a cross-engine
+consistency check, **not** cryptographic authenticity, trusted time, broker
+reconciliation, a signed audit log, or an authorization to trade. The
+existing paper-only, draft, no-merge/no-deploy safeguards remain in force.

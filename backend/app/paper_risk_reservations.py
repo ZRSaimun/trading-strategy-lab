@@ -28,6 +28,9 @@ _MAX_REVISION = 2**53 - 1
 # Audit.time uses SQLAlchemy Integer (PostgreSQL INT4). Reject values that
 # SQLite would accept but PostgreSQL cannot persist, including post-2038.
 _MAX_AUDIT_EPOCH = 2**31 - 1
+# Audit.id also uses SQLAlchemy Integer (PostgreSQL INT4). SQLite ROWID
+# accepts wider positive IDs, which must not be treated as portable receipts.
+_MAX_AUDIT_ID = 2**31 - 1
 
 
 
@@ -267,6 +270,7 @@ def _audit_head_matches(db, key, raw, state, reserved):
     if db.scalar(select(Audit.id).where(
         account_match,
         or_(Audit.id <= 0,
+            Audit.id > _MAX_AUDIT_ID,
             Audit.actor.is_(None),
             Audit.actor != "paper-risk-store",
             Audit.action.is_(None),
