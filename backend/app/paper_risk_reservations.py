@@ -306,34 +306,36 @@ def _audit_head_matches(db, key, raw, state, reserved):
         account_match, _sql_utf8_byte_length(db, Audit.detail) > _MAX_AUDIT_DETAIL_BYTES
     ).limit(1)) is not None:
         return False
-    audits = db.scalars(select(Audit).where(
-        account_match
-    ).order_by(Audit.id.desc()).limit(2)).all()
-    # The latest checkpoint alone cannot reveal a deleted immediately prior
-    # transition or a duplicated/replayed head. Check the adjacent revision
-    # without pretending to authenticate the entire audit history.
-    if not audits or audits[0].actor != "paper-risk-store":
-        return False
-    audit = audits[0]
     try:
-        # A receipt COUNT alone can be preserved by deleting an old event and
-        # inserting a duplicate. Walk the bounded account-specific history in
-        # append order and require exact consecutive revisions, actor and
-        # operation schema. The latest two still receive stronger state checks.
-        history = db.execute(select(
-            Audit.id, Audit.action, Audit.actor, Audit.detail, Audit.time
-        ).where(
+        # Read the bounded history once, in ascending audit-ID order. Derive
+        # the latest and predecessor checkpoints from these SAME ORM rows;
+        # a separate descending-head SELECT could observe a different
+        # READ COMMITTED checkpoint between statements. This still does not
+        # provide a serializable snapshot or authenticate the database.
+        history = db.scalars(select(Audit).where(
             account_match
         ).order_by(Audit.id.asc()).limit(_MAX_AUDIT_HISTORY_ROWS + 1)).all()
         if len(history) != state["revision"] + 1:
             return False
+        audits = list(reversed(history[-2:]))
+        if not audits or audits[0].actor != "paper-risk-store":
+            return False
+        audit = audits[0]
+        # A receipt COUNT alone can be preserved by deleting an old event and
+        # inserting a duplicate. Walk the bounded account-specific history in
+        # append order and require exact consecutive revisions, actor and
+        # operation schema. The latest two receive stronger state checks.
         previous_entry = None
         previous_time = None
         historical_orders = set()
         historical_reservations = {}
         historical_reserved = Decimal(0)
-        for expected, (history_id, history_action, history_actor,
-                       history_detail, history_time) in enumerate(history):
+        for expected, history_row in enumerate(history):
+            history_id = history_row.id
+            history_action = history_row.action
+            history_actor = history_row.actor
+            history_detail = history_row.detail
+            history_time = history_row.time
             # The SQL preflight is defense in depth, not a locked snapshot.
             # Recheck both the primary key and timestamp on the actual rows:
             # a later read must not trust a stale clean metadata preflight.
