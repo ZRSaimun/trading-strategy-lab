@@ -25,6 +25,9 @@ _MAX_AUDIT_DETAIL_BYTES = 4 * 1024
 # Bound historical verification work; oversized histories require manual review.
 _MAX_AUDIT_HISTORY_ROWS = 4096
 _MAX_REVISION = 2**53 - 1
+# Audit.time uses SQLAlchemy Integer (PostgreSQL INT4). Reject values that
+# SQLite would accept but PostgreSQL cannot persist, including post-2038.
+_MAX_AUDIT_EPOCH = 2**31 - 1
 
 
 
@@ -41,7 +44,7 @@ def _audit_timestamp():
         timestamp = int(observed)
     except (ValueError, TypeError, OverflowError) as exc:
         raise ValueError("Invalid PAPER risk audit clock; halt orders") from exc
-    if timestamp <= 0:
+    if not 0 < timestamp <= _MAX_AUDIT_EPOCH:
         raise ValueError("Invalid PAPER risk audit clock; halt orders")
     return timestamp
 
@@ -253,7 +256,8 @@ def _audit_head_matches(db, key, raw, state, reserved):
     # zero/negative historical ID must not remain accepted merely because the
     # receipt contents and chronological revision sequence still match.
     # Do not assert timestamp freshness/order: there is no trusted clock.
-    invalid_time = or_(Audit.time.is_(None), Audit.time <= 0)
+    invalid_time = or_(Audit.time.is_(None), Audit.time <= 0,
+                       Audit.time > _MAX_AUDIT_EPOCH)
     if db.get_bind().dialect.name == "sqlite":
         invalid_time = or_(invalid_time, func.typeof(Audit.time) != "integer")
     if db.scalar(select(Audit.id).where(
