@@ -628,7 +628,8 @@ class PaperRiskReservationStore:
                 # Accounting headroom is not usable when the audit checkpoint
                 # is absent or inconsistent, even if the persisted switch is off.
                 "reservable_risk_capacity_cash": (
-                    "0" if state["kill_switch"] or not audit_verified
+                    "0" if (state["kill_switch"] or not audit_verified
+                            or state["revision"] >= _MAX_AUDIT_HISTORY_ROWS - 2)
                     else str(_money(state["limit_cash"]) - reserved)
                 ),
                 "reservation_count": len(state["reservations"]),
