@@ -127,6 +127,31 @@ def test_unrealized_gains_do_not_expand_daily_loss_budget():
     assert a['projected_daily_pnl_cash'] == b['projected_daily_pnl_cash']
 
 
+def test_realized_gains_cannot_replenish_daily_risk_budget():
+    # Reserved risk plus new stressed loss exceeds the declared 50 cash cap.
+    # A windfall recorded earlier in the day must not make this pass.
+    kwargs = dict(existing_reserved_risk_cash='47', daily_unrealized_pnl_cash='0')
+    baseline = packet(daily_realized_pnl_cash='0', **kwargs)
+    windfall = packet(daily_realized_pnl_cash='1000', **kwargs)
+    assert baseline['projected_daily_pnl_cash'] == '-51.54'
+    assert windfall['projected_daily_pnl_cash'] == baseline['projected_daily_pnl_cash']
+    assert 'projected_daily_loss_below_cap' in windfall['failed_checks']
+    assert not windfall['assumption_checks_pass']
+    assert compare_review(windfall, intent(daily_realized_pnl_cash='1000', **kwargs),
+                          now_ms=NOW+1)['requires_new_human_review']
+    assert windfall['may_execute_real_order'] is False
+    assert windfall['may_execute_paper_order'] is False
+
+
+def test_realized_losses_still_reduce_daily_risk_capacity():
+    kwargs = dict(existing_reserved_risk_cash='47', daily_unrealized_pnl_cash='0')
+    no_realized_loss = packet(daily_realized_pnl_cash='0', **kwargs)
+    realized_loss = packet(daily_realized_pnl_cash='-10', **kwargs)
+    assert no_realized_loss['projected_daily_pnl_cash'] == '-51.54'
+    assert realized_loss['projected_daily_pnl_cash'] == '-61.54'
+    assert 'projected_daily_loss_below_cap' in realized_loss['failed_checks']
+
+
 def test_pure_repeatability():
     x = intent()
     original = deepcopy(x)

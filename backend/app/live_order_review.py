@@ -122,7 +122,9 @@ def build_review_packet(order, *, now_ms, max_quote_age_ms=3000,
                 * o['point_value_cash'] + o['estimated_total_cost_cash'])
         combined_notional = o['existing_gross_notional_cash'] + notional
         combined_margin = o['existing_reserved_margin_cash'] + margin
-        effective_daily = (o['daily_realized_pnl_cash']
+        # Do not let declared same-day profits replenish a hard daily risk
+        # budget: only realized/unrealized losses reduce remaining capacity.
+        effective_daily = (min(o['daily_realized_pnl_cash'], Decimal(0))
                            + min(o['daily_unrealized_pnl_cash'], Decimal(0))
                            - o['existing_reserved_risk_cash'] - loss)
         # Conservative non-relaxable bounds for this offline review surface.

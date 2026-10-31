@@ -32,3 +32,7 @@ For the disconnected Invest/Stocks ISA BUY preview, `cash_account_fully_funded` 
 ## Integration reconciliation (31 October 2026)
 
 This branch is rebased as a single isolated change on the then-current `main`, preserving its already-merged executable-quote stop-breach and stressed-equity protections. The PR previously diverged by over 2,000 commits and was marked conflicting; this rebased candidate retains both layers of synthetic regressions and adds the bounded review policies and cash-cost buffer. Review and CI are still required. No broker execution or Render deployment is authorized.
+
+## Realized-gain daily-risk guard (31 October 2026)
+
+The disconnected projected daily-loss check now counts **negative realized and negative unrealized P&L** but never credits positive realized or unrealized gains toward the declared daily risk cap. Previously, a large owner-declared realized profit could offset outstanding reservations and the new stressed loss, allowing a hypothetical review to pass even when those losses alone exceeded the cap. Synthetic regressions cover a declared 1,000-cash realized windfall that must not unlock risk, and a realized loss that must still reduce the remaining budget. This is a deliberately conservative **preview policy**, not a broker-specific daily reset rule or authenticated account ledger. No execution permission, broker connection, production change, or real-data proof is introduced.
