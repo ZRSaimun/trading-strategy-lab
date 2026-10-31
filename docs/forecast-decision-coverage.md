@@ -1,0 +1,13 @@
+# Loop 5 — declared forecast-versus-abstention census (disconnected)
+
+`audit_forecast_decision_coverage(snapshot, expected_identity, expected_keys, abstentions, as_of=...)` builds on the replay-validated forecast issuance census. A separately declared, nonempty expected model/horizon/completed-candle population must have exactly one **forecast** or explicitly declared **abstention** per key. This closes the blind spot where silently skipped forecasts make the scored population look more successful than the full intended decision population.
+
+An abstention is an exact five-field object: `modelVersion`, `horizon` (1/3/12), `baseStart` (aligned epoch seconds), `decisionAt` (declared epoch seconds), and `reason` (`DATA_QUALITY`, `MODEL_UNAVAILABLE`, `LOW_CONFIDENCE`, `POLICY_HOLD`, `OTHER`). It must be declared no earlier than candle completion, no later than the journal's maximum receipt lag, strictly before the next candle close, and no later than the audit cutoff. There can be no duplicate key. Forecast/abstention conflicts, missing decisions and unexpected entries produce `OPERATOR_REVIEW_REQUIRED`; malformed data fails closed. Exact counts, reason breakdowns and bounded 50-key discrepancy samples are reported. An empty expected population never certifies completeness.
+
+A matching declared population is `DECLARED_DECISIONS_MATCH_UNVERIFIED`: **not independently registered, source-authenticated or time-attested**. The function does not store abstentions, attest their original decision times, infer expected market sessions, prevent after-the-fact editing, verify provider delivery or produce forecasts. It cannot prevent selection bias without a trusted externally preregistered schedule and server-owned append-only abstention events. Pending and void forecast outcomes count as issued decisions, not successful predictions. No live quote, notification, paper fill, broker access, production write or order authorization is provided. Every permission flag remains false.
+
+Run synthetic tests: `cd backend && PYTHONPATH=. pytest -q tests/test_forecast_decision_coverage.py`.
+
+**Loop 1 handoff:** Independently attested licensed prospective completed-candle receipts and session-aware expected-bar inventory; server-owned UTC receipt clocks; immutable source/venue/price-side lineage; independently registered model/horizon decision population and append-only forecast/abstention receipts. Do not use single-side historical BID as executable quotes.
+
+**Release:** Draft only. Do not merge/deploy before exact-head full CI and independent restore, rollback and authenticated health checks. No forward P&L, net expectancy or drawdown claims.

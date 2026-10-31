@@ -1,0 +1,901 @@
+"""Disconnected chronological calibration and drift review of forecast journals.
+
+Consumes only ForecastEventStore.load snapshots. Metrics are descriptive and
+cannot authorize alerts, paper fills or real orders. No external I/O.
+"""
+import math
+from collections import defaultdict
+
+from .forecast_prospective_scorecard import _wilson, summarize_forecast_snapshot
+
+
+def _nonoverlapping(rows):
+    """Conservatively discard forecasts sharing a base/target close observation."""
+    kept = []
+    last_target = -1
+    for row in rows:
+        if row["baseStart"] > last_target:
+            kept.append(row)
+            last_target = row["targetStart"]
+    return kept
+
+
+def _brier(rows):
+    return sum((r["probability"] - int(r["outcomeUp"])) ** 2 for r in rows) / len(rows)
+
+
+def _brier_unavailable_binary_bounds(issued_census, eligible_settled):
+    """Best/worst binary-label sensitivity on the FIXED issued census.
+
+    These are mathematical counterfactuals, not filled-in outcomes. A VOID_GAP
+    need not have an observable outcome at all. Never interpret the bounds as
+    realized accuracy or as permission to notify, paper trade, or place orders.
+    """
+    eligible_ids = {row["id"] for row in eligible_settled}
+    total = 0.0
+    lower = upper = 0.0
+    for row in issued_census:
+        p = row["probability"]
+        if row["id"] in eligible_ids:
+            score = (p - int(row["outcomeUp"])) ** 2
+            lower += score
+            upper += score
+        else:
+            down_score, up_score = p * p, (1 - p) ** 2
+            lower += min(down_score, up_score)
+            upper += max(down_score, up_score)
+        total += 1
+    return lower / total, upper / total
+
+
+def _log_loss(rows):
+    """Bernoulli log score in natural-log units; descriptive, not trading P&L.
+
+    The journal validator requires strictly interior finite probabilities.
+    log1p(-p) preserves precision for negative outcomes with p near zero.
+    """
+    return sum(-math.log(r["probability"]) if r["outcomeUp"]
+               else -math.log1p(-r["probability"]) for r in rows) / len(rows)
+
+
+def _log_loss_unavailable_binary_bounds(issued_census, eligible_settled):
+    """Counterfactual best/worst binary-label log loss on fixed issued census.
+
+    Missing/void observations are NOT imputed; gaps may have no true target.
+    The caller's existing chronology, minimum-sample and dual missingness
+    gates must pass before exposing these mathematical sensitivity bounds.
+    """
+    eligible_ids = {row["id"] for row in eligible_settled}
+    lower = upper = 0.0
+    for row in issued_census:
+        p = row["probability"]
+        loss_up = -math.log(p)
+        loss_down = -math.log1p(-p)
+        if row["id"] in eligible_ids:
+            loss = loss_up if row["outcomeUp"] else loss_down
+            lower += loss
+            upper += loss
+        else:
+            lower += min(loss_up, loss_down)
+            upper += max(loss_up, loss_down)
+    return lower / len(issued_census), upper / len(issued_census)
+
+
+
+def _paired_frozen_baseline_regret_bounds(issued_census, eligible_settled, prior_up):
+    """Sharp best/worst *paired* scoring regret under unavailable binary labels.
+
+    The frozen early-only climatology is compared to each forecast on the
+    SAME late issued-census row. For an unavailable label, consider both
+    hypothetical binary outcomes, not independent score extrema. VOID_GAP
+    may have no real outcome; these are counterfactual sensitivity bounds,
+    not measured skill, executable returns or a permission to trade.
+    """
+    eligible_ids = {row["id"] for row in eligible_settled}
+    brier_low = brier_high = log_low = log_high = 0.0
+    for row in issued_census:
+        p = row["probability"]
+        brier_down = p * p - prior_up * prior_up
+        brier_up = (1 - p) ** 2 - (1 - prior_up) ** 2
+        log_down = math.log1p(-prior_up) - math.log1p(-p)
+        log_up = math.log(prior_up) - math.log(p)
+        if row["id"] in eligible_ids:
+            if row["outcomeUp"]:
+                brier_down = brier_up
+                log_down = log_up
+            else:
+                brier_up = brier_down
+                log_up = log_down
+        brier_low += min(brier_down, brier_up)
+        brier_high += max(brier_down, brier_up)
+        log_low += min(log_down, log_up)
+        log_high += max(log_down, log_up)
+    n = len(issued_census)
+    return {
+        "lateBrierRegretBestCaseAllIssuedCensusVsFrozenEarlyClimatology": brier_low / n,
+        "lateBrierRegretWorstCaseAllIssuedCensusVsFrozenEarlyClimatology": brier_high / n,
+        "lateLogLossRegretBestCaseAllIssuedCensusVsFrozenEarlyClimatology": log_low / n,
+        "lateLogLossRegretWorstCaseAllIssuedCensusVsFrozenEarlyClimatology": log_high / n,
+    }
+
+
+def _ece10_unavailable_binary_bounds(issued_census, eligible_settled):
+    """Sharp 10-bin ECE sensitivity to unavailable binary outcomes.
+
+    Preserve the preselected nonoverlapping issued census, including pending,
+    void and post-as-of outcomes. For each fixed probability bin, the unknown
+    number of UP labels is an integer between zero and the missing count.
+    Minimize/maximize the absolute calibration gap over that integer range,
+    then sum across independent bins. This is counterfactual, not observed
+    calibration; a VOID_GAP may have no observable binary target.
+    """
+    eligible_ids = {row["id"] for row in eligible_settled}
+    bins = [[0.0, 0, 0] for _ in range(10)]
+    for row in issued_census:
+        bucket = bins[min(9, int(row["probability"] * 10))]
+        bucket[0] += row["probability"]
+        if row["id"] in eligible_ids:
+            bucket[1] += int(row["outcomeUp"])
+        else:
+            bucket[2] += 1
+    best = worst = 0.0
+    for predicted, observed_up, missing in bins:
+        target = predicted - observed_up
+        floor_candidate = max(0, min(missing, math.floor(target)))
+        ceil_candidate = min(missing, floor_candidate + 1)
+        best += min(abs(target - floor_candidate),
+                    abs(target - ceil_candidate))
+        worst += max(abs(target), abs(target - missing))
+    n = len(issued_census)
+    return {
+        "lateEce10BestCaseAllIssuedCensus": best / n,
+        "lateEce10WorstCaseAllIssuedCensus": worst / n,
+    }
+
+
+def _calibration_ece10(rows):
+    """Descriptive 10-bin ECE; do not interpret as statistical significance.
+
+    Sum absolute within-bin probability/outcome differences before weighting.
+    Unlike the global mean calibration gap, opposite errors cannot cancel
+    across bins. Sparse bins and dependent outcomes still limit reliability.
+    """
+    totals = [[0.0, 0] for _ in range(10)]
+    for row in rows:
+        bucket = totals[min(9, int(row["probability"] * 10))]
+        bucket[0] += row["probability"]
+        bucket[1] += int(row["outcomeUp"])
+    return sum(abs(predicted - observed) for predicted, observed in totals) / len(rows)
+
+
+
+def _calibration_bin_diagnostics10(rows):
+    """Fixed ten-bin audit trail for ECE, on the same settled scoring census.
+
+    Empty bins have null rates; no missing observations are synthesized.
+    Bin 9 includes the upper endpoint probability 1.0.
+    """
+    bins = [[0.0, 0, 0] for _ in range(10)]
+    for row in rows:
+        bucket = bins[min(9, int(row["probability"] * 10))]
+        bucket[0] += row["probability"]
+        bucket[1] += int(row["outcomeUp"])
+        bucket[2] += 1
+    return [
+        {"bin": index, "count": count,
+         "meanProbability": predicted / count if count else None,
+         "observedUpRate": observed / count if count else None,
+         "observedUpWilson95Descriptive": _wilson(observed, count) if count else None,
+         "lowSupportUnder30": count < 30 if count else None}
+        for index, (predicted, observed, count) in enumerate(bins)
+    ]
+
+
+def _brier_components_binned10(rows, bins):
+    """Descriptive ten-bin Brier components with an explicit binning residual.
+
+    Reliability - resolution + uncertainty is NOT generally the exact Brier
+    score when individual probabilities vary inside a bin. Preserve that
+    discrepancy rather than presenting a false exact Murphy decomposition.
+    The caller supplies only eligible, fixed-census settled observations.
+    """
+    n = len(rows)
+    observed_rate = sum(int(r["outcomeUp"]) for r in rows) / n
+    reliability = sum(
+        b["count"] / n * (b["meanProbability"] - b["observedUpRate"]) ** 2
+        for b in bins if b["count"]
+    )
+    resolution = sum(
+        b["count"] / n * (b["observedUpRate"] - observed_rate) ** 2
+        for b in bins if b["count"]
+    )
+    uncertainty = observed_rate * (1 - observed_rate)
+    residual = _brier(rows) - (reliability - resolution + uncertainty)
+    return {
+        "lateBrierBinned10Reliability": reliability,
+        "lateBrierBinned10Resolution": resolution,
+        "lateBrierBinned10Uncertainty": uncertainty,
+        "lateBrierBinned10Residual": residual,
+    }
+
+
+def _confidence_tail_diagnostics(rows):
+    """Descriptive realized error in the fixed >=90% binary-confidence tail.
+
+    Includes p<=0.10 for DOWN and p>=0.90 for UP; neither side is an
+    executable trading signal. A zero-count tail has no observed error rate.
+    """
+    tail = [r for r in rows if r["probability"] <= 0.10
+            or r["probability"] >= 0.90]
+    count = len(tail)
+    wrong = sum(
+        (r["probability"] >= 0.90 and not r["outcomeUp"])
+        or (r["probability"] <= 0.10 and r["outcomeUp"])
+        for r in tail
+    )
+    return {
+        "lateHighConfidenceCount": count,
+        "lateHighConfidenceFractionOfSettled": count / len(rows),
+        "lateHighConfidenceWrong": wrong,
+        "lateHighConfidenceWrongFraction": wrong / count if count else None,
+        "lateHighConfidenceWrongWilson95Descriptive":
+            _wilson(wrong, count) if count else None,
+        "lateHighConfidenceLowSupportUnder30": count < 30 if count else None,
+    }
+
+
+
+def _log_loss_tail_diagnostics(rows, prior_up):
+    """Descriptive late loss concentration and paired frozen-baseline regret.
+
+    Nearest-rank P95 is not a confidence or prediction interval. Signed
+    worst regret can be negative when every forecast beats the baseline.
+    """
+    losses, regrets = [], []
+    for row in rows:
+        p, up = row["probability"], row["outcomeUp"]
+        loss = -math.log(p) if up else -math.log1p(-p)
+        baseline_loss = -math.log(prior_up) if up else -math.log1p(-prior_up)
+        losses.append(loss)
+        regrets.append(loss - baseline_loss)
+    ordered = sorted(losses)
+    n = len(ordered)
+    return {
+        "lateLogLossWorstSingle": ordered[-1],
+        "lateLogLossP95NearestRank": ordered[math.ceil(.95 * n) - 1],
+        "lateLogLossTopDecileShare": sum(ordered[-math.ceil(n / 10):]) / sum(ordered),
+        "lateWorstSingleLogLossRegretVsFrozenEarlyClimatology": max(regrets),
+    }
+
+
+def _settlement_lag_diagnostics(rows, seconds):
+    """Observed late outcome receipt lag after target candle close, in seconds.
+
+    Only the eligible fixed-census settled cohort is passed by the caller.
+    These caller-declared timestamps are not authenticated provider latency.
+    """
+    lags = sorted(r["resolvedAt"] - (r["targetStart"] + seconds) for r in rows)
+    return {
+        "lateSettlementLagP95Seconds": lags[math.ceil(.95 * len(lags)) - 1],
+        "lateSettlementLagMaxSeconds": lags[-1],
+        "lateSettlementLagOverOneCandleFraction":
+            sum(lag > seconds for lag in lags) / len(lags),
+    }
+
+
+
+def _issuance_lag_diagnostics(rows, seconds):
+    """Declared issuance delay after completed base candle close, all late issued.
+
+    Use the full late issuance cohort, NOT settled-only or outcome-selected rows.
+    A late or absent forecast is not proof of an actual provider delivery delay.
+    """
+    lags = sorted(r["issuedAt"] - (r["baseStart"] + seconds) for r in rows)
+    return {
+        "lateIssuanceLagCensusCount": len(lags),
+        "lateIssuanceLagP95Seconds": lags[math.ceil(.95 * len(lags)) - 1],
+        "lateIssuanceLagMaxSeconds": lags[-1],
+        "lateIssuanceLagOverHalfCandleFraction":
+            sum(lag * 2 > seconds for lag in lags) / len(lags),
+    }
+
+
+def _issued_confidence_diagnostics(rows, seconds):
+    """Cross-check high-confidence issuance against declared base-close lag.
+
+    Uses ALL late issued forecasts before settlement/outcome selection. A
+    forecast issued after half a candle is not necessarily a delayed alert;
+    timestamps and source completion remain unauthenticated.
+    """
+    high = [r for r in rows if r["probability"] <= .10
+            or r["probability"] >= .90]
+    other = [r for r in rows if .10 < r["probability"] < .90]
+    def delayed(row):
+        return 2 * (row["issuedAt"] - row["baseStart"] - seconds) > seconds
+    delayed_high = sum(delayed(r) for r in high)
+    delayed_other = sum(delayed(r) for r in other)
+    return {
+        "lateIssuedHighConfidenceCount": len(high),
+        "lateIssuedHighConfidenceFraction": len(high) / len(rows),
+        "lateIssuedMeanProbability": sum(r["probability"] for r in rows) / len(rows),
+        "lateIssuedHighConfidenceDelayedOverHalfCandleCount": delayed_high,
+        "lateIssuedHighConfidenceDelayedOverHalfCandleFraction":
+            delayed_high / len(high) if high else None,
+        "lateIssuedOtherDelayedOverHalfCandleFraction":
+            delayed_other / len(other) if other else None,
+    }
+
+
+
+def _issued_probability_ecdf_shift(early, late):
+    """Exact empirical 1-D W1 and KS distances on ALL issued probabilities.
+
+    W1 integrates the absolute empirical CDF gap over the probability axis,
+    in probability units [0, 1]. KS is the largest CDF gap [0, 1].
+    Neither is a significance test; forecasts can be highly dependent.
+    No binning, outcome selection, or synthetic observations are involved.
+    """
+    if not early or not late:
+        return None, None
+    before = sorted(row["probability"] for row in early)
+    after = sorted(row["probability"] for row in late)
+    i = j = 0
+    previous = min(before[0], after[0])
+    distance = maximum_cdf_gap = 0.0
+    while i < len(before) or j < len(after):
+        value = min(before[i] if i < len(before) else float("inf"),
+                    after[j] if j < len(after) else float("inf"))
+        distance += (value - previous) * abs(i / len(before) - j / len(after))
+        while i < len(before) and before[i] == value:
+            i += 1
+        while j < len(after) and after[j] == value:
+            j += 1
+        maximum_cdf_gap = max(maximum_cdf_gap,
+                              abs(i / len(before) - j / len(after)))
+        previous = value
+    return distance, maximum_cdf_gap
+
+
+def _issued_probability_shape_shift(early, late):
+    """Signed, label-free issued-probability location and spread changes.
+
+    Quantiles use nearest-rank p10/p90 and the ordinary midpoint median.
+    These are descriptive on potentially dependent, unauthenticated forecasts.
+    """
+    if not early or not late:
+        return {key: None for key in (
+            "earlyIssuedMeanProbability", "issuedProbabilityMeanShift",
+            "issuedProbabilityMedianShift", "issuedProbabilityInterdecileRangeShift",
+            "earlyIssuedHighConfidenceFraction", "issuedHighConfidenceFractionShift")}
+    before = sorted(row["probability"] for row in early)
+    after = sorted(row["probability"] for row in late)
+
+    def median(values):
+        middle = len(values) // 2
+        return (values[middle] if len(values) % 2 else
+                (values[middle - 1] + values[middle]) / 2)
+
+    def interdecile(values):
+        return (values[math.ceil(.90 * len(values)) - 1] -
+                values[math.ceil(.10 * len(values)) - 1])
+
+    def high_fraction(values):
+        return sum(p <= .10 or p >= .90 for p in values) / len(values)
+
+    return {
+        "earlyIssuedMeanProbability": sum(before) / len(before),
+        "issuedProbabilityMeanShift": sum(after) / len(after) - sum(before) / len(before),
+        "issuedProbabilityMedianShift": median(after) - median(before),
+        "issuedProbabilityInterdecileRangeShift": interdecile(after) - interdecile(before),
+        "earlyIssuedHighConfidenceFraction": high_fraction(before),
+        "issuedHighConfidenceFractionShift": high_fraction(after) - high_fraction(before),
+    }
+
+
+def _issued_probability_shift10(early, late):
+    """Label-free, fixed-bin probability distribution shift on ALL issued rows.
+
+    Jensen-Shannon divergence in bits is in [0, 1], but it is descriptive:
+    forecasts may be dependent and neither cohort is a verified holdout.
+    Missing outcomes do not remove forecasts from either denominator.
+    """
+    def counts(rows):
+        result = [0] * 10
+        for row in rows:
+            result[min(9, int(row["probability"] * 10))] += 1
+        return result
+
+    before, after = counts(early), counts(late)
+    divergence = None
+    if early and late:
+        divergence = 0.0
+        for a, b in zip(before, after):
+            p, q = a / len(early), b / len(late)
+            midpoint = (p + q) / 2
+            if p:
+                divergence += p * math.log2(p / midpoint) / 2
+            if q:
+                divergence += q * math.log2(q / midpoint) / 2
+    wasserstein, ks_gap = _issued_probability_ecdf_shift(early, late)
+    return {
+        "earlyIssuedProbabilityBins10": before,
+        "lateIssuedProbabilityBins10": after,
+        "issuedProbabilityJensenShannonBits10": divergence,
+        "issuedProbabilityWasserstein1": wasserstein,
+        "issuedProbabilityKsGap": ks_gap,
+        **_issued_probability_shape_shift(early, late),
+        "issuedProbabilityShiftLowSupportUnder30":
+            min(len(early), len(late)) < 30 if early and late else None,
+    }
+
+
+
+def _issued_utc_hour_mix(early, late):
+    """Label-free UTC base-candle hour composition and common-hour probability shift.
+
+    Fixed UTC hour bins, not local/DST sessions. Common-hour shift uses
+    overlap weights min(early hour share, late hour share), normalized only
+    over shared support. It is descriptive, not a session-adjusted causal
+    estimate or an independently authenticated market-regime test.
+    """
+    before, after = [0] * 24, [0] * 24
+    early_sum, late_sum = [0.0] * 24, [0.0] * 24
+    for row in early:
+        hour = (row["baseStart"] // 3600) % 24
+        before[hour] += 1
+        early_sum[hour] += row["probability"]
+    for row in late:
+        hour = (row["baseStart"] // 3600) % 24
+        after[hour] += 1
+        late_sum[hour] += row["probability"]
+
+    result = {
+        "earlyIssuedUtcHourCounts24": before,
+        "lateIssuedUtcHourCounts24": after,
+        "issuedUtcHourTotalVariation": None,
+        "issuedUtcHourCommonSupportFraction": None,
+        "issuedUtcHourCommonHourCount": 0,
+        "issuedUtcHourWithinCommonMeanShift": None,
+        "issuedUtcHourCommonLowSupportUnder30": None,
+    }
+    if not early or not late:
+        return result
+
+    weights = [min(a / len(early), b / len(late))
+               for a, b in zip(before, after)]
+    overlap = sum(weights)
+    common = [h for h, weight in enumerate(weights) if weight > 0]
+    result["issuedUtcHourTotalVariation"] = 0.5 * sum(
+        abs(a / len(early) - b / len(late))
+        for a, b in zip(before, after))
+    result["issuedUtcHourCommonSupportFraction"] = overlap
+    result["issuedUtcHourCommonHourCount"] = len(common)
+    result["issuedUtcHourCommonLowSupportUnder30"] = (
+        any(min(before[h], after[h]) < 30 for h in common) if common else None)
+    if common:
+        result["issuedUtcHourWithinCommonMeanShift"] = sum(
+            weights[h] * (late_sum[h] / after[h] - early_sum[h] / before[h])
+            for h in common) / overlap
+    return result
+
+
+def _outcome_availability_bins10(issued_census, eligible_settled):
+    """Probability-stratified outcome availability on a PRESELECTED census.
+
+    Select nonoverlapping issued forecasts before reading outcome status.
+    Eligible labels are identified only by id, never by their direction. An
+    as-of-excluded settlement is unavailable. Empty bins have no rate.
+    These are unauthenticated, descriptive selection-risk diagnostics.
+    """
+    eligible_ids = {row["id"] for row in eligible_settled}
+    counts = [[0, 0] for _ in range(10)]
+    for row in issued_census:
+        index = min(int(row["probability"] * 10), 9)
+        counts[index][0] += 1
+        counts[index][1] += int(row["id"] in eligible_ids)
+    return [
+        {"bin": index, "issued": issued, "eligibleSettled": eligible,
+         "unavailable": issued - eligible,
+         "unavailableFraction": (issued - eligible) / issued if issued else None,
+         "lowSupportUnder30": issued < 30 if issued else None}
+        for index, (issued, eligible) in enumerate(counts)
+    ]
+
+
+def _outcome_availability_utc_hour24(issued_census, eligible_settled):
+    """UTC-hour outcome availability on a preselected issued-forecast census.
+
+    Eligibility is determined by membership in the chronologically eligible
+    settled set, not by outcome direction. Empty hours have null fractions.
+    No session/DST/provider authenticity or statistical significance is claimed.
+    """
+    eligible_ids = {row["id"] for row in eligible_settled}
+    counts = [[0, 0] for _ in range(24)]
+    for row in issued_census:
+        hour = (row["baseStart"] // 3600) % 24
+        counts[hour][0] += 1
+        counts[hour][1] += int(row["id"] in eligible_ids)
+    return [
+        {"utcHour": hour, "issued": issued, "eligibleSettled": eligible,
+         "unavailable": issued - eligible,
+         "unavailableFraction": (issued - eligible) / issued if issued else None,
+         "lowSupportUnder30": issued < 30 if issued else None}
+        for hour, (issued, eligible) in enumerate(counts)
+    ]
+
+
+def _outcome_availability_utc_weekday7(issued_census, eligible_settled):
+    """UTC weekday missingness on the fixed issued census, Monday=0.
+
+    Unix day zero is Thursday. No local timezone, DST, holiday, trading-session
+    or provider completeness assumptions are made. Eligibility uses only IDs,
+    never outcome direction; empty weekdays have null rates.
+    """
+    eligible_ids = {row["id"] for row in eligible_settled}
+    counts = [[0, 0] for _ in range(7)]
+    for row in issued_census:
+        weekday = (row["baseStart"] // 86400 + 3) % 7
+        counts[weekday][0] += 1
+        counts[weekday][1] += int(row["id"] in eligible_ids)
+    return [
+        {"utcWeekdayMonday0": day, "issued": issued, "eligibleSettled": eligible,
+         "unavailable": issued - eligible,
+         "unavailableFraction": (issued - eligible) / issued if issued else None,
+         "lowSupportUnder30": issued < 30 if issued else None}
+        for day, (issued, eligible) in enumerate(counts)
+    ]
+
+
+
+def _outcome_availability_utc_weekday_hour168(issued_census, eligible_settled):
+    """Joint UTC weekday/hour missingness on a FIXED nonoverlapping issued census.
+
+    The 168 cells can reveal interaction patterns hidden by weekday and hour
+    marginals. Empty cells have null fractions; low-support cells are not
+    significance tests. No inferred session/DST calendar or authenticated feed.
+    """
+    eligible_ids = {row["id"] for row in eligible_settled}
+    counts = [[0, 0] for _ in range(168)]
+    for row in issued_census:
+        day = (row["baseStart"] // 86400 + 3) % 7
+        hour = (row["baseStart"] // 3600) % 24
+        bucket = counts[day * 24 + hour]
+        bucket[0] += 1
+        bucket[1] += int(row["id"] in eligible_ids)
+    return [
+        {"utcWeekdayMonday0": index // 24, "utcHour": index % 24,
+         "issued": issued, "eligibleSettled": eligible,
+         "unavailable": issued - eligible,
+         "unavailableFraction": (issued - eligible) / issued if issued else None,
+         "lowSupportUnder30": issued < 30 if issued else None}
+        for index, (issued, eligible) in enumerate(counts)
+    ]
+
+
+def _outcome_unavailability_runs(issued_census, eligible_settled):
+    """Clustering of unavailable labels in FIXED issued-census order.
+
+    This counts consecutive *selected issued forecasts*, not consecutive
+    market candles: an unissued candle cannot be observed in this journal.
+    No missing-at-random or authenticated session coverage claim is made.
+    """
+    eligible_ids = {row["id"] for row in eligible_settled}
+    runs = longest = current = unavailable = 0
+    for row in issued_census:
+        if row["id"] not in eligible_ids:
+            unavailable += 1
+            current += 1
+            if current == 1:
+                runs += 1
+            longest = max(longest, current)
+        else:
+            current = 0
+    total = len(issued_census)
+    return {
+        "issued": total,
+        "unavailable": unavailable,
+        "unavailableRunCount": runs,
+        "longestUnavailableRun": longest,
+        "longestUnavailableRunFractionOfIssued": longest / total if total else None,
+    }
+
+
+def audit_temporal_forecast_calibration(snapshot, *, min_per_window=30,
+                                        brier_deterioration=0.05,
+                                        max_unresolved_fraction=0.10,
+                                        evaluation_as_of=None):
+    """Review pre/post issuance cohorts without future-informed baseline fitting.
+
+    Split ALL issued records chronologically, before looking at outcomes. The
+    early climatology uses only resolved outcomes available BEFORE the first
+    late issuance; the late cohort is never used to fit that baseline. Adjacent
+    and overlapping forecast outcomes are conservatively thinned. Incomplete
+    cohorts withhold scores. Early settled labels unavailable at the split
+    boundary count toward the early selection-risk fraction, not just pending
+    or void labels. Apply missingness limits to BOTH all issued forecasts and
+    the fixed nonoverlapping census used for scores, so overlapping issued
+    records cannot dilute missingness concentrated in the evaluated sample.
+    An optional caller-declared evaluation_as_of prevents using late labels
+    resolved after that cutoff. The cutoff and journal are NOT authenticated
+    and do not establish a prospective holdout. Thresholds are heuristics,
+    not hypothesis tests.
+    """
+    if type(min_per_window) is not int or not 30 <= min_per_window <= 1000:
+        raise ValueError("Invalid independent sample minimum")
+    if (type(brier_deterioration) not in (float, int)
+            or not math.isfinite(brier_deterioration)
+            or not 0 < brier_deterioration <= 1):
+        raise ValueError("Invalid Brier deterioration threshold")
+    if (type(max_unresolved_fraction) not in (float, int)
+            or not math.isfinite(max_unresolved_fraction)
+            or not 0 <= max_unresolved_fraction < 1):
+        raise ValueError("Invalid unresolved fraction threshold")
+
+    if (evaluation_as_of is not None and
+            (type(evaluation_as_of) is not int or
+             not 0 <= evaluation_as_of <= 2**53 - 1)):
+        raise ValueError("Invalid declared evaluation cutoff")
+
+    # The scorecard checks the exact evidence marker, identity, sequence,
+    # event/forecast correspondence, outcome types and resolution status.
+    # It does NOT independently authenticate the journal or its provider.
+    summarize_forecast_snapshot(snapshot)
+    if (evaluation_as_of is not None and
+            any(r["issuedAt"] > evaluation_as_of for r in snapshot["forecasts"])):
+        raise ValueError("Declared evaluation cutoff predates issued forecasts")
+    seconds = snapshot["identity"]["seconds"]
+    groups = defaultdict(list)
+    for row in snapshot["forecasts"]:
+        if (row["baseStart"] < 0 or row["baseStart"] % seconds
+                or not row["baseStart"] + seconds <= row["issuedAt"] < row["baseStart"] + 2 * seconds
+                or (row["status"] == "SETTLED"
+                    and row["resolvedAt"] < row["targetStart"] + seconds)):
+            raise ValueError("Invalid causal forecast or outcome chronology")
+        groups[(row["modelVersion"], row["horizon"])].append(row)
+
+    reports = []
+    for (model, horizon), unsorted in sorted(groups.items()):
+        rows = sorted(unsorted, key=lambda r: (r["baseStart"], r["issuedAt"]))
+        if any(a["baseStart"] >= b["baseStart"] or a["issuedAt"] > b["issuedAt"]
+               for a, b in zip(rows, rows[1:])):
+            raise ValueError("Duplicate or retrograde model/horizon issuance")
+        split = len(rows) // 2
+        early, late = rows[:split], rows[split:]
+        early_unresolved = sum(r["status"] != "SETTLED" for r in early)
+        late_unresolved = sum(r["status"] != "SETTLED" for r in late)
+        boundary = late[0]["issuedAt"] if late else None
+        # The early baseline cannot learn from an outcome resolved after the
+        # late evaluation period began. This is a strict chronological purge.
+        # Select the independent-ish sampling census from ALL issued forecasts
+        # before inspecting settlement status. Selecting settled rows first can
+        # shift the sample to later, conveniently observed outcomes when an
+        # earlier forecast is pending/void (outcome-dependent selection).
+        early_census = _nonoverlapping(early)
+        late_census = _nonoverlapping(late)
+        train = [r for r in early_census if r["status"] == "SETTLED"
+                 and boundary is not None and r["resolvedAt"] < boundary]
+        test = [r for r in late_census if r["status"] == "SETTLED"
+                and (evaluation_as_of is None or r["resolvedAt"] <= evaluation_as_of)]
+        # A SETTLED outcome learned only after the late cohort begins is
+        # unavailable to the frozen baseline. Count it as boundary missingness
+        # even though the retrospective journal eventually contains a label.
+        early_purged = sum(r["status"] == "SETTLED"
+                           and (boundary is None or r["resolvedAt"] >= boundary)
+                           for r in early)
+        early_unavailable = early_unresolved + early_purged
+        early_rate = early_unavailable / len(early) if early else 1.0
+        late_settled_after_cutoff = sum(
+            r["status"] == "SETTLED" and evaluation_as_of is not None
+            and r["resolvedAt"] > evaluation_as_of for r in late)
+        late_unavailable = late_unresolved + late_settled_after_cutoff
+        late_rate = late_unresolved / len(late) if late else 1.0
+        late_as_of_rate = late_unavailable / len(late) if late else 1.0
+        # An issued-stream denominator can hide concentrated missing labels in
+        # the fixed nonoverlapping census actually used for scoring. Require
+        # BOTH the whole-stream and selected-census fractions to pass. The
+        # census is frozen before settlement status is inspected.
+        early_census_unavailable = sum(
+            r["status"] != "SETTLED" or boundary is None or r["resolvedAt"] >= boundary
+            for r in early_census)
+        late_census_unresolved = sum(r["status"] != "SETTLED" for r in late_census)
+        late_census_after_cutoff = sum(
+            r["status"] == "SETTLED" and evaluation_as_of is not None
+            and r["resolvedAt"] > evaluation_as_of for r in late_census)
+        early_census_rate = (early_census_unavailable / len(early_census)
+                             if early_census else 1.0)
+        late_census_rate = (late_census_unresolved / len(late_census)
+                            if late_census else 1.0)
+        late_census_as_of_rate = (
+            (late_census_unresolved + late_census_after_cutoff) / len(late_census)
+            if late_census else 1.0)
+        sufficient = len(train) >= min_per_window and len(test) >= min_per_window
+        complete_enough = (early_rate <= max_unresolved_fraction
+                           and late_as_of_rate <= max_unresolved_fraction
+                           and early_census_rate <= max_unresolved_fraction
+                           and late_census_as_of_rate <= max_unresolved_fraction)
+        entry = {
+            "modelVersion": model, "horizonCandles": horizon,
+            "issued": len(rows), "earlyIssued": len(early), "lateIssued": len(late),
+            "earlyUnresolvedOrVoid": early_unresolved,
+            "lateUnresolvedOrVoid": late_unresolved,
+            "earlyPurgedForChronology": early_purged,
+            "earlyUnavailableAtBoundary": early_unavailable,
+            "earlyUnavailableAtBoundaryFraction": early_rate,
+            "lateUnresolvedOrVoidFraction": late_rate,
+            "lateSettledAfterDeclaredAsOf": late_settled_after_cutoff,
+            "lateUnavailableAtDeclaredAsOfFraction": late_as_of_rate,
+            "earlyNonoverlappingIssued": len(early_census),
+            "lateNonoverlappingIssued": len(late_census),
+            "earlyCensusUnavailableAtBoundary": early_census_unavailable,
+            "lateCensusUnresolvedOrVoid": late_census_unresolved,
+            "lateCensusSettledAfterDeclaredAsOf": late_census_after_cutoff,
+            "earlyCensusUnavailableAtBoundaryFraction": early_census_rate,
+            "lateCensusUnresolvedOrVoidFraction": late_census_rate,
+            "lateCensusUnavailableAtDeclaredAsOfFraction": late_census_as_of_rate,
+            "earlyNonoverlappingSettled": len(train),
+            "lateNonoverlappingSettled": len(test),
+            # Label-free distribution drift on all issued forecasts, not settled-only.
+            **_issued_probability_shift10(early, late),
+            # Label-free UTC hour composition; does not assert session equivalence.
+            **_issued_utc_hour_mix(early, late),
+            # Issuance latency uses ALL late issued forecasts, including pending/void.
+            # It is descriptive even when outcome-scoring gates withhold metrics.
+            **_issuance_lag_diagnostics(late, seconds),
+            # All issued probabilities, independent of settlement selection.
+            **_issued_confidence_diagnostics(late, seconds),
+            # Outcome availability by forecast probability on the fixed census.
+            # Remains visible when scoring is withheld; no labels are imputed.
+            "lateCensusOutcomeAvailabilityBins10":
+                _outcome_availability_bins10(late_census, test),
+            "earlyCensusOutcomeAvailabilityUtcHour24":
+                _outcome_availability_utc_hour24(early_census, train),
+            "lateCensusOutcomeAvailabilityUtcHour24":
+                _outcome_availability_utc_hour24(late_census, test),
+            "earlyCensusOutcomeAvailabilityUtcWeekday7":
+                _outcome_availability_utc_weekday7(early_census, train),
+            "lateCensusOutcomeAvailabilityUtcWeekday7":
+                _outcome_availability_utc_weekday7(late_census, test),
+            "earlyCensusOutcomeAvailabilityUtcWeekdayHour168":
+                _outcome_availability_utc_weekday_hour168(early_census, train),
+            "lateCensusOutcomeAvailabilityUtcWeekdayHour168":
+                _outcome_availability_utc_weekday_hour168(late_census, test),
+            "earlyCensusOutcomeUnavailableRuns":
+                _outcome_unavailability_runs(early_census, train),
+            "lateCensusOutcomeUnavailableRuns":
+                _outcome_unavailability_runs(late_census, test),
+            "earlyBrier": None, "lateBrier": None, "lateBrierDelta": None,
+            "lateBrierBestCaseAllIssuedCensus": None,
+            "lateBrierWorstCaseAllIssuedCensus": None,
+            "lateBrierRegretBestCaseAllIssuedCensusVsFrozenEarlyClimatology": None,
+            "lateBrierRegretWorstCaseAllIssuedCensusVsFrozenEarlyClimatology": None,
+            "lateLogLossRegretBestCaseAllIssuedCensusVsFrozenEarlyClimatology": None,
+            "lateLogLossRegretWorstCaseAllIssuedCensusVsFrozenEarlyClimatology": None,
+            "earlyLogLoss": None, "lateLogLoss": None, "lateLogLossDelta": None,
+            "lateLogLossBestCaseAllIssuedCensus": None,
+            "lateLogLossWorstCaseAllIssuedCensus": None,
+            "lateLogLossSkillVsFrozenEarlyClimatology": None,
+            "lateSettlementLagP95Seconds": None,
+            "lateSettlementLagMaxSeconds": None,
+            "lateSettlementLagOverOneCandleFraction": None,
+            "lateLogLossWorstSingle": None,
+            "lateLogLossP95NearestRank": None,
+            "lateLogLossTopDecileShare": None,
+            "lateWorstSingleLogLossRegretVsFrozenEarlyClimatology": None,
+            "lateBrierSkillVsFrozenEarlyClimatology": None,
+            "lateMeanProbability": None, "lateObservedUpRate": None,
+            "lateAbsoluteCalibrationGap": None,
+            "lateEce10BestCaseAllIssuedCensus": None,
+            "lateEce10WorstCaseAllIssuedCensus": None,
+            "lateExpectedCalibrationError10": None, "lateEceBins10": None,
+            "lateEceOccupiedBinsUnder30": None,
+            "lateEceMinOccupiedBinCount": None,
+            "lateBrierBinned10Reliability": None,
+            "lateBrierBinned10Resolution": None,
+            "lateBrierBinned10Uncertainty": None,
+            "lateBrierBinned10Residual": None,
+            "lateHighConfidenceCount": None,
+            "lateHighConfidenceFractionOfSettled": None,
+            "lateHighConfidenceWrong": None,
+            "lateHighConfidenceWrongFraction": None,
+            "lateHighConfidenceWrongWilson95Descriptive": None,
+            "lateHighConfidenceLowSupportUnder30": None,
+            "descriptiveDriftFlag": None,
+            "status": "INSUFFICIENT_NONOVERLAPPING_OUTCOMES" if not sufficient
+                      else "UNRESOLVED_SELECTION_RISK" if not complete_enough
+                      else "DESCRIPTIVE_ONLY",
+        }
+        if sufficient and complete_enough:
+            early_brier, late_brier = _brier(train), _brier(test)
+            late_best, late_worst = _brier_unavailable_binary_bounds(late_census, test)
+            # Jeffreys-smoothed historical climatology, fitted ONLY on
+            # pre-boundary resolved outcomes. This is not a market benchmark.
+            prior_up = (sum(r["outcomeUp"] for r in train) + 0.5) / (len(train) + 1)
+            baseline = sum((prior_up - int(r["outcomeUp"])) ** 2 for r in test) / len(test)
+            delta = late_brier - early_brier
+            early_log, late_log = _log_loss(train), _log_loss(test)
+            late_log_best, late_log_worst = _log_loss_unavailable_binary_bounds(
+                late_census, test)
+            frozen_log = sum(-math.log(prior_up) if r["outcomeUp"]
+                             else -math.log1p(-prior_up) for r in test) / len(test)
+            late_bins = _calibration_bin_diagnostics10(test)
+            occupied = [b["count"] for b in late_bins if b["count"]]
+            entry.update(
+                earlyBrier=early_brier, lateBrier=late_brier,
+                lateBrierDelta=delta,
+                lateBrierBestCaseAllIssuedCensus=late_best,
+                lateBrierWorstCaseAllIssuedCensus=late_worst,
+                **_paired_frozen_baseline_regret_bounds(late_census, test, prior_up),
+                earlyLogLoss=early_log, lateLogLoss=late_log,
+                lateLogLossDelta=late_log - early_log,
+                lateLogLossBestCaseAllIssuedCensus=late_log_best,
+                lateLogLossWorstCaseAllIssuedCensus=late_log_worst,
+                lateLogLossSkillVsFrozenEarlyClimatology=1 - late_log / frozen_log,
+                **_log_loss_tail_diagnostics(test, prior_up),
+                **_settlement_lag_diagnostics(test, seconds),
+                lateBrierSkillVsFrozenEarlyClimatology=1 - late_brier / baseline,
+                lateMeanProbability=sum(r["probability"] for r in test) / len(test),
+                lateObservedUpRate=sum(r["outcomeUp"] for r in test) / len(test),
+                lateAbsoluteCalibrationGap=abs(
+                    sum(r["probability"] - int(r["outcomeUp"]) for r in test) / len(test)),
+                **_ece10_unavailable_binary_bounds(late_census, test),
+                lateExpectedCalibrationError10=_calibration_ece10(test),
+                lateEceBins10=late_bins,
+                lateEceOccupiedBinsUnder30=sum(n < 30 for n in occupied),
+                lateEceMinOccupiedBinCount=min(occupied),
+                **_brier_components_binned10(test, late_bins),
+                descriptiveDriftFlag=delta >= brier_deterioration,
+                **_confidence_tail_diagnostics(test),
+            )
+            if entry["descriptiveDriftFlag"]:
+                entry["status"] = "DESCRIPTIVE_BRIER_DETERIORATION_REVIEW"
+        reports.append(entry)
+    return {
+        "evidence": "UNAUTHENTICATED_DISCONNECTED_SERVER_JOURNAL",
+        "sourceAuthenticated": False, "independentHoldoutVerified": False,
+        "statisticalSignificanceEstablished": False, "profitabilityEstablished": False,
+        "forwardNetReturn": None, "maximumDrawdown": None,
+        "maySendNotification": False, "mayExecutePaperOrder": False,
+        "mayExecuteLiveOrder": False,
+        "evaluationAsOfDeclared": evaluation_as_of,
+        "evaluationCutoffAuthenticated": False,
+        "identity": snapshot["identity"].copy(),
+        "issuedTotal": len(snapshot["forecasts"]), "groups": reports,
+        "limitations": "Caller journal unauthenticated; split is retrospective and not an "
+                       "untouched holdout; dependent market regimes and sample selection remain; "
+                       "declared as-of cutoff and settlement times are not independently verified; "
+                       "missing/void outcomes can bias scores; best/worst Brier bounds assign "
+                       "hypothetical binary labels to unavailable fixed-census "
+                       "records, including potentially unobservable gaps; "
+                       "they are NOT realized performance; log loss heavily penalizes "
+                       "confident wrong probabilities and is not financial loss; "
+                       "settlement lag is caller-declared, not authenticated provider latency; "
+                       "issuance lag is caller-declared, not authenticated alert timeliness; "
+                       "all-issued confidence is descriptive and cannot establish calibration; "
+                       "probability-bin outcome availability is descriptive, sparse and "
+                       "UTC-hour outcome availability is descriptive and not session-adjusted; "
+                       "joint UTC weekday/hour missingness is sparse, descriptive, and "
+                       "does not verify market sessions or missing-at-random; "
+                       "issued probability divergence is descriptive and bin-dependent; unbinned empirical CDF distances are descriptive, sample-dependent, "
+                       "not a statistical drift test or a calibrated probability; "
+                       "UTC-hour composition and common-hour shifts are descriptive, " 
+                       "not a market-session, DST, regime or significance adjustment; " 
+                       "signed mean, median, tail and spread changes are descriptive and "
+                       "not seasonal-adjusted, independent or significance-tested; "
+                       "cannot prove missingness is random or establish calibration; "
+                       "unavailable run lengths count selected issued records, not " 
+                       "consecutive market candles or unissued forecast opportunities; "
+                       "unissued or missing completed candles are outside this census; "
+                       "log-loss tail concentration and paired regret are descriptive "
+                       "observed-label statistics, not financial downside; "
+                       "high-confidence tail errors are descriptive and depend on "
+                       "the fixed 90% threshold; empty tails have no error estimate; "
+                       "10-bin Brier components are bin-dependent and their "
+                       "explicit residual is not a forecast return; "
+                       "counterfactual ECE bounds assign hypothetical binary "
+                       "labels to unavailable fixed-census outcomes and are "
+                       "not observed calibration or statistical evidence; "
+                       "10-bin ECE is bin-dependent "
+                       "and noisy with sparse bins; binomial Wilson ranges assume "
+                       "independence that is not established; heuristic drift is not a p-value. "
+                       "No executable BID/ASK, transaction costs, fills or trading returns.",
+    }
