@@ -481,3 +481,8 @@ source. Positive forged timestamps, clock drift, reordered real-world events
 and coordinated database rewrites are not authenticated or ruled out. No broker
 receipts, real orders, data releases, main merges or Render deployments are
 introduced. Keep PR #26 DRAFT / PAPER ONLY / NO MERGE / NO DEPLOY.
+
+
+## Historical cash representation integrity (31 October 2026)
+
+The bounded PAPER audit-history verifier now compares each retained `reserved_cash` text with the exact `str(Decimal)` cumulative amount reconstructed from retained reservation strings, rather than accepting merely numerically equal values. An older policy receipt rewritten from `0` to `0.00` or `0E+999999999`, or a reservation receipt rewritten from `1` to `1.0`, fails closed even if the latest checkpoint is unchanged. Legitimate decimal scale and tiny `1E-8` reservations remain accepted. Five isolated synthetic SQLite regressions cover both tampering and positive restart/emergency behavior in `backend/tests/test_paper_risk_audit_cash_representation.py`. This detects textual inconsistency, **not** cryptographic forgery; a database writer can still rewrite multiple mutually consistent self-attested records. No broker evidence, orders, execution route, merge or deployment is added.
