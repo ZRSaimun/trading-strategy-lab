@@ -230,13 +230,17 @@ def _audit_head_matches(db, key, raw, state, reserved):
     # Reject invalid receipt metadata in SQL before materializing ORM rows.
     # The writer records positive integral epoch seconds. SQLite can store
     # text in an INTEGER column, so compare its actual storage type as well.
+    # Auto-generated audit primary keys are strictly positive. A rewritten
+    # zero/negative historical ID must not remain accepted merely because the
+    # receipt contents and chronological revision sequence still match.
     # Do not assert timestamp freshness/order: there is no trusted clock.
     invalid_time = or_(Audit.time.is_(None), Audit.time <= 0)
     if db.get_bind().dialect.name == "sqlite":
         invalid_time = or_(invalid_time, func.typeof(Audit.time) != "integer")
     if db.scalar(select(Audit.id).where(
         account_match,
-        or_(Audit.actor.is_(None),
+        or_(Audit.id <= 0,
+            Audit.actor.is_(None),
             Audit.actor != "paper-risk-store",
             Audit.action.is_(None),
             Audit.action.not_in(("paper.risk.init", "paper.risk.cas")),

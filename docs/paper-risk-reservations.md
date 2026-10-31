@@ -486,3 +486,18 @@ introduced. Keep PR #26 DRAFT / PAPER ONLY / NO MERGE / NO DEPLOY.
 ## Historical cash representation integrity (31 October 2026)
 
 The bounded PAPER audit-history verifier now compares each retained `reserved_cash` text with the exact `str(Decimal)` cumulative amount reconstructed from retained reservation strings, rather than accepting merely numerically equal values. An older policy receipt rewritten from `0` to `0.00` or `0E+999999999`, or a reservation receipt rewritten from `1` to `1.0`, fails closed even if the latest checkpoint is unchanged. Legitimate decimal scale and tiny `1E-8` reservations remain accepted. Five isolated synthetic SQLite regressions cover both tampering and positive restart/emergency behavior in `backend/tests/test_paper_risk_audit_cash_representation.py`. This detects textual inconsistency, **not** cryptographic forgery; a database writer can still rewrite multiple mutually consistent self-attested records. No broker evidence, orders, execution route, merge or deployment is added.
+
+
+## Nonpositive historical audit-ID preflight (31 October 2026)
+
+The disconnected PAPER risk verifier now rejects same-account audit rows with
+zero or negative primary-key IDs in SQL, **before** retrieving or parsing their
+JSON receipts. Normal store writes use positive auto-generated IDs. A manual
+rewrite of an older initialization row's ID could previously preserve receipt
+count, JSON, revisions and order while still passing verification; it must now
+quarantine the account rather than authorize further PAPER reservations or
+policy changes. Four synthetic SQLite regressions cover zero/negative IDs
+both before and after policy/reservation transitions, rejected writes,
+unchanged audit counts and unrelated-account isolation. This is a local
+consistency check, **not** an authenticated append-only ledger, broker evidence,
+or a trading-profitability claim. Keep PR #26 draft, unmerged and undeployed.
