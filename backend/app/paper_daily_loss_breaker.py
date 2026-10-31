@@ -16,6 +16,7 @@ from .db import Audit, Record, Session
 
 _MAX_MS = 8_640_000_000_000_000
 _MAX_SEQ = 2**53 - 1
+_MAX_STATE_BYTES = 8192  # Hard bound before parsing persisted, caller-untrusted JSON.
 _ID = re.compile(r"[A-Za-z0-9_-]{1,64}\Z")
 _CURRENCY = re.compile(r"[A-Z]{3}\Z")
 _FIELDS = {"version", "day", "currency", "cap", "revision", "sequence",
@@ -49,6 +50,10 @@ def _day(value):
 
 def _decode(raw, *, expected_day=None):
     try:
+        # A corrupted database value must not force an unbounded JSON parse.
+        # Bound encoded bytes (not Python character count) before json.loads.
+        if not isinstance(raw, str) or len(raw.encode("utf-8")) > _MAX_STATE_BYTES:
+            raise ValueError("Oversized or invalid paper daily-loss record")
         def unique(pairs):
             out = {}
             for k, v in pairs:
@@ -57,7 +62,8 @@ def _decode(raw, *, expected_day=None):
                 out[k] = v
             return out
         data = json.loads(raw, object_pairs_hook=unique)
-        if not isinstance(data, dict) or set(data) != _FIELDS or data["version"] != 1:
+        if (not isinstance(data, dict) or set(data) != _FIELDS
+            or type(data["version"]) is not int or data["version"] != 1):
             raise ValueError()
         _day(data["day"])
         if expected_day is not None and data["day"] != expected_day:

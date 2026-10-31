@@ -181,3 +181,42 @@ def test_observed_record_corruption_cannot_clear_breaker(setup, changes):
         store.load("demo", DAY)
     with pytest.raises(ValueError, match="Corrupt"):
         observed(store, sequence=2, observed_ms=T0 + 2000, now_ms=T0 + 2100)
+
+
+@pytest.mark.parametrize("version", [True, 1.0, "1", None, 2])
+def test_corrupt_version_cannot_masquerade_as_daily_loss_policy(setup, version):
+    _, factory = setup
+    store = PaperDailyLossBreaker(factory)
+    assert store.initialize("demo", DAY, "GBP", "100")
+    with factory.begin() as db:
+        record = db.get(Record, store._key("demo", DAY))
+        doc = json.loads(record.value)
+        doc["version"] = version
+        record.value = json.dumps(doc)
+    with pytest.raises(ValueError, match="Corrupt"):
+        store.load("demo", DAY)
+    with pytest.raises(ValueError, match="Corrupt"):
+        observed(store)
+    with factory() as db:
+        assert db.scalar(select(Audit).where(Audit.action == "paper.loss.observe")) is None
+
+
+@pytest.mark.parametrize("padding", [
+    " " * 9000,
+    "\t" * 9000,
+])
+def test_oversized_stored_daily_loss_state_fails_before_json_parse(setup, padding):
+    _, factory = setup
+    store = PaperDailyLossBreaker(factory)
+    assert store.initialize("demo", DAY, "GBP", "100")
+    with factory.begin() as db:
+        record = db.get(Record, store._key("demo", DAY))
+        # Whitespace after a JSON object is valid JSON; it must not evade the
+        # encoded-byte bound just because its parsed object is small.
+        record.value += padding
+    with pytest.raises(ValueError, match="Corrupt"):
+        store.load("demo", DAY)
+    with pytest.raises(ValueError, match="Corrupt"):
+        observed(store)
+    with factory() as db:
+        assert db.scalar(select(Audit).where(Audit.action == "paper.loss.observe")) is None
