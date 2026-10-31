@@ -4,6 +4,16 @@
 
 For a BUY, the stressed exit must be strictly below the protective stop and entry; for a SELL/short it must be strictly above both. It computes a conservative stressed per-unit loss, deducts fixed scenario costs, existing unrealized losses and outstanding incremental risk, then floors quantity to the provided lot step under the **minimum** of per-position cash loss, remaining daily loss, equity, portfolio gross leverage, portfolio margin and maximum quantity. It returns zero if a minimum lot cannot fit. Floating profits never enlarge the budget. Cash mode disallows short entries and requires 100% funding and a 1x cap.
 
+## Stressed-equity sizing hardening (25 October 2026)
+
+The maximum size now satisfies **both** projected downside and portfolio capacity **after** existing declared loss reservations and the proposed order's stressed loss. Let `E` be equity, `R` existing reserved loss, `F` fixed proposed-order costs, `d` per-unit stressed loss, `n` per-unit gross notional, `m` per-unit margin, `G` existing gross notional, `M` existing reserved margin and `L` maximum leverage. The evaluator floors quantity to the lot step under:
+
+- `q <= (L*(E-R-F)-G)/(n+L*d)` for stressed-equity leverage;
+- `q <= (E-R-F-M)/(m+d)` for stressed-equity margin;
+- the existing per-position/daily loss, maximum lot and cash-account constraints.
+
+After floor rounding, it independently checks `E-R-(F+q*d)>0`, `G+q*n <= L*(E-R-F-q*d)` and `M+q*m <= E-R-F-q*d`. Nonpositive residual equity fails closed. Fixed costs are only charged in the reported scenario for a nonzero hypothetical position. This change deliberately **reduces** some previously allowed hypothetical sizes; it does not raise leverage or grant execution. The returned `stressed_equity_after_loss_cash` is a declared scenario, not verified buying power.
+
 **Important limitations:** This is not an authenticated quote or buying-power check. All existing exposure, cash conversion, stop distance, contract point value, available margin, fees and broker lot rules require independent broker verification. `estimated_fixed_cost_cash` is a *fixed* conservative total cost for the proposed position; quantity-dependent fees must be bounded externally. Stress exits cannot bound gaps, broker liquidation, price jumps or outages. A passing mathematical calculation is not permission to trade. All responses explicitly deny paper and real execution.
 
 Run offline from `backend`: `PYTHONPATH=. python -m pytest -q tests/test_paper_position_sizing.py`. Synthetic regression tests cover flooring, daily-loss headroom, floating gains, existing margin/gross exposure, minimum lot, cash accounts, short direction, invalid decimals, fixed costs and micro-lot precision.
