@@ -320,7 +320,9 @@ def _audit_head_matches(db, key, raw, state, reserved):
         # inserting a duplicate. Walk the bounded account-specific history in
         # append order and require exact consecutive revisions, actor and
         # operation schema. The latest two still receive stronger state checks.
-        history = db.execute(select(Audit.action, Audit.actor, Audit.detail, Audit.time).where(
+        history = db.execute(select(
+            Audit.id, Audit.action, Audit.actor, Audit.detail, Audit.time
+        ).where(
             account_match
         ).order_by(Audit.id.asc()).limit(_MAX_AUDIT_HISTORY_ROWS + 1)).all()
         if len(history) != state["revision"] + 1:
@@ -330,10 +332,14 @@ def _audit_head_matches(db, key, raw, state, reserved):
         historical_orders = set()
         historical_reservations = {}
         historical_reserved = Decimal(0)
-        for expected, (history_action, history_actor, history_detail, history_time) in enumerate(history):
-            # The SQL preflight is defense in depth, not a locked snapshot:
-            # validate timestamps again on the actual rows being reconciled.
-            if (type(history_time) is not int
+        for expected, (history_id, history_action, history_actor,
+                       history_detail, history_time) in enumerate(history):
+            # The SQL preflight is defense in depth, not a locked snapshot.
+            # Recheck both the primary key and timestamp on the actual rows:
+            # a later read must not trust a stale clean metadata preflight.
+            if (type(history_id) is not int
+                    or not 0 < history_id <= _MAX_AUDIT_ID
+                    or type(history_time) is not int
                     or not 0 < history_time <= _MAX_AUDIT_EPOCH):
                 return False
             entry = _audit_json(history_detail)
