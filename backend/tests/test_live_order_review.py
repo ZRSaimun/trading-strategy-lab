@@ -154,6 +154,44 @@ def test_nested_flag_type_substitution_does_not_match_review():
     assert compare_review(altered, intent(), now_ms=NOW+1)['requires_new_human_review']
 
 
+@pytest.mark.parametrize('field', ['warnings', 'failed_checks'])
+def test_json_equivalent_tuple_does_not_match_typed_review_packet(field):
+    # json.dumps(tuple) and json.dumps(list) are identical, but a review
+    # packet is a typed JSON-compatible object, not an arbitrary Python value.
+    original = packet()
+    altered = deepcopy(original)
+    altered[field] = tuple(altered[field])
+    result = compare_review(altered, intent(), now_ms=NOW+1)
+    assert not result['review_matches_exact_intent']
+    assert result['requires_new_human_review']
+    assert result['may_execute_paper_order'] is False
+    assert result['may_execute_real_order'] is False
+    assert compare_review(original, intent(), now_ms=NOW+1)['review_matches_exact_intent']
+
+
+def test_deeply_nested_untrusted_check_fails_closed_without_recursion():
+    # The old JSON round-trip comparison could raise RecursionError instead
+    # of returning a conservative re-review decision for a malformed packet.
+    altered = packet()
+    nested = []
+    for _ in range(1200):
+        nested = [nested]
+    altered['checks']['quote_fresh'] = nested
+    result = compare_review(altered, intent(), now_ms=NOW+1)
+    assert not result['review_matches_exact_intent']
+    assert result['requires_new_human_review']
+    assert result['may_execute_paper_order'] is False
+    assert result['may_execute_real_order'] is False
+
+
+def test_typed_review_packet_preserves_decimal_equivalence_and_flag_checks():
+    original = packet(quantity='2.0')
+    assert compare_review(original, intent(quantity='2'), now_ms=NOW+1)['review_matches_exact_intent']
+    altered = deepcopy(original)
+    altered['checks']['quote_fresh'] = 1
+    assert compare_review(altered, intent(quantity='2'), now_ms=NOW+1)['requires_new_human_review']
+
+
 def test_review_policy_change_invalidates_digest():
     p = packet()
     assert not compare_review(p, intent(), now_ms=NOW+1, max_quote_age_ms=2500)['review_matches_exact_intent']
