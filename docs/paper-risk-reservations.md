@@ -441,3 +441,10 @@ can remain invisible, and concurrent foreign audit writes are not serialized
 by this preflight. No broker evidence, profit, crash-recovery certification,
 live orders, merge or Render deployment is established. Keep PR #26 **DRAFT /
 PAPER ONLY / NO MERGE / NO DEPLOY / NO ORDERS**.
+
+
+## Bounded audit-history emergency-stop slot (31 October 2026)
+
+The PAPER audit verifier deliberately caps per-account retained history at 4,096 receipts. Previously an ordinary policy/reservation CAS at revision 4,095 could create revision 4,096 (4,097 receipts), after which the verifier would refuse all further state changes, including the durable emergency stop. The disconnected store now reserves the final verifiable revision for `emergency_kill`: ordinary transitions stop at revision 4,094, and an emergency latch may advance that state to revision 4,095. The read-only `reservable_risk_capacity_cash` reports zero when the ordinary transition budget is exhausted, even if arithmetic cash headroom remains positive. An already-latched emergency retry remains idempotent and audit-checked.
+
+Two synthetic SQLite regressions reduce the cap to five receipts to exercise the exact boundary, restart continuity, absence of misleading writes, emergency-latch persistence and unrelated-account isolation. This is a finite audit-resource and fail-closed accounting safeguard, **not** authenticated broker evidence, verified daily loss control, a tamper-proof audit, or permission to submit paper/real orders. Accounts already at an exhausted legacy revision still require manual reconciliation; no automatic reset, pruning or unsafe un-latch is provided. Keep PR #26 draft, unmerged and undeployed pending the existing integration and production-readiness gates.
