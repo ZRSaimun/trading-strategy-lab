@@ -1,0 +1,783 @@
+"""Offline fixed-horizon settlement drawdown bounds for frozen capacity cohorts.
+
+Not broker equity, actual execution, or an independently authenticated backtest.
+"""
+from decimal import Decimal, localcontext
+import heapq
+
+from app.frozen_bracket_population import audit_frozen_bracket_population
+from app.frozen_chronological_holdout import _decimal
+from app.frozen_holdout_capacity_slots import audit_frozen_holdout_capacity_slots
+
+_COSTS = (0, 5, 10, 20)
+# Illustrative fractions of fixed initial pseudo-equity, not broker risk limits.
+_LOSS_BARRIERS_PCT_INITIAL = (10, 20)
+
+
+def _maximum_drawdown_with_window(increments):
+    """Return (maximum drawdown, peak event, trough event) in settlement order.
+
+    Event 0 is the initial zero baseline; event N is after N booked paths.
+    Equal peaks retain the earliest event, and equal maximum drawdowns retain
+    the earliest trough. This is an *artificial* fixed-horizon booking sequence,
+    never an actual broker fill or exit timeline.
+    """
+    equity = peak = maximum = Decimal(0)
+    peak_event = best_peak_event = trough_event = 0
+    for event_index, increment in enumerate(increments, 1):
+        equity += increment
+        if equity > peak:
+            peak = equity
+            peak_event = event_index
+        drawdown = peak - equity
+        if drawdown > maximum:
+            maximum = drawdown
+            best_peak_event = peak_event
+            trough_event = event_index
+    return maximum, best_peak_event, trough_event
+
+
+def _maximum_drawdown(increments):
+    """Exact peak-to-trough loss, including a zero initial baseline.
+
+    Every contiguous interval is a possible peak-to-trough candidate. For
+    interval-valued returns, replacing every increment with its lower
+    (upper) endpoint maximizes (minimizes) the maximum drawdown.
+    """
+    return _maximum_drawdown_with_window(increments)[0]
+
+
+
+def _terminal_drawdown(increments):
+    """Loss at final pseudo-booking relative to the highest earlier event.
+
+    Includes event-zero baseline. All-lower (all-upper) returns maximize
+    (minimize) this terminal drawdown. Not a broker mark-to-market balance.
+    """
+    equity = peak = Decimal(0)
+    for increment in increments:
+        equity += increment
+        if equity > peak:
+            peak = equity
+    return peak - equity
+
+
+
+def _underwater_event_burden(increments):
+    """Return total and longest consecutive *pseudo-booking* underwater events.
+
+    Event zero is the initial baseline and is never underwater. An event is
+    strictly underwater when its cumulative fixed-horizon pseudo-net-R is
+    below the highest equity reached at any preceding booking event. Reaching
+    the peak exactly ends the run. These are NOT broker cashflow durations,
+    market minutes, recovery probabilities, or live trading risk limits.
+
+    Each event's drawdown is max over preceding contiguous negative return
+    sums, so increasing any independent interval return cannot create an
+    underwater event. All-upper and all-lower paths give exact lower and
+    upper bounds on both counts and longest consecutive run.
+    """
+    equity = peak = Decimal(0)
+    total = current = longest = 0
+    for increment in increments:
+        equity += increment
+        if equity > peak:
+            peak = equity
+        if equity < peak:
+            total += 1
+            current += 1
+            longest = max(longest, current)
+        else:
+            current = 0
+    return total, longest
+
+
+def _first_pseudo_recovery_event(increments, peak_event, trough_event, maximum):
+    """First later booking event recovering the selected drawdown peak.
+
+    None means no positive drawdown or no recovery by the final fixed-horizon
+    booking. This is not an observed market exit, broker equity recovery, or
+    a causal signal for capacity admission.
+    """
+    if maximum == 0:
+        return None
+    if not 0 <= peak_event < trough_event <= len(increments):
+        raise ValueError("Invalid pseudo-drawdown event window")
+    target = sum(increments[:peak_event], Decimal(0))
+    equity = sum(increments[:trough_event], Decimal(0))
+    for event_index in range(trough_event + 1, len(increments) + 1):
+        equity += increments[event_index - 1]
+        if equity >= target:
+            return event_index
+    return None
+
+
+
+def _first_pseudo_loss_barrier_event(increments, factor, threshold_pct_initial):
+    """First fixed-horizon booking event touching a loss barrier from zero.
+
+    This is a synthetic, uncompounded initial-equity *cumulative* loss,
+    not a broker stop, margin call, risk of ruin or actual exit timestamp.
+    """
+    if factor <= 0 or threshold_pct_initial <= 0:
+        raise ValueError("Positive pseudo-risk factor and loss barrier required")
+    cumulative = Decimal(0)
+    for event, increment in enumerate(increments, 1):
+        cumulative += increment * factor
+        if cumulative <= -threshold_pct_initial:
+            return event
+    return None
+
+
+def _worst_fixed_booking_window(increments, size):
+    """Worst contiguous fixed-count pseudo-booking return, with earliest tie.
+
+    Window event indices are [start, end] boundaries of artificial full-
+    horizon bookings, NOT wall-clock time or broker execution timestamps.
+    Every interval-compatible sum is coordinatewise monotone, so all-lower
+    and all-upper outcomes give exact pessimistic/optimistic bounds on the
+    minimum contiguous window sum. This is not a probability or a signal.
+    """
+    if type(size) is not int or size <= 0 or size > len(increments):
+        raise ValueError("Invalid fixed pseudo-booking window size")
+    current = sum(increments[:size], Decimal(0))
+    worst, start_event = current, 0
+    for start in range(1, len(increments) - size + 1):
+        current += increments[start + size - 1] - increments[start - 1]
+        if current < worst:
+            worst, start_event = current, start
+    return worst, start_event, start_event + size
+
+
+def _longest_strict_negative_streak(increments):
+    """Longest run of consecutive strictly negative pseudo-booked net-R paths.
+
+    Zero is not a loss and breaks the run. These are artificial full-horizon
+    bookings, not consecutive broker fills, trading days or calendar minutes.
+    """
+    longest = current = 0
+    for increment in increments:
+        if increment < 0:
+            current += 1
+            longest = max(longest, current)
+        else:
+            current = 0
+    return longest
+
+
+def _strict_sign_count_envelope(lower, upper):
+    """Exact bounds on sign counts for independent pseudo-net-R intervals.
+
+    Counts are not probabilities or observed executable win rates. An interval
+    spanning zero can contribute to both *possible* positive and negative
+    counts; zero is neither a strict win nor a strict loss.
+    """
+    if len(lower) != len(upper) or any(a > b for a, b in zip(lower, upper)):
+        raise ValueError("Inconsistent pseudo-return sign intervals")
+    return dict(
+        admitted_paths=len(lower),
+        guaranteed_strict_positive=sum(a > 0 for a in lower),
+        possible_strict_positive=sum(b > 0 for b in upper),
+        guaranteed_strict_negative=sum(b < 0 for b in upper),
+        possible_strict_negative=sum(a < 0 for a in lower),
+        guaranteed_exact_zero=sum(a == b == 0 for a, b in zip(lower, upper)),
+        possible_exact_zero=sum(a <= 0 <= b for a, b in zip(lower, upper)),
+    )
+
+
+
+def _zero_cost_winner_erosion(zero_lower, zero_upper, cost_lower, cost_upper):
+    """Paired cost sensitivity for baseline-guaranteed positive pseudo-paths.
+
+    Preserve frozen path identities across scenarios; never use the outcome
+    to change admission. These are interval counts, not win probabilities.
+    """
+    if not (len(zero_lower) == len(zero_upper) == len(cost_lower) == len(cost_upper)):
+        raise ValueError("Mismatched paired cost population")
+    baseline = certain_lost = possible_lost = certain_survive = 0
+    for first_lo, first_hi, later_lo, later_hi in zip(
+            zero_lower, zero_upper, cost_lower, cost_upper):
+        if (first_lo > first_hi or later_lo > later_hi
+                or later_lo > first_lo or later_hi > first_hi):
+            raise ValueError("Invalid paired cost interval or nonmonotone erosion")
+        if first_lo > 0:
+            baseline += 1
+            certain_lost += later_hi <= 0
+            possible_lost += later_lo <= 0
+            certain_survive += later_lo > 0
+    if not (0 <= certain_lost <= possible_lost <= baseline
+            and possible_lost + certain_survive == baseline):
+        raise ValueError("Inconsistent paired winner erosion census")
+    return dict(
+        evaluated_paths=len(zero_lower),
+        zero_cost_guaranteed_strict_positive=baseline,
+        guaranteed_no_longer_strict_positive=certain_lost,
+        possible_no_longer_strict_positive=possible_lost,
+        still_guaranteed_strict_positive=certain_survive,
+    )
+
+
+def _validated_cost_trajectory(costs, *, frozen_entry=None, frozen_stop=None,
+                               lower_gross_r=None, upper_gross_r=None):
+    """Verify each frozen path's exact illustrative cost erosion.
+
+    Check monotonicity and, when the complete frozen bracket/gross-R identity
+    is supplied, recompute each 0/5/10/20-bps net-R endpoint independently.
+    This detects monotone but undercharged/overcharged cost trajectories that
+    aggregate cohort checks can conceal. The 50-digit Decimal context matches
+    the upstream offline bracket evaluator's declared arithmetic convention;
+    it does NOT authenticate executable broker costs or source prices.
+    """
+    if not isinstance(costs, list) or len(costs) != len(_COSTS):
+        raise ValueError("Incomplete per-path cost trajectory")
+    identity = (frozen_entry, frozen_stop, lower_gross_r, upper_gross_r)
+    if any(v is not None for v in identity) and not all(v is not None for v in identity):
+        raise ValueError("Incomplete per-path frozen cost identity")
+    check_identity = all(v is not None for v in identity)
+    if check_identity:
+        entry, stop = _decimal(frozen_entry), _decimal(frozen_stop)
+        risk = abs(entry - stop)
+        if entry == 0 or risk == 0:
+            raise ValueError("Invalid frozen bracket cost denominator")
+        gross_lower, gross_upper = _decimal(lower_gross_r), _decimal(upper_gross_r)
+        if gross_lower > gross_upper:
+            raise ValueError("Inverted frozen gross-R interval")
+    bounds = []
+    with localcontext() as ctx:
+        ctx.prec = 50
+        for index, bps in enumerate(_COSTS):
+            scenario = costs[index]
+            if (not isinstance(scenario, dict)
+                    or type(scenario.get("additional_round_trip_bps")) is not int
+                    or scenario["additional_round_trip_bps"] != bps):
+                raise ValueError("Changed per-path cost trajectory identity")
+            lower = _decimal(scenario.get("lower_net_r"))
+            upper = _decimal(scenario.get("upper_net_r"))
+            if lower > upper:
+                raise ValueError("Inverted per-path cost trajectory interval")
+            if bounds and (lower > bounds[-1][0] or upper > bounds[-1][1]):
+                raise ValueError("Nonmonotone individual path cost trajectory")
+            if check_identity:
+                # Same fixed, declared notional-price cost model as the
+                # independent bracket evaluator. Never substitute spread,
+                # slippage, financing, or an executable BID/ASK quotation.
+                cost = abs(entry) * Decimal(bps) / Decimal(10000) / risk
+                if lower != gross_lower - cost or upper != gross_upper - cost:
+                    raise ValueError("Incorrect per-path frozen cost erosion")
+            bounds.append((lower, upper))
+    return tuple(bounds)
+
+
+def _baseline_strict_winner_cost_tolerance(population, frozen_by_id,
+                                           cost_trajectories):
+    """Continuous illustrative bps thresholds for zero-cost guaranteed winners.
+
+    For a strictly positive lower net-R at zero extra cost, additional bps
+    erode net-R by abs(entry) / (10000 * abs(entry-stop)) per bps. Equality
+    with the lower (upper) threshold removes guaranteed (possible) strict
+    profitability for that *same* frozen path. No outcome-driven admission,
+    realized broker spread, probability, or strategy-selection inference.
+    """
+    lower_thresholds, upper_thresholds = [], []
+    with localcontext() as ctx:
+        ctx.prec = 80
+        for _, _, path_id in sorted(population):
+            lower, upper = cost_trajectories[path_id][0]
+            if lower > upper:
+                raise ValueError("Inverted zero-cost return interval")
+            if lower <= 0:
+                continue
+            frozen = frozen_by_id[path_id]
+            entry = _decimal(frozen["entry"])
+            stop = _decimal(frozen["stop"])
+            if entry == 0 or entry == stop:
+                raise ValueError("Invalid frozen cost tolerance denominator")
+            scale = Decimal(10000) * abs(entry - stop) / abs(entry)
+            lower_bps, upper_bps = lower * scale, upper * scale
+            if not (Decimal(0) < lower_bps <= upper_bps):
+                raise ValueError("Invalid strict-winner break-even interval")
+            lower_thresholds.append(lower_bps)
+            upper_thresholds.append(upper_bps)
+
+        def summary(values):
+            if not values:
+                return dict(minimum=None, median=None, maximum=None)
+            ordered = sorted(values)
+            n = len(ordered)
+            return dict(
+                minimum=str(ordered[0]),
+                median=str((ordered[(n - 1) // 2] + ordered[n // 2]) / 2),
+                maximum=str(ordered[-1]),
+            )
+
+        return dict(
+            population_paths=len(population),
+            baseline_guaranteed_strict_positive_paths=len(lower_thresholds),
+            additional_bps_to_erase_guaranteed_positive=summary(lower_thresholds),
+            additional_bps_to_erase_possible_positive=summary(upper_thresholds),
+        )
+
+
+def _worst_quartile_mean_envelope(lower, upper):
+    """Exact bottom-quarter mean bounds for independently bounded net-R paths.
+
+    Use ceil(N/4) observations, fixed before examining any outcome. Sorting
+    outcomes here only computes a retrospective downside statistic: it never
+    selects signals, admits positions, or alters the frozen holdout. This is
+    not a probability, confidence interval, expected shortfall estimate or
+    broker loss measure.
+    """
+    if (not lower or len(lower) != len(upper)
+            or any(a > b for a, b in zip(lower, upper))):
+        raise ValueError("Invalid worst-quartile return intervals")
+    count = (len(lower) + 3) // 4
+    pessimistic = sum(sorted(lower)[:count], Decimal(0)) / count
+    optimistic = sum(sorted(upper)[:count], Decimal(0)) / count
+    if pessimistic > optimistic:
+        raise ValueError("Inverted worst-quartile return envelope")
+    return dict(
+        admitted_paths=len(lower),
+        worst_quartile_paths=count,
+        minimum_worst_quartile_mean_net_r=str(pessimistic),
+        maximum_worst_quartile_mean_net_r=str(optimistic),
+    )
+
+
+
+def _chronological_quartile_net_r_envelope(lower, upper):
+    """Predeclared contiguous pseudo-booking quartiles, never return-ranked bins.
+
+    Four nonempty contiguous partitions use floor(i*N/4) boundaries. They
+    preserve frozen settlement order and expose time-local fragility without
+    optimizing a boundary on outcomes or claiming market-calendar regimes.
+    """
+    if (len(lower) != len(upper) or len(lower) < 4
+            or any(a > b for a, b in zip(lower, upper))):
+        raise ValueError("Invalid chronological quartile intervals")
+    n = len(lower)
+    quartiles = []
+    for i in range(4):
+        start, end = i * n // 4, (i + 1) * n // 4
+        size = end - start
+        lo = sum(lower[start:end], Decimal(0)) / Decimal(size)
+        hi = sum(upper[start:end], Decimal(0)) / Decimal(size)
+        if lo > hi:
+            raise ValueError("Inverted chronological quartile means")
+        quartiles.append(dict(
+            quartile=i + 1, start_booking_event=start,
+            end_booking_event=end, booked_paths=size,
+            lower_mean_net_r=str(lo), upper_mean_net_r=str(hi),
+            guaranteed_strict_positive=lo > 0,
+            possible_strict_positive=hi > 0,
+        ))
+    return dict(
+        quartiles=quartiles,
+        guaranteed_positive_quartiles=sum(
+            q["guaranteed_strict_positive"] for q in quartiles),
+        possible_positive_quartiles=sum(
+            q["possible_strict_positive"] for q in quartiles),
+        minimum_quartile_lower_mean_net_r=str(min(
+            _decimal(q["lower_mean_net_r"]) for q in quartiles)),
+        minimum_quartile_upper_mean_net_r=str(min(
+            _decimal(q["upper_mean_net_r"]) for q in quartiles)),
+    )
+
+
+
+def _worst_single_deletion_mean_envelope(lower, upper):
+    """Retrospective fragility of a fixed cohort to removing exactly one path.
+
+    Each deletion is a diagnostic, NOT an alternate admission or a trading
+    decision. For interval-valued returns the minimum over deletions is
+    coordinatewise monotone, so evaluating all-lower/all-upper endpoints
+    gives the exact pessimistic/optimistic bounds. Ties select the earliest
+    1-based artificial booking event, never an actual fill timestamp.
+    """
+    if (len(lower) != len(upper) or len(lower) < 2
+            or any(a > b for a, b in zip(lower, upper))):
+        raise ValueError("Invalid single-deletion return intervals")
+    count = len(lower)
+    denominator = Decimal(count - 1)
+    lower_total = sum(lower, Decimal(0))
+    upper_total = sum(upper, Decimal(0))
+    lower_means = [(lower_total - value) / denominator for value in lower]
+    upper_means = [(upper_total - value) / denominator for value in upper]
+    worst_lower, worst_upper = min(lower_means), min(upper_means)
+    if worst_lower > worst_upper:
+        raise ValueError("Inverted single-deletion return envelope")
+    return dict(
+        booked_paths=count,
+        minimum_worst_deletion_mean_net_r=str(worst_lower),
+        maximum_worst_deletion_mean_net_r=str(worst_upper),
+        minimum_worst_deletion_removed_booking_event=lower_means.index(worst_lower) + 1,
+        maximum_worst_deletion_removed_booking_event=upper_means.index(worst_upper) + 1,
+        guaranteed_strict_positive_after_any_one_deletion=worst_lower > 0,
+        possible_strict_positive_after_any_one_deletion=worst_upper > 0,
+    )
+
+
+def _withheld(upstream, reason):
+    return dict(
+        protocol="frozen-m1-capacity-drawdown-v1",
+        status="WITHHELD_INCOMPLETE_OR_INSUFFICIENT",
+        reason=reason,
+        manifest_sha256=upstream.get("manifest_sha256"),
+        eligible_signals=upstream["eligible_signals"],
+        declared_excluded_signals=upstream["declared_excluded_signals"],
+        admission_counts=upstream["admission_counts"],
+        cost_scenarios=[],
+        source_authenticated=False, untouched_holdout_verified=False,
+        independent_preregistration_verified=False,
+        capital_feasible_returns_verified=False, executable_broker_fills=False,
+        verified_profitability=False, may_execute_order=False,
+    )
+
+
+def audit_frozen_capacity_drawdown(
+    manifest, paths, expected_manifest_sha256, cutoff_utc_minute, embargo_minutes,
+    *, max_positions=1, per_position_risk_bps=100, total_risk_budget_bps=200,
+):
+    """Bound pseudo-settlement drawdown without outcome-driven admissions.
+
+    Every admitted path is booked at its predeclared full-horizon end, not
+    at an observed favorable early exit. The ordering is deterministic and
+    independent of the outcome; it is *not* a broker equity time series.
+    """
+    upstream = audit_frozen_holdout_capacity_slots(
+        manifest, paths, expected_manifest_sha256, cutoff_utc_minute,
+        embargo_minutes, max_positions=max_positions,
+        per_position_risk_bps=per_position_risk_bps,
+        total_risk_budget_bps=total_risk_budget_bps, sample_limit=0,
+    )
+    if upstream["status"] != "DESCRIPTIVE_FIXED_SLOT_SCENARIOS_ONLY":
+        return _withheld(upstream, "Upstream complete capacity cohort statistics withheld")
+    audited = audit_frozen_bracket_population(manifest, paths, expected_manifest_sha256)
+    outcome = audited["outcome_audit"]
+    if (audited["manifest_sha256"] != upstream["manifest_sha256"]
+            or audited["eligible_signals"] != upstream["eligible_signals"]
+            or audited["declared_excluded_signals"] != 0
+            or outcome["status"] != "DESCRIPTIVE_BOUNDS_ONLY"
+            or outcome["counts"]["CENSORED"] != 0):
+        raise ValueError("Inconsistent complete frozen outcome population")
+    by_id = {r["path_id"]: r for r in outcome["paths"]}
+    if len(by_id) != len(manifest["eligible_signals"]) or set(by_id) != {
+            r["path_id"] for r in manifest["eligible_signals"]}:
+        raise ValueError("Changed frozen path population")
+
+    # Validate every eligible path (including capacity-rejected opportunities)
+    # before reporting any cohort. Aggregate cost monotonicity alone could hide
+    # one path whose optimistic/pessimistic return *improves* at higher costs.
+    frozen_by_id = {row["path_id"]: row for row in manifest["eligible_signals"]}
+    cost_trajectories = {
+        path_id: _validated_cost_trajectory(
+            path.get("cost_scenarios"),
+            frozen_entry=frozen_by_id[path_id]["entry"],
+            frozen_stop=frozen_by_id[path_id]["stop"],
+            lower_gross_r=path.get("lower_gross_r"),
+            upper_gross_r=path.get("upper_gross_r"),
+        )
+        for path_id, path in by_id.items()
+    }
+
+    # Reconstruct FIFO capacity without inspecting prices, returns or exits.
+    horizon = manifest["source"]["horizon_minutes"] * 60
+    slots = upstream["policy"]["effective_full_horizon_slots"]
+    active = []
+    admitted = ([], [])
+    unadmitted = ([], [])
+    rejected = [0, 0]
+    peak_slots = 0
+    for row in sorted(manifest["eligible_signals"],
+                      key=lambda r: (r["signal_at"], r["path_id"])):
+        entry = row["signal_at"] + 60
+        while active and active[0][0] <= entry:
+            heapq.heappop(active)
+        cohort = int(row["signal_at"] >= cutoff_utc_minute)
+        if len(active) >= slots:
+            rejected[cohort] += 1
+            unadmitted[cohort].append((entry + horizon, row["signal_at"], row["path_id"]))
+        else:
+            end = entry + horizon
+            heapq.heappush(active, (end, row["path_id"]))
+            admitted[cohort].append((end, row["signal_at"], row["path_id"]))
+            peak_slots = max(peak_slots, len(active))
+    counts = upstream["admission_counts"]
+    if (len(admitted[0]) != counts["training_admitted"]
+            or len(admitted[1]) != counts["holdout_admitted"]
+            or rejected != [counts["training_unadmitted"], counts["holdout_unadmitted"]]
+            or peak_slots != counts["maximum_reserved_full_horizon_slots"]):
+        raise ValueError("Independent admission census disagrees")
+    if len(upstream["cost_scenarios"]) != len(_COSTS):
+        raise ValueError("Incomplete upstream cost population")
+    admitted_ids = {row[2] for cohort in admitted for row in cohort}
+    unadmitted_ids = {row[2] for cohort in unadmitted for row in cohort}
+    if (admitted_ids & unadmitted_ids or admitted_ids | unadmitted_ids != set(by_id)
+            or any(len(unadmitted[i]) != rejected[i] for i in (0, 1))):
+        raise ValueError("Incomplete or overlapping capacity population partition")
+
+    def _bounds_for_population(population, cost_index, expected_bps):
+        """Read every frozen path, including capacity-rejected outcomes, without filtering."""
+        lower_values, upper_values = [], []
+        for _, _, path_id in sorted(population):
+            path = by_id[path_id]
+            if path["status"] not in ("DETERMINATE", "AMBIGUOUS"):
+                raise ValueError("Unresolved frozen path")
+            if _COSTS[cost_index] != expected_bps:
+                raise ValueError("Changed per-path cost identity")
+            lower, upper = cost_trajectories[path_id][cost_index]
+            lower_values.append(lower)
+            upper_values.append(upper)
+        return lower_values, upper_values
+
+    with localcontext() as ctx:
+        ctx.prec = 80
+        reports = []
+        for index, bps in enumerate(_COSTS):
+            original = upstream["cost_scenarios"][index]
+            if type(original.get("additional_round_trip_bps")) is not int or original["additional_round_trip_bps"] != bps:
+                raise ValueError("Changed upstream cost identity")
+            report = dict(additional_round_trip_bps=bps)
+            for cohort, label in enumerate(("training", "holdout")):
+                lo, hi = _bounds_for_population(admitted[cohort], index, bps)
+                if (sum(lo) / len(lo) != _decimal(original[f"{label}_admitted_mean_lower_net_r"])
+                        or sum(hi) / len(hi) != _decimal(original[f"{label}_admitted_mean_upper_net_r"])):
+                    raise ValueError("Capacity return bounds disagree")
+                # Drawdown is antitone in every increment. Optimistic upper
+                # returns give minimum possible maximum drawdown; pessimistic
+                # lower returns give maximum possible maximum drawdown.
+                factor = Decimal(per_position_risk_bps) / Decimal(100)
+                best_r, best_peak, best_trough = _maximum_drawdown_with_window(hi)
+                worst_r, worst_peak, worst_trough = _maximum_drawdown_with_window(lo)
+                best, worst = best_r * factor, worst_r * factor
+                best_terminal = _terminal_drawdown(hi) * factor
+                worst_terminal = _terminal_drawdown(lo) * factor
+                if not (Decimal(0) <= best_terminal <= worst_terminal
+                        and best_terminal <= best and worst_terminal <= worst):
+                    raise ValueError("Inconsistent terminal drawdown envelope")
+                best_recovery = _first_pseudo_recovery_event(
+                    hi, best_peak, best_trough, best_r)
+                worst_recovery = _first_pseudo_recovery_event(
+                    lo, worst_peak, worst_trough, worst_r)
+                if best > worst:
+                    raise ValueError("Inverted drawdown envelope")
+                report[f"{label}_pseudo_settlement_minimum_max_drawdown_pct_initial"] = str(best)
+                report[f"{label}_pseudo_settlement_minimum_max_drawdown_peak_event"] = best_peak
+                report[f"{label}_pseudo_settlement_minimum_max_drawdown_trough_event"] = best_trough
+                report[f"{label}_pseudo_settlement_maximum_max_drawdown_pct_initial"] = str(worst)
+                report[f"{label}_pseudo_settlement_maximum_max_drawdown_peak_event"] = worst_peak
+                report[f"{label}_pseudo_settlement_maximum_max_drawdown_trough_event"] = worst_trough
+                report[f"{label}_pseudo_settlement_minimum_max_drawdown_recovery_event"] = best_recovery
+                report[f"{label}_pseudo_settlement_maximum_max_drawdown_recovery_event"] = worst_recovery
+                report[f"{label}_pseudo_settlement_minimum_terminal_underwater_pct_initial"] = str(best_terminal)
+                report[f"{label}_pseudo_settlement_maximum_terminal_underwater_pct_initial"] = str(worst_terminal)
+                # Count how many fixed-horizon pseudo-bookings are below
+                # their own running peak, and the longest consecutive run.
+                # No realized exit timing, signal selection or broker equity.
+                best_underwater_total, best_underwater_streak = (
+                    _underwater_event_burden(hi))
+                worst_underwater_total, worst_underwater_streak = (
+                    _underwater_event_burden(lo))
+                if not (0 <= best_underwater_streak <= best_underwater_total
+                        <= worst_underwater_total <= len(lo)
+                        and best_underwater_streak <= worst_underwater_streak
+                        <= worst_underwater_total):
+                    raise ValueError("Inconsistent pseudo-underwater event envelope")
+                report[f"{label}_pseudo_settlement_minimum_total_underwater_events"] = best_underwater_total
+                report[f"{label}_pseudo_settlement_maximum_total_underwater_events"] = worst_underwater_total
+                report[f"{label}_pseudo_settlement_minimum_longest_underwater_event_streak"] = best_underwater_streak
+                report[f"{label}_pseudo_settlement_maximum_longest_underwater_event_streak"] = worst_underwater_streak
+                # Predeclared 5/10 artificial booking-event windows expose
+                # clustered adverse returns even when total cohort mean is
+                # positive. These are not market minutes or executable fills.
+                fixed_windows = []
+                for window_paths in (5, 10):
+                    lower_sum, lower_start, lower_end = (
+                        _worst_fixed_booking_window(lo, window_paths))
+                    upper_sum, upper_start, upper_end = (
+                        _worst_fixed_booking_window(hi, window_paths))
+                    if lower_sum > upper_sum:
+                        raise ValueError("Inverted fixed-window return envelope")
+                    fixed_windows.append(dict(
+                        booking_window_paths=window_paths,
+                        minimum_worst_window_pct_initial=str(lower_sum * factor),
+                        minimum_worst_window_start_event=lower_start,
+                        minimum_worst_window_end_event=lower_end,
+                        maximum_worst_window_pct_initial=str(upper_sum * factor),
+                        maximum_worst_window_start_event=upper_start,
+                        maximum_worst_window_end_event=upper_end,
+                    ))
+                report[f"{label}_pseudo_settlement_fixed_window_adverse_sums"] = fixed_windows
+                # A cumulative lower endpoint touching the barrier means
+                # at least one interval-compatible pseudo-path can touch it.
+                # An upper endpoint touching it means every interval-compatible
+                # pseudo-path has touched it by that event. Neither statement
+                # is a probability, a risk-of-ruin forecast or broker equity.
+                barriers = []
+                for threshold in _LOSS_BARRIERS_PCT_INITIAL:
+                    possible = _first_pseudo_loss_barrier_event(
+                        lo, factor, Decimal(threshold))
+                    unavoidable = _first_pseudo_loss_barrier_event(
+                        hi, factor, Decimal(threshold))
+                    if (unavoidable is not None and
+                            (possible is None or possible > unavoidable)):
+                        raise ValueError("Inconsistent pseudo-loss barrier envelope")
+                    barriers.append(dict(
+                        threshold_pct_initial=threshold,
+                        first_possible_event=possible,
+                        first_unavoidable_event=unavoidable,
+                        envelope_status=(
+                            "UNAVOIDABLE_WITHIN_INTERVAL_ENVELOPE"
+                            if unavoidable is not None else
+                            "POSSIBLE_WITHIN_INTERVAL_ENVELOPE"
+                            if possible is not None else
+                            "NOT_REACHED_WITHIN_INTERVAL_ENVELOPE"
+                        ),
+                    ))
+                report[f"{label}_pseudo_settlement_loss_barriers"] = barriers
+                # Every endpoint can be chosen independently within its R
+                # interval. The all-upper path minimizes the longest strict
+                # loss streak; the all-lower path maximizes it. No outcome
+                # selection or profitable-trade filtering is permitted.
+                min_streak = _longest_strict_negative_streak(hi)
+                max_streak = _longest_strict_negative_streak(lo)
+                if min_streak > max_streak:
+                    raise ValueError("Inconsistent negative streak envelope")
+                report[f"{label}_pseudo_settlement_minimum_longest_strict_negative_path_streak"] = min_streak
+                report[f"{label}_pseudo_settlement_maximum_longest_strict_negative_path_streak"] = max_streak
+                report[f"{label}_pseudo_settlement_strict_sign_census"] = (
+                    _strict_sign_count_envelope(lo, hi))
+                zero_lo, zero_hi = _bounds_for_population(admitted[cohort], 0, 0)
+                report[f"{label}_pseudo_settlement_admitted_zero_cost_winner_erosion"] = (
+                    _zero_cost_winner_erosion(zero_lo, zero_hi, lo, hi))
+                report[f"{label}_pseudo_settlement_worst_quartile_net_r"] = (
+                    _worst_quartile_mean_envelope(lo, hi))
+                report[f"{label}_pseudo_settlement_chronological_quartiles"] = (
+                    _chronological_quartile_net_r_envelope(lo, hi))
+                report[f"{label}_pseudo_settlement_worst_single_deletion_mean"] = (
+                    _worst_single_deletion_mean_envelope(lo, hi))
+                # Capacity-rejected signals remain in the frozen opportunity set.
+                # Their sign census is descriptive and NEVER changes admissions.
+                skipped_lo, skipped_hi = _bounds_for_population(
+                    unadmitted[cohort], index, bps)
+                skipped_signs = _strict_sign_count_envelope(skipped_lo, skipped_hi)
+                skipped_signs["unadmitted_paths"] = skipped_signs.pop("admitted_paths")
+                if skipped_signs["unadmitted_paths"] != counts[f"{label}_unadmitted"]:
+                    raise ValueError("Capacity-rejected outcome census disagrees")
+                report[f"{label}_pseudo_settlement_unadmitted_strict_sign_census"] = skipped_signs
+                skipped_zero_lo, skipped_zero_hi = _bounds_for_population(
+                    unadmitted[cohort], 0, 0)
+                report[f"{label}_pseudo_settlement_unadmitted_zero_cost_winner_erosion"] = (
+                    _zero_cost_winner_erosion(
+                        skipped_zero_lo, skipped_zero_hi, skipped_lo, skipped_hi))
+                report[f"{label}_pseudo_settlement_final_lower_pct_initial"] = str(sum(lo) * factor)
+                report[f"{label}_pseudo_settlement_final_upper_pct_initial"] = str(sum(hi) * factor)
+            # Increasing *additional* round-trip costs cannot create strict
+            # pseudo-winners or eliminate strict pseudo-losers. Fail closed
+            # if an upstream per-path cost scenario violates this ordering.
+            if reports:
+                previous = reports[-1]
+                for label in ("training", "holdout"):
+                    tail_key = f"{label}_pseudo_settlement_worst_quartile_net_r"
+                    for bound in ("minimum_worst_quartile_mean_net_r",
+                                  "maximum_worst_quartile_mean_net_r"):
+                        if (_decimal(report[tail_key][bound])
+                                > _decimal(previous[tail_key][bound])):
+                            raise ValueError("Nonmonotone downside tail cost envelope")
+                    deletion_key = f"{label}_pseudo_settlement_worst_single_deletion_mean"
+                    new_deletion, old_deletion = report[deletion_key], previous[deletion_key]
+                    if new_deletion["booked_paths"] != old_deletion["booked_paths"]:
+                        raise ValueError("Changed single-deletion cohort size")
+                    for bound in ("minimum_worst_deletion_mean_net_r",
+                                  "maximum_worst_deletion_mean_net_r"):
+                        if _decimal(new_deletion[bound]) > _decimal(old_deletion[bound]):
+                            raise ValueError("Nonmonotone single-deletion cost envelope")
+                    for flag in ("guaranteed_strict_positive_after_any_one_deletion",
+                                 "possible_strict_positive_after_any_one_deletion"):
+                        if new_deletion[flag] and not old_deletion[flag]:
+                            raise ValueError("Nonmonotone single-deletion positivity")
+                    quartile_key = f"{label}_pseudo_settlement_chronological_quartiles"
+                    current_quartiles = report[quartile_key]
+                    prior_quartiles = previous[quartile_key]
+                    if (current_quartiles["guaranteed_positive_quartiles"]
+                            > prior_quartiles["guaranteed_positive_quartiles"]
+                            or current_quartiles["possible_positive_quartiles"]
+                            > prior_quartiles["possible_positive_quartiles"]):
+                        raise ValueError("Nonmonotone chronological quartile signs")
+                    for new_quartile, old_quartile in zip(
+                            current_quartiles["quartiles"],
+                            prior_quartiles["quartiles"]):
+                        if (new_quartile["start_booking_event"]
+                                != old_quartile["start_booking_event"]
+                                or new_quartile["end_booking_event"]
+                                != old_quartile["end_booking_event"]
+                                or _decimal(new_quartile["lower_mean_net_r"])
+                                > _decimal(old_quartile["lower_mean_net_r"])
+                                or _decimal(new_quartile["upper_mean_net_r"])
+                                > _decimal(old_quartile["upper_mean_net_r"])):
+                            raise ValueError("Nonmonotone chronological quartile costs")
+                    window_key = f"{label}_pseudo_settlement_fixed_window_adverse_sums"
+                    for new_window, old_window in zip(
+                            report[window_key], previous[window_key]):
+                        if (new_window["booking_window_paths"]
+                                != old_window["booking_window_paths"]
+                                or _decimal(new_window["minimum_worst_window_pct_initial"])
+                                > _decimal(old_window["minimum_worst_window_pct_initial"])
+                                or _decimal(new_window["maximum_worst_window_pct_initial"])
+                                > _decimal(old_window["maximum_worst_window_pct_initial"])):
+                            raise ValueError("Nonmonotone fixed-window cost envelope")
+                    for population in ("admitted", "unadmitted"):
+                        erosion_key = f"{label}_pseudo_settlement_{population}_zero_cost_winner_erosion"
+                        old_erosion, new_erosion = previous[erosion_key], report[erosion_key]
+                        if (new_erosion["zero_cost_guaranteed_strict_positive"]
+                                != old_erosion["zero_cost_guaranteed_strict_positive"]
+                                or new_erosion["guaranteed_no_longer_strict_positive"]
+                                < old_erosion["guaranteed_no_longer_strict_positive"]
+                                or new_erosion["possible_no_longer_strict_positive"]
+                                < old_erosion["possible_no_longer_strict_positive"]
+                                or new_erosion["still_guaranteed_strict_positive"]
+                                > old_erosion["still_guaranteed_strict_positive"]):
+                            raise ValueError("Nonmonotone paired winner erosion")
+                    for population in ("strict_sign_census", "unadmitted_strict_sign_census"):
+                        key_prefix = f"{label}_pseudo_settlement_{population}"
+                        old = previous[key_prefix]
+                        new = report[key_prefix]
+                        for key in ("guaranteed_strict_positive", "possible_strict_positive"):
+                            if new[key] > old[key]:
+                                raise ValueError("Nonmonotone pseudo-winner cost census")
+                        for key in ("guaranteed_strict_negative", "possible_strict_negative"):
+                            if new[key] < old[key]:
+                                raise ValueError("Nonmonotone pseudo-loser cost census")
+            reports.append(report)
+
+    return dict(
+        protocol="frozen-m1-capacity-drawdown-v1",
+        status="DESCRIPTIVE_FIXED_HORIZON_DRAWDOWN_ENVELOPE_ONLY",
+        manifest_sha256=audited["manifest_sha256"],
+        cutoff_utc_minute=cutoff_utc_minute, embargo_minutes=embargo_minutes,
+        eligible_signals=upstream["eligible_signals"],
+        declared_excluded_signals=0,
+        policy=upstream["policy"], admission_counts=counts,
+        pseudo_settlement_order="full_horizon_end_then_signal_at_then_path_id",
+        cost_scenarios=reports,
+        break_even_tolerance={
+            f"{label}_{status}": _baseline_strict_winner_cost_tolerance(
+                population, frozen_by_id, cost_trajectories)
+            for label, admitted_population, rejected_population in (
+                ("training", admitted[0], unadmitted[0]),
+                ("holdout", admitted[1], unadmitted[1]),
+            )
+            for status, population in (
+                ("admitted", admitted_population),
+                ("unadmitted", rejected_population),
+            )
+        },
+        source_authenticated=False, untouched_holdout_verified=False,
+        independent_preregistration_verified=False,
+        capital_feasible_returns_verified=False, executable_broker_fills=False,
+        verified_profitability=False, may_execute_order=False,
+        warning=("Retrospective synthetic fixed-horizon booking order, NOT broker equity, "
+                 "chronological realized cashflow, actual stop/target exit time, intrabar "
+                 "mark-to-market drawdown, financing, margin, spread, fill or compounded P&L. "
+                 "Cohort admission never uses future outcomes. Costs are illustrative. "
+                 "All source rights, data quality, untouched holdout and profitability remain unverified."),
+    )
