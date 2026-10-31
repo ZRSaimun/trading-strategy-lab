@@ -299,16 +299,22 @@ def _audit_head_matches(db, key, raw, state, reserved):
         # inserting a duplicate. Walk the bounded account-specific history in
         # append order and require exact consecutive revisions, actor and
         # operation schema. The latest two still receive stronger state checks.
-        history = db.execute(select(Audit.action, Audit.actor, Audit.detail).where(
+        history = db.execute(select(Audit.action, Audit.actor, Audit.detail, Audit.time).where(
             account_match
         ).order_by(Audit.id.asc()).limit(_MAX_AUDIT_HISTORY_ROWS + 1)).all()
         if len(history) != state["revision"] + 1:
             return False
         previous_entry = None
+        previous_time = None
         historical_orders = set()
         historical_reservations = {}
         historical_reserved = Decimal(0)
-        for expected, (history_action, history_actor, history_detail) in enumerate(history):
+        for expected, (history_action, history_actor, history_detail, history_time) in enumerate(history):
+            # The SQL preflight is defense in depth, not a locked snapshot:
+            # validate timestamps again on the actual rows being reconciled.
+            if (type(history_time) is not int
+                    or not 0 < history_time <= _MAX_AUDIT_EPOCH):
+                return False
             entry = _audit_json(history_detail)
             if (history_actor != "paper-risk-store"
                     or not isinstance(entry, dict)
@@ -410,6 +416,14 @@ def _audit_head_matches(db, key, raw, state, reserved):
                 historical_envelope = _encode(historical_state, key=key)
                 if checksum != hashlib.sha256(historical_envelope.encode()).hexdigest():
                     return False
+            # Ordinary policy/reservation commits must never precede their
+            # predecessor's retained audit epoch. Emergency latching is the
+            # deliberate exception: it must survive a local clock rollback.
+            # This is internal consistency, not proof of a trusted clock.
+            if (previous_time is not None and history_time < previous_time
+                    and entry.get("operation") != "emergency_kill"):
+                return False
+            previous_time = history_time
             previous_entry = entry
         if historical_orders != set(state["reservations"]):
             return False
