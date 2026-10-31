@@ -508,3 +508,22 @@ or a trading-profitability claim. Keep PR #26 draft, unmerged and undeployed.
 Before inserting a PAPER account or updating a persisted PAPER reservation/policy/emergency state, the store now checks that its own wall-clock reading can be represented as a **positive integer epoch second**. A zero, negative, fractional value truncating to zero, NaN, infinity or nonnumeric clock reading raises a fail-closed error **before any state or audit write**. This prevents an invalid local clock from committing a receipt that the historical SQL verifier would immediately reject, potentially stranding a newly initialized account or an emergency stop. The preflight is not a trusted time source, monotonicity guarantee, event-calendar validation, broker receipt or order authorization.
 
 The synthetic SQLite regression suite `backend/tests/test_paper_risk_audit_clock_preflight.py` covers initialization, owner-reviewed policy, reservations, emergency latch, unchanged rows on rejection, unaffected other accounts, and successful recovery once the clock is valid. PostgreSQL and crash-recovery certification remain separate integration gates. The module is still disconnected from any order sender and remains **PAPER ONLY / NO MERGE / NO DEPLOY**.
+
+
+## PostgreSQL INT4 audit-clock boundary (31 October 2026)
+
+The disconnected PAPER reservation store writes audit epoch seconds into the existing
+`Audit.time` SQLAlchemy `Integer` column. PostgreSQL's integer column has a
+signed 32-bit maximum of **2,147,483,647** (19 January 2038 UTC), whereas
+SQLite permits larger integers. The writer now rejects out-of-range epoch
+values **before any state/audit mutation**. Historical verification also
+rejects retained account receipts above that bound, including when SQLite
+otherwise accepts them. Synthetic SQLite regressions cover overflow at
+initialization, reservation and emergency latch, a corrupted older receipt,
+unrelated-account isolation, and the inclusive upper boundary.
+
+This is a **fail-closed compatibility guard, not a year-2038 solution**.
+A separately reviewed migration to a wider timestamp column is required
+before this boundary; until then the store must refuse new writes rather
+than report a durable stop that PostgreSQL could not store. The local clock
+remains untrusted, and no broker or execution path is enabled.
