@@ -712,6 +712,12 @@ class PaperRiskReservationStore:
         def change(state):
             if state["emergency_latched"]:
                 return None  # Emergency latch freezes ALL policy writes, even disabled ones.
+            # A repeated identical policy review is not a state transition.
+            # Do not spend finite audit-history capacity on no-op CAS writes.
+            # Compare exact cash text: changing its representation is an
+            # intentional audited policy revision, not a silent normalization.
+            if state["limit_cash"] == limit_cash and state["kill_switch"] is kill_switch:
+                return None
             if sum((_money(x) for x in state["reservations"].values()), Decimal(0)) > cap:
                 return None
             return {**state, "limit_cash": limit_cash, "kill_switch": kill_switch}

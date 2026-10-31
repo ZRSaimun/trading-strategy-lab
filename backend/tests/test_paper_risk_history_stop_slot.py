@@ -24,14 +24,14 @@ def test_bounded_history_keeps_final_revision_for_emergency_latch(tmp_path, monk
                                 owner_reviewed=True)  # revision 1
         assert store.reserve(account, 1, client_order_id="order-00001",
                              risk_cash="10")  # revision 2
-        assert store.set_policy(account, 2, limit_cash="100", kill_switch=False,
-                                owner_reviewed=True)  # revision 3
+        assert store.set_policy(account, 2, limit_cash="110", kill_switch=False,
+                                owner_reviewed=True)  # revision 3, real cap change
 
         snapshot = risk.PaperRiskReservationStore(factory).load(account)
         assert snapshot["revision"] == 3
         assert snapshot["audit_head_verified"] is True
         assert snapshot["kill_switch"] is False
-        assert snapshot["remaining_risk_capacity_cash"] == "90"
+        assert snapshot["remaining_risk_capacity_cash"] == "100"
         assert snapshot["reservable_risk_capacity_cash"] == "0"
         assert snapshot["may_execute_paper_order"] is False
         assert snapshot["may_execute_real_order"] is False
@@ -79,7 +79,7 @@ def test_history_cap_does_not_block_other_accounts(tmp_path, monkeypatch):
                                     kill_switch=False, owner_reviewed=True)
         assert store.reserve("paper-acct-0001", 1,
                              client_order_id="order-00001", risk_cash="1")
-        assert store.set_policy("paper-acct-0001", 2, limit_cash="20",
+        assert store.set_policy("paper-acct-0001", 2, limit_cash="21",
                                 kill_switch=False, owner_reviewed=True)
         assert not store.reserve("paper-acct-0001", 3,
                                  client_order_id="order-00002", risk_cash="1")

@@ -527,3 +527,8 @@ A separately reviewed migration to a wider timestamp column is required
 before this boundary; until then the store must refuse new writes rather
 than report a durable stop that PostgreSQL could not store. The local clock
 remains untrusted, and no broker or execution path is enabled.
+
+
+## Reject identical PAPER policy revisions (31 October 2026)
+
+Repeated `set_policy` calls with the same **exact cash-cap text** and the same kill-switch value now return `False` without advancing the persisted revision or appending an audit receipt. This preserves the bounded 4,096-receipt history for actual risk changes and its reserved final emergency-stop slot. The owner-review flag is still **not authentication**. Different decimal text (for example, `100` versus `100.00`) remains an explicitly audited change; historical no-op receipts remain readable for compatibility. Synthetic SQLite regressions cover initialized, enabled, reserved and near-capacity accounts, unchanged receipts across restarts, account isolation, a durable emergency latch and exact-text policy changes. This is internal PAPER accounting safety, **not** broker reconciliation, an executable order path, cryptographic audit evidence or profitability.
