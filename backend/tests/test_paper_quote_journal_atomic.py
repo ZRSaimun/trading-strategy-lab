@@ -23,8 +23,9 @@ def quote(i=1, **changes):
                "bid": "4000.00", "ask": "4000.50"}, **changes}
 
 
-def checkpoint(tag):
-    return json.dumps({"version": 1, "identity": IDENTITY, "actions": [tag],
+def checkpoint(tag, history=()):
+    return json.dumps({"version": 1, "identity": IDENTITY,
+                       "actions": [*history, tag],
                        "orders": [], "events": []}, separators=(",", ":"))
 
 
@@ -207,7 +208,7 @@ def test_unbound_journal_still_supports_standalone_paper_replay(stores):
         "independent-paper-session", IDENTITY, None, 0, checkpoint("initial")
     ) is True
     assert journal.compare_and_swap(
-        "independent-paper-session", IDENTITY, 0, 1, checkpoint("next")
+        "independent-paper-session", IDENTITY, 0, 1, checkpoint("next", history=("initial",))
     ) is True
     assert journal.load("independent-paper-session")["revision"] == 1
     assert journal.load("paper-session-a")["revision"] == 0
