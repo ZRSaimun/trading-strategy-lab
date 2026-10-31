@@ -1,4 +1,4 @@
-"""Disposable PostgreSQL acceptance for the isolated paper daily-loss latch.
+"""Disposable PostgreSQL acceptance for isolated paper risk persistence guards.
 
 Never point this test at an existing database. It requires a loopback-only,
 explicitly named test database, and creates/drops its own random schema.
@@ -16,6 +16,7 @@ from sqlalchemy.orm import sessionmaker
 
 from app.db import Audit, Record
 from app.paper_daily_loss_breaker import PaperDailyLossBreaker
+from app.paper_order_intent_registry import PaperOrderIntentRegistry, _key
 
 
 @pytest.fixture
@@ -115,3 +116,111 @@ def test_postgres_audit_failure_rolls_back_risk_state(pg_factory):
     assert store.load("demo", day)["revision"] == 0
     with factory() as session:
         assert session.scalars(select(Audit.action)).all() == ["paper.loss.initialize"]
+
+
+# The same disposable, loopback-only PostgreSQL CI job also exercises the
+# existing durable order-intent registry. This is DB safety, not broker proof.
+_INTENT_ACCOUNT = "paper-account-001"
+_INTENT_ORDER = "client-order-001"
+_INTENT_HASH = "a" * 64
+_INTENT_NOW = 1_798_000_000_000
+
+
+def test_postgres_simultaneous_intent_registration_is_single_use(pg_factory):
+    _, factory = pg_factory
+
+    def writer():
+        return PaperOrderIntentRegistry(factory).register(
+            _INTENT_ACCOUNT, _INTENT_ORDER,
+            review_sha256=_INTENT_HASH, now_ms=_INTENT_NOW)
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        results = [f.result(timeout=30) for f in [pool.submit(writer) for _ in range(2)]]
+    assert sorted(results) == [False, True]
+    restarted = PaperOrderIntentRegistry(factory)
+    assert not restarted.register(
+        _INTENT_ACCOUNT, _INTENT_ORDER, review_sha256="b" * 64,
+        now_ms=_INTENT_NOW + 120_000)
+    snapshot = restarted.load(_INTENT_ACCOUNT, _INTENT_ORDER)
+    assert snapshot["state"] == "PREVIEW_ONLY"
+    assert snapshot["may_execute_paper_order"] is False
+    assert snapshot["may_execute_real_order"] is False
+    with factory() as session:
+        audit = session.scalars(select(Audit)).all()
+        records = session.scalars(select(Record)).all()
+    assert [a.action for a in audit] == ["paper.intent.register"]
+    assert len(records) == 1
+    stored = records[0].key + records[0].value + audit[0].detail
+    assert _INTENT_ACCOUNT not in stored and _INTENT_ORDER not in stored
+
+
+def test_postgres_simultaneous_unknown_outcome_has_single_cas_and_audit(pg_factory):
+    engine, factory = pg_factory
+    store = PaperOrderIntentRegistry(factory)
+    assert store.register(_INTENT_ACCOUNT, _INTENT_ORDER,
+                          review_sha256=_INTENT_HASH, now_ms=_INTENT_NOW)
+    barrier = Barrier(2, timeout=15)
+
+    def synchronize_reads(_connection, _cursor, statement, _params, _context, _many):
+        if (current_thread().name.startswith("intent-writer")
+                and "records.value" in statement.lower()
+                and statement.lstrip().upper().startswith("SELECT")):
+            barrier.wait()
+
+    event.listen(engine, "after_cursor_execute", synchronize_reads)
+    try:
+        def writer():
+            return PaperOrderIntentRegistry(factory).mark_outcome_unknown(
+                _INTENT_ACCOUNT, _INTENT_ORDER, review_sha256=_INTENT_HASH,
+                expected_revision=0, now_ms=_INTENT_NOW + 100)
+        with ThreadPoolExecutor(max_workers=2, thread_name_prefix="intent-writer") as pool:
+            results = [f.result(timeout=30) for f in [pool.submit(writer) for _ in range(2)]]
+    finally:
+        event.remove(engine, "after_cursor_execute", synchronize_reads)
+
+    assert sorted(results) == [False, True]
+    state = PaperOrderIntentRegistry(factory).load(_INTENT_ACCOUNT, _INTENT_ORDER)
+    assert state["state"] == "OUTCOME_UNKNOWN"
+    assert state["revision"] == 1
+    assert state["requires_reconciliation"] is True
+    assert state["may_execute_real_order"] is False
+    assert not store.mark_outcome_unknown(
+        _INTENT_ACCOUNT, _INTENT_ORDER, review_sha256=_INTENT_HASH,
+        expected_revision=0, now_ms=_INTENT_NOW + 101)
+    with factory() as session:
+        actions = session.scalars(select(Audit.action).order_by(Audit.id)).all()
+    assert actions == ["paper.intent.register", "paper.intent.quarantine"]
+
+
+def test_postgres_intent_audit_failure_rolls_back_both_transitions(pg_factory):
+    engine, factory = pg_factory
+    store = PaperOrderIntentRegistry(factory)
+
+    def reject_audit(_connection, _cursor, statement, _params, _context, _many):
+        if statement.lstrip().upper().startswith("INSERT INTO AUDIT"):
+            raise RuntimeError("synthetic intent audit failure")
+
+    event.listen(engine, "before_cursor_execute", reject_audit)
+    try:
+        with pytest.raises(RuntimeError, match="synthetic intent audit failure"):
+            store.register(_INTENT_ACCOUNT, _INTENT_ORDER,
+                           review_sha256=_INTENT_HASH, now_ms=_INTENT_NOW)
+    finally:
+        event.remove(engine, "before_cursor_execute", reject_audit)
+    assert store.load(_INTENT_ACCOUNT, _INTENT_ORDER) is None
+
+    assert store.register(_INTENT_ACCOUNT, _INTENT_ORDER,
+                          review_sha256=_INTENT_HASH, now_ms=_INTENT_NOW)
+    event.listen(engine, "before_cursor_execute", reject_audit)
+    try:
+        with pytest.raises(RuntimeError, match="synthetic intent audit failure"):
+            store.mark_outcome_unknown(
+                _INTENT_ACCOUNT, _INTENT_ORDER, review_sha256=_INTENT_HASH,
+                expected_revision=0, now_ms=_INTENT_NOW + 100)
+    finally:
+        event.remove(engine, "before_cursor_execute", reject_audit)
+
+    assert store.load(_INTENT_ACCOUNT, _INTENT_ORDER)["state"] == "PREVIEW_ONLY"
+    with factory() as session:
+        actions = session.scalars(select(Audit.action)).all()
+    assert actions == ["paper.intent.register"]

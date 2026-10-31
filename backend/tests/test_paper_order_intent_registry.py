@@ -176,3 +176,32 @@ def test_simultaneous_duplicate_registration_only_one_wins(store):
         results = list(pool.map(register, range(2)))
     assert sorted(results) == [False, True]
     assert len(audit_rows(factory)) == 1
+
+
+
+@pytest.mark.parametrize("corruption", [
+    " " * 16_385,  # Valid whitespace alone must fail before JSON parsing.
+    '{"state":' + (" " * 16_385) + '{},"sha256":"x"}',
+    "\\ud800" * 6000,  # Oversized escaped-surrogate sequences must also be rejected.
+])
+def test_oversized_stored_intent_fails_closed_without_extra_audit(store, corruption):
+    reg, factory = store
+    assert reg.register(A, O, review_sha256=H, now_ms=NOW)
+    key, _, _ = _key(A, O)
+    with factory.begin() as db:
+        db.get(Record, key).value = corruption
+    with pytest.raises(ValueError, match="corrupt"):
+        reg.load(A, O)
+    with pytest.raises(ValueError, match="corrupt"):
+        reg.mark_outcome_unknown(A, O, review_sha256=H,
+                                 expected_revision=0, now_ms=NOW + 1)
+    assert [a.action for a in audit_rows(factory)] == ["paper.intent.register"]
+
+
+def test_stored_intent_envelope_at_normal_size_remains_readable(store):
+    reg, _ = store
+    assert reg.register(A, O, review_sha256=H, now_ms=NOW)
+    assert reg.load(A, O)["state"] == "PREVIEW_ONLY"
+    assert reg.mark_outcome_unknown(A, O, review_sha256=H,
+                                    expected_revision=0, now_ms=NOW + 1)
+    assert reg.load(A, O)["requires_reconciliation"] is True
