@@ -123,6 +123,48 @@ def test_gap_beyond_stop_is_not_assumed_filled_at_stop():
     assert r['may_execute_paper_order'] is False
 
 
+def test_long_gap_beyond_declared_stress_uses_worse_bid_and_floors_notional():
+    r = result(mut_o=lambda o: o['quotes'][0].update(bid='70', ask='70.1'))
+    assert r['stress_loss_cash'] == '60'
+    assert r['gross_notional_cash'] == '200'
+    assert 'ABC:position_loss_cap' in r['failed_checks']
+    assert 'ABC:stop_not_breached' in r['failed_checks']
+    assert 'projected_daily_downside' in r['failed_checks']
+    assert r['status'] == 'HOLD_RECONCILIATION'
+    assert not r['may_execute_paper_order'] and not r['may_execute_real_order']
+
+
+def test_short_gap_beyond_declared_stress_uses_worse_ask():
+    def short(e):
+        e['positions'][0].update(side='SHORT', stop='105', stress_exit='110')
+    def adverse_quote(o):
+        o['positions'][0].update(side='SHORT')
+        o['quotes'][0].update(bid='129.9', ask='130')
+    r = result(mut_e=short, mut_o=adverse_quote)
+    assert r['stress_loss_cash'] == '60'
+    assert r['gross_notional_cash'] == '260'
+    assert 'ABC:position_loss_cap' in r['failed_checks']
+    assert 'ABC:stop_not_breached' in r['failed_checks']
+    assert r['status'] == 'HOLD_RECONCILIATION'
+    assert r['may_execute_real_order'] is False
+
+
+def test_stress_exit_still_bounds_loss_when_quote_has_not_gapped_past_it():
+    r = result(mut_o=lambda o: o['quotes'][0].update(bid='94', ask='94.1'))
+    assert r['stress_loss_cash'] == '20'
+    assert r['gross_notional_cash'] == '200'
+    assert 'ABC:stop_not_breached' in r['failed_checks']
+    assert 'ABC:position_loss_cap' not in r['failed_checks']
+
+
+def test_higher_ask_increases_gross_notional_without_trade_permission():
+    r = result(mut_o=lambda o: o['quotes'][0].update(bid='109.9', ask='110'))
+    assert r['gross_notional_cash'] == '220'
+    assert r['stress_loss_cash'] == '20'
+    assert r['status'] == 'CONSISTENT_UNVERIFIED'
+    assert r['may_execute_real_order'] is False
+
+
 def test_zero_positions_is_not_inferred_from_missing_broker_positions():
     r=result(mut_o=lambda o:o.update(positions=[]))
     assert 'positions_exactly_match' in r['failed_checks']
