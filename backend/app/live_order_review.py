@@ -86,7 +86,7 @@ def build_review_packet(order, *, now_ms, max_quote_age_ms=3000,
         raise ValueError('Invalid trusted server clock')
     if any(type(v) is not int for v in (max_quote_age_ms, max_transport_lag_ms, ttl_ms)):
         raise ValueError('Timing limits must be integers')
-    if not 100 <= max_quote_age_ms <= 60000 or not 0 <= max_transport_lag_ms <= 60000 or not 1000 <= ttl_ms <= 60000:
+    if not 100 <= max_quote_age_ms <= 3000 or not 0 <= max_transport_lag_ms <= 1000 or not 1000 <= ttl_ms <= 60000:
         raise ValueError('Invalid timing policy')
     if now_ms + ttl_ms > MAX_TIME:
         raise ValueError('Review expiry overflow')
@@ -104,8 +104,7 @@ def build_review_packet(order, *, now_ms, max_quote_age_ms=3000,
                                                else o['stressed_exit_price'] > o['stop_price'])
     checks['entry_not_better_than_quote'] = (o['entry_price'] >= o['quote_ask'] if o['direction'] == 'BUY'
                                              else o['entry_price'] <= o['quote_bid'])
-    # The current executable side can already have crossed the protective stop.
-    # A stop touch is a reconciliation HOLD, never evidence of a guaranteed fill.
+    # A touched protective stop is a reconciliation hold, not a fill guarantee.
     checks['protective_stop_not_breached'] = (
         o['quote_bid'] > o['stop_price'] if o['direction'] == 'BUY'
         else o['quote_ask'] < o['stop_price'])
@@ -115,8 +114,7 @@ def build_review_packet(order, *, now_ms, max_quote_age_ms=3000,
         checks['spread_within_cap'] = checks['uncrossed_quote'] and spread <= o['max_spread_bps']
         notional = o['entry_price'] * o['quantity'] * o['point_value_cash']
         margin = notional * o['margin_rate_percent'] / 100
-        # Stress at the WORSE of the declared adverse exit and the currently
-        # observed executable side; a gapped market must not shrink risk.
+        # Price downside at the worse of declared stress and executable quote.
         adverse_exit = (min(o['stressed_exit_price'], o['quote_bid'])
                         if o['direction'] == 'BUY'
                         else max(o['stressed_exit_price'], o['quote_ask']))
@@ -127,6 +125,16 @@ def build_review_packet(order, *, now_ms, max_quote_age_ms=3000,
         effective_daily = (o['daily_realized_pnl_cash']
                            + min(o['daily_unrealized_pnl_cash'], Decimal(0))
                            - o['existing_reserved_risk_cash'] - loss)
+        # Conservative non-relaxable bounds for this offline review surface.
+        # These are NOT a broker risk policy, nor guarantees against gap losses.
+        checks['declared_position_budget_at_most_5pct_equity'] = (
+            o['max_position_loss_cash'] * 100 <= o['account_equity_cash'] * 5)
+        checks['declared_daily_budget_at_most_10pct_equity'] = (
+            o['max_daily_loss_cash'] * 100 <= o['account_equity_cash'] * 10)
+        checks['declared_leverage_policy_at_most_5x'] = (
+            o['max_gross_leverage'] <= Decimal('5'))
+        checks['declared_spread_policy_at_most_100bps'] = (
+            o['max_spread_bps'] <= Decimal('100'))
         checks['per_position_loss_cap'] = loss > 0 and loss <= o['max_position_loss_cash']
         checks['position_cap_within_daily_cap_and_equity'] = (o['max_position_loss_cash'] <= o['max_daily_loss_cash']
                                                                and o['max_position_loss_cash'] <= o['account_equity_cash'])
@@ -139,8 +147,11 @@ def build_review_packet(order, *, now_ms, max_quote_age_ms=3000,
             stressed_equity > 0 and combined_margin <= stressed_equity)
         checks['stressed_portfolio_leverage_within_cap'] = (
             stressed_equity > 0 and combined_notional <= stressed_equity * o['max_gross_leverage'])
+        # A cash account must cover declared round-trip costs as well as gross
+        # purchase exposure; leverage/margin checks alone do not reserve fees.
         checks['cash_account_fully_funded'] = (o['broker'] == 'Trading212-CFD'
-                                                 or combined_notional <= o['account_equity_cash'])
+                                                 or combined_notional + o['estimated_total_cost_cash']
+                                                 <= o['account_equity_cash'])
     canonical = _canonical_order(o)
     digest_input = {'schema': 'live-order-review-v1', 'order': canonical,
                     'issued_at_ms': now_ms, 'expires_at_ms': now_ms + ttl_ms,
