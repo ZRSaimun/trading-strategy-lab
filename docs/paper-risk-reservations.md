@@ -419,3 +419,25 @@ This is **resource hardening**, not a cryptographic audit signature, authenticat
 The disconnected PAPER risk store now uses a **single SQL CASE/length projection** to refuse oversized persisted account envelopes **before** their text is transferred into Python. The guard covers read-only snapshots, audit verification, reservation/policy transitions, and emergency-stop reads. An absent account is still treated as missing, whereas an oversized or NULL-valued existing record raises a corrupt-state error and cannot produce a successful write. The existing 64 KiB UTF-8 byte check remains in `_decode`: SQLite/PostgreSQL SQL `length` counts characters, not bytes. The single-statement projection avoids a separate preflight/fetch race, although it cannot prevent all concurrent state changes after a read; the existing conditional CAS remains necessary.
 
 Two synthetic SQLite regressions in `backend/tests/test_paper_risk_state_sql_size_preflight.py` cover a 1 MiB malformed record (asserting the Python decoder is never invoked and no audit/write succeeds), and multibyte text under the SQL character limit but over the UTF-8 byte limit. The other account stays independently readable. This is **resource-bound hardening only**, not a signature, authenticated audit, verified broker state, crash-recovery proof, or permission to execute orders. Keep PR #26 **DRAFT / PAPER ONLY / NO MERGE / NO RENDER DEPLOY** pending the documented integration and owner-approval gates.
+
+## Refuse revision-zero resurrection over retained PAPER audit history (31 October 2026)
+
+`initialize()` now checks the same account-hash audit locator used by the
+historical verifier **before** inserting a new revision-zero state. If a state
+row has disappeared but its prior initialization, policy, or reservation audit
+receipts remain, initialization returns `False` without changing state or
+audit. An unknown-action receipt bearing that same account hash also blocks
+first initialization. This prevents a false report of successful fresh setup
+over contradictory retained evidence; it does **not** repair the missing state
+or grant permission to reserve. Four synthetic SQLite regressions in
+`backend/tests/test_paper_risk_orphan_initialization.py` exercise the orphan
+cases, unchanged audit population, blocked subsequent operations and
+unrelated-account isolation.
+
+Run `cd backend && PYTHONPATH=. python -m pytest -q tests/test_paper_risk_orphan_initialization.py`.
+The account-hash match is a self-attested exact-text locator, **not** an
+authenticated append-only ledger. Records that omit or obfuscate that field
+can remain invisible, and concurrent foreign audit writes are not serialized
+by this preflight. No broker evidence, profit, crash-recovery certification,
+live orders, merge or Render deployment is established. Keep PR #26 **DRAFT /
+PAPER ONLY / NO MERGE / NO DEPLOY / NO ORDERS**.

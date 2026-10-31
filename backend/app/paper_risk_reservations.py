@@ -196,6 +196,14 @@ def _read_bounded_state(db, key):
     return raw
 
 
+def _account_audit_match(key):
+    """Locate retained account receipts using the store's canonical hash field.
+
+    This is a self-attested text locator, not an authenticated ownership index.
+    """
+    return Audit.detail.like('%"account_hash":"' + _account_hash(key) + '"%')
+
+
 def _audit_head_matches(db, key, raw, state, reserved):
     """Corroborate a state against the latest same-account audit in this session."""
     account_hash = _account_hash(key)
@@ -204,7 +212,7 @@ def _audit_head_matches(db, key, raw, state, reserved):
     # Count every receipt carrying this account hash, including unknown
     # actions. Filtering to known actions silently hides unauthorized writes.
     # The exact JSON-field locator is self-attested, not authenticated.
-    account_match = Audit.detail.like('%"account_hash":"' + account_hash + '"%')
+    account_match = _account_audit_match(key)
     # Never accept an unbounded scan as evidence of a verified audit history.
     # Revision 0 has one init receipt; each CAS adds exactly one more.
     if state["revision"] >= _MAX_AUDIT_HISTORY_ROWS:
@@ -557,6 +565,14 @@ class PaperRiskReservationStore:
         state = {"version": 2, "revision": 0, "kill_switch": True,
                  "emergency_latched": False, "limit_cash": "0", "reservations": {}}
         with self.session_factory() as db:
+            # A missing state row is not proof that this is a fresh account.
+            # If retained receipts survive a lost/deleted state, refuse to
+            # mint a new revision-zero snapshot over that existing history.
+            # This check shares the audit verifier's conservative locator.
+            if db.scalar(select(Audit.id).where(
+                _account_audit_match(key)
+            ).limit(1)) is not None:
+                return False
             try:
                 db.execute(insert(Record).values(key=key, value=_encode(state, key=key)))
                 db.add(Audit(time=int(time.time()), actor="paper-risk-store", action="paper.risk.init",
