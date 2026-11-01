@@ -507,3 +507,26 @@ def test_review_builder_rejects_untrusted_string_subclasses(field, value):
     assert valid['assumption_checks_pass'] is True
     assert valid['may_execute_paper_order'] is False
     assert valid['may_execute_real_order'] is False
+
+
+def test_review_comparison_rejects_fingerprint_subclass_before_methods():
+    # A plain dict can contain a non-JSON str subclass whose len/iterator
+    # executes arbitrary code. The fingerprint is untrusted packet input.
+    class HostileDigest(str):
+        def __len__(self):
+            raise AssertionError('untrusted digest length must not run')
+
+        def __iter__(self):
+            raise AssertionError('untrusted digest iterator must not run')
+
+    review = packet()
+    review['review_sha256'] = HostileDigest(review['review_sha256'])
+    with pytest.raises(ValueError, match='Invalid review fingerprint'):
+        compare_review(review, intent(), now_ms=NOW + 1)
+
+    # Ordinary decoded JSON text remains valid and never grants execution.
+    original = packet()
+    result = compare_review(original, intent(), now_ms=NOW + 1)
+    assert result['review_matches_exact_intent'] is True
+    assert result['may_execute_paper_order'] is False
+    assert result['may_execute_real_order'] is False
