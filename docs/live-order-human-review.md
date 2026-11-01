@@ -71,3 +71,8 @@ This is defensive validation of untrusted offline input, **not** an authenticate
 ## Plain order-input validation (1 November 2026)
 
 The disconnected review now rejects non-dictionary order inputs, dictionary subclasses and string subclasses **before** inspecting their fields. Previously, the input normalizer accepted dictionary subclasses and could invoke attacker-defined iteration or indexing methods; identity and decimal fields also accepted string subclasses. Only ordinary JSON-style objects and exact strings are now accepted. Synthetic regressions cover malformed containers, a mapping subclass with hostile accessors, and decimal/identity string subclasses while confirming normal inputs still produce permanently non-executable packets. This is input hardening, **not** broker authentication, strategy validation or execution permission. No real order, dataset, production mutation or Render deployment is involved.
+
+
+## Fingerprint type boundary (1 November 2026)
+
+The disconnected re-review now requires the untrusted `review_sha256` value to be an **exact plain string** before evaluating its length or characters. A Python `str` subclass can override these methods even when its displayed value is a valid 64-character digest; the earlier `isinstance` check would invoke those methods. A synthetic hostile-subclass regression verifies controlled `ValueError` rejection without executing either override, while an unchanged plain-string packet still matches and both execution flags stay false. This protects an in-process validation boundary only; SHA-256 remains unsigned, the broker/account evidence remains unauthenticated, and no order or deployment is authorized.
