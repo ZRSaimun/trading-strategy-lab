@@ -81,3 +81,7 @@ The fractional-volume tolerance no longer uses a one-unit lower bound for its fl
 ## Detached certified 4H snapshots (1 November 2026)
 
 The 4H/15m certification helper now returns **frozen copies** of verified 4H candles rather than references to mutable API arrays. Previously, a source-array edit *after* certification could silently change a previously returned CRT reference or sweep without passing through the stale-report guard. The helper still rejects reuse of an old report against changed inputs; a synthetic regression also verifies that already returned certified values remain unchanged and cannot be modified in place. These are local, in-process consistency guarantees only, **not** independent authentication of historical quotes, verified volume, an executable broker price, or trading profitability.
+
+## Immutable issued cross-timeframe audit reports (1 November 2026)
+
+Issued 4H/15m audit reports now freeze both the report object and its nested verified 4H timestamp list. Previously, a caller could mutate displayed certification counts or timestamp evidence in place before a later certification attempt rejected it. The public TypeScript report interface is also read-only; a synthetic regression verifies runtime mutation attempts fail and unchanged reports still certify. This is in-memory integrity hardening, **not** independent price/volume authentication, real broker quote evidence, or proof of profitable CRT trading.

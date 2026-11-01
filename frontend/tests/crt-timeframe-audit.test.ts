@@ -286,3 +286,16 @@ test('a copied audit report without its issued snapshot cannot certify candle in
  assert.throws(()=>certifiedCrtFourHourBars(x.h,x.q,{...report}),
   /Stale or inconsistent 4H\/15m certification report/);
 });
+
+test('issued cross-timeframe audit report and verified timestamp list are immutable',()=>{
+ const {h,q}=fixture();
+ const report=auditCrtCrossTimeframe(h,q);
+ assert.equal(Object.isFrozen(report),true);
+ assert.equal(Object.isFrozen(report.verifiedFourHourStarts),true);
+ assert.throws(()=>{(report as {checkedFourHourBars:number}).checkedFourHourBars=0;},TypeError);
+ assert.throws(()=>{(report.verifiedFourHourStarts as number[])[0]=BASE+2*H4;},TypeError);
+ assert.throws(()=>{(report.verifiedFourHourStarts as number[]).push(BASE+2*H4);},TypeError);
+ assert.deepEqual(report.verifiedFourHourStarts,[BASE,BASE+H4]);
+ assert.equal(certifiedCrtFourHourBars(h,q,report).length,2,
+  'unchanged frozen reports remain valid for source re-audit');
+});

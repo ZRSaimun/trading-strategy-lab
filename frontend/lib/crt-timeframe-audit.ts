@@ -12,10 +12,10 @@
 import type {Bar} from './research.ts';
 
 export type CrossoverAudit={
- checkedFourHourBars:number;
- uncheckableFourHourBars:number;
+ readonly checkedFourHourBars:number;
+ readonly uncheckableFourHourBars:number;
  /** Exact 4H bucket starts whose complete 16-bar 15m OHLC matched. */
- verifiedFourHourStarts:number[];
+ readonly verifiedFourHourStarts:readonly number[];
 };
 const MIN15=900, FOUR_HOUR=14400, BARS_PER_4H=16;
 
@@ -125,8 +125,13 @@ export function auditCrtCrossTimeframe(
   verifiedFourHourStarts.push(h4.time);
   index+=BARS_PER_4H;
  }
- const report={checkedFourHourBars:checked,uncheckableFourHourBars:uncheckable,
-  verifiedFourHourStarts};
+ // Freeze the issued certificate AND its nested timestamp list. A caller
+ // must not be able to rewrite displayed verification evidence in place;
+ // re-audit instead of editing a previously issued report.
+ const report:CrossoverAudit=Object.freeze({
+  checkedFourHourBars:checked,uncheckableFourHourBars:uncheckable,
+  verifiedFourHourStarts:Object.freeze(verifiedFourHourStarts),
+ });
  issuedSnapshots.set(report,candleSnapshot(fourHour,fifteenMinute));
  return report;
 }
