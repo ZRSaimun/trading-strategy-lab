@@ -55,7 +55,11 @@ function assertOwnBarSlots(bars:readonly Bar[]):void{
  // precise validation error even when the array prototype is exotic.
  if(Object.getPrototypeOf(bars)!==Array.prototype||
   ['map','slice','filter'].some(name=>Object.hasOwn(bars,name))||
-  Object.hasOwn(bars,Symbol.iterator))
+  Object.hasOwn(bars,Symbol.iterator)||
+  // Array built-ins use ArraySpeciesCreate: even a normal-looking array
+  // can execute an own constructor/species getter during map or slice.
+  // JSON source arrays never carry an own constructor property.
+  Object.hasOwn(bars,'constructor'))
   throw Error('Cross-timeframe window requires ordinary JSON array methods');
 }
 function candleSnapshot(fourHour:readonly Bar[],fifteenMinute:readonly Bar[]):string{

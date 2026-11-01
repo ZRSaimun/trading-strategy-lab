@@ -447,3 +447,42 @@ test('CRT audit refuses overridden array iteration and methods before executing 
  assert.deepEqual(certifiedCrtFourHourBars(plain.h,plain.q,valid).map(b=>b.time),
   [BASE,BASE+H4],'ordinary source JSON arrays remain supported');
 });
+
+test('CRT source arrays reject constructor/species hijacking before any getter executes',()=>{
+ for(const side of ['h','q'] as const){
+  const source=fixture();
+  let getterReads=0;
+  Object.defineProperty(source[side],'constructor',{
+   configurable:true,
+   get(){getterReads++;throw Error('untrusted array constructor getter executed');},
+  });
+  assert.throws(()=>auditCrtCrossTimeframe(source.h,source.q),
+   /ordinary JSON array methods/);
+  assert.equal(getterReads,0,'source-array constructor getter must not execute');
+ }
+ const x=fixture();
+ let speciesReads=0;
+ const customConstructor={};
+ Object.defineProperty(customConstructor,Symbol.species,{
+  get(){speciesReads++;throw Error('untrusted array species getter executed');},
+ });
+ Object.defineProperty(x.q,'constructor',{value:customConstructor,configurable:true});
+ assert.throws(()=>auditCrtCrossTimeframe(x.h,x.q),
+  /ordinary JSON array methods/,'even a data-valued constructor can redirect slice/map');
+ assert.equal(speciesReads,0,'species getter must not execute');
+
+ const y=fixture();
+ const issued=auditCrtCrossTimeframe(y.h,y.q);
+ Object.defineProperty(y.h,'constructor',{
+  configurable:true,
+  get(){speciesReads++;throw Error('post-audit array constructor getter executed');},
+ });
+ assert.throws(()=>certifiedCrtFourHourBars(y.h,y.q,issued),
+  /ordinary JSON array methods/,'stale certification rejects a later constructor override');
+ assert.equal(speciesReads,0);
+
+ const ordinary=fixture();
+ const report=auditCrtCrossTimeframe(ordinary.h,ordinary.q);
+ assert.deepEqual(certifiedCrtFourHourBars(ordinary.h,ordinary.q,report).map(b=>b.time),
+  [BASE,BASE+H4],'plain JSON source arrays still certify');
+});

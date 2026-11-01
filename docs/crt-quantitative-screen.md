@@ -110,3 +110,7 @@ The CRT 4H/15m audit now rejects arrays with a nonstandard prototype, an own `Sy
 ## Exact completed-bar timestamp arithmetic (1 November 2026)
 
 A UTC-aligned 4H or 15m opening timestamp can be a safe JavaScript integer while its **completed-bar close timestamp** (start plus 14,400 or 900 seconds) exceeds the safe-integer range. The same-archive cross-timeframe audit now rejects such records before evaluating overlap, chronology or certification; otherwise a rounded close could be mistaken for a causally completed candle. Synthetic regressions cover both timeframes and an ordinary unchanged source window. This is a timestamp arithmetic guard, **not** verified market-session coverage, live quote authenticity or trading-profit evidence.
+
+### Array species constructor guard (1 November 2026)
+
+The 4H/15m same-archive audit also rejects **own `constructor` properties on source arrays** before calling `map`, `slice`, or `filter`. JavaScript's standard array methods consult `constructor[Symbol.species]` to allocate result arrays: a source array with normal indexed candles, standard prototype and unmodified methods could still run an attacker-supplied constructor/species getter during the audit or snapshot. Synthetic regressions cover 4H/15m constructor accessors, a custom species getter, post-certification constructor substitution and unchanged ordinary arrays. This is a local source-shape consistency guard, not proof of broker/source authenticity, verified volume, execution readiness or profitability.
