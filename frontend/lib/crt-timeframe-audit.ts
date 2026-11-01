@@ -97,6 +97,30 @@ function samePrice(a:number,b:number){
  return a===b;
 }
 
+// Exact binary-fraction counts need no heuristic 64-ULP allowance. When
+// every constituent is an exactly representable integer number of 2^-k
+// units and their scaled sum remains safe, IEEE-754 power-of-two scaling
+// and integer addition are exact. Refuse even one scaled-unit mismatch.
+// Other reported decimal fractions retain the conservative tolerance below.
+function dyadicVolumeMismatch(values:readonly number[],aggregate:number):boolean|null{
+ for(let power=0;power<=16;power++){
+  const factor=2**power;
+  let unitsTotal=0,exact=true;
+  for(const value of values){
+   const units=value*factor;
+   if(!Number.isSafeInteger(units)||!Number.isSafeInteger(unitsTotal+units)){
+    exact=false;break;
+   }
+   unitsTotal+=units;
+  }
+  if(exact){
+   const aggregateUnits=aggregate*factor;
+   return !Number.isSafeInteger(aggregateUnits)||aggregateUnits!==unitsTotal;
+  }
+ }
+ return null;
+}
+
 export function auditCrtCrossTimeframe(
  fourHour:readonly Bar[],fifteenMinute:readonly Bar[],
 ):CrossoverAudit{
@@ -166,9 +190,11 @@ export function auditCrtCrossTimeframe(
    const safeMagnitude=Number.isSafeInteger(Math.trunc(h4.volume))&&
     Number.isSafeInteger(Math.trunc(total))&&
     subset.every(b=>b.volume!==null&&Number.isSafeInteger(Math.trunc(b.volume)));
-   const mismatch=integerCounts
+   const exactDyadicMismatch=dyadicVolumeMismatch(
+    subset.map(b=>b.volume as number),h4.volume);
+   const mismatch=exactDyadicMismatch??(integerCounts
     ? !Number.isSafeInteger(h4.volume)||!Number.isSafeInteger(total)||h4.volume!==total
-    : Math.abs(h4.volume-total)>tolerance;
+    : Math.abs(h4.volume-total)>tolerance);
    if(!Number.isFinite(total)||!safeMagnitude||mismatch)
     throw Error('4H/15m volume mismatch for same historical archive');
    reconciledNumericVolumeStarts.push(h4.time);

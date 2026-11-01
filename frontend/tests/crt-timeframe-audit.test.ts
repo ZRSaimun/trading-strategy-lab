@@ -92,6 +92,35 @@ test('large fractional volume aggregates cannot hide a full reported-unit drift'
  assert.throws(()=>auditCrtCrossTimeframe(h,q),/volume mismatch/,
   'a full unit discrepancy is not acceptable floating-point summation noise');
 });
+test('exact quarter-unit 15m volumes reject sub-unit 4H aggregate drift',()=>{
+ // All sixteen reported values are exact quarter-units. The previous
+ // fractional 0.25-unit tolerance accepted a real 0.125 discrepancy at
+ // ~1e14 even though scaled integer reconciliation is exact and safe.
+ const {h,q}=fixture();
+ q.forEach(b=>{b.volume=6_250_000_000_000.25;});
+ h.forEach(b=>{b.volume=100_000_000_000_004;});
+ const coherent=auditCrtCrossTimeframe(h,q);
+ assert.deepEqual(coherent.reconciledNumericVolumeStarts,[BASE,BASE+H4]);
+ h[0].volume=100_000_000_000_004.125;
+ assert.throws(()=>auditCrtCrossTimeframe(h,q),/volume mismatch/,
+  'a non-quarter aggregate cannot be reconciled to exact quarter-unit constituents');
+ h[0].volume=100_000_000_000_004.25;
+ assert.throws(()=>auditCrtCrossTimeframe(h,q),/volume mismatch/,
+  'a full quarter-unit drift must also fail');
+});
+test('exact eighth-unit 15m volume and ordinary decimal roundoff retain distinct rules',()=>{
+ const exact=fixture();
+ exact.q.forEach(b=>{b.volume=0.125;});
+ exact.h.forEach(b=>{b.volume=2;});
+ assert.equal(auditCrtCrossTimeframe(exact.h,exact.q).checkedFourHourBars,2);
+ exact.h[0].volume=2.125;
+ assert.throws(()=>auditCrtCrossTimeframe(exact.h,exact.q),/volume mismatch/);
+ const decimal=fixture();
+ decimal.q.forEach(b=>{b.volume=0.1;});
+ decimal.h.forEach(b=>{b.volume=1.6;});
+ assert.equal(auditCrtCrossTimeframe(decimal.h,decimal.q).checkedFourHourBars,2,
+  'non-dyadic decimal input must still allow bounded floating-point summation noise');
+});
 test('fractional volume sums above safe integer magnitude cannot be certified',()=>{
  // The old fractional branch accepted equal rounded totals above 2^53,
  // although sub-unit differences can no longer be reliably represented.
