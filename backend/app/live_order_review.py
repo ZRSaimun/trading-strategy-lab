@@ -50,6 +50,10 @@ def _normalize(order):
     # overrides of __iter__/__getitem__ must not execute during a review.
     if type(order) is not dict:
         raise ValueError('Review input must be a plain object')
+    # Reject non-JSON key objects before set() re-hashes untrusted keys.
+    # A str subclass may override __hash__/__eq__ despite a plain dict.
+    if any(type(key) is not str for key in order):
+        raise ValueError('Review input keys must be plain strings')
     if set(order) != EXPECTED_FIELDS:
         raise ValueError('Review input must contain exactly the required fields')
     normalized = {field: _identity(order[field], field) for field in TEXT_FIELDS}
@@ -216,7 +220,9 @@ def _same_review_payload(received, expected):
     """
     amount_keys = ('stressed_loss_cash', 'combined_notional_cash',
                    'combined_margin_cash', 'projected_daily_pnl_cash')
-    if type(received) is not dict or set(received) != set(expected):
+    if type(received) is not dict or any(type(key) is not str for key in received):
+        return False
+    if set(received) != set(expected):
         return False
     for key, wanted in expected.items():
         value = received[key]
@@ -226,7 +232,9 @@ def _same_review_payload(received, expected):
                     or Decimal(value) != Decimal(wanted)):
                 return False
         elif key == 'checks':
-            if type(value) is not dict or set(value) != set(wanted):
+            if type(value) is not dict or any(type(name) is not str for name in value):
+                return False
+            if set(value) != set(wanted):
                 return False
             if any(type(value[name]) is not bool or value[name] is not flag
                    for name, flag in wanted.items()):
