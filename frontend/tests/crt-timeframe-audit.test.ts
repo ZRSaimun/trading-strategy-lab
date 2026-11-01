@@ -61,6 +61,26 @@ test('fully reported 4H volume must equal the sixteen observed 15m volumes',()=>
  h[0].volume!+=1;
  assert.throws(()=>auditCrtCrossTimeframe(h,q),/volume mismatch/);
 });
+test('integer 15m volume counts must match exactly even at large scales',()=>{
+ // The old 64-ULP relative tolerance accepted a one-count discrepancy
+ // near 1e14 despite every constituent being an exact integer count.
+ const {h,q}=fixture();
+ q.forEach(b=>{b.volume=6_250_000_000_000;});
+ h.forEach(b=>{b.volume=100_000_000_000_000;});
+ assert.equal(auditCrtCrossTimeframe(h,q).checkedFourHourBars,2);
+ h[0].volume=100_000_000_000_001;
+ assert.throws(()=>auditCrtCrossTimeframe(h,q),/volume mismatch/);
+ h[0].volume=100_000_000_000_000.5;
+ assert.throws(()=>auditCrtCrossTimeframe(h,q),/volume mismatch/,
+  'fractional aggregate cannot certify sixteen exact integer counts');
+});
+test('integer count sums exceeding safe numeric precision cannot be certified',()=>{
+ const {h,q}=fixture();
+ q.forEach(b=>{b.volume=600_000_000_000_000;});
+ h.forEach(b=>{b.volume=9_600_000_000_000_000;});
+ assert.throws(()=>auditCrtCrossTimeframe(h,q),/volume mismatch/,
+  'a numerically equal but unsafe integer total is not exact count evidence');
+});
 test('null constituent or aggregate volume stays unknown, not fabricated zero',()=>{
  const x=fixture();
  x.q.forEach(b=>{b.volume=5;});
