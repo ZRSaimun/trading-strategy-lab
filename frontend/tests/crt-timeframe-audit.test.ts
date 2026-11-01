@@ -30,6 +30,25 @@ test('fails closed when source-identical timeframe response has inconsistent OHL
   assert.throws(()=>auditCrtCrossTimeframe(h,q),/OHLC mismatch/);
  }
 });
+test('source-identical 4H and 15m OHLC must match exactly at tiny and large nominal scales',()=>{
+ // The old max(1, nominal price) epsilon accepted a 5e-11 difference at
+ // micro-prices and a full 0.01 difference near 1e9. Both are source
+ // inconsistencies, regardless of unknown instrument tick size.
+ for(const {scale,drift} of [
+  {scale:1e-8,drift:5e-11},
+  {scale:1e7,drift:0.01},
+ ]){
+  const {h,q}=fixture();
+  for(const b of [...h,...q]){
+   b.open*=scale;b.high*=scale;b.low*=scale;b.close*=scale;
+  }
+  assert.equal(auditCrtCrossTimeframe(h,q).checkedFourHourBars,2);
+  h[0].high+=drift;
+  assert.throws(()=>auditCrtCrossTimeframe(h,q),/OHLC mismatch/,
+   'same-archive mismatch must never be masked by a nominal-price epsilon');
+ }
+});
+
 test('fully reported 4H volume must equal the sixteen observed 15m volumes',()=>{
  const {h,q}=fixture();
  q.forEach((b,i)=>{b.volume=i%2===0?2.25:10.5;});

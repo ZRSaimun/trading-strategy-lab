@@ -41,8 +41,12 @@ function assertComplete(b:Bar,seconds:number){
   throw Error('Incomplete or invalid cross-timeframe input');
 }
 function samePrice(a:number,b:number){
- // Allow only floating-point serialization noise, never a real price tick.
- return Math.abs(a-b)<=1e-10*Math.max(1,Math.abs(a),Math.abs(b));
+ // Both timeframes come from the SAME archived M1 prices: open/close are
+ // selected observations and high/low are extrema, not arithmetic estimates.
+ // A relative/absolute epsilon can hide a real price change at very large
+ // or very small nominal scales. Refuse any mismatch rather than guessing
+ // the instrument's tick size or certifying rounded API responses.
+ return a===b;
 }
 
 export function auditCrtCrossTimeframe(
