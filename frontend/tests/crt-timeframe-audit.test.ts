@@ -327,3 +327,32 @@ test('certified CRT candles expose only audited Bar fields without evaluating ex
  assert.equal(Object.isFrozen(certified[0]),true);
  assert.equal(Object.isFrozen(certified),true);
 });
+
+test('CRT audit and stale certification reject accessor or inherited candle fields without reading getters',()=>{
+ const x=fixture();
+ let getterReads=0;
+ Object.defineProperty(x.h[0],'open',{
+  configurable:true,enumerable:true,
+  get(){getterReads++;return 100.5;},
+ });
+ assert.throws(()=>auditCrtCrossTimeframe(x.h,x.q),/own data fields/);
+ assert.equal(getterReads,0,'a validated price getter must never execute');
+
+ const y=fixture();
+ const inherited=Object.create({close:y.q[0].close}) as Bar;
+ Object.assign(inherited,y.q[0]);
+ delete (inherited as Partial<Bar>).close;
+ y.q[0]=inherited;
+ assert.throws(()=>auditCrtCrossTimeframe(y.h,y.q),/own data fields/,
+  'prototype-inherited prices are not immutable JSON candle evidence');
+
+ const z=fixture();
+ const report=auditCrtCrossTimeframe(z.h,z.q);
+ Object.defineProperty(z.q[0],'open',{
+  configurable:true,enumerable:true,
+  get(){getterReads++;return 100.5;},
+ });
+ assert.throws(()=>certifiedCrtFourHourBars(z.h,z.q,report),/own data fields/,
+  'snapshot comparison must reject newly installed getters before reading');
+ assert.equal(getterReads,0);
+});
