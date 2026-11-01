@@ -154,6 +154,12 @@ def build_review_packet(order, *, now_ms, max_quote_age_ms=3000,
         checks['cash_account_fully_funded'] = (o['broker'] == 'Trading212-CFD'
                                                  or combined_notional + o['estimated_total_cost_cash']
                                                  <= o['account_equity_cash'])
+        # Invest and Stocks ISA are unleveraged cash accounts. A lower
+        # owner-declared margin rate understates the stressed cash requirement
+        # even when the separate purchase-funding check happens to pass.
+        checks['cash_account_full_margin_policy'] = (
+            o['broker'] == 'Trading212-CFD'
+            or o['margin_rate_percent'] == Decimal('100'))
     canonical = _canonical_order(o)
     digest_input = {'schema': 'live-order-review-v1', 'order': canonical,
                     'issued_at_ms': now_ms, 'expires_at_ms': now_ms + ttl_ms,

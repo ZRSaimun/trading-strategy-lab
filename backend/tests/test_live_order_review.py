@@ -384,3 +384,28 @@ def test_cash_account_funding_fee_boundary_is_exact_decimal(gross, cost, expecte
     assert result['checks']['cash_account_fully_funded'] is expected
     assert ('cash_account_fully_funded' in result['failed_checks']) is not expected
     assert result['may_execute_real_order'] is False
+
+
+@pytest.mark.parametrize('broker', ['Trading212-Invest', 'Trading212-StocksISA'])
+@pytest.mark.parametrize('rate', ['0.00000001', '50', '99.99999999'])
+def test_cash_account_rejects_discounted_declared_margin(broker, rate):
+    # The gross purchase can be funded while a discounted margin declaration
+    # misleadingly makes stressed equity coverage appear less demanding.
+    order = intent(broker=broker, margin_rate_percent=rate)
+    result = build_review_packet(order, now_ms=NOW)
+    assert result['checks']['cash_account_fully_funded'] is True
+    assert result['checks']['cash_account_full_margin_policy'] is False
+    assert 'cash_account_full_margin_policy' in result['failed_checks']
+    assert result['assumption_checks_pass'] is False
+    assert compare_review(result, order, now_ms=NOW+1)['requires_new_human_review']
+    assert result['may_execute_paper_order'] is False
+    assert result['may_execute_real_order'] is False
+
+
+@pytest.mark.parametrize('broker', ['Trading212-Invest', 'Trading212-StocksISA'])
+def test_cash_account_full_margin_boundary_preserves_nonexecution(broker):
+    result = packet(broker=broker, margin_rate_percent='100.00000000')
+    assert result['checks']['cash_account_full_margin_policy'] is True
+    assert result['assumption_checks_pass'] is True
+    assert result['may_execute_paper_order'] is False
+    assert result['may_execute_real_order'] is False
