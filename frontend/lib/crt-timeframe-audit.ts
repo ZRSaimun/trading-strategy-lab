@@ -97,7 +97,15 @@ export function auditCrtCrossTimeframe(
   if(h4.volume!==null&&subset.every(b=>b.volume!==null)){
    const total=subset.reduce((sum,b)=>sum+(b.volume??0),0);
    const tolerance=64*Number.EPSILON*Math.max(1,Math.abs(h4.volume),Math.abs(total));
-   if(!Number.isFinite(total)||Math.abs(h4.volume-total)>tolerance)
+   // Integer constituent volumes represent exact counts, not floating-point
+   // estimates. A scale-relative epsilon could otherwise hide one or more
+   // real counts in a large archive. Refuse sums outside safe integer range.
+   // Keep bounded summation tolerance only for genuinely fractional volumes.
+   const integerCounts=subset.every(b=>Number.isSafeInteger(b.volume));
+   const mismatch=integerCounts
+    ? !Number.isSafeInteger(h4.volume)||!Number.isSafeInteger(total)||h4.volume!==total
+    : Math.abs(h4.volume-total)>tolerance;
+   if(!Number.isFinite(total)||mismatch)
     throw Error('4H/15m volume mismatch for same historical archive');
   }
   checked++;
