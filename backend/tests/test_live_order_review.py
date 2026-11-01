@@ -558,3 +558,29 @@ def test_cash_account_unleveraged_policy_accepts_declared_boundary(broker, lever
     assert review['assumption_checks_pass'] is True
     assert review['may_execute_paper_order'] is False
     assert review['may_execute_real_order'] is False
+
+
+def test_re_review_uses_one_intent_snapshot_for_digest_and_quote_age(monkeypatch):
+    # A caller-owned dictionary can change while the deterministic packet is
+    # rebuilt. Re-review must not mix the validated intent's fingerprint with
+    # later quote timestamps, or raise KeyError on a removed field.
+    import app.live_order_review as review_module
+
+    original = packet()
+    revised = intent()
+    actual_builder = review_module.build_review_packet
+
+    def mutate_caller_after_rebuild(order, **kwargs):
+        recomputed = actual_builder(order, **kwargs)
+        revised['quote_observed_at_ms'] = NOW - 10000
+        del revised['quote_received_at_ms']
+        return recomputed
+
+    monkeypatch.setattr(review_module, 'build_review_packet', mutate_caller_after_rebuild)
+    result = compare_review(original, revised, now_ms=NOW + 1)
+    assert result['review_matches_exact_intent'] is True
+    assert result['quote_still_fresh'] is True
+    assert result['requires_new_human_review'] is False
+    assert result['may_execute_real_order'] is False
+    assert result['may_execute_paper_order'] is False
+    assert 'quote_received_at_ms' not in revised
