@@ -356,3 +356,38 @@ test('CRT audit and stale certification reject accessor or inherited candle fiel
   'snapshot comparison must reject newly installed getters before reading');
  assert.equal(getterReads,0);
 });
+
+test('CRT cross-timeframe audit rejects accessor, inherited and post-audit array slots',()=>{
+ const x=fixture();
+ let slotReads=0;
+ Object.defineProperty(x.h,'0',{
+  configurable:true,enumerable:true,
+  get(){slotReads++;return candle(BASE,100.5,103,97,100.25,240);},
+ });
+ assert.throws(()=>auditCrtCrossTimeframe(x.h,x.q),/own data entries/);
+ assert.equal(slotReads,0,'the rejected 4H slot getter must not execute');
+
+ const y=fixture();
+ const inherited=y.q[0];
+ delete y.q[0];
+ const prototype=Object.create(Array.prototype);
+ Object.defineProperty(prototype,'0',{value:inherited,configurable:true});
+ Object.setPrototypeOf(y.q,prototype);
+ assert.throws(()=>auditCrtCrossTimeframe(y.h,y.q),/own data entries/,
+  'an inherited 15m array element is not a source JSON record');
+
+ const z=fixture();
+ const report=auditCrtCrossTimeframe(z.h,z.q);
+ Object.defineProperty(z.q,'0',{
+  configurable:true,enumerable:true,
+  get(){slotReads++;return candle(BASE);},
+ });
+ assert.throws(()=>certifiedCrtFourHourBars(z.h,z.q,report),/own data entries/,
+  'a source array slot replaced after certification must be rejected');
+ assert.equal(slotReads,0,'the stale-report guard must not execute slot getters');
+
+ const valid=fixture();
+ const stable=auditCrtCrossTimeframe(valid.h,valid.q);
+ assert.deepEqual(certifiedCrtFourHourBars(valid.h,valid.q,stable).map(b=>b.time),
+  [BASE,BASE+H4],'ordinary dense JSON arrays remain supported');
+});

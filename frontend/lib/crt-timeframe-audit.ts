@@ -36,11 +36,25 @@ function assertOwnDataFields(b:Bar):void{
    throw Error('Cross-timeframe candle requires own data fields');
  }
 }
+function assertOwnBarSlots(bars:readonly Bar[]):void{
+ // JSON arrays contain direct indexed data entries. Accessor-backed or
+ // inherited array elements could swap candle objects between the audit,
+ // issued snapshot and certified-copy selection, even when candle fields
+ // themselves are ordinary data properties.
+ for(let i=0;i<bars.length;i++){
+  const descriptor=Object.getOwnPropertyDescriptor(bars,String(i));
+  if(!descriptor||!Object.hasOwn(descriptor,'value'))
+   throw Error('Cross-timeframe window requires own data entries');
+ }
+}
 function candleSnapshot(fourHour:readonly Bar[],fifteenMinute:readonly Bar[]):string{
- const rows=(bars:readonly Bar[])=>bars.map(b=>{
+ const rows=(bars:readonly Bar[])=>{
+  assertOwnBarSlots(bars);
+  return bars.map(b=>{
   assertOwnDataFields(b);
   return [b.time,b.open,b.high,b.low,b.close,b.volume,b.observed_minutes];
  });
+ };
  return JSON.stringify([rows(fourHour),rows(fifteenMinute)]);
 }
 
@@ -69,6 +83,8 @@ export function auditCrtCrossTimeframe(
  if(!Array.isArray(fourHour)||!Array.isArray(fifteenMinute)||
   fourHour.length>20000||fifteenMinute.length>20000)
   throw Error('Invalid or oversized cross-timeframe window');
+ assertOwnBarSlots(fourHour);
+ assertOwnBarSlots(fifteenMinute);
  for(let i=0;i<fourHour.length;i++){
   assertComplete(fourHour[i],FOUR_HOUR);
   if(i>0&&fourHour[i].time<=fourHour[i-1].time)
