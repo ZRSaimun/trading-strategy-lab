@@ -85,3 +85,7 @@ The 4H/15m certification helper now returns **frozen copies** of verified 4H can
 ## Immutable issued cross-timeframe audit reports (1 November 2026)
 
 Issued 4H/15m audit reports now freeze both the report object and its nested verified 4H timestamp list. Previously, a caller could mutate displayed certification counts or timestamp evidence in place before a later certification attempt rejected it. The public TypeScript report interface is also read-only; a synthetic regression verifies runtime mutation attempts fail and unchanged reports still certify. This is in-memory integrity hardening, **not** independent price/volume authentication, real broker quote evidence, or proof of profitable CRT trading.
+
+## Immutable certified 4H collection (1 November 2026)
+
+The cross-timeframe certification helper now freezes the **returned array** as well as its detached 4H candle objects. Without this guard, a downstream caller could append an unaudited reference candle or remove a certified sweep after the source-coherence check, even though each original certified candle was frozen. The return type is now read-only; synthetic regression assertions reject both append and removal while retaining unchanged certified evidence. This is local in-memory evidence integrity only, **not** market-source authentication, validated volume provenance, broker quotes, profitability, or permission to trade.

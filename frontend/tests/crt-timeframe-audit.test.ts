@@ -223,6 +223,14 @@ test('certified 4H bars remain detached and frozen after the original inputs cha
  assert.notStrictEqual(certified[0],h[0],
   'certification must not expose a mutable alias to the source candle');
  assert.equal(Object.isFrozen(certified[0]),true);
+ assert.equal(Object.isFrozen(certified),true,
+  'the certified candle collection itself must be immutable');
+ assert.throws(()=>{(certified as Bar[]).push(candle(BASE+2*H4));},TypeError,
+  'a consumer cannot append a fabricated 4H reference after certification');
+ assert.throws(()=>{(certified as Bar[]).splice(0,1);},TypeError,
+  'a consumer cannot silently remove an audited sweep');
+ assert.deepEqual(certified.map(b=>b.time),[BASE,BASE+H4]);
+ assert.equal(h.length,2,'the source input remains untouched');
  // Both source timeframes still reconcile, but the previously issued report
  // is stale. The already returned certified snapshot must not change.
  h[0].open+=0.01;

@@ -145,7 +145,7 @@ export function auditCrtCrossTimeframe(
  */
 export function certifiedCrtFourHourBars(
  fourHour:readonly Bar[],fifteenMinute:readonly Bar[],audit:CrossoverAudit,
-):Bar[]{
+):readonly Bar[]{
  // A coherent change to both timeframe arrays can pass a fresh OHLC audit
  // while invalidating the original evidence snapshot. Never certify it with
  // a stale (or independently fabricated) report.
@@ -162,5 +162,8 @@ export function certifiedCrtFourHourBars(
  // Return detached, frozen evidence snapshots. Aliasing the mutable API bars
  // would let a later caller mutation silently rewrite an already-certified
  // CRT reference/sweep without re-running the source-coherence audit.
- return fourHour.filter(b=>verified.has(b.time)).map(b=>Object.freeze({...b}));
+ // Freeze the collection as well as each candle: a consumer must not be
+ // able to append a fabricated reference or remove an audited sweep after
+ // certification, even if the individual candle objects are immutable.
+ return Object.freeze(fourHour.filter(b=>verified.has(b.time)).map(b=>Object.freeze({...b})));
 }
