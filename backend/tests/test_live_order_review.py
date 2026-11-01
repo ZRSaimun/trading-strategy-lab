@@ -409,3 +409,40 @@ def test_cash_account_full_margin_boundary_preserves_nonexecution(broker):
     assert result['assumption_checks_pass'] is True
     assert result['may_execute_paper_order'] is False
     assert result['may_execute_real_order'] is False
+
+
+@pytest.mark.parametrize('entry,allowed', [
+    ('100.02', True),          # quoted ASK, no extra entry slippage
+    ('101.0202', True),        # exactly 100 bps beyond ASK
+    ('101.02020001', False),   # one 8-decimal increment beyond the cap
+    ('102', False),            # 198 bps beyond ASK; other risk checks can pass
+])
+def test_buy_declared_entry_deviation_has_exact_100bps_ceiling(entry, allowed):
+    result = packet(entry_price=entry)
+    assert result['checks']['entry_not_better_than_quote'] is True
+    assert result['checks']['declared_entry_deviation_at_most_100bps'] is allowed
+    assert ('declared_entry_deviation_at_most_100bps' in result['failed_checks']) is not allowed
+    if not allowed:
+        assert result['assumption_checks_pass'] is False
+        assert compare_review(result, intent(entry_price=entry), now_ms=NOW+1)['requires_new_human_review']
+    assert result['may_execute_real_order'] is False
+    assert result['may_execute_paper_order'] is False
+
+
+@pytest.mark.parametrize('entry,allowed', [
+    ('100', True),           # quoted BID, no extra entry slippage
+    ('99', True),            # exactly 100 bps below BID
+    ('98.99999999', False),  # one 8-decimal increment beyond the cap
+    ('98', False),
+])
+def test_sell_declared_entry_deviation_has_exact_100bps_ceiling(entry, allowed):
+    # CFD SELL previews remain independently blocked by the unsupported API
+    # account gate. Test the entry-deviation diagnostic, not execution.
+    order = intent(broker='Trading212-CFD', direction='SELL', entry_price=entry,
+                   stop_price='101', stressed_exit_price='102')
+    result = build_review_packet(order, now_ms=NOW)
+    assert result['checks']['entry_not_better_than_quote'] is True
+    assert result['checks']['declared_entry_deviation_at_most_100bps'] is allowed
+    assert ('declared_entry_deviation_at_most_100bps' in result['failed_checks']) is not allowed
+    assert result['may_execute_real_order'] is False
+    assert result['may_execute_paper_order'] is False

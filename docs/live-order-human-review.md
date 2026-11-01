@@ -53,3 +53,10 @@ This is an **input-consistency guard**, not authenticated evidence or a signatur
 ## Cash-account full-margin consistency (1 November 2026)
 
 For the disconnected Trading 212 Invest and Stocks ISA BUY preview, the owner-declared `margin_rate_percent` must now equal **100%**. Previously a lower declared margin rate could understate the preview's combined/stressed margin requirement even while `cash_account_fully_funded` passed. The new `cash_account_full_margin_policy` check fails closed for sub-100% declarations; it does not change the separate cost-inclusive cash-funding rule. Synthetic regressions cover both cash-account categories, discounted rates near zero/50%/just below 100%, and the exact 100% boundary. This is a deliberately conservative modeling consistency rule, **not** an authenticated broker margin requirement or verification of spendable cash. Trading 212 CFD remains unsupported by the official-account check, regardless of this preview rule. No order execution, broker connection, production data change or deployment is enabled.
+
+
+## Declared entry-versus-quote sanity ceiling (1 November 2026)
+
+The disconnected review now independently fails `declared_entry_deviation_at_most_100bps` when a BUY's owner-declared entry exceeds the quoted ASK by more than 1%, or a SELL's declared entry falls more than 1% below the quoted BID. Exact 100-basis-point boundaries are accepted; a single eight-decimal increment beyond the boundary is rejected. The pre-existing `entry_not_better_than_quote` check still independently rejects unrealistically *favorable* declared entries. Synthetic BUY/SELL boundary tests exercise both checks and retain unconditional non-execution flags.
+
+This 100-bps bound is a deliberately conservative **offline review sanity ceiling**, not a verified Trading 212 order-slippage setting, not an estimate of executable prices, and not evidence of broker-authenticated quotes or balances. Real spreads, fills, costs, slippage, news/session restrictions and stop gaps still require authenticated source-specific evidence. No order route, paid service, production mutation, main merge or deployment is introduced.

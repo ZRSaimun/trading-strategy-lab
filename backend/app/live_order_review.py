@@ -104,6 +104,14 @@ def build_review_packet(order, *, now_ms, max_quote_age_ms=3000,
                                                else o['stressed_exit_price'] > o['stop_price'])
     checks['entry_not_better_than_quote'] = (o['entry_price'] >= o['quote_ask'] if o['direction'] == 'BUY'
                                              else o['entry_price'] <= o['quote_bid'])
+    # A declared entry far beyond the quoted executable side must not look
+    # acceptable solely because the owner also declares a large equity budget.
+    # One percent is a conservative OFFLINE sanity ceiling, not a broker fill
+    # tolerance or evidence that the quote is genuine.
+    checks['declared_entry_deviation_at_most_100bps'] = (
+        o['quote_ask'] <= o['entry_price'] <= o['quote_ask'] * Decimal('1.01')
+        if o['direction'] == 'BUY'
+        else o['quote_bid'] * Decimal('0.99') <= o['entry_price'] <= o['quote_bid'])
     # A touched protective stop is a reconciliation hold, not a fill guarantee.
     checks['protective_stop_not_breached'] = (
         o['quote_bid'] > o['stop_price'] if o['direction'] == 'BUY'
