@@ -114,3 +114,8 @@ A UTC-aligned 4H or 15m opening timestamp can be a safe JavaScript integer while
 ### Array species constructor guard (1 November 2026)
 
 The 4H/15m same-archive audit also rejects **own `constructor` properties on source arrays** before calling `map`, `slice`, or `filter`. JavaScript's standard array methods consult `constructor[Symbol.species]` to allocate result arrays: a source array with normal indexed candles, standard prototype and unmodified methods could still run an attacker-supplied constructor/species getter during the audit or snapshot. Synthetic regressions cover 4H/15m constructor accessors, a custom species getter, post-certification constructor substitution and unchanged ordinary arrays. This is a local source-shape consistency guard, not proof of broker/source authenticity, verified volume, execution readiness or profitability.
+
+
+### Numeric-volume redaction in certified 4H candles (1 November 2026)
+
+The 4H/15m cross-timeframe audit separately records frozen `reconciledNumericVolumeStarts` for buckets where reported 4H volume agrees with **all sixteen** numeric 15m constituents. Price-only certification remains possible when some constituent volumes are `null`, but the certified *copy* now sets that bucket's 4H `volume` to `null` rather than carrying an uncheckable numeric total into downstream research. The original archive input is not modified. A synthetic regression covers missing 15m volume, an adjacent fully reconciled bucket, a null 4H aggregate, and frozen report evidence. **Reconciliation is not source authentication**: even a retained numeric value does not establish real exchange/tick volume, independent provider identity, execution prices or profitability. No broker calls, orders, merges or deployment.

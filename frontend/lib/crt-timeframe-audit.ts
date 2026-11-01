@@ -16,6 +16,8 @@ export type CrossoverAudit={
  readonly uncheckableFourHourBars:number;
  /** Exact 4H bucket starts whose complete 16-bar 15m OHLC matched. */
  readonly verifiedFourHourStarts:readonly number[];
+ /** Same-archive numeric reconciliation, NOT authenticated market volume. */
+ readonly reconciledNumericVolumeStarts:readonly number[];
 };
 const MIN15=900, FOUR_HOUR=14400, BARS_PER_4H=16;
 
@@ -115,6 +117,7 @@ export function auditCrtCrossTimeframe(
  }
  let checked=0,uncheckable=0,index=0;
  const verifiedFourHourStarts:number[]=[];
+ const reconciledNumericVolumeStarts:number[]=[];
  const start=fifteenMinute[0]?.time,end=fifteenMinute[fifteenMinute.length-1]?.time;
  for(const h4 of fourHour){
   // An overlapping but incomplete boundary block must be classified as
@@ -168,6 +171,7 @@ export function auditCrtCrossTimeframe(
     : Math.abs(h4.volume-total)>tolerance;
    if(!Number.isFinite(total)||!safeMagnitude||mismatch)
     throw Error('4H/15m volume mismatch for same historical archive');
+   reconciledNumericVolumeStarts.push(h4.time);
   }
   checked++;
   verifiedFourHourStarts.push(h4.time);
@@ -179,6 +183,7 @@ export function auditCrtCrossTimeframe(
  const report:CrossoverAudit=Object.freeze({
   checkedFourHourBars:checked,uncheckableFourHourBars:uncheckable,
   verifiedFourHourStarts:Object.freeze(verifiedFourHourStarts),
+  reconciledNumericVolumeStarts:Object.freeze(reconciledNumericVolumeStarts),
  });
  issuedSnapshots.set(report,candleSnapshot(fourHour,fifteenMinute));
  return report;
@@ -204,9 +209,12 @@ export function certifiedCrtFourHourBars(
   current.checkedFourHourBars!==audit.checkedFourHourBars||
   current.uncheckableFourHourBars!==audit.uncheckableFourHourBars||
   current.verifiedFourHourStarts.length!==audit.verifiedFourHourStarts.length||
-  current.verifiedFourHourStarts.some((time,i)=>time!==audit.verifiedFourHourStarts[i]))
+  current.verifiedFourHourStarts.some((time,i)=>time!==audit.verifiedFourHourStarts[i])||
+  current.reconciledNumericVolumeStarts.length!==audit.reconciledNumericVolumeStarts.length||
+  current.reconciledNumericVolumeStarts.some((time,i)=>time!==audit.reconciledNumericVolumeStarts[i]))
   throw Error('Stale or inconsistent 4H/15m certification report');
  const verified=new Set(current.verifiedFourHourStarts);
+ const reconciledVolume=new Set(current.reconciledNumericVolumeStarts);
  // Return detached, frozen evidence snapshots. Aliasing the mutable API bars
  // would let a later caller mutation silently rewrite an already-certified
  // CRT reference/sweep without re-running the source-coherence audit.
@@ -219,6 +227,8 @@ export function certifiedCrtFourHourBars(
  // supposedly certified evidence or changing source state during cloning.
  return Object.freeze(fourHour.filter(b=>verified.has(b.time)).map(b=>Object.freeze({
   time:b.time,open:b.open,high:b.high,low:b.low,close:b.close,
-  volume:b.volume,observed_minutes:b.observed_minutes,
+  // Never carry an uncheckable 4H volume into a price-only certificate.
+  // Even a reconciled total is NOT authenticated exchange/tick volume.
+  volume:reconciledVolume.has(b.time)?b.volume:null,observed_minutes:b.observed_minutes,
  } satisfies Bar)));
 }

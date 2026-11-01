@@ -22,7 +22,7 @@ test('validates two complete adjacent 4H bars against exactly 16 observed 15m ba
  const {h,q}=fixture();
  assert.deepEqual(auditCrtCrossTimeframe(h,q),
   {checkedFourHourBars:2,uncheckableFourHourBars:0,
-   verifiedFourHourStarts:[BASE,BASE+H4]});
+   verifiedFourHourStarts:[BASE,BASE+H4],reconciledNumericVolumeStarts:[]});
 });
 test('fails closed when source-identical timeframe response has inconsistent OHLC',()=>{
  for(const field of ['open','high','low','close'] as const){
@@ -141,6 +141,30 @@ test('null constituent or aggregate volume stays unknown, not fabricated zero',(
  // This checked count certifies price aggregation only, not real volume
  // source identity or a volume confirmation gate.
 });
+
+test('CRT price certification redacts numeric 4H volume without complete 15m reconciliation',()=>{
+ const {h,q}=fixture();
+ h.forEach(b=>{b.volume=80;});
+ q.forEach(b=>{b.volume=5;});
+ q[3].volume=null; // 4H 00:00 OHLC matches, but volume cannot be checked.
+ const report=auditCrtCrossTimeframe(h,q);
+ assert.deepEqual(report.verifiedFourHourStarts,[BASE,BASE+H4]);
+ assert.deepEqual(report.reconciledNumericVolumeStarts,[BASE+H4]);
+ const certified=certifiedCrtFourHourBars(h,q,report);
+ assert.equal(certified[0].volume,null,
+  'uncheckable 4H volume must not enter certified evidence');
+ assert.equal(certified[1].volume,80,
+  'fully reconciled numeric 4H volume remains visible, not authenticated');
+ assert.equal(h[0].volume,80,'original source response is not rewritten');
+ assert.equal(Object.isFrozen(report.reconciledNumericVolumeStarts),true);
+ assert.throws(()=>{(report.reconciledNumericVolumeStarts as number[]).push(BASE);},TypeError);
+ const allUnknown=fixture();
+ allUnknown.q.forEach(b=>{b.volume=5;});
+ const unknownReport=auditCrtCrossTimeframe(allUnknown.h,allUnknown.q);
+ assert.deepEqual(unknownReport.reconciledNumericVolumeStarts,[]);
+ assert.equal(certifiedCrtFourHourBars(allUnknown.h,allUnknown.q,unknownReport)[0].volume,null);
+});
+
 test('missing interior 15m observations never certify an apparently complete 4H bar',()=>{
  const {h,q}=fixture();
  q.splice(5,1);
@@ -150,10 +174,10 @@ test('partial overlapping boundary windows are explicitly uncheckable, not false
  const {h,q}=fixture();
  assert.deepEqual(auditCrtCrossTimeframe(h,q.slice(1,31)),
   {checkedFourHourBars:0,uncheckableFourHourBars:2,
-   verifiedFourHourStarts:[]});
+   verifiedFourHourStarts:[],reconciledNumericVolumeStarts:[]});
  assert.deepEqual(auditCrtCrossTimeframe(h,q.slice(16)),
   {checkedFourHourBars:1,uncheckableFourHourBars:1,
-   verifiedFourHourStarts:[BASE+H4]});
+   verifiedFourHourStarts:[BASE+H4],reconciledNumericVolumeStarts:[]});
 });
 test('mutations to candles after the checked 4H window do not affect past audit',()=>{
  const {h,q}=fixture();
@@ -190,7 +214,7 @@ test('a missing 15m response cannot be presented as verified 4H coherence',()=>{
  const {h}=fixture();
  assert.deepEqual(auditCrtCrossTimeframe(h,[]),
   {checkedFourHourBars:0,uncheckableFourHourBars:2,
-   verifiedFourHourStarts:[]});
+   verifiedFourHourStarts:[],reconciledNumericVolumeStarts:[]});
 });
 
 test('uncheckable archive-edge 4H candle cannot manufacture a CRT sweep candidate',()=>{
@@ -317,6 +341,7 @@ test('issued cross-timeframe audit report and verified timestamp list are immuta
  const report=auditCrtCrossTimeframe(h,q);
  assert.equal(Object.isFrozen(report),true);
  assert.equal(Object.isFrozen(report.verifiedFourHourStarts),true);
+ assert.equal(Object.isFrozen(report.reconciledNumericVolumeStarts),true);
  assert.throws(()=>{(report as {checkedFourHourBars:number}).checkedFourHourBars=0;},TypeError);
  assert.throws(()=>{(report.verifiedFourHourStarts as number[])[0]=BASE+2*H4;},TypeError);
  assert.throws(()=>{(report.verifiedFourHourStarts as number[]).push(BASE+2*H4);},TypeError);
