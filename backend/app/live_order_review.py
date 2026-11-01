@@ -243,7 +243,9 @@ def compare_review(packet, revised_order, *, now_ms, max_quote_age_ms=3000,
     if type(packet) is not dict:
         raise ValueError('Review packet must be a plain object')
     digest = packet.get('review_sha256')
-    if not isinstance(digest, str) or len(digest) != 64 or set(digest) - set('0123456789abcdef'):
+    # Reject string subclasses before len()/iteration; an untrusted subclass may
+    # override these operations even when it displays a valid hex digest.
+    if type(digest) is not str or len(digest) != 64 or set(digest) - set('0123456789abcdef'):
         raise ValueError('Invalid review fingerprint')
     issued = packet.get('issued_at_ms')
     expires = packet.get('expires_at_ms')
