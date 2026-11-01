@@ -89,3 +89,10 @@ This is a conservative internal consistency rule using unverified owner declarat
 `compare_review` now copies a validated **plain-dictionary** order declaration once and uses that snapshot for both deterministic review recomputation and current quote-age checks. Previously, the recomputation read the caller-owned dictionary and the subsequent quote-freshness check read it again; an in-process caller mutation between those steps could produce a mixed-state answer or a `KeyError`. A synthetic regression deliberately modifies/removes the original dictionary fields after recomputation and verifies consistent snapshot results with both execution flags still false.
 
 This only protects a deterministic **in-process** review against a mutable input object; it does not authenticate the snapshot, verify market prices or account inventory, create a durable reservation, authorize orders, prove profitability, merge main or deploy Render. The caller must initiate a new review for any later changed intent.
+
+
+## Exact-string mapping-key boundary (1 November 2026)
+
+The offline order normalizer and review-packet comparator now reject dictionary keys that are not **exact plain strings** before constructing sets of those keys. This includes keys of Python `str` subclasses that can override `__hash__` or `__eq__` while appearing textually identical to a required JSON field. The nested `checks` mapping receives the same guard. Three synthetic regressions verify that hostile keys are not re-hashed during order building or packet comparison, that altered packets require fresh human review, and that both execution flags remain false. Ordinary JSON-decoded string keys continue to work.
+
+This is an in-process input-integrity guard, not proof that any broker quote, volume, account balance, stop, risk limit, or order is authenticated. The reviewer remains disconnected and non-executable; no live trading, production data mutation, merge, or Render deployment is authorized.
