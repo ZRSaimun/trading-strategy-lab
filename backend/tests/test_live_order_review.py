@@ -446,3 +446,25 @@ def test_sell_declared_entry_deviation_has_exact_100bps_ceiling(entry, allowed):
     assert ('declared_entry_deviation_at_most_100bps' in result['failed_checks']) is not allowed
     assert result['may_execute_real_order'] is False
     assert result['may_execute_paper_order'] is False
+
+@pytest.mark.parametrize('bad_packet', [None, [], (), 'review', 0])
+def test_review_comparison_rejects_non_object_packets(bad_packet):
+    # Malformed external review input must fail with a controlled validation
+    # error, not an AttributeError from trying to call packet.get().
+    with pytest.raises(ValueError, match='plain object'):
+        compare_review(bad_packet, intent(), now_ms=NOW + 1)
+
+
+def test_review_comparison_rejects_dict_subclass_before_get():
+    class SpoofedPacket(dict):
+        def get(self, *_args, **_kwargs):
+            raise AssertionError('untrusted overridden get must not run')
+
+    with pytest.raises(ValueError, match='plain object'):
+        compare_review(SpoofedPacket(packet()), intent(), now_ms=NOW + 1)
+
+    # A legitimate plain dict still compares and never authorizes execution.
+    result = compare_review(packet(), intent(), now_ms=NOW + 1)
+    assert result['review_matches_exact_intent'] is True
+    assert result['may_execute_paper_order'] is False
+    assert result['may_execute_real_order'] is False
