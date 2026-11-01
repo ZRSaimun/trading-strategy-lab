@@ -279,7 +279,7 @@ def test_quote_timing_policy_cannot_be_relaxed(policy):
         compare_review(packet(), intent(), now_ms=NOW+1, **policy)
 
 
-def test_conservative_ceilings_accept_boundary_values_but_never_execute():
+def test_generic_conservative_ceilings_do_not_override_cash_leverage_policy():
     result = packet(max_position_loss_cash='50', max_daily_loss_cash='100',
                     max_gross_leverage='5', max_spread_bps='100')
     for check in ('declared_position_budget_at_most_5pct_equity',
@@ -287,7 +287,8 @@ def test_conservative_ceilings_accept_boundary_values_but_never_execute():
                   'declared_leverage_policy_at_most_5x',
                   'declared_spread_policy_at_most_100bps'):
         assert result['checks'][check] is True
-    assert result['assumption_checks_pass'] is True
+    assert result['checks']['cash_account_unleveraged_policy'] is False
+    assert result['assumption_checks_pass'] is False
     assert result['may_execute_real_order'] is False
     assert result['may_execute_paper_order'] is False
 
@@ -298,6 +299,7 @@ def test_new_policy_checks_preserve_existing_position_loss_calculation():
     assert baseline['checks']['declared_position_budget_at_most_5pct_equity']
     assert baseline['checks']['declared_daily_budget_at_most_10pct_equity']
     assert baseline['checks']['declared_leverage_policy_at_most_5x']
+    assert baseline['checks']['cash_account_unleveraged_policy']
     assert baseline['checks']['declared_spread_policy_at_most_100bps']
 
 
@@ -366,7 +368,8 @@ def test_cash_account_funding_includes_declared_costs(broker):
     assert result['combined_notional_cash'] == '999.60'
     assert result['checks']['portfolio_leverage_within_cap']
     assert result['checks']['stressed_portfolio_leverage_within_cap']
-    assert result['failed_checks'] == ['cash_account_fully_funded']
+    assert 'cash_account_fully_funded' in result['failed_checks']
+    assert 'cash_account_unleveraged_policy' in result['failed_checks']
     assert not result['assumption_checks_pass']
     assert compare_review(result, order, now_ms=NOW+1)['requires_new_human_review']
     assert result['may_execute_paper_order'] is False
@@ -530,3 +533,28 @@ def test_review_comparison_rejects_fingerprint_subclass_before_methods():
     assert result['review_matches_exact_intent'] is True
     assert result['may_execute_paper_order'] is False
     assert result['may_execute_real_order'] is False
+
+
+@pytest.mark.parametrize('broker', ['Trading212-Invest', 'Trading212-StocksISA'])
+@pytest.mark.parametrize('leverage', ['1.00000001', '2', '5'])
+def test_cash_account_rejects_leveraged_declared_policy(broker, leverage):
+    # Funding the proposed BUY does not make a >1x cash-account policy valid.
+    order = intent(broker=broker, max_gross_leverage=leverage)
+    review = build_review_packet(order, now_ms=NOW)
+    assert review['checks']['cash_account_fully_funded'] is True
+    assert review['checks']['declared_leverage_policy_at_most_5x'] is True
+    assert review['checks']['cash_account_unleveraged_policy'] is False
+    assert 'cash_account_unleveraged_policy' in review['failed_checks']
+    assert compare_review(review, order, now_ms=NOW+1)['requires_new_human_review']
+    assert review['may_execute_paper_order'] is False
+    assert review['may_execute_real_order'] is False
+
+
+@pytest.mark.parametrize('broker', ['Trading212-Invest', 'Trading212-StocksISA'])
+@pytest.mark.parametrize('leverage', ['0.5', '1', '1.00000000'])
+def test_cash_account_unleveraged_policy_accepts_declared_boundary(broker, leverage):
+    review = packet(broker=broker, max_gross_leverage=leverage)
+    assert review['checks']['cash_account_unleveraged_policy'] is True
+    assert review['assumption_checks_pass'] is True
+    assert review['may_execute_paper_order'] is False
+    assert review['may_execute_real_order'] is False

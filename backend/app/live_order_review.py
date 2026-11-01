@@ -147,6 +147,12 @@ def build_review_packet(order, *, now_ms, max_quote_age_ms=3000,
             o['max_daily_loss_cash'] * 100 <= o['account_equity_cash'] * 10)
         checks['declared_leverage_policy_at_most_5x'] = (
             o['max_gross_leverage'] <= Decimal('5'))
+        # A cash-account preview must not describe a leveraged policy even
+        # when a separate full-funding check currently limits gross exposure.
+        # CFD remains blocked by its independent official-API account gate.
+        checks['cash_account_unleveraged_policy'] = (
+            o['broker'] == 'Trading212-CFD'
+            or o['max_gross_leverage'] <= Decimal('1'))
         checks['declared_spread_policy_at_most_100bps'] = (
             o['max_spread_bps'] <= Decimal('100'))
         checks['per_position_loss_cap'] = loss > 0 and loss <= o['max_position_loss_cash']
