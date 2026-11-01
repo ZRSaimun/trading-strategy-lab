@@ -259,7 +259,14 @@ def compare_review(packet, revised_order, *, now_ms, max_quote_age_ms=3000,
         raise ValueError('Invalid review timing')
     if type(now_ms) is not int or not 0 <= now_ms <= MAX_TIME:
         raise ValueError('Invalid server clock')
-    current = build_review_packet(revised_order, now_ms=issued,
+    # Normalize and recheck a single plain-object snapshot. The original
+    # caller-owned dict may be modified while the review is recomputed; do
+    # not mix a digest from one state with quote freshness from another.
+    # All accepted values are immutable exact str/int after validation.
+    if type(revised_order) is not dict:
+        raise ValueError('Review input must be a plain object')
+    order_snapshot = revised_order.copy()
+    current = build_review_packet(order_snapshot, now_ms=issued,
                                   ttl_ms=expires-issued,
                                   max_quote_age_ms=max_quote_age_ms,
                                   max_transport_lag_ms=max_transport_lag_ms)
@@ -270,8 +277,8 @@ def compare_review(packet, revised_order, *, now_ms, max_quote_age_ms=3000,
     matches = current['review_sha256'] == digest and _same_review_payload(packet, current)
     # An unchanged order can still have a quote that became stale after the
     # packet was issued. Re-evaluate the timestamp gate against CURRENT time.
-    observed = revised_order['quote_observed_at_ms']
-    received = revised_order['quote_received_at_ms']
+    observed = order_snapshot['quote_observed_at_ms']
+    received = order_snapshot['quote_received_at_ms']
     quote_fresh_now = (observed <= received <= now_ms
                        and now_ms - observed <= max_quote_age_ms
                        and received - observed <= max_transport_lag_ms)
