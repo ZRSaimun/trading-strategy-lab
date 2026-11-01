@@ -93,3 +93,8 @@ The cross-timeframe certification helper now freezes the **returned array** as w
 ### Certified 4H field-boundary guard (1 November 2026)
 
 The 4H/15m certification helper returns detached, frozen candles containing **only** the seven validated research-bar fields (UTC bucket time, OHLC, declared volume and observed-minute count). It does not spread arbitrary source-object metadata into certified candles or invoke unrelated source getters. A synthetic regression supplies a throwing extra metadata getter and an unverified broker-execution claim: neither can appear in the certified evidence. This is an in-process evidence-boundary check, **not** a guarantee that the original source, prices, volume type, broker quotes or future profitability are independently verified.
+
+
+### Own-data candle field validation (1 November 2026)
+
+The CRT 4H/15m audit and its stale-report snapshot now require all seven validated candle fields to be **own data properties** on each API bar. Accessor-backed or prototype-inherited time/OHLC/volume/coverage fields are rejected *before* their values are read. This closes an in-process consistency gap where a getter could return different prices between the initial audit, issued snapshot and later certified-copy construction, or run side effects during a supposedly read-only check. A synthetic regression covers an unread price getter, an inherited price field and a getter installed after audit. Extra unrelated metadata remains ignored. This is a local JSON-record shape guard, not protection against arbitrary JavaScript Proxies, independent archive authentication, authenticated broker quotes or profitability.
