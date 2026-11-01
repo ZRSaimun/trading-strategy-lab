@@ -233,7 +233,12 @@ def _same_review_payload(received, expected):
 def compare_review(packet, revised_order, *, now_ms, max_quote_age_ms=3000,
                    max_transport_lag_ms=1000):
     """Detect expired/changed reviews, never grant execution on a match."""
-    digest = packet.get('review_sha256') if isinstance(packet, dict) else None
+    # Reject malformed packet containers before calling methods on untrusted
+    # objects. A dict subclass can override .get; only a plain JSON object
+    # belongs to this fixed review schema.
+    if type(packet) is not dict:
+        raise ValueError('Review packet must be a plain object')
+    digest = packet.get('review_sha256')
     if not isinstance(digest, str) or len(digest) != 64 or set(digest) - set('0123456789abcdef'):
         raise ValueError('Invalid review fingerprint')
     issued = packet.get('issued_at_ms')
