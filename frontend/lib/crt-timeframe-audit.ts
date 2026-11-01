@@ -100,8 +100,10 @@ export function auditCrtCrossTimeframe(
    // the unbounded scale-relative error budget previously allowed one-unit
    // drifts in large aggregates. A 0.25-unit cap is a conservative audit
    // ceiling, not a source-certified volume precision or broker tick size.
+   // Do not impose a 1-unit scale floor: near-zero fractional volume must
+   // not receive a fixed absolute error allowance larger than the data.
    const tolerance=Math.min(0.25,
-    64*Number.EPSILON*Math.max(1,Math.abs(h4.volume),Math.abs(total)));
+    64*Number.EPSILON*Math.max(Math.abs(h4.volume),Math.abs(total)));
    // Integer constituent volumes represent exact counts, not floating-point
    // estimates. A scale-relative epsilon could otherwise hide one or more
    // real counts in a large archive. Refuse sums outside safe integer range.

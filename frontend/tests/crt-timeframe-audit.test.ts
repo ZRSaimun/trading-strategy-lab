@@ -116,6 +116,18 @@ test('small fractional volume summation still permits floating-point roundoff',(
  h.forEach(b=>{b.volume=1.6;});
  assert.equal(auditCrtCrossTimeframe(h,q).checkedFourHourBars,2);
 });
+test('tiny fractional volume mismatch cannot pass a one-unit tolerance floor',()=>{
+ // Sixteen 1e-16 observations genuinely sum to ~1.6e-15. The old
+ // Math.max(1, ...) floor allowed a zero 4H volume to pass as equal.
+ const {h,q}=fixture();
+ q.forEach(b=>{b.volume=1e-16;});
+ h.forEach(b=>{b.volume=1.6e-15;});
+ assert.equal(auditCrtCrossTimeframe(h,q).checkedFourHourBars,2,
+  'legitimate tiny fractional summation roundoff remains acceptable');
+ h[0].volume=0;
+ assert.throws(()=>auditCrtCrossTimeframe(h,q),/volume mismatch/,
+  'a reported zero aggregate must not hide observed tiny fractional volume');
+});
 test('null constituent or aggregate volume stays unknown, not fabricated zero',()=>{
  const x=fixture();
  x.q.forEach(b=>{b.volume=5;});
