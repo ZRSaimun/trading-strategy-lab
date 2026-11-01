@@ -64,3 +64,8 @@ This intentionally conservative consistency check does **not** establish exchang
 ## Integer volume count coherence (1 November 2026)
 
 When all sixteen source-matched 15m candles report **safe integer** volume counts, their 4H aggregate must also be a safe integer and match their sum **exactly**. A relative floating-point tolerance previously allowed a one-count discrepancy at large magnitudes, even though counting integers requires no rounding. If the integer sum exceeds JavaScript's safe-integer range, the audit rejects it rather than certifying a potentially rounded count. Only genuinely fractional constituent volumes retain a bounded floating-point summation tolerance. Null volumes remain unknown, not zero or verified volume. This is internal same-archive aggregation consistency, **not** proof that HistData volumes are authenticated exchange/tick counts or that the CRT volume gate can pass.
+
+
+## Fractional-volume audit precision cap (1 November 2026)
+
+For sixteen source-matched 15m candles with fractional reported volumes, the floating-point summation tolerance is now capped at **0.25 reported volume units**, in addition to the existing 64-ULP relative bound. The previous scale-only bound exceeded one full reported unit near a 100-trillion-unit aggregate, potentially certifying an internally inconsistent 4H total. The new conservative cap rejects that discrepancy while accepting ordinary sub-unit floating-point roundoff on small values. Two synthetic regressions cover both cases. This cap is an audit policy, **not** verified volume-unit granularity, independent exchange/tick provenance, or evidence that any volume-based trading gate can pass. Ambiguous high-magnitude arithmetic may be rejected until source precision is established.

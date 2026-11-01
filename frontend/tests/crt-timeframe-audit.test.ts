@@ -81,6 +81,23 @@ test('integer count sums exceeding safe numeric precision cannot be certified',(
  assert.throws(()=>auditCrtCrossTimeframe(h,q),/volume mismatch/,
   'a numerically equal but unsafe integer total is not exact count evidence');
 });
+test('large fractional volume aggregates cannot hide a full reported-unit drift',()=>{
+ // All sixteen volumes have genuine fractional parts, so the integer-only
+ // branch does not apply. The former 64-ULP tolerance was >1 at this scale.
+ const {h,q}=fixture();
+ q.forEach(b=>{b.volume=6_250_000_000_000.25;});
+ h.forEach(b=>{b.volume=100_000_000_000_004;});
+ assert.equal(auditCrtCrossTimeframe(h,q).checkedFourHourBars,2);
+ h[0].volume!+=1;
+ assert.throws(()=>auditCrtCrossTimeframe(h,q),/volume mismatch/,
+  'a full unit discrepancy is not acceptable floating-point summation noise');
+});
+test('small fractional volume summation still permits floating-point roundoff',()=>{
+ const {h,q}=fixture();
+ q.forEach(b=>{b.volume=0.1;});
+ h.forEach(b=>{b.volume=1.6;});
+ assert.equal(auditCrtCrossTimeframe(h,q).checkedFourHourBars,2);
+});
 test('null constituent or aggregate volume stays unknown, not fabricated zero',()=>{
  const x=fixture();
  x.q.forEach(b=>{b.volume=5;});

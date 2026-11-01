@@ -96,7 +96,12 @@ export function auditCrtCrossTimeframe(
   // provenance: null values remain unknown, never zero-filled or certified.
   if(h4.volume!==null&&subset.every(b=>b.volume!==null)){
    const total=subset.reduce((sum,b)=>sum+(b.volume??0),0);
-   const tolerance=64*Number.EPSILON*Math.max(1,Math.abs(h4.volume),Math.abs(total));
+   // Even fractional reported volumes cannot justify a whole-unit mismatch:
+   // the unbounded scale-relative error budget previously allowed one-unit
+   // drifts in large aggregates. A 0.25-unit cap is a conservative audit
+   // ceiling, not a source-certified volume precision or broker tick size.
+   const tolerance=Math.min(0.25,
+    64*Number.EPSILON*Math.max(1,Math.abs(h4.volume),Math.abs(total)));
    // Integer constituent volumes represent exact counts, not floating-point
    // estimates. A scale-relative epsilon could otherwise hide one or more
    // real counts in a large archive. Refuse sums outside safe integer range.
