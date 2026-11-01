@@ -391,3 +391,42 @@ test('CRT cross-timeframe audit rejects accessor, inherited and post-audit array
  assert.deepEqual(certifiedCrtFourHourBars(valid.h,valid.q,stable).map(b=>b.time),
   [BASE,BASE+H4],'ordinary dense JSON arrays remain supported');
 });
+
+test('CRT audit refuses overridden array iteration and methods before executing them',()=>{
+ for(const method of ['map','slice','filter'] as const){
+  const {h,q}=fixture();
+  let calls=0;
+  const target=method==='slice'?q:h;
+  Object.defineProperty(target,method,{
+   configurable:true,value:()=>{calls++;throw Error('untrusted array method executed');},
+  });
+  assert.throws(()=>auditCrtCrossTimeframe(h,q),/ordinary JSON array methods/);
+  assert.equal(calls,0,method+' must not execute during source certification');
+ }
+ const x=fixture();
+ let iteratorCalls=0;
+ Object.defineProperty(x.h,Symbol.iterator,{
+  configurable:true,
+  value:function*(){iteratorCalls++;throw Error('untrusted iterator executed');},
+ });
+ assert.throws(()=>auditCrtCrossTimeframe(x.h,x.q),/ordinary JSON array methods/);
+ assert.equal(iteratorCalls,0,'an overridden 4H iterator must never be invoked');
+
+ const y=fixture();
+ const issued=auditCrtCrossTimeframe(y.h,y.q);
+ Object.defineProperty(y.h,'filter',{
+  configurable:true,value:()=>{throw Error('untrusted certification filter executed');},
+ });
+ assert.throws(()=>certifiedCrtFourHourBars(y.h,y.q,issued),
+  /ordinary JSON array methods/,'post-audit method replacement invalidates certification');
+
+ const z=fixture();
+ Object.setPrototypeOf(z.q,Object.create(Array.prototype));
+ assert.throws(()=>auditCrtCrossTimeframe(z.h,z.q),/ordinary JSON array methods/,
+  'nonstandard inherited array methods are not trustworthy JSON evidence');
+
+ const plain=fixture();
+ const valid=auditCrtCrossTimeframe(plain.h,plain.q);
+ assert.deepEqual(certifiedCrtFourHourBars(plain.h,plain.q,valid).map(b=>b.time),
+  [BASE,BASE+H4],'ordinary source JSON arrays remain supported');
+});

@@ -37,6 +37,15 @@ function assertOwnDataFields(b:Bar):void{
  }
 }
 function assertOwnBarSlots(bars:readonly Bar[]):void{
+ // Array.isArray and own indexed slots alone are insufficient: a caller
+ // can override iteration, map, slice or filter to substitute different
+ // candles AFTER indexed validation. API JSON arrays have the standard
+ // Array prototype and no own method overrides. Refuse exotic arrays
+ // before invoking any caller-supplied iterator or method.
+ if(Object.getPrototypeOf(bars)!==Array.prototype||
+  ['map','slice','filter'].some(name=>Object.hasOwn(bars,name))||
+  Object.hasOwn(bars,Symbol.iterator))
+  throw Error('Cross-timeframe window requires ordinary JSON array methods');
  // JSON arrays contain direct indexed data entries. Accessor-backed or
  // inherited array elements could swap candle objects between the audit,
  // issued snapshot and certified-copy selection, even when candle fields
