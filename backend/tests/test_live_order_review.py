@@ -468,3 +468,42 @@ def test_review_comparison_rejects_dict_subclass_before_get():
     assert result['review_matches_exact_intent'] is True
     assert result['may_execute_paper_order'] is False
     assert result['may_execute_real_order'] is False
+
+
+@pytest.mark.parametrize('bad_order', [None, [], (), 'order', 1])
+def test_review_builder_rejects_non_plain_order_objects(bad_order):
+    with pytest.raises(ValueError, match='plain object'):
+        build_review_packet(bad_order, now_ms=NOW)
+
+
+def test_review_builder_rejects_mapping_subclass_without_accessing_it():
+    class SpoofedOrder(dict):
+        def __iter__(self):
+            raise AssertionError('untrusted order iterator must not run')
+
+        def __getitem__(self, _key):
+            raise AssertionError('untrusted order accessor must not run')
+
+    malicious = SpoofedOrder(intent())
+    with pytest.raises(ValueError, match='plain object'):
+        build_review_packet(malicious, now_ms=NOW)
+    with pytest.raises(ValueError, match='plain object'):
+        compare_review(packet(), malicious, now_ms=NOW + 1)
+
+
+@pytest.mark.parametrize('field,value', [
+    ('quantity', '2'),
+    ('quote_id', 'q-12345678'),
+])
+def test_review_builder_rejects_untrusted_string_subclasses(field, value):
+    class SpoofedText(str):
+        pass
+
+    with pytest.raises(ValueError, match='expected bounded plain decimal string|invalid identifier'):
+        packet(**{field: SpoofedText(value)})
+
+    # Ordinary JSON-decoded strings are still valid and never authorize orders.
+    valid = packet(**{field: value})
+    assert valid['assumption_checks_pass'] is True
+    assert valid['may_execute_paper_order'] is False
+    assert valid['may_execute_real_order'] is False

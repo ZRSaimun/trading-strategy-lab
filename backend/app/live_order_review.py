@@ -28,7 +28,7 @@ MAX_TIME = 8_640_000_000_000_000
 def _money(value, field):
     # String-only: no lossy float conversion, booleans, exponent notation,
     # hidden whitespace, NaN/Infinity, or unbounded precision/scale.
-    if not isinstance(value, str) or not re.fullmatch(r'-?(?:0|[1-9][0-9]{0,14})(?:\.[0-9]{1,8})?', value):
+    if type(value) is not str or not re.fullmatch(r'-?(?:0|[1-9][0-9]{0,14})(?:\.[0-9]{1,8})?', value):
         raise ValueError(f'{field}: expected bounded plain decimal string')
     try:
         result = Decimal(value)
@@ -40,13 +40,17 @@ def _money(value, field):
 
 
 def _identity(value, field):
-    if not isinstance(value, str) or not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._:/+-]{0,79}', value):
+    if type(value) is not str or not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._:/+-]{0,79}', value):
         raise ValueError(f'{field}: invalid identifier')
     return value
 
 
 def _normalize(order):
-    if not isinstance(order, dict) or set(order) != EXPECTED_FIELDS:
+    # Refuse mapping subclasses before iteration or field access: untrusted
+    # overrides of __iter__/__getitem__ must not execute during a review.
+    if type(order) is not dict:
+        raise ValueError('Review input must be a plain object')
+    if set(order) != EXPECTED_FIELDS:
         raise ValueError('Review input must contain exactly the required fields')
     normalized = {field: _identity(order[field], field) for field in TEXT_FIELDS}
     normalized.update({field: _money(order[field], field) for field in MONEY_FIELDS})
