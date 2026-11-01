@@ -584,3 +584,51 @@ def test_re_review_uses_one_intent_snapshot_for_digest_and_quote_age(monkeypatch
     assert result['may_execute_real_order'] is False
     assert result['may_execute_paper_order'] is False
     assert 'quote_received_at_ms' not in revised
+
+
+class _RehashTrapKey(str):
+    """Valid-looking dict key that must never be re-hashed by the reviewer."""
+
+    def __new__(cls, value):
+        key = super().__new__(cls, value)
+        key.hash_calls = 0
+        return key
+
+    def __hash__(self):
+        self.hash_calls += 1
+        if self.hash_calls > 1:
+            raise AssertionError('Untrusted mapping key was re-hashed')
+        return super().__hash__()
+
+
+def test_review_rejects_order_key_subclass_before_rehash():
+    order = intent()
+    original = order.pop('broker')
+    hostile_key = _RehashTrapKey('broker')
+    order[hostile_key] = original
+    assert hostile_key.hash_calls == 1
+
+    with pytest.raises(ValueError, match='keys must be plain strings'):
+        build_review_packet(order, now_ms=NOW)
+    with pytest.raises(ValueError, match='keys must be plain strings'):
+        compare_review(packet(), order, now_ms=NOW)
+    assert hostile_key.hash_calls == 1
+
+
+@pytest.mark.parametrize('nested_checks', [False, True])
+def test_review_rejects_packet_key_subclass_before_rehash(nested_checks):
+    original = packet()
+    modified = deepcopy(original)
+    target = modified['checks'] if nested_checks else modified
+    field = next(iter(target)) if nested_checks else 'warnings'
+    value = target.pop(field)
+    hostile_key = _RehashTrapKey(field)
+    target[hostile_key] = value
+    assert hostile_key.hash_calls == 1
+
+    result = compare_review(modified, intent(), now_ms=NOW)
+    assert result['review_matches_exact_intent'] is False
+    assert result['requires_new_human_review'] is True
+    assert result['may_execute_paper_order'] is False
+    assert result['may_execute_real_order'] is False
+    assert hostile_key.hash_calls == 1
