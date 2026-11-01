@@ -154,5 +154,8 @@ export function certifiedCrtFourHourBars(
   current.verifiedFourHourStarts.some((time,i)=>time!==audit.verifiedFourHourStarts[i]))
   throw Error('Stale or inconsistent 4H/15m certification report');
  const verified=new Set(current.verifiedFourHourStarts);
- return fourHour.filter(b=>verified.has(b.time));
+ // Return detached, frozen evidence snapshots. Aliasing the mutable API bars
+ // would let a later caller mutation silently rewrite an already-certified
+ // CRT reference/sweep without re-running the source-coherence audit.
+ return fourHour.filter(b=>verified.has(b.time)).map(b=>Object.freeze({...b}));
 }

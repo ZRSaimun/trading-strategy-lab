@@ -215,6 +215,26 @@ test('a tampered or stale certification report cannot be used to select 4H bars'
  }),/Stale or inconsistent 4H\/15m certification report/);
 });
 
+test('certified 4H bars remain detached and frozen after the original inputs change',()=>{
+ const {h,q}=fixture();
+ const report=auditCrtCrossTimeframe(h,q);
+ const certified=certifiedCrtFourHourBars(h,q,report);
+ const originalOpen=certified[0].open;
+ assert.notStrictEqual(certified[0],h[0],
+  'certification must not expose a mutable alias to the source candle');
+ assert.equal(Object.isFrozen(certified[0]),true);
+ // Both source timeframes still reconcile, but the previously issued report
+ // is stale. The already returned certified snapshot must not change.
+ h[0].open+=0.01;
+ q[0].open+=0.01;
+ assert.equal(auditCrtCrossTimeframe(h,q).checkedFourHourBars,2);
+ assert.equal(certified[0].open,originalOpen);
+ assert.throws(()=>{certified[0].open=originalOpen+0.01;},TypeError,
+  'downstream code cannot silently rewrite certified evidence');
+ assert.throws(()=>certifiedCrtFourHourBars(h,q,report),
+  /Stale or inconsistent 4H\/15m certification report/);
+});
+
 test('a stale 4H/15m audit cannot certify edited historical OHLC',()=>{
  const x=fixture();
  const report=auditCrtCrossTimeframe(x.h,x.q);
