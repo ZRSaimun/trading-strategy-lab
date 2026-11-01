@@ -169,6 +169,23 @@ test('rejects malformed 15m/4H input instead of silently accepting',()=>{
  const z=fixture();z.q[1].time=z.q[0].time;
  assert.throws(()=>auditCrtCrossTimeframe(z.h,z.q),/Out-of-order/);
 });
+test('rejects aligned 4H and 15m buckets whose close timestamp is unsafe',()=>{
+ // Near MAX_SAFE_INTEGER the opening time is exactly representable, but
+ // adding one full bar duration is not. Do not certify a rounded close.
+ const last4hStart=Math.floor(Number.MAX_SAFE_INTEGER/H4)*H4;
+ const last15mStart=Math.floor(Number.MAX_SAFE_INTEGER/Q)*Q;
+ assert.equal(Number.isSafeInteger(last4hStart),true);
+ assert.equal(Number.isSafeInteger(last15mStart),true);
+ assert.equal(Number.isSafeInteger(last4hStart+H4),false);
+ assert.equal(Number.isSafeInteger(last15mStart+Q),false);
+ const x=fixture();x.h[0].time=last4hStart;
+ assert.throws(()=>auditCrtCrossTimeframe(x.h,x.q),/Incomplete or invalid/);
+ const y=fixture();y.q[0].time=last15mStart;
+ assert.throws(()=>auditCrtCrossTimeframe(y.h,y.q),/Incomplete or invalid/);
+ const ordinary=fixture();
+ assert.equal(auditCrtCrossTimeframe(ordinary.h,ordinary.q).checkedFourHourBars,2);
+});
+
 test('a missing 15m response cannot be presented as verified 4H coherence',()=>{
  const {h}=fixture();
  assert.deepEqual(auditCrtCrossTimeframe(h,[]),

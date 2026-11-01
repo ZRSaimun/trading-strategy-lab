@@ -106,3 +106,7 @@ The CRT 4H/15m audit and its issued-snapshot comparison now require each array i
 ### Ordinary-array method and iterator boundary (1 November 2026)
 
 The CRT 4H/15m audit now rejects arrays with a nonstandard prototype, an own `Symbol.iterator`, or own `map`/`slice`/`filter` overrides **before invoking them**. Previously, validated indexed candles could differ from values later supplied by a caller-controlled iterator or array method during the audit, snapshot, or certified selection. A synthetic regression covers all four overrides, prototype substitution, post-audit method replacement and unchanged ordinary JSON arrays. This closes an in-process evidence-substitution path; it does **not** authenticate external market prices, volume provenance, broker quotes, calendar data or profitability. No orders, merges or deployment.
+
+## Exact completed-bar timestamp arithmetic (1 November 2026)
+
+A UTC-aligned 4H or 15m opening timestamp can be a safe JavaScript integer while its **completed-bar close timestamp** (start plus 14,400 or 900 seconds) exceeds the safe-integer range. The same-archive cross-timeframe audit now rejects such records before evaluating overlap, chronology or certification; otherwise a rounded close could be mistaken for a causally completed candle. Synthetic regressions cover both timeframes and an ordinary unchanged source window. This is a timestamp arithmetic guard, **not** verified market-session coverage, live quote authenticity or trading-profit evidence.

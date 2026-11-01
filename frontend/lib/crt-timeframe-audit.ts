@@ -72,6 +72,9 @@ function candleSnapshot(fourHour:readonly Bar[],fifteenMinute:readonly Bar[]):st
 function assertComplete(b:Bar,seconds:number){
  assertOwnDataFields(b);
  if(!Number.isSafeInteger(b.time)||b.time<0||b.time%seconds!==0||
+  // A safe bucket start can still overflow JS integer precision at close.
+  // CRT decisions require exact completed-bar timestamps, never rounded ends.
+  !Number.isSafeInteger(b.time+seconds)||
   b.observed_minutes!==seconds/60||
   ![b.open,b.high,b.low,b.close].every(x=>Number.isFinite(x)&&x>0)||
   b.low>Math.min(b.open,b.close)||b.high<Math.max(b.open,b.close)||
