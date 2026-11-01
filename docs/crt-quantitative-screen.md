@@ -89,3 +89,7 @@ Issued 4H/15m audit reports now freeze both the report object and its nested ver
 ## Immutable certified 4H collection (1 November 2026)
 
 The cross-timeframe certification helper now freezes the **returned array** as well as its detached 4H candle objects. Without this guard, a downstream caller could append an unaudited reference candle or remove a certified sweep after the source-coherence check, even though each original certified candle was frozen. The return type is now read-only; synthetic regression assertions reject both append and removal while retaining unchanged certified evidence. This is local in-memory evidence integrity only, **not** market-source authentication, validated volume provenance, broker quotes, profitability, or permission to trade.
+
+### Certified 4H field-boundary guard (1 November 2026)
+
+The 4H/15m certification helper returns detached, frozen candles containing **only** the seven validated research-bar fields (UTC bucket time, OHLC, declared volume and observed-minute count). It does not spread arbitrary source-object metadata into certified candles or invoke unrelated source getters. A synthetic regression supplies a throwing extra metadata getter and an unverified broker-execution claim: neither can appear in the certified evidence. This is an in-process evidence-boundary check, **not** a guarantee that the original source, prices, volume type, broker quotes or future profitability are independently verified.

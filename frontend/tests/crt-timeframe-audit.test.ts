@@ -307,3 +307,23 @@ test('issued cross-timeframe audit report and verified timestamp list are immuta
  assert.equal(certifiedCrtFourHourBars(h,q,report).length,2,
   'unchanged frozen reports remain valid for source re-audit');
 });
+
+test('certified CRT candles expose only audited Bar fields without evaluating extra metadata',()=>{
+ const {h,q}=fixture();
+ let extraReads=0;
+ Object.defineProperty(h[0],'claimedFeedAuthentication',{
+  enumerable:true,configurable:true,
+  get(){extraReads++;throw Error('unaudited source metadata getter was evaluated');},
+ });
+ (h[1] as Bar&{claimedBrokerExecution?:boolean}).claimedBrokerExecution=true;
+ const report=auditCrtCrossTimeframe(h,q);
+ const certified=certifiedCrtFourHourBars(h,q,report);
+ assert.equal(extraReads,0,'unverified metadata must never be read or copied');
+ assert.deepEqual(Reflect.ownKeys(certified[0]),[
+  'time','open','high','low','close','volume','observed_minutes',
+ ]);
+ assert.equal(Object.hasOwn(certified[1],'claimedBrokerExecution'),false);
+ assert.deepEqual(certified.map(b=>b.time),[BASE,BASE+H4]);
+ assert.equal(Object.isFrozen(certified[0]),true);
+ assert.equal(Object.isFrozen(certified),true);
+});

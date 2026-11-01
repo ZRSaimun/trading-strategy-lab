@@ -165,5 +165,12 @@ export function certifiedCrtFourHourBars(
  // Freeze the collection as well as each candle: a consumer must not be
  // able to append a fabricated reference or remove an audited sweep after
  // certification, even if the individual candle objects are immutable.
- return Object.freeze(fourHour.filter(b=>verified.has(b.time)).map(b=>Object.freeze({...b})));
+ // An issued certificate covers only the seven validated Bar fields.
+ // Object spread would also copy undeclared own keys and execute arbitrary
+ // metadata getters, potentially laundering unverified feed claims into the
+ // supposedly certified evidence or changing source state during cloning.
+ return Object.freeze(fourHour.filter(b=>verified.has(b.time)).map(b=>Object.freeze({
+  time:b.time,open:b.open,high:b.high,low:b.low,close:b.close,
+  volume:b.volume,observed_minutes:b.observed_minutes,
+ } satisfies Bar)));
 }
