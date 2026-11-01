@@ -24,14 +24,28 @@ const MIN15=900, FOUR_HOUR=14400, BARS_PER_4H=16;
 // and 15m bars that still reconcile after the report was issued. This is a
 // local mutation guard, NOT a cryptographic source-authentication receipt.
 const issuedSnapshots=new WeakMap<CrossoverAudit,string>();
+const BAR_FIELDS=['time','open','high','low','close','volume','observed_minutes'] as const;
+function assertOwnDataFields(b:Bar):void{
+ // API candles are plain JSON records. Accessor/inherited fields can change
+ // between audit, snapshot and certification, or execute code on a read.
+ // Reject them before touching any validated candle value.
+ if(!b||typeof b!=='object') throw Error('Invalid cross-timeframe candle fields');
+ for(const field of BAR_FIELDS){
+  const descriptor=Object.getOwnPropertyDescriptor(b,field);
+  if(!descriptor||!Object.hasOwn(descriptor,'value'))
+   throw Error('Cross-timeframe candle requires own data fields');
+ }
+}
 function candleSnapshot(fourHour:readonly Bar[],fifteenMinute:readonly Bar[]):string{
- const rows=(bars:readonly Bar[])=>bars.map(b=>[
-  b.time,b.open,b.high,b.low,b.close,b.volume,b.observed_minutes,
- ]);
+ const rows=(bars:readonly Bar[])=>bars.map(b=>{
+  assertOwnDataFields(b);
+  return [b.time,b.open,b.high,b.low,b.close,b.volume,b.observed_minutes];
+ });
  return JSON.stringify([rows(fourHour),rows(fifteenMinute)]);
 }
 
 function assertComplete(b:Bar,seconds:number){
+ assertOwnDataFields(b);
  if(!Number.isSafeInteger(b.time)||b.time<0||b.time%seconds!==0||
   b.observed_minutes!==seconds/60||
   ![b.open,b.high,b.low,b.close].every(x=>Number.isFinite(x)&&x>0)||
