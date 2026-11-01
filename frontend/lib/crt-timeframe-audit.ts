@@ -107,10 +107,16 @@ export function auditCrtCrossTimeframe(
    // real counts in a large archive. Refuse sums outside safe integer range.
    // Keep bounded summation tolerance only for genuinely fractional volumes.
    const integerCounts=subset.every(b=>b.volume!==null&&Number.isSafeInteger(b.volume));
+   // Even fractional inputs become ambiguous once their integer magnitude
+   // exceeds the safe range: JS doubles cannot retain one-unit differences.
+   // A rounded 4H total may equal a rounded sum without proving coherence.
+   const safeMagnitude=Number.isSafeInteger(Math.trunc(h4.volume))&&
+    Number.isSafeInteger(Math.trunc(total))&&
+    subset.every(b=>b.volume!==null&&Number.isSafeInteger(Math.trunc(b.volume)));
    const mismatch=integerCounts
     ? !Number.isSafeInteger(h4.volume)||!Number.isSafeInteger(total)||h4.volume!==total
     : Math.abs(h4.volume-total)>tolerance;
-   if(!Number.isFinite(total)||mismatch)
+   if(!Number.isFinite(total)||!safeMagnitude||mismatch)
     throw Error('4H/15m volume mismatch for same historical archive');
   }
   checked++;

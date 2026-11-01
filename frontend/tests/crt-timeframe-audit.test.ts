@@ -92,6 +92,24 @@ test('large fractional volume aggregates cannot hide a full reported-unit drift'
  assert.throws(()=>auditCrtCrossTimeframe(h,q),/volume mismatch/,
   'a full unit discrepancy is not acceptable floating-point summation noise');
 });
+test('fractional volume sums above safe integer magnitude cannot be certified',()=>{
+ // The old fractional branch accepted equal rounded totals above 2^53,
+ // although sub-unit differences can no longer be reliably represented.
+ const {h,q}=fixture();
+ q.forEach(b=>{b.volume=600_000_000_000_000.25;});
+ h.forEach(b=>{b.volume=9_600_000_000_000_004;});
+ assert.throws(()=>auditCrtCrossTimeframe(h,q),/volume mismatch/,
+  'matching rounded totals are not evidence of precise aggregation');
+});
+test('an unsafe constituent volume is not laundered through fractional tolerance',()=>{
+ const {h,q}=fixture();
+ q.forEach(b=>{b.volume=0;});
+ h.forEach(b=>{b.volume=0;});
+ q[0].volume=9_007_199_254_740_994;
+ h[0].volume=9_007_199_254_740_994;
+ assert.throws(()=>auditCrtCrossTimeframe(h,q),/volume mismatch/,
+  'a rounded unsafe input cannot be certified even when totals match');
+});
 test('small fractional volume summation still permits floating-point roundoff',()=>{
  const {h,q}=fixture();
  q.forEach(b=>{b.volume=0.1;});
