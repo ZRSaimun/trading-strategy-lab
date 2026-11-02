@@ -57,7 +57,8 @@ const STANDARD_ARRAY_METHODS=[
 const STANDARD_ARRAY_ITERATOR=Array.prototype[Symbol.iterator];
 function hasStandardArrayIntrinsics():boolean{
  for(let i=0;i<STANDARD_ARRAY_METHODS.length;i++){
-  const [name,method]=STANDARD_ARRAY_METHODS[i];
+  // Index directly: tuple destructuring itself consults Array iteration.
+  const name=STANDARD_ARRAY_METHODS[i][0],method=STANDARD_ARRAY_METHODS[i][1];
   if(Object.getOwnPropertyDescriptor(Array.prototype,name)?.value!==method)
    return false;
  }
