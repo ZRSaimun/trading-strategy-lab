@@ -43,6 +43,28 @@ type IssuedSnapshot={
 };
 const issuedSnapshots=new WeakMap<CrossoverAudit,IssuedSnapshot>();
 const BAR_FIELDS=['time','open','high','low','close','volume','observed_minutes'] as const;
+// Standard Array methods may be replaced on Array.prototype *after* this
+// module loads. Own-slot and own-method checks alone cannot prevent a global
+// iterator/species/method override from substituting unverified candles.
+// Capture the expected intrinsic identities and inspect descriptors without
+// invoking potentially hostile accessors. This is a local runtime fence,
+// not a sandbox against code that tampered with intrinsics before import.
+const STANDARD_ARRAY_METHODS=[
+ ['map',Array.prototype.map],['slice',Array.prototype.slice],
+ ['filter',Array.prototype.filter],['some',Array.prototype.some],
+ ['every',Array.prototype.every],['reduce',Array.prototype.reduce],
+] as const;
+const STANDARD_ARRAY_ITERATOR=Array.prototype[Symbol.iterator];
+function hasStandardArrayIntrinsics():boolean{
+ for(let i=0;i<STANDARD_ARRAY_METHODS.length;i++){
+  const [name,method]=STANDARD_ARRAY_METHODS[i];
+  if(Object.getOwnPropertyDescriptor(Array.prototype,name)?.value!==method)
+   return false;
+ }
+ return Object.getOwnPropertyDescriptor(Array.prototype,Symbol.iterator)?.value===
+   STANDARD_ARRAY_ITERATOR&&
+  Object.getOwnPropertyDescriptor(Array.prototype,'constructor')?.value===Array;
+}
 function assertOwnDataFields(b:Bar):void{
  // API candles are plain JSON records. Accessor/inherited fields can change
  // between audit, snapshot and certification, or execute code on a read.
@@ -72,13 +94,15 @@ function assertOwnBarSlots(bars:readonly Bar[]):void{
  // Check indexed data first so a missing/inherited slot retains its
  // precise validation error even when the array prototype is exotic.
  if(Object.getPrototypeOf(bars)!==Array.prototype||
-  ['map','slice','filter'].some(name=>Object.hasOwn(bars,name))||
   Object.hasOwn(bars,Symbol.iterator)||
-  // Array built-ins use ArraySpeciesCreate: even a normal-looking array
-  // can execute an own constructor/species getter during map or slice.
-  // JSON source arrays never carry an own constructor property.
-  Object.hasOwn(bars,'constructor'))
+  // Array built-ins use ArraySpeciesCreate; an inherited or own
+  // constructor/species getter must not run while certifying evidence.
+  Object.hasOwn(bars,'constructor')||!hasStandardArrayIntrinsics())
   throw Error('Cross-timeframe window requires ordinary JSON array methods');
+ for(let i=0;i<STANDARD_ARRAY_METHODS.length;i++){
+  if(Object.hasOwn(bars,STANDARD_ARRAY_METHODS[i][0]))
+   throw Error('Cross-timeframe window requires ordinary JSON array methods');
+ }
 }
 function candleSnapshot(fourHour:readonly Bar[],fifteenMinute:readonly Bar[]):string{
  const rows=(bars:readonly Bar[])=>{

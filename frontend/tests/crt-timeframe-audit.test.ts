@@ -617,3 +617,30 @@ test('CRT source arrays reject constructor/species hijacking before any getter e
  assert.deepEqual(certifiedCrtFourHourBars(ordinary.h,ordinary.q,report).map(b=>b.time),
   [BASE,BASE+H4],'plain JSON source arrays still certify');
 });
+
+test('CRT rejects mutated Array prototype methods, iterator and species constructor before execution',()=>{
+ // Source arrays can retain ordinary own slots and no own overrides while
+ // a different library mutates the shared Array prototype after module load.
+ // Restore each global descriptor before asserting to avoid leaking changes.
+ for(const key of ['map','reduce',Symbol.iterator,'constructor'] as const){
+  const {h,q}=fixture();
+  const original=Object.getOwnPropertyDescriptor(Array.prototype,key);
+  assert.ok(original);
+  let reads=0, failure:unknown;
+  try{
+   Object.defineProperty(Array.prototype,key,{
+    configurable:true,get(){reads++;throw Error('untrusted global Array getter executed');},
+   });
+   try{auditCrtCrossTimeframe(h,q);}
+   catch(error){failure=error;}
+  }finally{
+   Object.defineProperty(Array.prototype,key,original);
+  }
+  assert.match(String(failure),/ordinary JSON array methods/,
+   'mutated shared Array intrinsics must invalidate source certification');
+  assert.equal(reads,0,'audit must not execute a mutated prototype getter');
+ }
+ const normal=fixture();
+ assert.equal(auditCrtCrossTimeframe(normal.h,normal.q).checkedFourHourBars,2,
+  'restored standard arrays must still pass the source-coherence audit');
+});
