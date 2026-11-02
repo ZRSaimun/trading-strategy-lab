@@ -424,6 +424,35 @@ test('partial 4H boundaries reject observed volume exceeding their reported tota
   'one unknown constituent cannot erase a contradictory known lower bound');
 });
 
+test('a known 15m constituent equal to the 4H volume cannot hide another positive volume',()=>{
+ // A capped 0.25-unit tolerance used to accept this contradictory archive:
+ // one 15m volume ALREADY equals the full reported 4H total, yet a second
+ // 15m bar contributes another 0.1. Both inputs are nonnegative.
+ const {h,q}=fixture();
+ const aggregate=100_000_000_000_000+0.125;
+ h.forEach(b=>{b.volume=0;});
+ q.forEach(b=>{b.volume=0;});
+ h[0].volume=aggregate;
+ q[0].volume=aggregate;
+ q[1].volume=0.1;
+ const rounded=q[0].volume+q[1].volume;
+ assert.ok(rounded>aggregate&&rounded-aggregate<0.25,
+  'the known lower-bound contradiction must sit inside the former tolerance');
+ assert.throws(()=>auditCrtCrossTimeframe(h,q),/4H\\/15m volume mismatch/,
+  'complete numeric coverage cannot certify an impossible total');
+ q[2].volume=null;
+ assert.throws(()=>auditCrtCrossTimeframe(h,q),/partial volume contradiction/,
+  'an unknown third volume cannot erase the two known positive contributors');
+ assert.throws(()=>auditCrtCrossTimeframe([h[0]],q.slice(0,12)),
+  /Partial 4H\\/15m volume contradiction/,
+  'a partial boundary must also reject the definite known lower bound');
+ q[1].volume=0;
+ q[2].volume=0;
+ assert.deepEqual(auditCrtCrossTimeframe(h,q).reconciledNumericVolumeStarts,
+  [BASE,BASE+H4],
+  'a sole equal-valued constituent with all other volumes zero remains valid');
+});
+
 test('partial volume evidence never fabricates complete 4H reconciliation',()=>{
  const x=fixture();
  x.h[0].volume=10;

@@ -4,6 +4,8 @@
 
 ## One source and strictly observed bars
 
+**Exact-contributor lower-bound guard (2 November 2026):** A nonnegative 15m volume equal to its containing reported 4H volume consumes the **entire** declared total. Any second strictly positive observed 15m volume is therefore a definite contradiction, even when the additional fractional contribution falls below the large-volume 0.25-unit floating-point tolerance. Both fully observed 16-bar windows and partially observed/null-volume windows now reject that contradiction; a sole equal-valued contributor with all others zero still reconciles normally. Synthetic regressions cover all three cases. This is same-archive arithmetic consistency, **not** independently authenticated volume, broker BID/ASK evidence, or profitability.
+
 **Fully overlapped 4H with unknown constituent volume (2 November 2026):** A complete 4H/15m **price** overlap may contain a null 15m volume. This prevents full numeric-volume reconciliation, but does **not** erase the nonnegative volume observed in the other constituent candles. The audit now rejects a reported numeric 4H volume that is already below that known 15m lower bound, using the same conservative fractional-overflow guard as partial boundary windows. A compatible lower bound remains **unreconciled** and the certified 4H price-only candle retains `volume:null`; an unknown 4H aggregate also remains unknown. Synthetic regressions cover a known overcount, compatible missing-volume evidence, an unknown aggregate and a rounded-away fractional overflow. This is same-archive consistency only, not independently verified source-classified volume, actual broker BID/ASK quotes, or evidence of trading profitability.
 
 

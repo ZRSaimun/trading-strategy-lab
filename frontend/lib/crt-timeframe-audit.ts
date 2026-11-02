@@ -234,7 +234,22 @@ function dyadicVolumeMismatch(values:readonly number[],aggregate:number):boolean
 // Compare exactly when both sides admit a common binary-fraction scale;
 // otherwise permit only bounded floating-point summation noise. This never
 // certifies partial volume or authenticates its upstream source.
+// Nonnegative 15m volumes form a lower bound on the containing 4H total.
+// If one observed constituent already equals the entire reported total,
+// any other strictly positive constituent is a definite contradiction,
+// even when large-number Number addition and a capped tolerance hide it.
+// This does not require knowing any missing constituent volume.
+function exactContributorExceedsAggregate(observed:readonly number[],aggregate:number):boolean{
+ let matchesAggregate=false,positiveContributors=0;
+ for(const volume of observed){
+  if(volume>0)positiveContributors++;
+  if(volume>0&&volume===aggregate)matchesAggregate=true;
+ }
+ return matchesAggregate&&positiveContributors>1;
+}
+
 function partialVolumeExceeds(observed:readonly number[],aggregate:number):boolean{
+ if(exactContributorExceedsAggregate(observed,aggregate))return true;
  for(let power=0;power<=52;power++){
   const factor=2**power,scaledAggregate=aggregate*factor;
   if(!Number.isInteger(scaledAggregate))continue;
@@ -418,7 +433,8 @@ export function auditCrtCrossTimeframe(
     ? !Number.isSafeInteger(h4.volume)||!Number.isSafeInteger(total)||h4.volume!==total
     : Math.abs(h4.volume-total)>tolerance);
    if(!Number.isFinite(total)||!safeMagnitude||
-    !sourceSumWithinSafeMagnitude||roundedAwayPositiveFraction||mismatch)
+    !sourceSumWithinSafeMagnitude||roundedAwayPositiveFraction||
+    exactContributorExceedsAggregate(subset.map(b=>b.volume as number),h4.volume)||mismatch)
     throw Error('4H/15m volume mismatch for same historical archive');
    reconciledNumericVolumeStarts.push(h4.time);
   }
