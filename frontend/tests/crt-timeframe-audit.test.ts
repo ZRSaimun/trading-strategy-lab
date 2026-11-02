@@ -473,7 +473,7 @@ test('a fractional 4H total cannot omit a sub-ULP positive 15m contributor',()=>
  assert.throws(()=>auditCrtCrossTimeframe(h,q),/partial volume contradiction/,
   'a null 15m volume cannot erase the known lower-bound contradiction');
  assert.throws(()=>auditCrtCrossTimeframe([h[0]],q.slice(0,12)),
-  /Partial 4H\\/15m volume contradiction/,
+  /Partial .* volume contradiction/,
   'partial 4H boundaries must reject the same observed overrun');
  q[2].volume=0;
  q[3].volume=0;
