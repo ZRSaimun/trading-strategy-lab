@@ -4,6 +4,9 @@
 
 ## One source and strictly observed bars
 
+**Enumerable source-array entries (2 November 2026):** The 4H/15m source audit now requires every indexed candle slot to be an own, enumerable data property, matching the shape produced by JSON-decoded arrays. An exotic in-memory array with a hidden indexed slot is rejected even if its candle values otherwise reconcile. Synthetic regressions cover both timeframes, post-certification descriptor changes, and ordinary JSON-decoded controls. This is an in-process source-shape check only, not independent broker price/volume authentication, a trading signal, or evidence of profitability.
+
+
 **Missing interior 4H bucket guard (2 November 2026):** The source-coherence audit now rejects an omitted 4H response candle when all sixteen aligned, completed 15m candles for that interior 4H bucket are present between the first and last reported 4H bars. Previously the two surrounding 4H candles could certify individually while the fully observed middle bucket was silently absent from the higher-timeframe response. Incomplete constituent windows and 15m buckets outside the requested 4H response boundaries do not fabricate missing 4H observations. Two synthetic regressions cover the fully observed omission and an incomplete middle bucket. This is archive-response consistency, **not** independently authenticated market history, verified volume/news, broker BID/ASK execution or strategy profitability.
 
 

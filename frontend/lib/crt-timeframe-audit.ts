@@ -114,10 +114,12 @@ function assertOwnBarSlots(bars:readonly Bar[]):void{
  // inherited array elements could swap candle objects between the audit,
  // issued snapshot and certified-copy selection, even when candle fields
  // themselves are ordinary data properties.
+ // A JSON-decoded array also has enumerable indexed entries; refuse hidden
+ // in-memory slots instead of treating an exotic container as source data.
  for(let i=0;i<bars.length;i++){
   const descriptor=Object.getOwnPropertyDescriptor(bars,String(i));
-  if(!descriptor||!Object.hasOwn(descriptor,'value'))
-   throw Error('Cross-timeframe window requires own data entries');
+  if(!descriptor||!Object.hasOwn(descriptor,'value')||!descriptor.enumerable)
+   throw Error('Cross-timeframe window requires enumerable own data entries');
  }
  // Array.isArray and own indexed slots alone are insufficient: a caller
  // can override iteration, map, slice or filter to substitute different

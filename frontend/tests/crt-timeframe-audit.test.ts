@@ -944,3 +944,30 @@ test('CRT requires JSON-visible own data for all seven historical candle fields'
  assert.equal(auditCrtCrossTimeframe(normal.h,normal.q).checkedFourHourBars,2,
   'ordinary JSON-decoded candle records remain supported');
 });
+
+test('CRT source windows require enumerable own indexed candle entries',()=>{
+ // JSON.parse creates enumerable own indexed slots. A non-enumerable own
+ // slot is an exotic in-memory source container even when its value matches.
+ for(const side of ['h','q'] as const){
+  const x=fixture();
+  const row=x[side][0];
+  Object.defineProperty(x[side],'0',{
+   value:row,writable:true,configurable:true,enumerable:false,
+  });
+  assert.throws(()=>auditCrtCrossTimeframe(x.h,x.q),
+   /enumerable own data entries/,`hidden ${side} slot must not certify`);
+ }
+ const x=fixture();
+ const issued=auditCrtCrossTimeframe(x.h,x.q);
+ Object.defineProperty(x.q,'0',{
+  value:x.q[0],writable:true,configurable:true,enumerable:false,
+ });
+ assert.throws(()=>certifiedCrtFourHourBars(x.h,x.q,issued),
+  /enumerable own data entries/,
+  'a post-audit hidden 15m slot must invalidate prior certification');
+ const ordinary=fixture();
+ const jsonH=JSON.parse(JSON.stringify(ordinary.h)) as Bar[];
+ const jsonQ=JSON.parse(JSON.stringify(ordinary.q)) as Bar[];
+ assert.equal(auditCrtCrossTimeframe(jsonH,jsonQ).checkedFourHourBars,2,
+  'ordinary JSON-decoded source windows remain valid');
+});
