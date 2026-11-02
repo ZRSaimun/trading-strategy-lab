@@ -4,6 +4,8 @@
 
 ## One source and strictly observed bars
 
+**Partial-boundary contradiction guard (2 November 2026):** A 4H candle with fewer than all sixteen observed 15m constituents remains **uncheckable** and cannot enter certified CRT reference/sweep evidence. Nevertheless, observed 15m constituents can conclusively disprove the reported 4H bar: any high above the 4H high, low below the 4H low, or a mismatching first open / last close (when those endpoint constituents are present) now fails the audit. A binary-search scan checks only the relevant partial bucket. Missing 15m bars are never imputed and a compatible partial bucket is **not** upgraded to verified. Synthetic tests cover high/low and endpoint contradictions plus an unchanged incomplete boundary. This is same-archive price consistency only, not independent broker provenance, volume/news validation, executable quotes or profitability evidence.
+
 **Enumerable source-array entries (2 November 2026):** The 4H/15m source audit now requires every indexed candle slot to be an own, enumerable data property, matching the shape produced by JSON-decoded arrays. An exotic in-memory array with a hidden indexed slot is rejected even if its candle values otherwise reconcile. Synthetic regressions cover both timeframes, post-certification descriptor changes, and ordinary JSON-decoded controls. This is an in-process source-shape check only, not independent broker price/volume authentication, a trading signal, or evidence of profitability.
 
 

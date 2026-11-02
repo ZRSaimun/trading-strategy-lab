@@ -229,6 +229,29 @@ function dyadicVolumeMismatch(values:readonly number[],aggregate:number):boolean
  return null;
 }
 
+// A partially loaded 4H bucket cannot be fully certified. However, any
+// actually observed constituent 15m high above its reported 4H high, low
+// below its 4H low, or a known first-open/last-close disagreement is already
+// a definitive contradiction. Do not hide that inconsistency under the
+// "uncheckable boundary" label. Missing constituents are never fabricated.
+// Binary search avoids scanning the full 15m window for each outside bar.
+function assertPartialOverlapConsistent(h4:Bar,fifteenMinute:readonly Bar[]):void{
+ let left=0,right=fifteenMinute.length;
+ while(left<right){
+  const mid=Math.floor((left+right)/2);
+  if(fifteenMinute[mid].time<h4.time)left=mid+1;
+  else right=mid;
+ }
+ for(let i=left;i<fifteenMinute.length;i++){
+  const q=fifteenMinute[i];
+  if(q.time>=h4.time+FOUR_HOUR)break;
+  if(q.high>h4.high||q.low<h4.low||
+   (q.time===h4.time&&q.open!==h4.open)||
+   (q.time===h4.time+FOUR_HOUR-MIN15&&q.close!==h4.close))
+   throw Error('Partial 4H/15m OHLC contradiction for same historical archive');
+ }
+}
+
 export function auditCrtCrossTimeframe(
  fourHour:readonly Bar[],fifteenMinute:readonly Bar[],
 ):CrossoverAudit{
@@ -278,6 +301,7 @@ export function auditCrtCrossTimeframe(
   // uncheckable, not silently counted as verified.
   if(start===undefined||end===undefined||h4.time<start||
    h4.time+FOUR_HOUR>end+MIN15){
+   assertPartialOverlapConsistent(h4,fifteenMinute);
    uncheckable++;
    continue;
   }

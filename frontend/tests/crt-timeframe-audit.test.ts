@@ -312,6 +312,38 @@ test('partial interior 15m evidence does not invent an omitted 4H candle',()=>{
   [BASE,BASE+2*H4],
   'only the two individually observed bars qualify; they are not adjacent');
 });
+test('partially overlapping 4H boundaries reject observed impossible 15m extrema',()=>{
+ for(const side of ['high','low'] as const){
+  const {h,q}=fixture();
+  if(side==='high')q[5].high=h[0].high+0.01;
+  else q[5].low=h[0].low-0.01;
+  assert.throws(()=>auditCrtCrossTimeframe([h[0]],q.slice(1,12)),
+   /Partial 4H\/15m OHLC contradiction/,
+   'an observed 15m extreme cannot exceed the containing 4H envelope');
+ }
+});
+test('partially observed first open and last close must match their 4H endpoints',()=>{
+ {
+  const {h,q}=fixture();
+  q[0].open+=0.01;
+  assert.throws(()=>auditCrtCrossTimeframe([h[0]],q.slice(0,12)),
+   /Partial 4H\/15m OHLC contradiction/);
+ }
+ {
+  const {h,q}=fixture();
+  q[15].close+=0.01;
+  assert.throws(()=>auditCrtCrossTimeframe([h[0]],q.slice(4,16)),
+   /Partial 4H\/15m OHLC contradiction/);
+ }
+});
+test('consistent incomplete 4H boundary stays uncheckable rather than fabricated',()=>{
+ const {h,q}=fixture();
+ const report=auditCrtCrossTimeframe([h[0]],q.slice(4,12));
+ assert.equal(report.checkedFourHourBars,0);
+ assert.equal(report.uncheckableFourHourBars,1);
+ assert.deepEqual(report.verifiedFourHourStarts,[]);
+});
+
 test('partial overlapping boundary windows are explicitly uncheckable, not falsely verified',()=>{
  const {h,q}=fixture();
  assert.deepEqual(auditCrtCrossTimeframe(h,q.slice(1,31)),
