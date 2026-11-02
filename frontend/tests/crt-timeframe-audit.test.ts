@@ -397,16 +397,16 @@ test('CRT certificates reject equal-valued replacement candle objects in the sam
  assert.equal(auditCrtCrossTimeframe(h,q).checkedFourHourBars,2,
   'the replacement still reconciles, but it is a different source observation');
  assert.throws(()=>certifiedCrtFourHourBars(h,q,issued),
-  /Stale or inconsistent 4H\\/15m certification report/,
+  /Stale or inconsistent 4H\/15m certification report/,
   'an existing array with a substituted 4H candle must require re-audit');
  h[0]=original4h;
  q[0]={...original15m};
  assert.throws(()=>certifiedCrtFourHourBars(h,q,issued),
-  /Stale or inconsistent 4H\\/15m certification report/,
+  /Stale or inconsistent 4H\/15m certification report/,
   'a substituted 15m constituent must also invalidate the original certificate');
  h[0]={...original4h};
  assert.throws(()=>certifiedCrtFourHourBars(h,q,issued),
-  /Stale or inconsistent 4H\\/15m certification report/,
+  /Stale or inconsistent 4H\/15m certification report/,
   'coordinated equal-valued replacements cannot reuse old evidence');
  const fresh=auditCrtCrossTimeframe(h,q);
  assert.deepEqual(certifiedCrtFourHourBars(h,q,fresh).map(b=>b.time),[BASE,BASE+H4],
