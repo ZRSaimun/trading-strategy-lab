@@ -712,3 +712,37 @@ test('CRT snapshot never invokes inherited object toJSON getters',()=>{
   else Reflect.deleteProperty(Object.prototype,'toJSON');
  }
 });
+
+
+test('CRT refuses undeclared metadata on individual 4H and 15m candle records',()=>{
+ // Unlike array-level metadata, these fields ride on an otherwise valid
+ // candle. Reject without executing getters or implying ASK/source evidence
+ // was independently authenticated by a price-only BID consistency check.
+ for(const side of ['h','q'] as const){
+  const source=fixture();
+  let reads=0;
+  Object.defineProperty(source[side][0],'brokerVerifiedAsk',{
+   configurable:true,enumerable:false,
+   get(){reads++;throw Error('unreviewed candle metadata getter executed');},
+  });
+  assert.throws(()=>auditCrtCrossTimeframe(source.h,source.q),
+   /candle contains undeclared source metadata/);
+  assert.equal(reads,0,'extra candle metadata getter must not execute');
+ }
+ const source=fixture();
+ const report=auditCrtCrossTimeframe(source.h,source.q);
+ const claimedVolumeSource=Symbol('exchangeVolumeVerified');
+ Object.defineProperty(source.q[1],claimedVolumeSource,{
+  configurable:true,value:true,
+ });
+ assert.throws(()=>certifiedCrtFourHourBars(source.h,source.q,report),
+  /candle contains undeclared source metadata/,
+  'a post-audit symbol on a constituent candle invalidates the old report');
+ Reflect.deleteProperty(source.q[1],claimedVolumeSource);
+ assert.deepEqual(certifiedCrtFourHourBars(source.h,source.q,report).map(b=>b.time),
+  [BASE,BASE+H4],'restored unchanged JSON candle records remain certifiable');
+
+ const normal=fixture();
+ const valid=auditCrtCrossTimeframe(normal.h,normal.q);
+ assert.equal(certifiedCrtFourHourBars(normal.h,normal.q,valid).length,2);
+});
