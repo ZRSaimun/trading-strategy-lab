@@ -336,6 +336,51 @@ test('partially observed first open and last close must match their 4H endpoints
    /Partial 4H\/15m OHLC contradiction/);
  }
 });
+test('partial 4H boundaries reject observed volume exceeding their reported total',()=>{
+ const integer=fixture();
+ integer.h[0].volume=10;
+ integer.q[4].volume=7;
+ integer.q[5].volume=4;
+ assert.throws(()=>auditCrtCrossTimeframe([integer.h[0]],integer.q.slice(4,12)),
+  /Partial 4H\/15m volume contradiction/,
+  'known nonnegative constituents cannot exceed a containing 4H total');
+
+ const fractional=fixture();
+ fractional.h[0].volume=0.2;
+ fractional.q[4].volume=0.125;
+ fractional.q[5].volume=0.125;
+ assert.throws(()=>auditCrtCrossTimeframe([fractional.h[0]],fractional.q.slice(4,12)),
+  /Partial 4H\/15m volume contradiction/,
+  'exact fractional lower bounds must not hide behind summation tolerance');
+
+ const unknown=fixture();
+ unknown.h[0].volume=10;
+ unknown.q[4].volume=11;
+ unknown.q[5].volume=null;
+ assert.throws(()=>auditCrtCrossTimeframe([unknown.h[0]],unknown.q.slice(4,12)),
+  /Partial 4H\/15m volume contradiction/,
+  'one unknown constituent cannot erase a contradictory known lower bound');
+});
+
+test('partial volume evidence never fabricates complete 4H reconciliation',()=>{
+ const x=fixture();
+ x.h[0].volume=10;
+ x.q[4].volume=3;
+ x.q[5].volume=null;
+ const partial=auditCrtCrossTimeframe([x.h[0]],x.q.slice(4,12));
+ assert.equal(partial.checkedFourHourBars,0);
+ assert.equal(partial.uncheckableFourHourBars,1);
+ assert.deepEqual(partial.reconciledNumericVolumeStarts,[],
+  'a compatible partial lower bound is not a certified volume total');
+
+ const unknownAggregate=fixture();
+ unknownAggregate.q[4].volume=100;
+ const result=auditCrtCrossTimeframe([unknownAggregate.h[0]],
+  unknownAggregate.q.slice(4,12));
+ assert.equal(result.uncheckableFourHourBars,1,
+  'null 4H volume must remain unknown rather than assumed zero');
+});
+
 test('consistent incomplete 4H boundary stays uncheckable rather than fabricated',()=>{
  const {h,q}=fixture();
  const report=auditCrtCrossTimeframe([h[0]],q.slice(4,12));

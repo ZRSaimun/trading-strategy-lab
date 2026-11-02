@@ -229,6 +229,29 @@ function dyadicVolumeMismatch(values:readonly number[],aggregate:number):boolean
  return null;
 }
 
+// Even incomplete 4H coverage can disprove reported numeric volume: each
+// observed nonnegative 15m contribution is a lower bound on its 4H total.
+// Compare exactly when both sides admit a common binary-fraction scale;
+// otherwise permit only bounded floating-point summation noise. This never
+// certifies partial volume or authenticates its upstream source.
+function partialVolumeExceeds(observed:readonly number[],aggregate:number):boolean{
+ for(let power=0;power<=52;power++){
+  const factor=2**power,scaledAggregate=aggregate*factor;
+  if(!Number.isInteger(scaledAggregate))continue;
+  let units=0n,exact=true;
+  for(const value of observed){
+   const scaled=value*factor;
+   if(!Number.isInteger(scaled)){exact=false;break;}
+   units+=BigInt(scaled);
+  }
+  if(exact)return units>BigInt(scaledAggregate);
+ }
+ const sum=observed.reduce((total,value)=>total+value,0);
+ const tolerance=Math.min(0.25,
+  64*Number.EPSILON*Math.max(aggregate,sum));
+ return !Number.isFinite(sum)||sum>aggregate+tolerance;
+}
+
 // A partially loaded 4H bucket cannot be fully certified. However, any
 // actually observed constituent 15m high above its reported 4H high, low
 // below its 4H low, or a known first-open/last-close disagreement is already
@@ -242,6 +265,7 @@ function assertPartialOverlapConsistent(h4:Bar,fifteenMinute:readonly Bar[]):voi
   if(fifteenMinute[mid].time<h4.time)left=mid+1;
   else right=mid;
  }
+ const knownVolumes:number[]=[];
  for(let i=left;i<fifteenMinute.length;i++){
   const q=fifteenMinute[i];
   if(q.time>=h4.time+FOUR_HOUR)break;
@@ -249,7 +273,11 @@ function assertPartialOverlapConsistent(h4:Bar,fifteenMinute:readonly Bar[]):voi
    (q.time===h4.time&&q.open!==h4.open)||
    (q.time===h4.time+FOUR_HOUR-MIN15&&q.close!==h4.close))
    throw Error('Partial 4H/15m OHLC contradiction for same historical archive');
+  if(h4.volume!==null&&q.volume!==null)knownVolumes.push(q.volume);
  }
+ if(h4.volume!==null&&knownVolumes.length>0&&
+  partialVolumeExceeds(knownVolumes,h4.volume))
+  throw Error('Partial 4H/15m volume contradiction for same historical archive');
 }
 
 export function auditCrtCrossTimeframe(
