@@ -127,6 +127,24 @@ test('large scaled dyadic sums reject one precisely represented fractional unit'
   'a source-representable fractional drift must not hide behind 64-ULP tolerance');
 });
 
+test('high-scale dyadic volume finer than 1/65536 rejects exact source drift',()=>{
+ // A 1/131072-unit increment is representable at this nominal scale.
+ // The previous 2^16 search missed it and fell back to a tolerance larger
+ // than one exact 4H increment, silently accepting a source mismatch.
+ const {h,q}=fixture();
+ const each=625_000_000+1/131072;
+ const coherent=10_000_000_000+1/8192;
+ const inconsistent=coherent+1/8192;
+ assert.equal(Number.isInteger(each*2**16),false);
+ assert.equal(Number.isInteger(each*2**17),true);
+ q.forEach(b=>{b.volume=each;});
+ h.forEach(b=>{b.volume=coherent;});
+ assert.deepEqual(auditCrtCrossTimeframe(h,q).reconciledNumericVolumeStarts,
+  [BASE,BASE+H4],'exact finer dyadic sums remain certifiable');
+ h[0].volume=inconsistent;
+ assert.throws(()=>auditCrtCrossTimeframe(h,q),/volume mismatch/,
+  'exact fractional drift must not pass a loose scale-relative tolerance');
+});
 test('exact eighth-unit 15m volume and ordinary decimal roundoff retain distinct rules',()=>{
  const exact=fixture();
  exact.q.forEach(b=>{b.volume=0.125;});

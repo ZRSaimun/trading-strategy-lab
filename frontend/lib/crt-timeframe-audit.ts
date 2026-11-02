@@ -185,10 +185,13 @@ function samePrice(a:number,b:number){
 // aggregate can exceed 2^53 scaled units even when the original total is
 // within the safe-magnitude policy. Accumulate the scaled integers as BigInt
 // to reject a real fractional-unit mismatch rather than falling back to a
-// permissive 64-ULP tolerance. This only reconciles the numbers RECEIVED;
+// permissive 64-ULP tolerance. Search up to 2^32 fractional units: stopping
+// at 2^16 could miss exactly represented 1/131072-unit source increments.
+// A power-of-two multiply only shifts a finite binary64 exponent; BigInt
+// then accumulates the resulting integral units without Number sum rounding. This only reconciles the numbers RECEIVED;
 // it cannot recover precision already lost by the upstream data source.
 function dyadicVolumeMismatch(values:readonly number[],aggregate:number):boolean|null{
- for(let power=0;power<=16;power++){
+ for(let power=0;power<=32;power++){
   const factor=2**power;
   let unitsTotal=0n,exact=true;
   for(const value of values){
