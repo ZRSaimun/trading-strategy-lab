@@ -248,8 +248,33 @@ function exactContributorExceedsAggregate(observed:readonly number[],aggregate:n
  return matchesAggregate&&positiveContributors>1;
 }
 
+// All finite positive IEEE-754 volumes are exact multiples of 2^-1074.
+// Comparing those integer units can prove a *specific* omitted positive
+// constituent even when adding it to a large fractional 4H total rounds away.
+// Require exact equality after removing one reported contributor: ordinary
+// aggregate rounding (e.g. decimal 0.1 volumes) is not itself a failure.
+// This checks only received numeric coherence, never volume source identity.
+function exactBinaryVolumeUnits(value:number):bigint{
+ if(value===0)return 0n;
+ const bits=new DataView(new ArrayBuffer(8));
+ bits.setFloat64(0,value);
+ const high=bits.getUint32(0),low=bits.getUint32(4);
+ const exponent=(high>>>20)&0x7ff;
+ const fraction=(BigInt(high&0xfffff)<<32n)|BigInt(low);
+ const significand=exponent===0?fraction:(1n<<52n)|fraction;
+ return significand<<BigInt(exponent===0?0:exponent-1);
+}
+function exactOmittedPositiveVolume(observed:readonly number[],aggregate:number):boolean{
+ if(observed.length<2)return false;
+ const total=observed.reduce((sum,value)=>sum+exactBinaryVolumeUnits(value),0n);
+ const omitted=total-exactBinaryVolumeUnits(aggregate);
+ return omitted>0n&&observed.some(value=>
+  value>0&&exactBinaryVolumeUnits(value)===omitted);
+}
+
 function partialVolumeExceeds(observed:readonly number[],aggregate:number):boolean{
- if(exactContributorExceedsAggregate(observed,aggregate))return true;
+ if(exactContributorExceedsAggregate(observed,aggregate)||
+  exactOmittedPositiveVolume(observed,aggregate))return true;
  for(let power=0;power<=52;power++){
   const factor=2**power,scaledAggregate=aggregate*factor;
   if(!Number.isInteger(scaledAggregate))continue;
@@ -434,7 +459,8 @@ export function auditCrtCrossTimeframe(
     : Math.abs(h4.volume-total)>tolerance);
    if(!Number.isFinite(total)||!safeMagnitude||
     !sourceSumWithinSafeMagnitude||roundedAwayPositiveFraction||
-    exactContributorExceedsAggregate(subset.map(b=>b.volume as number),h4.volume)||mismatch)
+    (exactContributorExceedsAggregate(subset.map(b=>b.volume as number),h4.volume)||
+     exactOmittedPositiveVolume(subset.map(b=>b.volume as number),h4.volume))||mismatch)
     throw Error('4H/15m volume mismatch for same historical archive');
    reconciledNumericVolumeStarts.push(h4.time);
   }

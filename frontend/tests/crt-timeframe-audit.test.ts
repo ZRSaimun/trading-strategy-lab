@@ -453,6 +453,40 @@ test('a known 15m constituent equal to the 4H volume cannot hide another positiv
   'a sole equal-valued constituent with all other volumes zero remains valid');
 });
 
+test('a fractional 4H total cannot omit a sub-ULP positive 15m contributor',()=>{
+ // The 4H total exactly equals two source contributions, but a third
+ // strictly positive volume is rounded away by ordinary Number addition.
+ // The older integer-total and single-equal-contributor guards miss this.
+ const {h,q}=fixture();
+ h.forEach(b=>{b.volume=0;});
+ q.forEach(b=>{b.volume=0;});
+ const base=1_000_000_000_000+0.125;
+ h[0].volume=base;
+ q[0].volume=1_000_000_000_000;
+ q[1].volume=0.125;
+ q[2].volume=1e-8;
+ assert.equal(q[0].volume+q[1].volume+q[2].volume,base,
+  'fixture must exercise a positive source contribution erased by rounding');
+ assert.throws(()=>auditCrtCrossTimeframe(h,q),/volume mismatch/,
+  'complete coverage must reject the exactly omitted positive contributor');
+ q[3].volume=null;
+ assert.throws(()=>auditCrtCrossTimeframe(h,q),/partial volume contradiction/,
+  'a null 15m volume cannot erase the known lower-bound contradiction');
+ assert.throws(()=>auditCrtCrossTimeframe([h[0]],q.slice(0,12)),
+  /Partial 4H\\/15m volume contradiction/,
+  'partial 4H boundaries must reject the same observed overrun');
+ q[2].volume=0;
+ q[3].volume=0;
+ assert.deepEqual(auditCrtCrossTimeframe(h,q).reconciledNumericVolumeStarts,
+  [BASE,BASE+H4],
+  'removing the extra contribution restores exact numeric reconciliation');
+ const decimals=fixture();
+ decimals.q.forEach(b=>{b.volume=0.1;});
+ decimals.h.forEach(b=>{b.volume=1.6;});
+ assert.equal(auditCrtCrossTimeframe(decimals.h,decimals.q).checkedFourHourBars,2,
+  'ordinary decimal roundoff remains permitted');
+});
+
 test('partial volume evidence never fabricates complete 4H reconciliation',()=>{
  const x=fixture();
  x.h[0].volume=10;
