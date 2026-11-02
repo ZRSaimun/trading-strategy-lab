@@ -145,6 +145,28 @@ test('high-scale dyadic volume finer than 1/65536 rejects exact source drift',()
  assert.throws(()=>auditCrtCrossTimeframe(h,q),/volume mismatch/,
   'exact fractional drift must not pass a loose scale-relative tolerance');
 });
+test('fine dyadic 4H/15m volume drift below 64-ULP tolerance fails closed',()=>{
+ // Sixteen exact 2^-40 fractional increments sum to 2^-36. At ~100
+ // aggregate units, a one-2^-40-unit drift is below the fallback tolerance.
+ // The old 2^32 ceiling skipped exact reconciliation and accepted it.
+ const {h,q}=fixture();
+ const each=6.25+2**-40;
+ const coherent=100+2**-36;
+ const inconsistent=coherent+2**-40;
+ const tolerance=64*Number.EPSILON*inconsistent;
+ assert.ok(Math.abs(inconsistent-coherent)<tolerance,
+  'this regression must exercise the old fallback acceptance hole');
+ assert.equal(Number.isInteger(each*2**32),false);
+ assert.equal(Number.isInteger(each*2**40),true);
+ q.forEach(b=>{b.volume=each;});
+ h.forEach(b=>{b.volume=coherent;});
+ assert.deepEqual(auditCrtCrossTimeframe(h,q).reconciledNumericVolumeStarts,
+  [BASE,BASE+H4],'exact 2^-40 constituents should certify at the correct total');
+ h[0].volume=inconsistent;
+ assert.throws(()=>auditCrtCrossTimeframe(h,q),/volume mismatch/,
+  'a representable sub-tolerance discrepancy is not summation noise');
+});
+
 test('exact eighth-unit 15m volume and ordinary decimal roundoff retain distinct rules',()=>{
  const exact=fixture();
  exact.q.forEach(b=>{b.volume=0.125;});

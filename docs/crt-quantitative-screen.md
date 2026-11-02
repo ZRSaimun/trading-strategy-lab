@@ -4,6 +4,8 @@
 
 ## One source and strictly observed bars
 
+**Fine dyadic-volume reconciliation (2 November 2026):** The 4H/15m same-archive audit now searches exact power-of-two fractional volume units through 2^52 instead of stopping at 2^32. At roughly 100 aggregate units, sixteen 15m values of 6.25 + 2^-40 reconcile exactly to 100 + 2^-36; a 2^-40 discrepancy in the reported 4H total is representable but smaller than the former 64-ULP fallback allowance. A synthetic regression proves the coherent total passes and the discrepant total fails. Non-dyadic reported decimals retain bounded summation tolerance. This is only a check on received numeric consistency, **not** independently authenticated volume precision, actual BID/ASK broker quotes, execution, or profitable strategy evidence.
+
 **High-scale dyadic-volume precision (2 November 2026):** Exact power-of-two fractional 15m volumes are now summed as scaled `BigInt` units, rather than abandoning exact reconciliation when the **scaled** 16-bar sum exceeds JavaScript's safe-integer range. For example, sixteen volumes of 6,250,000,000,000 + 1/1024 have an exact aggregate of 100,000,000,000,000 + 1/64; a 1/64-unit 4H drift must fail, even though the previous fallback tolerance could accept it. The existing safe-magnitude guard still rejects untrustworthy original aggregates, and non-dyadic decimals retain bounded summation tolerance. This checks only internal consistency of the received binary64 values, **not** authenticated volume precision, source identity, CFD fills or profitability.
 
 
