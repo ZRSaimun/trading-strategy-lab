@@ -58,6 +58,11 @@ const STANDARD_ARRAY_METHODS=[
  ['push',Array.prototype.push],
 ] as const;
 const STANDARD_ARRAY_ITERATOR=Array.prototype[Symbol.iterator];
+// Array.prototype.slice/map/filter consult Array[Symbol.species] through
+// ArraySpeciesCreate. A changed global getter can substitute an attacker-
+// controlled result even if all source arrays and inherited methods are
+// otherwise ordinary. Pin the native descriptor before any such allocation.
+const STANDARD_ARRAY_SPECIES=Object.getOwnPropertyDescriptor(Array,Symbol.species);
 function hasStandardArrayIntrinsics():boolean{
  for(let i=0;i<STANDARD_ARRAY_METHODS.length;i++){
   // Index directly: tuple destructuring itself consults Array iteration.
@@ -65,9 +70,16 @@ function hasStandardArrayIntrinsics():boolean{
   if(Object.getOwnPropertyDescriptor(Array.prototype,name)?.value!==method)
    return false;
  }
+ const species=Object.getOwnPropertyDescriptor(Array,Symbol.species);
  return Object.getOwnPropertyDescriptor(Array.prototype,Symbol.iterator)?.value===
    STANDARD_ARRAY_ITERATOR&&
-  Object.getOwnPropertyDescriptor(Array.prototype,'constructor')?.value===Array;
+  Object.getOwnPropertyDescriptor(Array.prototype,'constructor')?.value===Array&&
+  !!species&&!!STANDARD_ARRAY_SPECIES&&
+  species.get===STANDARD_ARRAY_SPECIES.get&&
+  species.set===STANDARD_ARRAY_SPECIES.set&&
+  species.enumerable===STANDARD_ARRAY_SPECIES.enumerable&&
+  species.configurable===STANDARD_ARRAY_SPECIES.configurable&&
+  Object.hasOwn(species,'value')===Object.hasOwn(STANDARD_ARRAY_SPECIES,'value');
 }
 function assertOwnDataFields(b:Bar):void{
  // API candles are plain JSON records. Accessor/inherited fields can change

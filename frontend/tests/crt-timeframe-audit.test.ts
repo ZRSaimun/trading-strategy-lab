@@ -680,6 +680,33 @@ test('CRT source arrays reject constructor/species hijacking before any getter e
   [BASE,BASE+H4],'plain JSON source arrays still certify');
 });
 
+test('CRT rejects global Array species changes before allocating verified arrays',()=>{
+ // The inherited slice/map/filter methods can be pristine while their
+ // ArraySpeciesCreate constructor is replaced globally after module load.
+ // A malicious species getter must never run during either audit or reuse.
+ const {h,q}=fixture();
+ const issued=auditCrtCrossTimeframe(h,q);
+ const original=Object.getOwnPropertyDescriptor(Array,Symbol.species);
+ assert.ok(original?.configurable);
+ let speciesReads=0;
+ let auditError:unknown,certError:unknown;
+ try{
+  Object.defineProperty(Array,Symbol.species,{
+   configurable:true,enumerable:false,
+   get(){speciesReads++;return Array;},
+  });
+  try{auditCrtCrossTimeframe(h,q);}catch(error){auditError=error;}
+  try{certifiedCrtFourHourBars(h,q,issued);}catch(error){certError=error;}
+ }finally{
+  Object.defineProperty(Array,Symbol.species,original);
+ }
+ assert.match(String(auditError),/ordinary JSON array methods/);
+ assert.match(String(certError),/ordinary JSON array methods/);
+ assert.equal(speciesReads,0,'untrusted global species getter was never invoked');
+ assert.deepEqual(certifiedCrtFourHourBars(h,q,issued).map(b=>b.time),
+  [BASE,BASE+H4],'restored native species retains valid source certification');
+});
+
 test('CRT rejects mutated Array prototype methods, iterator and species constructor before execution',()=>{
  // Source arrays can retain ordinary own slots and no own overrides while
  // a different library mutates the shared Array prototype after module load.
