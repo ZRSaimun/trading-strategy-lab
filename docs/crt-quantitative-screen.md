@@ -4,6 +4,9 @@
 
 ## One source and strictly observed bars
 
+**Fully overlapped 4H with unknown constituent volume (2 November 2026):** A complete 4H/15m **price** overlap may contain a null 15m volume. This prevents full numeric-volume reconciliation, but does **not** erase the nonnegative volume observed in the other constituent candles. The audit now rejects a reported numeric 4H volume that is already below that known 15m lower bound, using the same conservative fractional-overflow guard as partial boundary windows. A compatible lower bound remains **unreconciled** and the certified 4H price-only candle retains `volume:null`; an unknown 4H aggregate also remains unknown. Synthetic regressions cover a known overcount, compatible missing-volume evidence, an unknown aggregate and a rounded-away fractional overflow. This is same-archive consistency only, not independently verified source-classified volume, actual broker BID/ASK quotes, or evidence of trading profitability.
+
+
 **Partial-volume rounded-overflow guard (2 November 2026):** For an incomplete 4H overlap, an observed 15m numeric lower bound must not be made to look consistent by JavaScript rounding. In particular, adding 0.1 to `Number.MAX_SAFE_INTEGER` produces the same Number, but the nonnegative received constituents exceed the reported whole-number 4H total. The audit now sums received whole parts as `BigInt` and rejects a positive fractional remainder when no whole-unit headroom remains, before the bounded floating-point fallback. Synthetic regressions cover the hidden overflow, exact safe-integer boundary, and an ordinary compatible partial observation. This is **same-archive arithmetic only**, not verified exchange/tick volume, independent broker BID/ASK, trade authorization or profitability evidence. Partial windows remain **uncheckable**.
 
 
