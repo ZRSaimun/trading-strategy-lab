@@ -25,7 +25,16 @@ const MIN15=900, FOUR_HOUR=14400, BARS_PER_4H=16;
 // only the counts and timestamps cannot detect coordinated edits to BOTH 4H
 // and 15m bars that still reconcile after the report was issued. This is a
 // local mutation guard, NOT a cryptographic source-authentication receipt.
-const issuedSnapshots=new WeakMap<CrossoverAudit,string>();
+// Bind the issued report to the exact pair of source-array instances as well
+// as their values. Equal-looking replacements can come from a different
+// archive or API response and must undergo their own audit. Array identity
+// is a local consistency fence, NOT independent archive provenance.
+type IssuedSnapshot={
+ fourHour:readonly Bar[];
+ fifteenMinute:readonly Bar[];
+ content:string;
+};
+const issuedSnapshots=new WeakMap<CrossoverAudit,IssuedSnapshot>();
 const BAR_FIELDS=['time','open','high','low','close','volume','observed_minutes'] as const;
 function assertOwnDataFields(b:Bar):void{
  // API candles are plain JSON records. Accessor/inherited fields can change
@@ -211,7 +220,9 @@ export function auditCrtCrossTimeframe(
   verifiedFourHourStarts:Object.freeze(verifiedFourHourStarts),
   reconciledNumericVolumeStarts:Object.freeze(reconciledNumericVolumeStarts),
  });
- issuedSnapshots.set(report,candleSnapshot(fourHour,fifteenMinute));
+ issuedSnapshots.set(report,{
+  fourHour,fifteenMinute,content:candleSnapshot(fourHour,fifteenMinute),
+ });
  return report;
 }
 
@@ -228,7 +239,12 @@ export function certifiedCrtFourHourBars(
  // A coherent change to both timeframe arrays can pass a fresh OHLC audit
  // while invalidating the original evidence snapshot. Never certify it with
  // a stale (or independently fabricated) report.
- if(!audit||issuedSnapshots.get(audit)!==candleSnapshot(fourHour,fifteenMinute))
+ const issued=audit&&issuedSnapshots.get(audit);
+ // Do not reuse a certificate for replacement arrays, even when every
+ // visible candle field happens to match. Re-audit the new source window.
+ if(!issued||issued.fourHour!==fourHour||
+  issued.fifteenMinute!==fifteenMinute||
+  issued.content!==candleSnapshot(fourHour,fifteenMinute))
   throw Error('Stale or inconsistent 4H/15m certification report');
  const current=auditCrtCrossTimeframe(fourHour,fifteenMinute);
  if(!Array.isArray(audit.verifiedFourHourStarts)||
