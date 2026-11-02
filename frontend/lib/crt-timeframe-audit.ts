@@ -20,6 +20,9 @@ export type CrossoverAudit={
  readonly reconciledNumericVolumeStarts:readonly number[];
 };
 const MIN15=900, FOUR_HOUR=14400, BARS_PER_4H=16;
+// JS Date/ISO rendering stops at ±8.64e15 milliseconds. Safe integer seconds
+// alone can still describe an unrenderable completed candle timestamp.
+const MAX_ISO_SECONDS=8_640_000_000_000;
 
 // Keep an exact, private-in-memory snapshot for each issued report. Re-auditing
 // only the counts and timestamps cannot detect coordinated edits to BOTH 4H
@@ -94,6 +97,9 @@ function assertComplete(b:Bar,seconds:number){
   // A safe bucket start can still overflow JS integer precision at close.
   // CRT decisions require exact completed-bar timestamps, never rounded ends.
   !Number.isSafeInteger(b.time+seconds)||
+  // Historical CRT timestamps are displayed with Date.toISOString(). Do not
+  // certify an otherwise safe-integer bar whose completed close cannot render.
+  b.time+seconds>MAX_ISO_SECONDS||
   b.observed_minutes!==seconds/60||
   ![b.open,b.high,b.low,b.close].every(x=>Number.isFinite(x)&&x>0)||
   b.low>Math.min(b.open,b.close)||b.high<Math.max(b.open,b.close)||
