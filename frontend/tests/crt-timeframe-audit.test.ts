@@ -239,6 +239,32 @@ test('rejects aligned 4H and 15m buckets whose close timestamp is unsafe',()=>{
  assert.equal(auditCrtCrossTimeframe(ordinary.h,ordinary.q).checkedFourHourBars,2);
 });
 
+test('CRT rejects safe-integer candle closes outside the ISO calendar range',()=>{
+ // Date.toISOString() supports at most 8.64e12 epoch seconds. These UTC
+ // aligned starts and closes are safe integers, but the completed closes
+ // are unrenderable and must never enter a displayed research candidate.
+ const maxIsoSeconds=8_640_000_000_000;
+ assert.equal(maxIsoSeconds%H4,0);
+ assert.equal(maxIsoSeconds%Q,0);
+ assert.equal(Number.isSafeInteger(maxIsoSeconds+H4),true);
+ assert.equal(Number.isSafeInteger(maxIsoSeconds+Q),true);
+ assert.equal(Number.isNaN(new Date((maxIsoSeconds+Q)*1000).getTime()),true);
+ const x=fixture();x.h[0].time=maxIsoSeconds;
+ assert.throws(()=>auditCrtCrossTimeframe(x.h,x.q),/Incomplete or invalid/,
+  '4H close outside the ISO range must fail before any CRT certification');
+ const y=fixture();y.q[0].time=maxIsoSeconds;
+ assert.throws(()=>auditCrtCrossTimeframe(y.h,y.q),/Incomplete or invalid/,
+  '15m close outside the ISO range must fail before certification');
+ // A completed bar ending at the final representable ISO instant is still
+ // accepted when its 16 matching source 15m observations are available.
+ const z=fixture(),delta=maxIsoSeconds-H4-BASE;
+ const last4h=z.h.slice(0,1),last15m=z.q.slice(0,16);
+ last4h.forEach(b=>{b.time+=delta;});
+ last15m.forEach(b=>{b.time+=delta;});
+ assert.equal(Number.isFinite(new Date((last4h[0].time+H4)*1000).getTime()),true);
+ assert.equal(auditCrtCrossTimeframe(last4h,last15m).checkedFourHourBars,1);
+});
+
 test('a missing 15m response cannot be presented as verified 4H coherence',()=>{
  const {h}=fixture();
  assert.deepEqual(auditCrtCrossTimeframe(h,[]),
