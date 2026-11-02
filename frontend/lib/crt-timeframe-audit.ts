@@ -406,13 +406,19 @@ export function auditCrtCrossTimeframe(
    const sourceSumWithinSafeMagnitude=remainingUnits>=0n&&
     (fractionalRemainders===0||remainingUnits>16n||
      fractionalRemainders<Number(remainingUnits));
+   // At a large nominal total, Number addition can erase a small but
+   // positive constituent even below MAX_SAFE_INTEGER (e.g. 1e12 + 1e-8
+   // rounds to 1e12). An integer aggregate cannot equal those same whole
+   // units PLUS observed positive fractional volume.
+   const roundedAwayPositiveFraction=Number.isInteger(h4.volume)&&
+    wholeUnits===BigInt(h4.volume)&&fractionalRemainders>0;
    const exactDyadicMismatch=dyadicVolumeMismatch(
     subset.map(b=>b.volume as number),h4.volume);
    const mismatch=exactDyadicMismatch??(integerCounts
     ? !Number.isSafeInteger(h4.volume)||!Number.isSafeInteger(total)||h4.volume!==total
     : Math.abs(h4.volume-total)>tolerance);
    if(!Number.isFinite(total)||!safeMagnitude||
-    !sourceSumWithinSafeMagnitude||mismatch)
+    !sourceSumWithinSafeMagnitude||roundedAwayPositiveFraction||mismatch)
     throw Error('4H/15m volume mismatch for same historical archive');
    reconciledNumericVolumeStarts.push(h4.time);
   }

@@ -219,6 +219,28 @@ test('fractional constituents cannot hide a true sum beyond the safe-integer cei
   [BASE,BASE+H4]);
 });
 
+test('a sub-ULP positive 15m volume cannot disappear into a large integer 4H total',()=>{
+ // This is below MAX_SAFE_INTEGER: the former overflow-only guard
+ // missed a small positive constituent erased by ordinary Number sum.
+ const {h,q}=fixture();
+ q.forEach(b=>{b.volume=0;});
+ h.forEach(b=>{b.volume=0;});
+ q[0].volume=1_000_000_000_000;
+ q[1].volume=1e-8;
+ h[0].volume=1_000_000_000_000;
+ assert.equal(q[0].volume+q[1].volume,h[0].volume,
+  'the positive fractional observation is rounded away at this scale');
+ assert.throws(()=>auditCrtCrossTimeframe(h,q),/volume mismatch/,
+  'a rounded integer 4H total cannot certify known positive extra volume');
+ q[1].volume=0;
+ assert.deepEqual(auditCrtCrossTimeframe(h,q).reconciledNumericVolumeStarts,
+  [BASE,BASE+H4],'genuine integer volume remains certifiable');
+ q[1].volume=0.125;
+ h[0].volume=1_000_000_000_000.125;
+ assert.deepEqual(auditCrtCrossTimeframe(h,q).reconciledNumericVolumeStarts,
+  [BASE,BASE+H4],'exactly represented fractional aggregate remains certifiable');
+});
+
 test('an unsafe constituent volume is not laundered through fractional tolerance',()=>{
  const {h,q}=fixture();
  q.forEach(b=>{b.volume=0;});
