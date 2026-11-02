@@ -32,6 +32,10 @@ const MIN15=900, FOUR_HOUR=14400, BARS_PER_4H=16;
 type IssuedSnapshot={
  fourHour:readonly Bar[];
  fifteenMinute:readonly Bar[];
+ // Pin the individual source candle objects, not only their container arrays.
+ // Replacing a slot with an equal-valued clone is a new un-audited response.
+ fourHourRows:readonly Bar[];
+ fifteenMinuteRows:readonly Bar[];
  content:string;
 };
 const issuedSnapshots=new WeakMap<CrossoverAudit,IssuedSnapshot>();
@@ -221,7 +225,9 @@ export function auditCrtCrossTimeframe(
   reconciledNumericVolumeStarts:Object.freeze(reconciledNumericVolumeStarts),
  });
  issuedSnapshots.set(report,{
-  fourHour,fifteenMinute,content:candleSnapshot(fourHour,fifteenMinute),
+  fourHour,fifteenMinute,
+  fourHourRows:fourHour.slice(),fifteenMinuteRows:fifteenMinute.slice(),
+  content:candleSnapshot(fourHour,fifteenMinute),
  });
  return report;
 }
@@ -244,7 +250,13 @@ export function certifiedCrtFourHourBars(
  // visible candle field happens to match. Re-audit the new source window.
  if(!issued||issued.fourHour!==fourHour||
   issued.fifteenMinute!==fifteenMinute||
-  issued.content!==candleSnapshot(fourHour,fifteenMinute))
+  issued.content!==candleSnapshot(fourHour,fifteenMinute)||
+  // Equal numeric values do not make a newly substituted candle object
+  // part of the original audited response. Require a fresh audit for it.
+  issued.fourHourRows.length!==fourHour.length||
+  issued.fifteenMinuteRows.length!==fifteenMinute.length||
+  issued.fourHourRows.some((bar,i)=>bar!==fourHour[i])||
+  issued.fifteenMinuteRows.some((bar,i)=>bar!==fifteenMinute[i]))
   throw Error('Stale or inconsistent 4H/15m certification report');
  const current=auditCrtCrossTimeframe(fourHour,fifteenMinute);
  if(!Array.isArray(audit.verifiedFourHourStarts)||
