@@ -71,6 +71,11 @@ function assertOwnDataFields(b:Bar):void{
  // between audit, snapshot and certification, or execute code on a read.
  // Reject them before touching any validated candle value.
  if(!b||typeof b!=='object') throw Error('Invalid cross-timeframe candle fields');
+ // A JSON-decoded candle is an ordinary object. Custom/null prototypes can
+ // carry inherited source or broker claims that the own-key audit never sees.
+ // Refuse these records before reading any of their candle values.
+ if(Object.getPrototypeOf(b)!==Object.prototype)
+  throw Error('Cross-timeframe candle requires ordinary JSON object prototype');
  for(const field of BAR_FIELDS){
   const descriptor=Object.getOwnPropertyDescriptor(b,field);
   if(!descriptor||!Object.hasOwn(descriptor,'value'))

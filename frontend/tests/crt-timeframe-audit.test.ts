@@ -749,3 +749,35 @@ test('CRT refuses undeclared metadata on individual 4H and 15m candle records',(
  const valid=auditCrtCrossTimeframe(normal.h,normal.q);
  assert.equal(certifiedCrtFourHourBars(normal.h,normal.q,valid).length,2);
 });
+
+test('CRT rejects custom candle prototypes without reading inherited source claims',()=>{
+ for(const side of ['h','q'] as const){
+  const source=fixture();
+  let inheritedReads=0;
+  const prototype=Object.create(Object.prototype);
+  Object.defineProperty(prototype,'brokerVerifiedAsk',{
+   get(){inheritedReads++;throw Error('unverified inherited ASK claim executed');},
+  });
+  Object.setPrototypeOf(source[side][0],prototype);
+  assert.throws(()=>auditCrtCrossTimeframe(source.h,source.q),
+   /ordinary JSON object prototype/,
+   'seven valid own fields must not certify inherited provider metadata');
+  assert.equal(inheritedReads,0,'prototype metadata getter must never run');
+ }
+ const nullPrototype=fixture();
+ Object.setPrototypeOf(nullPrototype.q[0],null);
+ assert.throws(()=>auditCrtCrossTimeframe(nullPrototype.h,nullPrototype.q),
+  /ordinary JSON object prototype/,
+  'null-prototype records are not ordinary JSON-decoded candles');
+
+ const altered=fixture();
+ const report=auditCrtCrossTimeframe(altered.h,altered.q);
+ const original=Object.getPrototypeOf(altered.q[1]);
+ Object.setPrototypeOf(altered.q[1],Object.create(original));
+ assert.throws(()=>certifiedCrtFourHourBars(altered.h,altered.q,report),
+  /ordinary JSON object prototype/,
+  'post-audit prototype substitution invalidates issued evidence');
+ Object.setPrototypeOf(altered.q[1],original);
+ assert.deepEqual(certifiedCrtFourHourBars(altered.h,altered.q,report).map(b=>b.time),
+  [BASE,BASE+H4],'restored unchanged plain candles remain certifiable');
+});
