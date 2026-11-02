@@ -1235,3 +1235,46 @@ test('partial 4H volume catches fractional overflow hidden by Number rounding',(
   ordinary.q.slice(4,12)).uncheckableFourHourBars,1,
   'non-dyadic fractions below a larger reported 4H total stay uncheckable');
 });
+
+test('CRT rejects two distinct positive 15m volumes lost beneath fractional 4H rounding',()=>{
+ // At this magnitude, adding either small constituent (or both) does not
+ // change the rounded JavaScript sum. Neither alone equals the exact omitted
+ // binary64 amount, so the previous single-contributor guard missed it.
+ const x=fixture();
+ x.q.forEach(b=>{b.volume=0;});
+ x.h.forEach(b=>{b.volume=0;});
+ const reported=1_000_000_000_000.125;
+ x.q[0].volume=1_000_000_000_000;
+ x.q[1].volume=0.125;
+ x.q[2].volume=0.00000001;
+ x.q[3].volume=0.00000002;
+ x.h[0].volume=reported;
+ assert.equal(x.q.slice(0,16).reduce((sum,b)=>sum+(b.volume??0),0),
+  reported,'ordinary Number addition must conceal the two positive inputs');
+ assert.throws(()=>auditCrtCrossTimeframe(x.h,x.q),/volume mismatch/,
+  'a complete 4H cannot omit two exact positive constituents');
+
+ const partial=fixture();
+ partial.q.forEach(b=>{b.volume=null;});
+ partial.h[0].volume=reported;
+ partial.q[4].volume=1_000_000_000_000;
+ partial.q[5].volume=0.125;
+ partial.q[6].volume=0.00000001;
+ partial.q[7].volume=0.00000002;
+ assert.throws(()=>auditCrtCrossTimeframe([partial.h[0]],partial.q.slice(4,12)),
+  /Partial 4H\/15m volume contradiction/,
+  'a partial 4H still rejects a proven two-contributor lower-bound excess');
+
+ // Do not reject ordinary decimal-rounding noise or invent unknown volume.
+ const valid=fixture();
+ valid.q.forEach(b=>{b.volume=0.1;});
+ valid.h.forEach(b=>{b.volume=1.6;});
+ assert.deepEqual(auditCrtCrossTimeframe(valid.h,valid.q).reconciledNumericVolumeStarts,
+  [BASE,BASE+H4],'ordinary decimal rounding retains its bounded tolerance');
+
+ const unknown=fixture();
+ unknown.q.forEach(b=>{b.volume=null;});
+ unknown.h[0].volume=null;
+ assert.equal(auditCrtCrossTimeframe(unknown.h,unknown.q).checkedFourHourBars,2,
+  'unknown source volume remains unknown, not a fabricated zero');
+});
