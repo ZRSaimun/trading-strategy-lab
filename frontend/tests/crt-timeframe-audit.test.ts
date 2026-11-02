@@ -671,3 +671,44 @@ test('CRT refuses undeclared source metadata on historical array containers',()=
  assert.deepEqual(certifiedCrtFourHourBars(y.h,y.q,report).map(b=>b.time),
   [BASE,BASE+H4],'unchanged ordinary arrays remain eligible');
 });
+
+test('CRT source snapshots resist inherited array toJSON hooks masking coordinated edits',()=>{
+ const previous=Object.getOwnPropertyDescriptor(Array.prototype,'toJSON');
+ try{
+  // JSON.stringify of a nested array would become a constant regardless
+  // of its contents, allowing a stale certificate to survive source edits.
+  Object.defineProperty(Array.prototype,'toJSON',{
+   configurable:true,writable:true,value(){return 'masked';},
+  });
+  const {h,q}=fixture();
+  const issued=auditCrtCrossTimeframe(h,q);
+  assert.equal(certifiedCrtFourHourBars(h,q,issued).length,2);
+  h[0].open+=0.01;
+  q[0].open+=0.01;
+  assert.equal(auditCrtCrossTimeframe(h,q).checkedFourHourBars,2,
+   'coordinated edits still reconcile across timeframes');
+  assert.throws(()=>certifiedCrtFourHourBars(h,q,issued),
+   /Stale or inconsistent 4H\/15m certification report/,
+   'inherited JSON hooks must not hide changes to issued evidence');
+ }finally{
+  if(previous)Object.defineProperty(Array.prototype,'toJSON',previous);
+  else Reflect.deleteProperty(Array.prototype,'toJSON');
+ }
+});
+
+test('CRT snapshot never invokes inherited object toJSON getters',()=>{
+ const previous=Object.getOwnPropertyDescriptor(Object.prototype,'toJSON');
+ let reads=0;
+ try{
+  Object.defineProperty(Object.prototype,'toJSON',{
+   configurable:true,get(){reads++;throw Error('untrusted toJSON getter invoked');},
+  });
+  const {h,q}=fixture();
+  const issued=auditCrtCrossTimeframe(h,q);
+  assert.equal(certifiedCrtFourHourBars(h,q,issued).length,2);
+  assert.equal(reads,0,'primitive snapshot encoding must not consult toJSON');
+ }finally{
+  if(previous)Object.defineProperty(Object.prototype,'toJSON',previous);
+  else Reflect.deleteProperty(Object.prototype,'toJSON');
+ }
+});

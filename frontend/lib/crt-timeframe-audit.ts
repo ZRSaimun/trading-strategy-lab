@@ -115,15 +115,27 @@ function assertOwnBarSlots(bars:readonly Bar[]):void{
   throw Error('Cross-timeframe window contains undeclared source metadata');
  }
 }
+// JSON.stringify invokes inherited Array/Object.prototype.toJSON hooks.
+// A constant-returning hook can mask coordinated edits to both timeframes.
+// Serialize validated primitive fields with unambiguous fixed delimiters
+// instead, preserving negative zero as a distinct source representation.
 function candleSnapshot(fourHour:readonly Bar[],fifteenMinute:readonly Bar[]):string{
- const rows=(bars:readonly Bar[])=>{
+ const rows=(bars:readonly Bar[]):string=>{
   assertOwnBarSlots(bars);
-  return bars.map(b=>{
-  assertOwnDataFields(b);
-  return [b.time,b.open,b.high,b.low,b.close,b.volume,b.observed_minutes];
- });
+  let snapshot=String(bars.length)+':';
+  for(let i=0;i<bars.length;i++){
+   const bar=bars[i];
+   assertOwnDataFields(bar);
+   for(const field of BAR_FIELDS){
+    const value=bar[field];
+    snapshot+=value===null?'null':Object.is(value,-0)?'-0':String(value);
+    snapshot+=',';
+   }
+   snapshot+=';';
+  }
+  return snapshot;
  };
- return JSON.stringify([rows(fourHour),rows(fifteenMinute)]);
+ return '4H:'+rows(fourHour)+'|15m:'+rows(fifteenMinute);
 }
 
 function assertComplete(b:Bar,seconds:number){
