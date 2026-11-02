@@ -104,6 +104,16 @@ function assertOwnBarSlots(bars:readonly Bar[]):void{
   if(Object.hasOwn(bars,STANDARD_ARRAY_METHODS[i][0]))
    throw Error('Cross-timeframe window requires ordinary JSON array methods');
  }
+ // Source arrays must be ordinary JSON candle lists, not containers for
+ // undeclared ASK quotes, provider labels or broker-authentication claims.
+ // Inspect keys without evaluating any additional property getter. Unknown
+ // own metadata is rejected rather than silently ignored as source evidence.
+ for(const key of Reflect.ownKeys(bars)){
+  if(key==='length')continue;
+  if(typeof key==='string'&&/^(0|[1-9][0-9]*)$/.test(key)&&
+   Number(key)<bars.length)continue;
+  throw Error('Cross-timeframe window contains undeclared source metadata');
+ }
 }
 function candleSnapshot(fourHour:readonly Bar[],fifteenMinute:readonly Bar[]):string{
  const rows=(bars:readonly Bar[])=>{

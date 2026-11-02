@@ -644,3 +644,30 @@ test('CRT rejects mutated Array prototype methods, iterator and species construc
  assert.equal(auditCrtCrossTimeframe(normal.h,normal.q).checkedFourHourBars,2,
   'restored standard arrays must still pass the source-coherence audit');
 });
+
+
+test('CRT refuses undeclared source metadata on historical array containers',()=>{
+ // A JSON candle array cannot silently carry an additional ASK population
+ // or a claimed provider verification status outside the frozen BID schema.
+ for(const side of ['h','q'] as const){
+  const x=fixture();
+  let reads=0;
+  Object.defineProperty(x[side],'askCandles',{
+   configurable:true,
+   get(){reads++;throw Error('undeclared ASK metadata getter executed');},
+  });
+  assert.throws(()=>auditCrtCrossTimeframe(x.h,x.q),
+   /undeclared source metadata/);
+  assert.equal(reads,0,'metadata getters must not execute during audit');
+ }
+ const y=fixture();
+ const report=auditCrtCrossTimeframe(y.h,y.q);
+ const undeclaredSymbol=Symbol('claimedBrokerAuthentication');
+ Object.defineProperty(y.q,undeclaredSymbol,{value:true,configurable:true});
+ assert.throws(()=>certifiedCrtFourHourBars(y.h,y.q,report),
+  /undeclared source metadata/,
+  'a source container altered after certification must require fresh review');
+ delete (y.q as unknown as Record<symbol,unknown>)[undeclaredSymbol];
+ assert.deepEqual(certifiedCrtFourHourBars(y.h,y.q,report).map(b=>b.time),
+  [BASE,BASE+H4],'unchanged ordinary arrays remain eligible');
+});
