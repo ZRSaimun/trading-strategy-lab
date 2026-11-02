@@ -373,13 +373,13 @@ test('CRT certification binds the issued report to its exact source-array instan
  assert.deepEqual(copied4h,h,'replacement 4H values are byte-for-byte equivalent as numbers');
  assert.deepEqual(copied15m,q,'replacement 15m values are equivalent');
  assert.throws(()=>certifiedCrtFourHourBars(copied4h,q,issued),
-  /Stale or inconsistent 4H\\/15m certification report/,
+  /Stale or inconsistent 4H\/15m certification report/,
   'a different 4H response cannot reuse the old source-array certificate');
  assert.throws(()=>certifiedCrtFourHourBars(h,copied15m,issued),
-  /Stale or inconsistent 4H\\/15m certification report/,
+  /Stale or inconsistent 4H\/15m certification report/,
   'a different 15m response cannot reuse the old source-array certificate');
  assert.throws(()=>certifiedCrtFourHourBars(copied4h,copied15m,issued),
-  /Stale or inconsistent 4H\\/15m certification report/);
+  /Stale or inconsistent 4H\/15m certification report/);
  const newReport=auditCrtCrossTimeframe(copied4h,copied15m);
  assert.deepEqual(certifiedCrtFourHourBars(copied4h,copied15m,newReport),
   copied4h,'replacement arrays remain usable after their own fresh audit');
