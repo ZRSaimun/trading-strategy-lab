@@ -358,6 +358,17 @@ export function auditCrtCrossTimeframe(
   if(!samePrice(h4.open,observed.open)||!samePrice(h4.high,observed.high)||
    !samePrice(h4.low,observed.low)||!samePrice(h4.close,observed.close))
    throw Error('4H/15m OHLC mismatch for same historical archive');
+  // A null constituent prevents full numeric volume reconciliation,
+  // but the other nonnegative 15m volumes still impose a hard lower bound
+  // on the reported 4H total. Reject an impossible total without filling
+  // the missing observation or upgrading it to volume certification.
+  if(h4.volume!==null){
+   const knownVolumes=subset.filter(b=>b.volume!==null)
+    .map(b=>b.volume as number);
+   if(knownVolumes.length>0&&knownVolumes.length<BARS_PER_4H&&
+    partialVolumeExceeds(knownVolumes,h4.volume))
+    throw Error('4H/15m partial volume contradiction for same historical archive');
+  }
   // When both responses actually report volume, inconsistent aggregation
   // is an archive-integrity failure. This does NOT authenticate volume
   // provenance: null values remain unknown, never zero-filled or certified.
