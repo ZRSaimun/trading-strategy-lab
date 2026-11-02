@@ -1078,3 +1078,35 @@ test('CRT source windows require enumerable own indexed candle entries',()=>{
  assert.equal(auditCrtCrossTimeframe(jsonH,jsonQ).checkedFourHourBars,2,
   'ordinary JSON-decoded source windows remain valid');
 });
+
+test('partial 4H volume catches fractional overflow hidden by Number rounding',()=>{
+ // The exact received lower bound is MAX_SAFE_INTEGER + 0.1, but ordinary
+ // Number addition rounds the 0.1 away. A partial 4H cannot certify this
+ // apparently equal aggregate as a consistent lower bound.
+ const hidden=fixture();
+ hidden.h[0].volume=Number.MAX_SAFE_INTEGER;
+ hidden.q[4].volume=Number.MAX_SAFE_INTEGER;
+ hidden.q[5].volume=0.1;
+ assert.equal(hidden.q[4].volume+hidden.q[5].volume,
+  hidden.h[0].volume,'fixture must reproduce rounded-away evidence');
+ assert.throws(()=>auditCrtCrossTimeframe([hidden.h[0]],
+  hidden.q.slice(4,12)),/Partial 4H\/15m volume contradiction/,
+  'observed positive fraction cannot be hidden by an unsafe rounded sum');
+
+ const exact=fixture();
+ exact.h[0].volume=Number.MAX_SAFE_INTEGER;
+ exact.q[4].volume=Number.MAX_SAFE_INTEGER;
+ exact.q[5].volume=0;
+ const partial=auditCrtCrossTimeframe([exact.h[0]],exact.q.slice(4,12));
+ assert.equal(partial.uncheckableFourHourBars,1);
+ assert.deepEqual(partial.reconciledNumericVolumeStarts,[],
+  'even an exact partial lower bound never certifies full 4H volume');
+
+ const ordinary=fixture();
+ ordinary.h[0].volume=10.5;
+ ordinary.q[4].volume=10;
+ ordinary.q[5].volume=0.1;
+ assert.equal(auditCrtCrossTimeframe([ordinary.h[0]],
+  ordinary.q.slice(4,12)).uncheckableFourHourBars,1,
+  'non-dyadic fractions below a larger reported 4H total stay uncheckable');
+});
