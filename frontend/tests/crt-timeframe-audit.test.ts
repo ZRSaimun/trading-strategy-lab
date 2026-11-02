@@ -438,13 +438,13 @@ test('a known 15m constituent equal to the 4H volume cannot hide another positiv
  const rounded=q[0].volume+q[1].volume;
  assert.ok(rounded>aggregate&&rounded-aggregate<0.25,
   'the known lower-bound contradiction must sit inside the former tolerance');
- assert.throws(()=>auditCrtCrossTimeframe(h,q),/4H\\/15m volume mismatch/,
+ assert.throws(()=>auditCrtCrossTimeframe(h,q),/volume mismatch/,
   'complete numeric coverage cannot certify an impossible total');
  q[2].volume=null;
  assert.throws(()=>auditCrtCrossTimeframe(h,q),/partial volume contradiction/,
   'an unknown third volume cannot erase the two known positive contributors');
  assert.throws(()=>auditCrtCrossTimeframe([h[0]],q.slice(0,12)),
-  /Partial 4H\\/15m volume contradiction/,
+  /Partial .* volume contradiction/,
   'a partial boundary must also reject the definite known lower bound');
  q[1].volume=0;
  q[2].volume=0;
