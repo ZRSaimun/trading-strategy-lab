@@ -189,6 +189,36 @@ test('fractional volume sums above safe integer magnitude cannot be certified',(
  assert.throws(()=>auditCrtCrossTimeframe(h,q),/volume mismatch/,
   'matching rounded totals are not evidence of precise aggregation');
 });
+test('fractional constituents cannot hide a true sum beyond the safe-integer ceiling',()=>{
+ // Number addition rounds MAX_SAFE_INTEGER + 0.1 back to MAX_SAFE_INTEGER.
+ // The old safeMagnitude test only inspected that rounded total, and the
+ // non-dyadic tolerance accepted a falsely coherent 4H aggregate.
+ const {h,q}=fixture();
+ q.forEach(b=>{b.volume=0;});
+ h.forEach(b=>{b.volume=0;});
+ const max=Number.MAX_SAFE_INTEGER;
+ q[0].volume=max;q[1].volume=0.1;h[0].volume=max;
+ assert.equal(max+0.1,max,'fixture must reproduce Number rounding');
+ assert.throws(()=>auditCrtCrossTimeframe(h,q),/volume mismatch/,
+  'a positive fractional addition above the exact safe bound is not coherent');
+
+ // The whole parts can sum to the bound even when no individual input does.
+ q[0].volume=max-1;q[1].volume=1.1;
+ assert.equal((max-1)+1.1,max);
+ assert.throws(()=>auditCrtCrossTimeframe(h,q),/volume mismatch/,
+  'fractional overflow after whole-part accumulation must also be rejected');
+
+ // Two small fractional constituents can cross the remaining one-unit gap.
+ q[0].volume=max-1;q[1].volume=0.6;q[2].volume=0.6;
+ assert.throws(()=>auditCrtCrossTimeframe(h,q),/volume mismatch/,
+  'multiple subunit contributions cannot disappear in rounded summation');
+
+ // The exact maximum SAFE integer total remains a valid integer count.
+ q[0].volume=max;q[1].volume=0;q[2].volume=0;
+ assert.deepEqual(auditCrtCrossTimeframe(h,q).reconciledNumericVolumeStarts,
+  [BASE,BASE+H4]);
+});
+
 test('an unsafe constituent volume is not laundered through fractional tolerance',()=>{
  const {h,q}=fixture();
  q.forEach(b=>{b.volume=0;});
