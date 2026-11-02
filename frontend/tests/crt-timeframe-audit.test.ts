@@ -684,7 +684,7 @@ test('CRT rejects mutated Array prototype methods, iterator and species construc
  // Source arrays can retain ordinary own slots and no own overrides while
  // a different library mutates the shared Array prototype after module load.
  // Restore each global descriptor before asserting to avoid leaking changes.
- for(const key of ['map','reduce',Symbol.iterator,'constructor'] as const){
+ for(const key of ['map','reduce','push',Symbol.iterator,'constructor'] as const){
   const {h,q}=fixture();
   const original=Object.getOwnPropertyDescriptor(Array.prototype,key);
   assert.ok(original);
@@ -707,6 +707,30 @@ test('CRT rejects mutated Array prototype methods, iterator and species construc
   'restored standard arrays must still pass the source-coherence audit');
 });
 
+
+test('CRT rejects post-audit inherited push changes before reusing a certificate',()=>{
+ // A modified inherited push could forge verified-start or numeric-volume
+ // report lists even when all source candles are unchanged. Reject it
+ // before executing the new getter and require a clean runtime to re-audit.
+ const {h,q}=fixture();
+ const report=auditCrtCrossTimeframe(h,q);
+ const original=Object.getOwnPropertyDescriptor(Array.prototype,'push');
+ assert.ok(original);
+ let reads=0,failure:unknown;
+ try{
+  Object.defineProperty(Array.prototype,'push',{
+   configurable:true,get(){reads++;throw Error('untrusted push getter executed');},
+  });
+  try{certifiedCrtFourHourBars(h,q,report);}
+  catch(error){failure=error;}
+ }finally{
+  Object.defineProperty(Array.prototype,'push',original);
+ }
+ assert.match(String(failure),/ordinary JSON array methods/);
+ assert.equal(reads,0,'the altered push getter must never execute');
+ assert.deepEqual(certifiedCrtFourHourBars(h,q,report).map(b=>b.time),
+  [BASE,BASE+H4],'restoring the standard push preserves valid evidence');
+});
 
 test('CRT refuses undeclared source metadata on historical array containers',()=>{
  // A JSON candle array cannot silently carry an additional ASK population

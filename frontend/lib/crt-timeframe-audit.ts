@@ -53,6 +53,9 @@ const STANDARD_ARRAY_METHODS=[
  ['map',Array.prototype.map],['slice',Array.prototype.slice],
  ['filter',Array.prototype.filter],['some',Array.prototype.some],
  ['every',Array.prototype.every],['reduce',Array.prototype.reduce],
+ // The audit builds its verified-start and volume-coherence lists with push.
+ // A replaced inherited push could forge or silently omit certified buckets.
+ ['push',Array.prototype.push],
 ] as const;
 const STANDARD_ARRAY_ITERATOR=Array.prototype[Symbol.iterator];
 function hasStandardArrayIntrinsics():boolean{
