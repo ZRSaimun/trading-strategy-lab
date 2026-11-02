@@ -108,6 +108,25 @@ test('exact quarter-unit 15m volumes reject sub-unit 4H aggregate drift',()=>{
  assert.throws(()=>auditCrtCrossTimeframe(h,q),/volume mismatch/,
   'a full quarter-unit drift must also fail');
 });
+test('large scaled dyadic sums reject one precisely represented fractional unit',()=>{
+ // Each 15m source value has a representable 1/1024 unit. Their exact
+ // 16-bar sum is 1/64 above 1e14, but scaling that sum by 1024 exceeds
+ // Number.MAX_SAFE_INTEGER. Falling back to 64-ULP tolerance previously
+ // accepted a real one-ULP (1/64-unit) mismatch in the 4H aggregate.
+ const {h,q}=fixture();
+ const each=6_250_000_000_000+1/1024;
+ const aggregate=100_000_000_000_000+1/64;
+ assert.equal(Number.isSafeInteger(each*1024),true);
+ assert.equal(Number.isSafeInteger(aggregate*1024),false);
+ q.forEach(b=>{b.volume=each;});
+ h.forEach(b=>{b.volume=aggregate;});
+ assert.deepEqual(auditCrtCrossTimeframe(h,q).reconciledNumericVolumeStarts,
+  [BASE,BASE+H4],'coherent high-scale fractional volumes remain auditable');
+ h[0].volume=aggregate+1/64;
+ assert.throws(()=>auditCrtCrossTimeframe(h,q),/volume mismatch/,
+  'a source-representable fractional drift must not hide behind 64-ULP tolerance');
+});
+
 test('exact eighth-unit 15m volume and ordinary decimal roundoff retain distinct rules',()=>{
  const exact=fixture();
  exact.q.forEach(b=>{b.volume=0.125;});

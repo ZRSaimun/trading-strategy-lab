@@ -180,25 +180,28 @@ function samePrice(a:number,b:number){
  return a===b;
 }
 
-// Exact binary-fraction counts need no heuristic 64-ULP allowance. When
-// every constituent is an exactly representable integer number of 2^-k
-// units and their scaled sum remains safe, IEEE-754 power-of-two scaling
-// and integer addition are exact. Refuse even one scaled-unit mismatch.
-// Other reported decimal fractions retain the conservative tolerance below.
+// Power-of-two scaling preserves the exact binary64 value of each reported
+// volume. Number-safe scaled sums are unnecessarily restrictive: a 16-bar
+// aggregate can exceed 2^53 scaled units even when the original total is
+// within the safe-magnitude policy. Accumulate the scaled integers as BigInt
+// to reject a real fractional-unit mismatch rather than falling back to a
+// permissive 64-ULP tolerance. This only reconciles the numbers RECEIVED;
+// it cannot recover precision already lost by the upstream data source.
 function dyadicVolumeMismatch(values:readonly number[],aggregate:number):boolean|null{
  for(let power=0;power<=16;power++){
   const factor=2**power;
-  let unitsTotal=0,exact=true;
+  let unitsTotal=0n,exact=true;
   for(const value of values){
    const units=value*factor;
-   if(!Number.isSafeInteger(units)||!Number.isSafeInteger(unitsTotal+units)){
+   if(!Number.isInteger(units)){
     exact=false;break;
    }
-   unitsTotal+=units;
+   unitsTotal+=BigInt(units);
   }
   if(exact){
    const aggregateUnits=aggregate*factor;
-   return !Number.isSafeInteger(aggregateUnits)||aggregateUnits!==unitsTotal;
+   return !Number.isInteger(aggregateUnits)||
+    BigInt(aggregateUnits)!==unitsTotal;
   }
  }
  return null;
