@@ -249,10 +249,10 @@ function exactContributorExceedsAggregate(observed:readonly number[],aggregate:n
 }
 
 // All finite positive IEEE-754 volumes are exact multiples of 2^-1074.
-// Comparing those integer units can prove a *specific* omitted positive
-// constituent even when adding it to a large fractional 4H total rounds away.
-// Require exact equality after removing one reported contributor: ordinary
-// aggregate rounding (e.g. decimal 0.1 volumes) is not itself a failure.
+// Comparing those integer units can prove one or two omitted positive
+// constituents even when adding them to a large fractional 4H total rounds
+// away. Require exact equality after removing those reported contributors:
+// ordinary aggregate rounding (e.g. decimal 0.1 volumes) is not a failure.
 // This checks only received numeric coherence, never volume source identity.
 function exactBinaryVolumeUnits(value:number):bigint{
  if(value===0)return 0n;
@@ -266,10 +266,22 @@ function exactBinaryVolumeUnits(value:number):bigint{
 }
 function exactOmittedPositiveVolume(observed:readonly number[],aggregate:number):boolean{
  if(observed.length<2)return false;
- const total=observed.reduce((sum,value)=>sum+exactBinaryVolumeUnits(value),0n);
+ const units=observed.map(exactBinaryVolumeUnits);
+ const total=units.reduce((sum,value)=>sum+value,0n);
  const omitted=total-exactBinaryVolumeUnits(aggregate);
- return omitted>0n&&observed.some(value=>
-  value>0&&exactBinaryVolumeUnits(value)===omitted);
+ if(omitted<=0n)return false;
+ // A single positive constituent may be lost below the 4H aggregate ULP.
+ if(units.some(value=>value>0n&&value===omitted))return true;
+ // Two small, positive contributors can be lost together even though
+ // neither individually equals the exact difference. Check only distinct
+ // received constituents; this is bounded by sixteen 15m bars.
+ for(let i=0;i<units.length;i++){
+  if(units[i]===0n)continue;
+  for(let j=i+1;j<units.length;j++){
+   if(units[j]>0n&&units[i]+units[j]===omitted)return true;
+  }
+ }
+ return false;
 }
 
 function partialVolumeExceeds(observed:readonly number[],aggregate:number):boolean{
