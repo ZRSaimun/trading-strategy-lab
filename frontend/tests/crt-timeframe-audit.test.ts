@@ -260,6 +260,46 @@ test('null constituent or aggregate volume stays unknown, not fabricated zero',(
  // source identity or a volume confirmation gate.
 });
 
+test('fully observed 4H prices reject impossible numeric volume lower bound with one null 15m volume',()=>{
+ const {h,q}=fixture();
+ q.forEach(b=>{b.volume=5;});
+ h.forEach(b=>{b.volume=80;});
+ q[3].volume=null;
+ q[4].volume=100;
+ assert.throws(()=>auditCrtCrossTimeframe(h,q),
+  /4H\\/15m partial volume contradiction/,
+  'missing one constituent volume cannot hide a known 15m overcount');
+ q[4].volume=5;
+ const compatible=auditCrtCrossTimeframe(h,q);
+ assert.deepEqual(compatible.reconciledNumericVolumeStarts,[BASE+H4],
+  'a compatible lower bound remains unknown, never fully reconciled');
+ assert.equal(certifiedCrtFourHourBars(h,q,compatible)[0].volume,null);
+ h[0].volume=null;
+ q[4].volume=100;
+ const unknown=auditCrtCrossTimeframe(h,q);
+ assert.equal(unknown.checkedFourHourBars,2,
+  'unknown reported 4H volume cannot be contradicted by known 15m volume');
+ assert.deepEqual(unknown.reconciledNumericVolumeStarts,[BASE+H4]);
+});
+
+test('null 15m volume cannot conceal a fractional lower-bound overflow',()=>{
+ const {h,q}=fixture();
+ h[0].volume=Number.MAX_SAFE_INTEGER;
+ q[0].volume=Number.MAX_SAFE_INTEGER;
+ q[1].volume=0.1;
+ q[2].volume=null;
+ assert.equal(q[0].volume+q[1].volume,h[0].volume,
+  'ordinary Number addition rounds away the positive fractional evidence');
+ assert.throws(()=>auditCrtCrossTimeframe(h,q),
+  /4H\\/15m partial volume contradiction/,
+  'the known lower bound must be evaluated without a rounded-away fraction');
+ q[1].volume=0;
+ const compatible=auditCrtCrossTimeframe(h,q);
+ assert.equal(compatible.checkedFourHourBars,2);
+ assert.deepEqual(compatible.reconciledNumericVolumeStarts,[],
+  'a null constituent cannot be promoted into reconciled volume');
+});
+
 test('CRT price certification redacts numeric 4H volume without complete 15m reconciliation',()=>{
  const {h,q}=fixture();
  h.forEach(b=>{b.volume=80;});
