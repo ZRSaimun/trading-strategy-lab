@@ -320,12 +320,26 @@ export function auditCrtCrossTimeframe(
    const safeMagnitude=Number.isSafeInteger(Math.trunc(h4.volume))&&
     Number.isSafeInteger(Math.trunc(total))&&
     subset.every(b=>b.volume!==null&&Number.isSafeInteger(Math.trunc(b.volume)));
+   // The rounded Number sum can remain <= MAX_SAFE_INTEGER even when the
+   // true sum of the received nonnegative binary64 constituents is larger.
+   // For example MAX_SAFE_INTEGER + 0.1 rounds back to MAX_SAFE_INTEGER.
+   // Count integral parts exactly and conservatively bound the <1 remainders
+   // before permitting a fractional-volume coherence certificate.
+   const wholeUnits=subset.reduce((sum,b)=>
+    sum+BigInt(Math.trunc(b.volume as number)),0n);
+   const remainingUnits=BigInt(Number.MAX_SAFE_INTEGER)-wholeUnits;
+   const fractionalRemainders=subset.reduce((sum,b)=>
+    sum+((b.volume as number)%1),0);
+   const sourceSumWithinSafeMagnitude=remainingUnits>=0n&&
+    (fractionalRemainders===0||remainingUnits>16n||
+     fractionalRemainders<Number(remainingUnits));
    const exactDyadicMismatch=dyadicVolumeMismatch(
     subset.map(b=>b.volume as number),h4.volume);
    const mismatch=exactDyadicMismatch??(integerCounts
     ? !Number.isSafeInteger(h4.volume)||!Number.isSafeInteger(total)||h4.volume!==total
     : Math.abs(h4.volume-total)>tolerance);
-   if(!Number.isFinite(total)||!safeMagnitude||mismatch)
+   if(!Number.isFinite(total)||!safeMagnitude||
+    !sourceSumWithinSafeMagnitude||mismatch)
     throw Error('4H/15m volume mismatch for same historical archive');
    reconciledNumericVolumeStarts.push(h4.time);
   }
