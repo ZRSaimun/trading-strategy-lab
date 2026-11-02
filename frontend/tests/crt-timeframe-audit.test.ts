@@ -494,7 +494,7 @@ test('CRT audit and stale certification reject accessor or inherited candle fiel
  Object.assign(inherited,y.q[0]);
  delete (inherited as Partial<Bar>).close;
  y.q[0]=inherited;
- assert.throws(()=>auditCrtCrossTimeframe(y.h,y.q),/own data fields/,
+ assert.throws(()=>auditCrtCrossTimeframe(y.h,y.q),/ordinary JSON object prototype/,
   'prototype-inherited prices are not immutable JSON candle evidence');
 
  const z=fixture();
