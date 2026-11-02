@@ -267,7 +267,7 @@ test('fully observed 4H prices reject impossible numeric volume lower bound with
  q[3].volume=null;
  q[4].volume=100;
  assert.throws(()=>auditCrtCrossTimeframe(h,q),
-  /4H\\/15m partial volume contradiction/,
+  /4H\/15m partial volume contradiction/,
   'missing one constituent volume cannot hide a known 15m overcount');
  q[4].volume=5;
  const compatible=auditCrtCrossTimeframe(h,q);
@@ -291,7 +291,7 @@ test('null 15m volume cannot conceal a fractional lower-bound overflow',()=>{
  assert.equal(q[0].volume+q[1].volume,h[0].volume,
   'ordinary Number addition rounds away the positive fractional evidence');
  assert.throws(()=>auditCrtCrossTimeframe(h,q),
-  /4H\\/15m partial volume contradiction/,
+  /4H\/15m partial volume contradiction/,
   'the known lower bound must be evaluated without a rounded-away fraction');
  q[1].volume=0;
  const compatible=auditCrtCrossTimeframe(h,q);
