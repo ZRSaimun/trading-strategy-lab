@@ -258,6 +258,30 @@ test('missing interior 15m observations never certify an apparently complete 4H 
  q.splice(5,1);
  assert.throws(()=>auditCrtCrossTimeframe(h,q),/Missing or noncontiguous/);
 });
+test('complete interior 15m bucket cannot disappear from the 4H source response',()=>{
+ const {h,q}=fixture();
+ q.push(...Array.from({length:16},(_,i)=>candle(BASE+2*H4+i*Q)));
+ h.push(candle(BASE+2*H4,100,101,99,100,240));
+ assert.equal(auditCrtCrossTimeframe(h,q).checkedFourHourBars,3);
+ const missing=h.splice(1,1)[0];
+ assert.throws(()=>auditCrtCrossTimeframe(h,q),
+  /Missing 4H candle for complete 15m source bucket/,
+  'two individually coherent 4H edges cannot conceal an omitted full 4H bucket');
+ h.splice(1,0,missing);
+ assert.equal(auditCrtCrossTimeframe(h,q).checkedFourHourBars,3);
+});
+test('partial interior 15m evidence does not invent an omitted 4H candle',()=>{
+ const {h,q}=fixture();
+ q.push(...Array.from({length:16},(_,i)=>candle(BASE+2*H4+i*Q)));
+ h.push(candle(BASE+2*H4,100,101,99,100,240));
+ h.splice(1,1);
+ q.splice(20,1); // One source minute bucket is absent in the omitted 4H.
+ const report=auditCrtCrossTimeframe(h,q);
+ assert.deepEqual(report.verifiedFourHourStarts,[BASE,BASE+2*H4]);
+ assert.deepEqual(certifiedCrtFourHourBars(h,q,report).map(b=>b.time),
+  [BASE,BASE+2*H4],
+  'only the two individually observed bars qualify; they are not adjacent');
+});
 test('partial overlapping boundary windows are explicitly uncheckable, not falsely verified',()=>{
  const {h,q}=fixture();
  assert.deepEqual(auditCrtCrossTimeframe(h,q.slice(1,31)),

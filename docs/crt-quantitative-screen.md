@@ -4,6 +4,9 @@
 
 ## One source and strictly observed bars
 
+**Missing interior 4H bucket guard (2 November 2026):** The source-coherence audit now rejects an omitted 4H response candle when all sixteen aligned, completed 15m candles for that interior 4H bucket are present between the first and last reported 4H bars. Previously the two surrounding 4H candles could certify individually while the fully observed middle bucket was silently absent from the higher-timeframe response. Incomplete constituent windows and 15m buckets outside the requested 4H response boundaries do not fabricate missing 4H observations. Two synthetic regressions cover the fully observed omission and an incomplete middle bucket. This is archive-response consistency, **not** independently authenticated market history, verified volume/news, broker BID/ASK execution or strategy profitability.
+
+
 **Global Array species integrity (2 November 2026):** The 4H/15m audit now pins the native `Array[Symbol.species]` descriptor in addition to the inherited array methods, iterator and constructor. JavaScript's built-in `slice`, `map` and `filter` can consult that global species accessor to allocate their result arrays; replacing it after module import could silently substitute fabricated verified candle subsets even when source arrays and their inherited methods remain ordinary. The audit and old-certificate reuse both reject the altered descriptor **before invoking the getter**. A synthetic regression covers fresh and post-certification rejection and native restoration. This is a local runtime-integrity fence, **not** an authenticated market source, verified volume, broker BID/ASK, execution readiness or profitability claim.
 
 

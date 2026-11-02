@@ -245,6 +245,28 @@ export function auditCrtCrossTimeframe(
   if(i>0&&fifteenMinute[i].time<=fifteenMinute[i-1].time)
    throw Error('Out-of-order 15m cross-timeframe candles');
  }
+ // A missing 4H response can be hidden between two valid 4H candles even
+ // while the same archive supplies all sixteen completed 15m constituents.
+ // A normal market closure has no complete constituent bucket; do not
+ // invent 4H candles for partial 15m data or outside the 4H response range.
+ const firstFourHour=fourHour[0]?.time;
+ const lastFourHour=fourHour[fourHour.length-1]?.time;
+ if(firstFourHour!==undefined&&lastFourHour!==undefined){
+  const fourHourTimes=new Set(fourHour.map(b=>b.time));
+  for(let i=0;i+BARS_PER_4H<=fifteenMinute.length;i++){
+   const bucket=fifteenMinute[i].time;
+   if(bucket<=firstFourHour||bucket>=lastFourHour||
+    bucket%FOUR_HOUR!==0||fourHourTimes.has(bucket))continue;
+   let complete=true;
+   for(let j=1;j<BARS_PER_4H;j++){
+    if(fifteenMinute[i+j].time!==bucket+j*MIN15){
+     complete=false;break;
+    }
+   }
+   if(complete)
+    throw Error('Missing 4H candle for complete 15m source bucket');
+  }
+ }
  let checked=0,uncheckable=0,index=0;
  const verifiedFourHourStarts:number[]=[];
  const reconciledNumericVolumeStarts:number[]=[];
