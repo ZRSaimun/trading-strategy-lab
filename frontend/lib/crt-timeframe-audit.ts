@@ -246,6 +246,16 @@ function partialVolumeExceeds(observed:readonly number[],aggregate:number):boole
   }
   if(exact)return units>BigInt(scaledAggregate);
  }
+ // Non-dyadic fractions such as 0.1 may never reach integral scaled
+ // units in the bounded dyadic search. A Number sum can round a positive
+ // remainder away at the safe-integer ceiling. Compare the received whole
+ // parts exactly before trusting that rounded fallback sum.
+ const wholeParts=observed.reduce((sum,value)=>
+  sum+BigInt(Math.trunc(value)),0n);
+ const aggregateWhole=BigInt(Math.trunc(aggregate));
+ if(wholeParts>aggregateWhole||
+  (wholeParts===aggregateWhole&&aggregate%1===0&&
+   observed.some(value=>value%1!==0)))return true;
  const sum=observed.reduce((total,value)=>total+value,0);
  const tolerance=Math.min(0.25,
   64*Number.EPSILON*Math.max(aggregate,sum));
