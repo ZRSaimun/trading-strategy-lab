@@ -76,6 +76,16 @@ function assertOwnDataFields(b:Bar):void{
   if(!descriptor||!Object.hasOwn(descriptor,'value'))
    throw Error('Cross-timeframe candle requires own data fields');
  }
+ // A source candle is a seven-field JSON record, not a carrier for an
+ // unreviewed ASK quote, provider identity or purported verification flag.
+ // Check own keys (including non-enumerable keys and symbols) without reading
+ // extra values or invoking their accessors. The certified copy uses only
+ // declared fields, but silent metadata omission could mislead callers about
+ // what the audit actually verified.
+ for(const key of Reflect.ownKeys(b)){
+  if(typeof key!=='string'||!BAR_FIELDS.some(field=>field===key))
+   throw Error('Cross-timeframe candle contains undeclared source metadata');
+ }
 }
 function assertOwnBarSlots(bars:readonly Bar[]):void{
  // JSON arrays contain direct indexed data entries. Accessor-backed or
