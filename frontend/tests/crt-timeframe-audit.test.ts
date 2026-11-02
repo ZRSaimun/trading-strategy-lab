@@ -781,3 +781,32 @@ test('CRT rejects custom candle prototypes without reading inherited source clai
  assert.deepEqual(certifiedCrtFourHourBars(altered.h,altered.q,report).map(b=>b.time),
   [BASE,BASE+H4],'restored unchanged plain candles remain certifiable');
 });
+
+test('CRT requires JSON-visible own data for all seven historical candle fields',()=>{
+ // Non-enumerable properties can return plausible numbers in memory but
+ // disappear on JSON serialization; they are not source-observed evidence.
+ const fields=['time','open','high','low','close','volume','observed_minutes'] as const;
+ for(const side of ['h','q'] as const){
+  for(const field of fields){
+   const {h,q}=fixture();
+   const record=side==='h'?h[0]:q[0];
+   Object.defineProperty(record,field,{
+    value:record[field],enumerable:false,writable:true,configurable:true,
+   });
+   assert.equal(Object.hasOwn(JSON.parse(JSON.stringify(record)),field),false,
+    'hidden '+field+' is not part of the JSON source record');
+   assert.throws(()=>auditCrtCrossTimeframe(h,q),/own data fields/,
+    'hidden '+field+' on '+side+' must not certify');
+  }
+ }
+ const altered=fixture();
+ const issued=auditCrtCrossTimeframe(altered.h,altered.q);
+ Object.defineProperty(altered.q[0],'volume',{
+  value:null,enumerable:false,writable:true,configurable:true,
+ });
+ assert.throws(()=>certifiedCrtFourHourBars(altered.h,altered.q,issued),
+  /own data fields/,'a post-audit hidden field invalidates old certification');
+ const normal=fixture();
+ assert.equal(auditCrtCrossTimeframe(normal.h,normal.q).checkedFourHourBars,2,
+  'ordinary JSON-decoded candle records remain supported');
+});

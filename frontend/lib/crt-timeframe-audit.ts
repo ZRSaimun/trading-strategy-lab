@@ -78,7 +78,9 @@ function assertOwnDataFields(b:Bar):void{
   throw Error('Cross-timeframe candle requires ordinary JSON object prototype');
  for(const field of BAR_FIELDS){
   const descriptor=Object.getOwnPropertyDescriptor(b,field);
-  if(!descriptor||!Object.hasOwn(descriptor,'value'))
+  // A field hidden from JSON serialization is not an observed API field.
+  // Require enumerable own data even if direct JS property reads succeed.
+  if(!descriptor||!Object.hasOwn(descriptor,'value')||!descriptor.enumerable)
    throw Error('Cross-timeframe candle requires own data fields');
  }
  // A source candle is a seven-field JSON record, not a carrier for an
