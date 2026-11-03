@@ -7,7 +7,7 @@
  */
 import type {Bar} from './research.ts';
 
-export const HOURLY_FVG_VERSION='hourly-fvg-first-midpoint-touch-v96';
+export const HOURLY_FVG_VERSION='hourly-fvg-first-midpoint-touch-v97';
 export type Evidence='PASS'|'FAIL'|'INSUFFICIENT_DATA';
 // First-touch volume evidence is not independent broker/source authentication.
 export type VolumeEvidenceReason='NOT_EVALUATED'|'SOURCE_UNVERIFIED'|
@@ -405,7 +405,7 @@ function validateBars(bars:readonly Bar[]){
    ![b.open,b.high,b.low,b.close].every(x=>Number.isFinite(x)&&x>0)||
    b.low>Math.min(b.open,b.close)||b.high<Math.max(b.open,b.close)||
    b.low>b.high||
-   (b.volume!==null&&(!Number.isFinite(b.volume)||b.volume<0))||
+   (b.volume!==null&&(!Number.isFinite(b.volume)||b.volume<0||Object.is(b.volume,-0)))||
    (i>0&&b.time<=bars[i-1].time))
    throw Error('Invalid, incomplete, misaligned or unordered hourly BID candles');
  }
