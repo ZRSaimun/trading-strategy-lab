@@ -45,3 +45,19 @@ test('hourly FVG refuses sparse own-index holes even when prototype supplies a c
    /missing or hidden own-index/);
  }
 });
+
+test('hidden hourly archive getter is rejected before executing caller code',()=>{
+ for(const index of [0,1,2]){
+  const archive=bars();
+  let reads=0;
+  Object.defineProperty(archive,index,{
+   enumerable:false,configurable:true,
+   get(){reads++;throw Error('hidden candle getter executed');},
+  });
+  assert.throws(()=>studyHourlyFvgMidpoint(archive,source),
+   /missing or hidden own-index/);
+  assert.throws(()=>studyHourlyFvgMidpointAsOf(archive,source,3*H),
+   /missing or hidden own-index/);
+  assert.equal(reads,0,'hidden archive getters must not run');
+ }
+});
