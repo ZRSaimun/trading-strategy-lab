@@ -61,3 +61,23 @@ test('hidden hourly archive getter is rejected before executing caller code',()=
   assert.equal(reads,0,'hidden archive getters must not run');
  }
 });
+
+
+test('inherited sparse hourly candle getters are never evaluated',()=>{
+ for(const index of [0,1,2]){
+  const archive=bars();
+  delete archive[index];
+  let inheritedReads=0;
+  const prototype=Object.create(Array.prototype);
+  Object.defineProperty(prototype,String(index),{
+   enumerable:true,configurable:true,
+   get(){inheritedReads++;throw Error('inherited candle getter executed');},
+  });
+  Object.setPrototypeOf(archive,prototype);
+  assert.throws(()=>studyHourlyFvgMidpoint(archive,source),
+   /missing or hidden own-index/);
+  assert.throws(()=>studyHourlyFvgMidpointAsOf(archive,source,3*H),
+   /missing or hidden own-index/);
+  assert.equal(inheritedReads,0,'inherited sparse getters must not run');
+ }
+});
