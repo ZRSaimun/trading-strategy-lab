@@ -81,3 +81,22 @@ test('inherited sparse hourly candle getters are never evaluated',()=>{
   assert.equal(inheritedReads,0,'inherited sparse getters must not run');
  }
 });
+
+test('as-of FVG rejects enumerable indexed getters before any row or future timestamp read',()=>{
+ for(const index of [0,1,2]){
+  const archive=bars();
+  const original=archive[index];
+  let rowReads=0;
+  Object.defineProperty(archive,index,{
+   enumerable:true,configurable:true,
+   get(){rowReads++;return original;},
+  });
+  assert.throws(()=>studyHourlyFvgMidpointAsOf(archive,source,3*H),
+   /own data-property candle slots/);
+  assert.equal(rowReads,0,'as-of must not invoke indexed row getters');
+  // Full-history research intentionally retains single-snapshot accessor support.
+  assert.doesNotThrow(()=>studyHourlyFvgMidpoint(archive,source));
+ }
+ const ordinary=bars();
+ assert.doesNotThrow(()=>studyHourlyFvgMidpointAsOf(ordinary,source,3*H));
+});
