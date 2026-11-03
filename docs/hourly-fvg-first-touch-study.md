@@ -215,3 +215,5 @@ Synthetic Node tests cover bullish and bearish gap geometry, first-touch freeze,
 ## Indexed archive visibility guard (3 November 2026)
 
 Both full-history and causal as-of FVG research reject a non-enumerable own indexed candle slot. Such hidden entries cannot originate from ordinary JSON-decoded candle arrays and must not silently contribute to the declared BID-only archive population. Synthetic tests cover each slot in a three-bar window and ordinary enumerable controls. This guards in-process archive shape only; it does not authenticate market provenance, two-sided broker execution or profitability.
+
+Additional synthetic regression: hidden non-enumerable indexed **getters** are rejected before invocation in both full-history and causal as-of research. This is an in-process untrusted-array safety property, not proof of candle provenance, executable BID/ASK fills, or strategy profitability.
