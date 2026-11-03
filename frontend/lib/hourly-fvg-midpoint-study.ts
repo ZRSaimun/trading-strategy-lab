@@ -7,7 +7,7 @@
  */
 import type {Bar} from './research.ts';
 
-export const HOURLY_FVG_VERSION='hourly-fvg-first-midpoint-touch-v95';
+export const HOURLY_FVG_VERSION='hourly-fvg-first-midpoint-touch-v96';
 export type Evidence='PASS'|'FAIL'|'INSUFFICIENT_DATA';
 // First-touch volume evidence is not independent broker/source authentication.
 export type VolumeEvidenceReason='NOT_EVALUATED'|'SOURCE_UNVERIFIED'|
@@ -400,7 +400,7 @@ function validateBars(bars:readonly Bar[]){
   // A safe integer bar open can still overflow when converted to its
   // completed-bar close. All signal and markout timestamps use close times.
   if(!Number.isSafeInteger(b.time)||!Number.isSafeInteger(b.time+HOUR)||
-   b.time<0||b.time%HOUR!==0||
+   b.time<0||Object.is(b.time,-0)||b.time%HOUR!==0||
    b.observed_minutes!==60||
    ![b.open,b.high,b.low,b.close].every(x=>Number.isFinite(x)&&x>0)||
    b.low>Math.min(b.open,b.close)||b.high<Math.max(b.open,b.close)||
@@ -2009,7 +2009,7 @@ export function studyHourlyFvgMidpointAsOf(
   // an eligible historical prefix at the first misplaced future candle.
   // Never inspect OHLC, volume or coverage of a future candle.
   const time=bar?.time;
-  if(!Number.isSafeInteger(time)||time<0||time%HOUR!==0||
+  if(!Number.isSafeInteger(time)||time<0||Object.is(time,-0)||time%HOUR!==0||
    !Number.isSafeInteger(time+HOUR)||
    (previousTime!==null&&time<=previousTime))
    throw Error('Invalid or unordered hourly as-of input timestamp');
