@@ -1310,3 +1310,20 @@ test('CRT volume audit detects three or more distinct positive 15m volumes lost 
   .reconciledNumericVolumeStarts,[BASE],
   'ordinary binary64 decimal summation remains a valid received aggregate');
 });
+
+test('CRT rejects negative-zero volume that cannot survive a JSON source round trip',()=>{
+ // JSON.stringify converts -0 to 0, so it must not be certified as an
+ // exact source-observed volume on either side of a 4H/15m comparison.
+ for(const side of ['h','q'] as const){
+  const x=fixture();
+  x[side][0].volume=-0;
+  assert.equal(JSON.parse(JSON.stringify(x[side][0])).volume,0);
+  assert.throws(()=>auditCrtCrossTimeframe(x.h,x.q),
+   /Incomplete or invalid cross-timeframe input/);
+ }
+ const normal=fixture();
+ normal.q.forEach(b=>{b.volume=0;});
+ normal.h.forEach(b=>{b.volume=0;});
+ assert.deepEqual(auditCrtCrossTimeframe(normal.h,normal.q).reconciledNumericVolumeStarts,
+  [BASE,BASE+H4],'ordinary zero numeric volume remains permitted');
+});
