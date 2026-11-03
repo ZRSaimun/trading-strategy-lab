@@ -28,3 +28,20 @@ test('hourly FVG rejects hidden own-index archive rows in both research paths',(
  assert.doesNotThrow(()=>studyHourlyFvgMidpoint(ordinary,source));
  assert.doesNotThrow(()=>studyHourlyFvgMidpointAsOf(ordinary,source,3*H));
 });
+
+test('hourly FVG refuses sparse own-index holes even when prototype supplies a candle',()=>{
+ for(const index of [0,1,2]){
+  const archive=bars();
+  const inherited=archive[index];
+  delete archive[index];
+  const prototype=Object.create(Array.prototype);
+  Object.defineProperty(prototype,String(index),{
+   value:inherited,enumerable:true,configurable:true,writable:true,
+  });
+  Object.setPrototypeOf(archive,prototype);
+  assert.throws(()=>studyHourlyFvgMidpoint(archive,source),
+   /missing or hidden own-index/);
+  assert.throws(()=>studyHourlyFvgMidpointAsOf(archive,source,3*H),
+   /missing or hidden own-index/);
+ }
+});
