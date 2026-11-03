@@ -4222,3 +4222,15 @@ test('negative-zero hourly archive timestamp is rejected before research or as-o
  const future=[{...candle(0),time:BASE}, {...candle(1),time:-0}];
  assert.throws(()=>studyHourlyFvgMidpointAsOf(future,source,BASE+H),/Invalid or unordered hourly as-of input timestamp/);
 });
+
+// Regression: the as-of timestamp preflight must reject a future negative-zero
+// archive slot without accessing any future price, volume or coverage fields.
+test('future negative-zero hourly timestamp fails closed without future OHLC reads',()=>{
+ const first={...candle(0),time:BASE};
+ const future={...candle(1),time:-0};
+ for(const field of ['open','high','low','close','volume','observed_minutes'] as const){
+  Object.defineProperty(future,field,{get(){throw Error('future field accessed: '+field);}});
+ }
+ assert.throws(()=>studyHourlyFvgMidpointAsOf([first,future],source,BASE+H),
+  /Invalid or unordered hourly as-of input timestamp/);
+});
