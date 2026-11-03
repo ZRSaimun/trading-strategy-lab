@@ -1926,6 +1926,11 @@ export function studyHourlyFvgMidpointAsOf(
  const barCount=suppliedBars.length;
  validateBarArraySchema(suppliedBars,barCount);
  const archiveSlots=captureArchiveSlots(suppliedBars,barCount);
+ // Indexed getters can change their returned row identity after future
+ // timestamp access without changing their own property descriptors.
+ // As-of research must reject them before executing any caller getter.
+ if(archiveSlots.some(slot=>!('value' in slot)))
+  throw Error('FVG as-of archive requires own data-property candle slots');
  // As-of replay must bind provider, instrument, archive hash and volume
  // certification before reading any future timestamp getter. An accessor
  // could return a different private closure value after that scan without
