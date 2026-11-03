@@ -1327,3 +1327,18 @@ test('CRT rejects negative-zero volume that cannot survive a JSON source round t
  assert.deepEqual(auditCrtCrossTimeframe(normal.h,normal.q).reconciledNumericVolumeStarts,
   [BASE,BASE+H4],'ordinary zero numeric volume remains permitted');
 });
+
+
+test('CRT rejects negative-zero 4H and 15m timestamps before archive certification',()=>{
+ // JavaScript accepts -0 as an aligned, nonnegative integer timestamp,
+ // but JSON source serialization converts it to +0. Reject that ambiguity.
+ for(const side of ['h','q'] as const){
+  const x=fixture();
+  x[side][0].time=-0;
+  assert.equal(JSON.parse(JSON.stringify(x[side][0])).time,0);
+  assert.throws(()=>auditCrtCrossTimeframe(x.h,x.q),
+   /Incomplete or invalid cross-timeframe input/);
+ }
+ const valid=fixture();
+ assert.equal(auditCrtCrossTimeframe(valid.h,valid.q).checkedFourHourBars,2);
+});
