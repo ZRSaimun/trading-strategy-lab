@@ -333,7 +333,8 @@ function captureArchiveSlots(bars:readonly Bar[],count:number):PropertyDescripto
  const slots:PropertyDescriptor[]=[];
  for(let index=0;index<count;index++){
   const descriptor=Object.getOwnPropertyDescriptor(bars,index);
-  if(!descriptor)throw Error('Hourly research array contains missing own-index candle evidence');
+  if(!descriptor||!descriptor.enumerable)
+   throw Error('Hourly research array contains missing or hidden own-index candle evidence');
   slots.push(descriptor);
  }
  return slots;
