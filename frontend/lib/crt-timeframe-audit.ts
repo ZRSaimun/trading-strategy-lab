@@ -185,7 +185,7 @@ function assertComplete(b:Bar,seconds:number){
   ![b.open,b.high,b.low,b.close].every(x=>Number.isFinite(x)&&x>0)||
   b.low>Math.min(b.open,b.close)||b.high<Math.max(b.open,b.close)||
   b.low>b.high||
-  (b.volume!==null&&(!Number.isFinite(b.volume)||b.volume<0)))
+  (b.volume!==null&&(!Number.isFinite(b.volume)||b.volume<0||Object.is(b.volume,-0))))
   throw Error('Incomplete or invalid cross-timeframe input');
 }
 function samePrice(a:number,b:number){
