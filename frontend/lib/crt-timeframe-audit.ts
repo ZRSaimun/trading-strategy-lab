@@ -249,10 +249,10 @@ function exactContributorExceedsAggregate(observed:readonly number[],aggregate:n
 }
 
 // All finite positive IEEE-754 volumes are exact multiples of 2^-1074.
-// Comparing those integer units can prove one or two omitted positive
-// constituents even when adding them to a large fractional 4H total rounds
-// away. Require exact equality after removing those reported contributors:
-// ordinary aggregate rounding (e.g. decimal 0.1 volumes) is not a failure.
+// Exact integer units can prove that one or more observed positive 15m
+// contributors were omitted by a reported 4H aggregate, even when Number
+// addition rounds them away. Ordinary aggregate rounding (e.g. 0.1+0.2)
+// is not rejected unless the discrepancy equals an actual subset of inputs.
 // This checks only received numeric coherence, never volume source identity.
 function exactBinaryVolumeUnits(value:number):bigint{
  if(value===0)return 0n;
@@ -265,23 +265,27 @@ function exactBinaryVolumeUnits(value:number):bigint{
  return significand<<BigInt(exponent===0?0:exponent-1);
 }
 function exactOmittedPositiveVolume(observed:readonly number[],aggregate:number):boolean{
- if(observed.length<2)return false;
- const units=observed.map(exactBinaryVolumeUnits);
- const total=units.reduce((sum,value)=>sum+value,0n);
- const omitted=total-exactBinaryVolumeUnits(aggregate);
+ // A 4H total that exactly equals a proper subset of its positive 15m
+ // contributors necessarily omits the remaining observed positive volume.
+ // Previous one/two-contributor probes missed three or more tiny entries
+ // rounded away by JavaScript addition. Meet-in-the-middle searches every
+ // subset with at most 2^(16/2) entries per half, never an unbounded search.
+ const positive=observed.filter(value=>value>0).map(exactBinaryVolumeUnits);
+ if(positive.length<2)return false;
+ const omitted=positive.reduce((sum,value)=>sum+value,0n)-
+  exactBinaryVolumeUnits(aggregate);
  if(omitted<=0n)return false;
- // A single positive constituent may be lost below the 4H aggregate ULP.
- if(units.some(value=>value>0n&&value===omitted))return true;
- // Two small, positive contributors can be lost together even though
- // neither individually equals the exact difference. Check only distinct
- // received constituents; this is bounded by sixteen 15m bars.
- for(let i=0;i<units.length;i++){
-  if(units[i]===0n)continue;
-  for(let j=i+1;j<units.length;j++){
-   if(units[j]>0n&&units[i]+units[j]===omitted)return true;
+ const subsetSums=(values:readonly bigint[]):bigint[]=>{
+  const sums=[0n];
+  for(const value of values){
+   const previous=sums.length;
+   for(let i=0;i<previous;i++)sums.push(sums[i]+value);
   }
- }
- return false;
+  return sums;
+ };
+ const half=Math.floor(positive.length/2);
+ const left=new Set(subsetSums(positive.slice(0,half)));
+ return subsetSums(positive.slice(half)).some(value=>left.has(omitted-value));
 }
 
 function partialVolumeExceeds(observed:readonly number[],aggregate:number):boolean{

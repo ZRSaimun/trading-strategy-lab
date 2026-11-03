@@ -1278,3 +1278,35 @@ test('CRT rejects two distinct positive 15m volumes lost beneath fractional 4H r
  assert.equal(auditCrtCrossTimeframe(unknown.h,unknown.q).checkedFourHourBars,2,
   'unknown source volume remains unknown, not a fabricated zero');
 });
+
+
+test('CRT volume audit detects three or more distinct positive 15m volumes lost to rounding',()=>{
+ // Neither an individual nor any pair equals the exact omitted difference.
+ // The earlier one/two-contributor probes accepted the rounded 4H total.
+ for(const tiny of [[1e-8,2e-8,4e-8],[1e-8,2e-8,4e-8,8e-8]]){
+  const {h,q}=fixture();
+  q.forEach(b=>{b.volume=0;});
+  q[0].volume=1_000_000_000_000;
+  q[1].volume=0.125;
+  tiny.forEach((value,i)=>{q[i+2].volume=value;});
+  h[0].volume=1_000_000_000_000.125;
+  assert.equal(q.slice(0,16).reduce((sum,b)=>sum+(b.volume??0),0),
+   h[0].volume,'ordinary Number addition loses the observed tiny volumes');
+  assert.throws(()=>auditCrtCrossTimeframe(h,q),/volume mismatch/,
+   'all reported positive contributors must count, not only one or two');
+  // Missing tail 15m coverage cannot certify volume, but its observed
+  // nonnegative contributors still disprove the same reported 4H total.
+  assert.throws(()=>auditCrtCrossTimeframe([h[0]],q.slice(0,15)),
+   /Partial 4H\/15m volume contradiction/,
+   'partial observations must not conceal multiple omitted constituents');
+ }
+ const ordinary=fixture();
+ ordinary.q.forEach(b=>{b.volume=0;});
+ ordinary.q[0].volume=0.1;
+ ordinary.q[1].volume=0.2;
+ ordinary.q[2].volume=0.3;
+ ordinary.h[0].volume=0.1+0.2+0.3;
+ assert.deepEqual(auditCrtCrossTimeframe(ordinary.h,ordinary.q)
+  .reconciledNumericVolumeStarts,[BASE],
+  'ordinary binary64 decimal summation remains a valid received aggregate');
+});
