@@ -4208,3 +4208,17 @@ test('v93 first-touch wick versus volume joint census preserves strict FAIL prec
    Object.values(group[k].FAIL).reduce((a,b)=>a+b,0),0),3);
  }
 });
+
+
+test('negative-zero hourly archive timestamp is rejected before research or as-of replay',()=>{
+ const bars=[{...candle(0),time:-0},candle(1)];
+ assert.throws(()=>studyHourlyFvgMidpoint(bars,source),/Invalid, incomplete, misaligned or unordered hourly BID candles/);
+ assert.throws(()=>studyHourlyFvgMidpointAsOf(bars,source,H),/Invalid or unordered hourly as-of input timestamp/);
+ // Positive zero is a real UTC bucket, and should not be rejected as an alias.
+ const valid=[{...candle(0),time:0},{...candle(1),time:H}];
+ assert.doesNotThrow(()=>studyHourlyFvgMidpoint(valid,source));
+ assert.doesNotThrow(()=>studyHourlyFvgMidpointAsOf(valid,source,2*H));
+ // Future-only timestamps are checked without reading future price/volume.
+ const future=[{...candle(0),time:BASE}, {...candle(1),time:-0}];
+ assert.throws(()=>studyHourlyFvgMidpointAsOf(future,source,BASE+H),/Invalid or unordered hourly as-of input timestamp/);
+});
