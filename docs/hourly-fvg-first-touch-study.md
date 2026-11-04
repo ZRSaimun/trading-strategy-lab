@@ -1,5 +1,8 @@
 # Hourly FVG first-touch midpoint rejection versus blind limit (research v97)
 
+**4 November 2026 — unsafe future-hour timestamp regression.** A synthetic causal as-of archive now rejects a mathematically hourly-aligned timestamp beyond JavaScript's safe-integer range without accessing unrevealed future OHLC or volume getters. This tests timestamp representation integrity, not licensed market history, verified broker quotes, or a profitable edge.
+
+
 **4 November 2026 — fractional future-hour causal regression.** A synthetic completed-prefix as-of fixture now rejects a fractional future hourly timestamp (`2*3600+0.5`) without reading that unrevealed candle's OHLC or volume getters. This verifies timestamp preflight isolation only; it does not establish authentic source provenance, executable BID/ASK prices, or profitability.
 
 
