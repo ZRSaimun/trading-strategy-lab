@@ -1,5 +1,8 @@
 # Hourly FVG first-touch midpoint rejection versus blind limit (research v97)
 
+**4 November 2026 — malformed future timestamp isolation.** A synthetic as-of archive now checks that a future candle with a negative-zero UTC timestamp is rejected without consulting its unrevealed OHLC or volume getters. Future timestamps are validated for causal archive coherence, not treated as authorization to read future prices. This is a regression-only guard; it does not establish independently sourced BID/ASK execution, verified volume or profitability.
+
+
 **4 November 2026 — archive serializer preflight regression.** A synthetic archive carrying an own hidden `toJSON` getter and an unrevealed future candle timestamp getter must fail both full-history and causal as-of 1H FVG validation before either getter executes. Caller-controlled serialization is not verified source provenance; this regression tests input integrity, not real broker quotes, execution, or profitability.\n\n**4 November 2026 — array species-constructor preflight regression.** A synthetic hourly archive with an own accessor-backed `constructor` and an unrevealed future candle timestamp getter must be rejected in both full-history and causal as-of studies without invoking either getter. Array species constructors can otherwise influence native array operations such as `slice`; this regression checks the existing fail-closed archive schema. It does not authenticate broker quotes, volume, fills or profitability.
 
 
