@@ -151,3 +151,30 @@ test('full and as-of reject data-valued Symbol.toStringTag without future reads'
   /Unexpected FVG archive array metadata/);
  assert.equal(futureReads,0);
 });
+
+
+// Array.prototype.slice can consult an own constructor / Symbol.species.
+// Reject undeclared constructors before any caller code or future candle
+// evidence is accessed; a synthetic subclass must not alter volume history.
+test('full and as-of reject own constructor accessor before species or future reads',async()=>{
+ const {studyHourlyFvgMidpoint}=await import('../lib/hourly-fvg-midpoint-study.ts');
+ const bars:Bar[]=Array.from({length:3},(_,i)=>({
+  time:i*H,open:100,high:102,low:98,close:100,volume:0,observed_minutes:60,
+ }));
+ let constructorReads=0;
+ let futureReads=0;
+ Object.defineProperty(bars,'constructor',{
+  configurable:true,enumerable:false,
+  get(){constructorReads++;throw Error('array species constructor executed');},
+ });
+ Object.defineProperty(bars[2],'time',{
+  configurable:true,enumerable:true,
+  get(){futureReads++;throw Error('unrevealed future timestamp executed');},
+ });
+ assert.throws(()=>studyHourlyFvgMidpoint(bars,source),
+  /Unexpected FVG archive array metadata/);
+ assert.throws(()=>studyHourlyFvgMidpointAsOf(bars,source,2*H),
+  /Unexpected FVG archive array metadata/);
+ assert.equal(constructorReads,0);
+ assert.equal(futureReads,0);
+});
