@@ -294,3 +294,24 @@ test('as-of rejects fractional future hour without reading future OHLC or volume
   /Invalid or unordered hourly as-of input timestamp/);
  assert.equal(futureReads,0);
 });
+
+
+// A representable multiple of one hour can still exceed JavaScript's safe
+// integer timestamp range. It must fail before any unrevealed OHLC is read.
+test('as-of rejects unsafe-integer future hour without reading future prices',()=>{
+ const bars:Bar[]=Array.from({length:3},(_,i)=>({
+  time:i*H,open:100,high:102,low:98,close:100,volume:1,observed_minutes:60,
+ }));
+ let futureReads=0;
+ for(const field of ['open','high','low','close','volume'] as const){
+  Object.defineProperty(bars[2],field,{
+   configurable:true,enumerable:true,
+   get(){futureReads++;throw Error('future price evidence accessed');},
+  });
+ }
+ bars[2].time=(Math.floor(Number.MAX_SAFE_INTEGER/H)+1)*H;
+ assert.equal(Number.isSafeInteger(bars[2].time),false);
+ assert.throws(()=>studyHourlyFvgMidpointAsOf(bars,source,H),
+  /Invalid or unordered hourly as-of input timestamp/);
+ assert.equal(futureReads,0);
+});
