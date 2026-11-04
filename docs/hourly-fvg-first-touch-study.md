@@ -263,3 +263,6 @@ The strict BID-only archive array schema rejects own `Symbol.iterator` overrides
 ### Archive iterator data-property regression (4 November 2026)
 
 The strict BID-only 1H FVG archive boundary also rejects an **own non-enumerable, data-valued `Symbol.iterator` override** before invoking it. Synthetic tests exercise both full-history and causal as-of entry points and verify that the override is never called. This complements the accessor-backed iterator preflight tests; it does not authenticate source volume, broker quotes, execution, or returns.
+
+
+**Archive display-tag regression (4 November 2026):** A non-enumerable data-valued `Symbol.toStringTag` on the hourly candle array is rejected by both full-history and causal as-of studies before inspecting an unrevealed future timestamp. Such a caller-supplied display label cannot establish verified broker BID provenance. This synthetic test complements the accessor-backed tag regression; neither authenticates quotes or demonstrates profitability.
