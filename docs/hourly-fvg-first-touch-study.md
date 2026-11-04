@@ -269,3 +269,8 @@ The strict BID-only 1H FVG archive boundary also rejects an **own non-enumerable
 
 
 **Archive display-tag regression (4 November 2026):** A non-enumerable data-valued `Symbol.toStringTag` on the hourly candle array is rejected by both full-history and causal as-of studies before inspecting an unrevealed future timestamp. Such a caller-supplied display label cannot establish verified broker BID provenance. This synthetic test complements the accessor-backed tag regression; neither authenticates quotes or demonstrates profitability.
+
+
+## 4 November 2026 — data-valued constructor species preflight
+
+Synthetic full-history and causal as-of regression rejects an own non-enumerable data-valued `constructor` on the BID-only hourly archive before accessing its `Symbol.species` getter or an unrevealed future candle timestamp. This complements accessor-backed constructor coverage. It validates in-process archive shape only; it cannot authenticate source identity, broker BID/ASK prices, classified volume, economic events, or profitability. Keep draft, paper-only, unmerged and undeployed.
