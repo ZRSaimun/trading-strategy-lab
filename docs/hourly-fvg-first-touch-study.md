@@ -1,5 +1,7 @@
 # Hourly FVG first-touch midpoint rejection versus blind limit (research v97)
 
+**4 November 2026 — display-symbol preflight regression.** A synthetic causal as-of fixture adds an own accessor-backed `Symbol.toStringTag` to the hourly archive and a future candle timestamp getter. The strict schema rejects the undeclared symbol without invoking either getter. This tests in-process lookahead ordering, not source authenticity or trading returns.
+
 **4 November 2026 — async-iterator data-property regression.** Synthetic full-history and causal as-of studies reject a hidden own data-valued `Symbol.asyncIterator` override without invoking it or a future candle timestamp getter. This is archive schema and causal preflight testing, not verified broker data or profitability.
 
 **4 November 2026 — async-iterator metadata preflight regression.** A synthetic causal as-of fixture attaches a hidden accessor-backed `Symbol.asyncIterator` to the BID-only candle array and an unrevealed future timestamp getter. The frozen array schema must reject the undeclared symbol before either getter executes. This is input-shape and lookahead-ordering coverage only, not authenticated broker quotes, verified volume, or profitability.
