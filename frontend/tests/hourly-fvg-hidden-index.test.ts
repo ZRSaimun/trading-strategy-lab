@@ -100,3 +100,22 @@ test('as-of FVG rejects enumerable indexed getters before any row or future time
  const ordinary=bars();
  assert.doesNotThrow(()=>studyHourlyFvgMidpointAsOf(ordinary,source,3*H));
 });
+
+test('as-of rejects indexed accessors before touching future timestamp getters',()=>{
+ const archive=bars();
+ let indexedReads=0;
+ let futureTimeReads=0;
+ const original=archive[0];
+ Object.defineProperty(archive,0,{
+  enumerable:true,configurable:true,
+  get(){indexedReads++;return original;},
+ });
+ Object.defineProperty(archive[2],'time',{
+  enumerable:true,configurable:true,
+  get(){futureTimeReads++;throw Error('future timestamp unexpectedly read');},
+ });
+ assert.throws(()=>studyHourlyFvgMidpointAsOf(archive,source,2*H),
+  /own data-property candle slots/);
+ assert.equal(indexedReads,0,'indexed accessor must not execute');
+ assert.equal(futureTimeReads,0,'future timestamp must remain unread on preflight rejection');
+});
