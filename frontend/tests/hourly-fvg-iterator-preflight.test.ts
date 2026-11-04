@@ -366,3 +366,25 @@ test('as-of rejects coercible future timestamp objects without invoking caller c
   assert.equal(futureReads,0,'unrevealed future evidence must stay unread');
  }
 });
+
+
+// Boolean and Symbol timestamps cannot be interpreted as UTC hours. In
+// particular, Symbol arithmetic must not throw an unrelated coercion error.
+test('as-of rejects boolean and symbol future hours before future price access',()=>{
+ for(const badTime of [false,true,Symbol('future-hour')]){
+  const bars:Bar[]=Array.from({length:3},(_,i)=>({
+   time:i*H,open:100,high:102,low:98,close:100,volume:1,observed_minutes:60,
+  }));
+  let futureReads=0;
+  for(const field of ['open','high','low','close','volume'] as const){
+   Object.defineProperty(bars[2],field,{
+    configurable:true,enumerable:true,
+    get(){futureReads++;throw Error('unrevealed future price accessed');},
+   });
+  }
+  (bars[2] as unknown as {time:unknown}).time=badTime;
+  assert.throws(()=>studyHourlyFvgMidpointAsOf(bars,source,H),
+   /Invalid or unordered hourly as-of input timestamp/);
+  assert.equal(futureReads,0);
+ }
+});
