@@ -233,3 +233,8 @@ Archive metadata regression (4 November 2026): synthetic tests reject undeclared
 The strict BID-only archive array schema rejects own `Symbol.iterator` overrides, even when their functions would never be invoked. Two older regressions incorrectly expected such overridden candle arrays to produce normal study results. Updated those tests to assert fail-closed rejection for full-history and causal as-of paths; the separate cost-array iterator remains inert and ordinary candle arrays remain accepted. This repairs test expectations for the already-implemented archive rule; it does not authenticate broker quotes, classify volume receipts, or establish strategy profitability.
 
 **4 November 2026 — iterator preflight ordering regression.** An as-of archive with a caller-defined `Symbol.iterator` accessor and an unrevealed future candle timestamp accessor must reject the undeclared iterator before invoking either accessor. The synthetic test establishes validation ordering, not real broker data provenance, trading eligibility or profitability.
+
+
+### Archive iterator data-property regression (4 November 2026)
+
+The strict BID-only 1H FVG archive boundary also rejects an **own non-enumerable, data-valued `Symbol.iterator` override** before invoking it. Synthetic tests exercise both full-history and causal as-of entry points and verify that the override is never called. This complements the accessor-backed iterator preflight tests; it does not authenticate source volume, broker quotes, execution, or returns.
