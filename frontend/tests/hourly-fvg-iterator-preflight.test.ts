@@ -178,3 +178,30 @@ test('full and as-of reject own constructor accessor before species or future re
  assert.equal(constructorReads,0);
  assert.equal(futureReads,0);
 });
+
+// A data-valued constructor override is also an undeclared archive field.
+// Do not allow Array species customization to influence causal prefix copying.
+test('full and as-of reject own data-valued constructor before future reads',async()=>{
+ const {studyHourlyFvgMidpoint}=await import('../lib/hourly-fvg-midpoint-study.ts');
+ const bars:Bar[]=Array.from({length:3},(_,i)=>({
+  time:i*H,open:100,high:102,low:98,close:100,volume:0,observed_minutes:60,
+ }));
+ let speciesReads=0;
+ let futureReads=0;
+ const customConstructor={
+  get [Symbol.species](){speciesReads++;throw Error('species executed');},
+ };
+ Object.defineProperty(bars,'constructor',{
+  configurable:true,enumerable:false,value:customConstructor,
+ });
+ Object.defineProperty(bars[2],'time',{
+  configurable:true,enumerable:true,
+  get(){futureReads++;throw Error('future timestamp executed');},
+ });
+ assert.throws(()=>studyHourlyFvgMidpoint(bars,source),
+  /Unexpected FVG archive array metadata/);
+ assert.throws(()=>studyHourlyFvgMidpointAsOf(bars,source,2*H),
+  /Unexpected FVG archive array metadata/);
+ assert.equal(speciesReads,0);
+ assert.equal(futureReads,0);
+});
