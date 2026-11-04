@@ -56,3 +56,27 @@ test('full and as-of studies reject a non-enumerable data-valued iterator',async
  assert.equal(iteratorCalls,0);
  assert.equal(futureTimeReads,0);
 });
+
+
+// A second well-known iterator symbol is not an authorized quote/volume channel.
+// The archive preflight must reject it without invoking caller code or looking
+// ahead to a future timestamp.
+test('as-of rejects undeclared async iterator before future time inspection',()=>{
+ const bars:Bar[]=Array.from({length:3},(_,i)=>({
+  time:i*H,open:100,high:102,low:98,close:100,volume:0,observed_minutes:60,
+ }));
+ let asyncIteratorReads=0;
+ let futureTimeReads=0;
+ Object.defineProperty(bars,Symbol.asyncIterator,{
+  configurable:true,enumerable:false,
+  get(){asyncIteratorReads++;throw Error('async iterator getter executed');},
+ });
+ Object.defineProperty(bars[2],'time',{
+  configurable:true,enumerable:true,
+  get(){futureTimeReads++;throw Error('unrevealed future timestamp read');},
+ });
+ assert.throws(()=>studyHourlyFvgMidpointAsOf(bars,source,2*H),
+  /Unexpected FVG archive array metadata/);
+ assert.equal(asyncIteratorReads,0);
+ assert.equal(futureTimeReads,0);
+});
