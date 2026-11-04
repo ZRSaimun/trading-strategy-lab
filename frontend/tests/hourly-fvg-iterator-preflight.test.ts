@@ -338,3 +338,31 @@ test('as-of rejects non-number future timestamps without future OHLC reads',()=>
   assert.equal(futureReads,0,'future prices must remain unread for malformed timestamp types');
  }
 });
+
+
+// A caller-supplied object timestamp may advertise a valid hour through
+// valueOf / Symbol.toPrimitive. Never coerce it or inspect future evidence.
+test('as-of rejects coercible future timestamp objects without invoking caller code',()=>{
+ for(const primitive of ['valueOf',Symbol.toPrimitive] as const){
+  const bars:Bar[]=Array.from({length:3},(_,i)=>({
+   time:i*H,open:100,high:102,low:98,close:100,volume:1,observed_minutes:60,
+  }));
+  let coercions=0;
+  let futureReads=0;
+  const fakeTime=Object.create(null) as Record<PropertyKey,unknown>;
+  Object.defineProperty(fakeTime,primitive,{
+   get(){coercions++;throw Error('timestamp coercion getter executed');},
+  });
+  for(const field of ['open','high','low','close','volume'] as const){
+   Object.defineProperty(bars[2],field,{
+    configurable:true,enumerable:true,
+    get(){futureReads++;throw Error('future OHLC/volume accessed');},
+   });
+  }
+  (bars[2] as unknown as {time:unknown}).time=fakeTime;
+  assert.throws(()=>studyHourlyFvgMidpointAsOf(bars,source,H),
+   /Invalid or unordered hourly as-of input timestamp/);
+  assert.equal(coercions,0,'timestamp must not be coerced');
+  assert.equal(futureReads,0,'unrevealed future evidence must stay unread');
+ }
+});
