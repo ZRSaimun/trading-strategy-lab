@@ -105,3 +105,26 @@ test('full and as-of reject data-valued async iterator without future reads',asy
  assert.equal(calls,0);
  assert.equal(futureReads,0);
 });
+
+
+// A display-oriented well-known symbol is still undeclared array metadata.
+// It must not trigger a caller getter or a future candle read in causal replay.
+test('as-of rejects own Symbol.toStringTag metadata before future evidence',()=>{
+ const bars:Bar[]=Array.from({length:3},(_,i)=>({
+  time:i*H,open:100,high:102,low:98,close:100,volume:0,observed_minutes:60,
+ }));
+ let tagReads=0;
+ let futureReads=0;
+ Object.defineProperty(bars,Symbol.toStringTag,{
+  configurable:true,enumerable:false,
+  get(){tagReads++;throw Error('toStringTag getter executed');},
+ });
+ Object.defineProperty(bars[2],'time',{
+  configurable:true,enumerable:true,
+  get(){futureReads++;throw Error('future timestamp getter executed');},
+ });
+ assert.throws(()=>studyHourlyFvgMidpointAsOf(bars,source,2*H),
+  /Unexpected FVG archive array metadata/);
+ assert.equal(tagReads,0);
+ assert.equal(futureReads,0);
+});
