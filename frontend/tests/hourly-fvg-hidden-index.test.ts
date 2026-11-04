@@ -156,3 +156,19 @@ test('hourly FVG rejects symbol-keyed archive receipts without invoking getters'
   assert.equal(reads,0,'symbol-keyed undeclared evidence must never execute');
  }
 });
+
+test('non-enumerable symbol-keyed FVG archive metadata is rejected without executing getters',()=>{
+ for(const asOf of [false,true]){
+  const archive=bars();
+  let reads=0;
+  Object.defineProperty(archive,Symbol('unverified hidden ASK receipt'),{
+   enumerable:false,configurable:true,
+   get(){reads++;throw Error('hidden symbol getter executed');},
+  });
+  assert.throws(()=>asOf?
+   studyHourlyFvgMidpointAsOf(archive,source,3*H):
+   studyHourlyFvgMidpoint(archive,source),
+   /Unexpected FVG archive array metadata/);
+  assert.equal(reads,0,'hidden symbol-keyed evidence must never be evaluated');
+ }
+});
