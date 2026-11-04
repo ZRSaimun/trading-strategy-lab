@@ -80,3 +80,28 @@ test('as-of rejects undeclared async iterator before future time inspection',()=
  assert.equal(asyncIteratorReads,0);
  assert.equal(futureTimeReads,0);
 });
+
+// Async iteration is never part of the BID-only JSON archive contract.
+// A non-enumerable data property must fail before a future timestamp getter.
+test('full and as-of reject data-valued async iterator without future reads',async()=>{
+ const {studyHourlyFvgMidpoint}=await import('../lib/hourly-fvg-midpoint-study.ts');
+ const bars:Bar[]=Array.from({length:3},(_,i)=>({
+  time:i*H,open:100,high:102,low:98,close:100,volume:0,observed_minutes:60,
+ }));
+ let calls=0;
+ let futureReads=0;
+ Object.defineProperty(bars,Symbol.asyncIterator,{
+  configurable:true,enumerable:false,
+  value:()=>{calls++;throw Error('async iterator executed');},
+ });
+ Object.defineProperty(bars[2],'time',{
+  configurable:true,enumerable:true,
+  get(){futureReads++;throw Error('future timestamp executed');},
+ });
+ assert.throws(()=>studyHourlyFvgMidpoint(bars,source),
+  /Unexpected FVG archive array metadata/);
+ assert.throws(()=>studyHourlyFvgMidpointAsOf(bars,source,2*H),
+  /Unexpected FVG archive array metadata/);
+ assert.equal(calls,0);
+ assert.equal(futureReads,0);
+});
