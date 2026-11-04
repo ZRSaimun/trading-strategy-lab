@@ -205,3 +205,29 @@ test('full and as-of reject own data-valued constructor before future reads',asy
  assert.equal(speciesReads,0);
  assert.equal(futureReads,0);
 });
+
+
+// A caller-defined serializer could substitute unverified price/volume evidence
+// when the archive is exported. The JSON-array contract forbids this metadata.
+test('full and as-of reject archive toJSON getter before future timestamps',async()=>{
+ const {studyHourlyFvgMidpoint}=await import('../lib/hourly-fvg-midpoint-study.ts');
+ const bars:Bar[]=Array.from({length:3},(_,i)=>({
+  time:i*H,open:100,high:102,low:98,close:100,volume:0,observed_minutes:60,
+ }));
+ let serializerReads=0;
+ let futureReads=0;
+ Object.defineProperty(bars,'toJSON',{
+  configurable:true,enumerable:false,
+  get(){serializerReads++;throw Error('archive serializer executed');},
+ });
+ Object.defineProperty(bars[2],'time',{
+  configurable:true,enumerable:true,
+  get(){futureReads++;throw Error('future timestamp executed');},
+ });
+ assert.throws(()=>studyHourlyFvgMidpoint(bars,source),
+  /Unexpected FVG archive array metadata/);
+ assert.throws(()=>studyHourlyFvgMidpointAsOf(bars,source,2*H),
+  /Unexpected FVG archive array metadata/);
+ assert.equal(serializerReads,0);
+ assert.equal(futureReads,0);
+});
