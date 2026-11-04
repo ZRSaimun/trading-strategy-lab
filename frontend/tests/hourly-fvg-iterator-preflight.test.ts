@@ -128,3 +128,26 @@ test('as-of rejects own Symbol.toStringTag metadata before future evidence',()=>
  assert.equal(tagReads,0);
  assert.equal(futureReads,0);
 });
+
+
+// A non-enumerable data-valued display tag is not a JSON archive field.
+// Validate the entire array shape before consulting unrevealed future bars.
+test('full and as-of reject data-valued Symbol.toStringTag without future reads',async()=>{
+ const {studyHourlyFvgMidpoint}=await import('../lib/hourly-fvg-midpoint-study.ts');
+ const bars:Bar[]=Array.from({length:3},(_,i)=>({
+  time:i*H,open:100,high:102,low:98,close:100,volume:0,observed_minutes:60,
+ }));
+ let futureReads=0;
+ Object.defineProperty(bars,Symbol.toStringTag,{
+  configurable:true,enumerable:false,value:'VerifiedBrokerBidArchive',
+ });
+ Object.defineProperty(bars[2],'time',{
+  configurable:true,enumerable:true,
+  get(){futureReads++;throw Error('future timestamp getter executed');},
+ });
+ assert.throws(()=>studyHourlyFvgMidpoint(bars,source),
+  /Unexpected FVG archive array metadata/);
+ assert.throws(()=>studyHourlyFvgMidpointAsOf(bars,source,2*H),
+  /Unexpected FVG archive array metadata/);
+ assert.equal(futureReads,0);
+});
