@@ -231,3 +231,5 @@ Archive metadata regression (4 November 2026): synthetic tests reject undeclared
 ## 4 November 2026 — CI repair for iterator schema tightening
 
 The strict BID-only archive array schema rejects own `Symbol.iterator` overrides, even when their functions would never be invoked. Two older regressions incorrectly expected such overridden candle arrays to produce normal study results. Updated those tests to assert fail-closed rejection for full-history and causal as-of paths; the separate cost-array iterator remains inert and ordinary candle arrays remain accepted. This repairs test expectations for the already-implemented archive rule; it does not authenticate broker quotes, classify volume receipts, or establish strategy profitability.
+
+**4 November 2026 — iterator preflight ordering regression.** An as-of archive with a caller-defined `Symbol.iterator` accessor and an unrevealed future candle timestamp accessor must reject the undeclared iterator before invoking either accessor. The synthetic test establishes validation ordering, not real broker data provenance, trading eligibility or profitability.
