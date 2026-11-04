@@ -291,3 +291,8 @@ The strict BID-only 1H FVG archive boundary also rejects an **own non-enumerable
 ## 4 November 2026 — data-valued constructor species preflight
 
 Synthetic full-history and causal as-of regression rejects an own non-enumerable data-valued `constructor` on the BID-only hourly archive before accessing its `Symbol.species` getter or an unrevealed future candle timestamp. This complements accessor-backed constructor coverage. It validates in-process archive shape only; it cannot authenticate source identity, broker BID/ASK prices, classified volume, economic events, or profitability. Keep draft, paper-only, unmerged and undeployed.
+
+
+### Boolean and symbol future-hour regression (4 November 2026)
+
+The causal as-of hourly FVG archive preflight must reject boolean and `Symbol` future timestamps as invalid UTC-hour metadata without coercion or reading unrevealed OHLC/volume. A synthetic regression covers `false`, `true`, and a symbol separately. This is a no-lookahead/input-contract test only: it does not authenticate market data, demonstrate executable broker fills, or establish trading profitability. PR remains draft, paper-only, unmerged and undeployed.
