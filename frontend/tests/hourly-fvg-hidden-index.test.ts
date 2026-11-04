@@ -119,3 +119,23 @@ test('as-of rejects indexed accessors before touching future timestamp getters',
  assert.equal(indexedReads,0,'indexed accessor must not execute');
  assert.equal(futureTimeReads,0,'future timestamp must remain unread on preflight rejection');
 });
+
+
+test('hourly FVG rejects hidden archive-level metadata without evaluating its getter',()=>{
+ for(const asOf of [false,true]){
+  const archive=bars();
+  let metadataReads=0;
+  Object.defineProperty(archive,'brokerAskSnapshot',{
+   enumerable:false,configurable:true,
+   get(){metadataReads++;throw Error('hidden ASK metadata was evaluated');},
+  });
+  assert.throws(()=>asOf?
+   studyHourlyFvgMidpointAsOf(archive,source,3*H):
+   studyHourlyFvgMidpoint(archive,source),
+   /Unexpected FVG archive array metadata/);
+  assert.equal(metadataReads,0,'undeclared broker metadata must never execute');
+ }
+ const ordinary=bars();
+ assert.doesNotThrow(()=>studyHourlyFvgMidpoint(ordinary,source));
+ assert.doesNotThrow(()=>studyHourlyFvgMidpointAsOf(ordinary,source,3*H));
+});
