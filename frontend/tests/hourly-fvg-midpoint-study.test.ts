@@ -213,7 +213,7 @@ test('bounded FVG studies reject own candle iterators without invoking them',()=
   throw Error('sparse candle iterator invoked');
  }});
  assert.throws(()=>studyHourlyFvgMidpoint(sparse as Bar[],source),
-  /own-index candle evidence/);
+  /Unexpected FVG archive array metadata/);
 });
 
 test('research rejects candle and cost array resizing during evidence snapshots',()=>{
