@@ -252,3 +252,25 @@ test('as-of rejects negative-zero future time without reading future OHLC or vol
   /negative.zero|timestamp|time|invalid/i);
  assert.equal(futurePriceReads,0);
 });
+
+// A future row's timestamp is allowable structural metadata, but an invalid
+// non-finite value must never authorize inspecting unrevealed OHLC or volume.
+// Each case uses a fresh archive so one rejection cannot mask another.
+test('as-of rejects non-finite future timestamps without future price access',()=>{
+ for(const badTime of [Number.NaN,Number.POSITIVE_INFINITY,Number.NEGATIVE_INFINITY]){
+  const bars:Bar[]=Array.from({length:3},(_,i)=>({
+   time:i*H,open:100,high:102,low:98,close:100,volume:1,observed_minutes:60,
+  }));
+  let futureReads=0;
+  for(const field of ['open','high','low','close','volume'] as const){
+   Object.defineProperty(bars[2],field,{
+    configurable:true,enumerable:true,
+    get(){futureReads++;throw Error('future OHLC/volume accessed');},
+   });
+  }
+  bars[2].time=badTime;
+  assert.throws(()=>studyHourlyFvgMidpointAsOf(bars,source,H),
+   /Invalid or unordered hourly as-of input timestamp/);
+  assert.equal(futureReads,0,'invalid future timestamp must not expose prices');
+ }
+});
