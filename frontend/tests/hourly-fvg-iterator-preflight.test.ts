@@ -30,3 +30,23 @@ test('as-of archive iterator preflight precedes future timestamp access',()=>{
  assert.equal(iteratorReads,0);
  assert.equal(futureTimeReads,0);
 });
+
+
+// An own data-valued iterator is equally undeclared archive metadata, even
+// when it is non-enumerable (the default for defineProperty).
+test('full and as-of studies reject a non-enumerable data-valued iterator',async()=>{
+ const {studyHourlyFvgMidpoint}=await import('../lib/hourly-fvg-midpoint-study.ts');
+ const bars:Bar[]=Array.from({length:3},(_,i)=>({
+  time:i*H,open:100,high:102,low:98,close:100,volume:0,observed_minutes:60,
+ }));
+ let iteratorCalls=0;
+ Object.defineProperty(bars,Symbol.iterator,{
+  configurable:true,enumerable:false,
+  value:()=>{iteratorCalls++;throw Error('custom iterator executed');},
+ });
+ assert.throws(()=>studyHourlyFvgMidpoint(bars,source),
+  /Unexpected FVG archive array metadata/);
+ assert.throws(()=>studyHourlyFvgMidpointAsOf(bars,source,2*H),
+  /Unexpected FVG archive array metadata/);
+ assert.equal(iteratorCalls,0);
+});
