@@ -274,3 +274,23 @@ test('as-of rejects non-finite future timestamps without future price access',()
   assert.equal(futureReads,0,'invalid future timestamp must not expose prices');
  }
 });
+
+
+// A future fractional hour is invalid timestamp metadata, not a reason to
+// inspect unrevealed prices. Keep this separate from non-finite/negative-zero.
+test('as-of rejects fractional future hour without reading future OHLC or volume',()=>{
+ const bars:Bar[]=Array.from({length:3},(_,i)=>({
+  time:i*H,open:100,high:102,low:98,close:100,volume:1,observed_minutes:60,
+ }));
+ let futureReads=0;
+ for(const field of ['open','high','low','close','volume'] as const){
+  Object.defineProperty(bars[2],field,{
+   configurable:true,enumerable:true,
+   get(){futureReads++;throw Error('future price evidence accessed');},
+  });
+ }
+ bars[2].time=2*H+0.5;
+ assert.throws(()=>studyHourlyFvgMidpointAsOf(bars,source,H),
+  /Invalid or unordered hourly as-of input timestamp/);
+ assert.equal(futureReads,0);
+});
