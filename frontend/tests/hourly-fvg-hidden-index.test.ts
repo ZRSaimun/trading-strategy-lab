@@ -172,3 +172,22 @@ test('non-enumerable symbol-keyed FVG archive metadata is rejected without execu
   assert.equal(reads,0,'hidden symbol-keyed evidence must never be evaluated');
  }
 });
+
+test('own archive iterator overrides are undeclared evidence and never executed',()=>{
+ for(const asOf of [false,true]){
+  const archive=bars();
+  let reads=0;
+  Object.defineProperty(archive,Symbol.iterator,{
+   enumerable:false,configurable:true,
+   get(){reads++;throw Error('untrusted iterator getter executed');},
+  });
+  assert.throws(()=>asOf?
+   studyHourlyFvgMidpointAsOf(archive,source,3*H):
+   studyHourlyFvgMidpoint(archive,source),
+   /Unexpected FVG archive array metadata/);
+  assert.equal(reads,0,'own iterator getter must not execute');
+ }
+ const ordinary=bars();
+ assert.doesNotThrow(()=>studyHourlyFvgMidpoint(ordinary,source));
+ assert.doesNotThrow(()=>studyHourlyFvgMidpointAsOf(ordinary,source,3*H));
+});
