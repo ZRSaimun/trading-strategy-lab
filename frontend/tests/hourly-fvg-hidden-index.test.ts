@@ -139,3 +139,20 @@ test('hourly FVG rejects hidden archive-level metadata without evaluating its ge
  assert.doesNotThrow(()=>studyHourlyFvgMidpoint(ordinary,source));
  assert.doesNotThrow(()=>studyHourlyFvgMidpointAsOf(ordinary,source,3*H));
 });
+
+test('hourly FVG rejects symbol-keyed archive receipts without invoking getters',()=>{
+ for(const asOf of [false,true]){
+  const archive=bars();
+  const receipt=Symbol('unverified broker ASK receipt');
+  let reads=0;
+  Object.defineProperty(archive,receipt,{
+   enumerable:true,configurable:true,
+   get(){reads++;throw Error('symbol receipt getter executed');},
+  });
+  assert.throws(()=>asOf?
+   studyHourlyFvgMidpointAsOf(archive,source,3*H):
+   studyHourlyFvgMidpoint(archive,source),
+   /Unexpected FVG archive array metadata/);
+  assert.equal(reads,0,'symbol-keyed undeclared evidence must never execute');
+ }
+});
