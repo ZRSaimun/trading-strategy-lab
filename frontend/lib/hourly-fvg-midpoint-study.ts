@@ -313,11 +313,12 @@ function validSourceLabel(value:unknown):value is string{
 }
 // A top-level archive array is only an ordered BID-candle population, not a
 // container for silently discarded ASK quotes, broker receipts or provenance.
-// Reject undeclared own metadata without reading its values. The iterator is
-// deliberately ignored because both research paths read bounded own indices.
+// Reject undeclared own metadata without reading its values. Even an own
+// Symbol.iterator override is not part of the frozen BID-only archive schema;
+// accepting it would silently preserve an unaudited caller-controlled hook.
 function validateBarArraySchema(bars:readonly Bar[],count:number){
  for(const key of Reflect.ownKeys(bars)){
-  if(key==='length'||key===Symbol.iterator||
+  if(key==='length'||
    (typeof key==='string'&&/^(0|[1-9][0-9]*)$/.test(key)&&Number(key)<count))
    continue;
   throw Error('Unexpected FVG archive array metadata outside frozen BID-only protocol');
