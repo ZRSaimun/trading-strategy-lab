@@ -231,3 +231,24 @@ test('full and as-of reject archive toJSON getter before future timestamps',asyn
  assert.equal(serializerReads,0);
  assert.equal(futureReads,0);
 });
+
+
+// A malformed *future* hourly timestamp is permitted to be inspected only as
+// timestamp metadata, never as a reason to access unrevealed prices or volume.
+// Negative zero is rejected rather than silently normalized to epoch zero.
+test('as-of rejects negative-zero future time without reading future OHLC or volume',()=>{
+ const bars:Bar[]=Array.from({length:3},(_,i)=>({
+  time:i*H,open:100,high:102,low:98,close:100,volume:1,observed_minutes:60,
+ }));
+ let futurePriceReads=0;
+ for(const field of ['open','high','low','close','volume'] as const){
+  Object.defineProperty(bars[2],field,{
+   configurable:true,enumerable:true,
+   get(){futurePriceReads++;throw Error('unrevealed future price or volume accessed');},
+  });
+ }
+ bars[2].time=-0;
+ assert.throws(()=>studyHourlyFvgMidpointAsOf(bars,source,H),
+  /negative.zero|timestamp|time|invalid/i);
+ assert.equal(futurePriceReads,0);
+});
