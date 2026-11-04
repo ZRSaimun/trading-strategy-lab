@@ -186,7 +186,7 @@ test('strict and markout clocks are causal for bullish/bearish paired, rejected 
  }
 });
 
-test('bounded FVG studies ignore untrusted array iterators for candles and costs',()=>{
+test('bounded FVG studies reject own candle iterators without invoking them',()=>{
  const baseline=studyHourlyFvgMidpoint(fixture(),source);
  const candles=fixture();
  const costs=[0,5,15];
@@ -199,10 +199,12 @@ test('bounded FVG studies ignore untrusted array iterators for candles and costs
   throw Error('untrusted cost iterator invoked');
  }});
  const settings={hypotheticalRoundTripCostsBps:costs};
- assert.deepEqual(studyHourlyFvgMidpoint(candles,source,settings),baseline);
+ assert.throws(()=>studyHourlyFvgMidpoint(candles,source,settings),
+  /Unexpected FVG archive array metadata/);
  const asOf=BASE+37*H;
- assert.deepEqual(studyHourlyFvgMidpointAsOf(candles,source,asOf,settings),
-  studyHourlyFvgMidpointAsOf(fixture(),source,asOf));
+ assert.throws(()=>studyHourlyFvgMidpointAsOf(candles,source,asOf,settings),
+  /Unexpected FVG archive array metadata/);
+ assert.deepEqual(studyHourlyFvgMidpoint(fixture(),source,settings),baseline);
  // Sparse indexed candles must still fail closed rather than being
  // filled or hidden by a custom iterator.
  const sparse=fixture();
@@ -2141,9 +2143,11 @@ test('v50 archive arrays reject undeclared BID/ASK or source metadata without ev
  Object.defineProperty(iteratorProtected,Symbol.iterator,{value(){
   throw Error('untrusted archive iterator must never execute');
  }});
- assert.deepEqual(studyHourlyFvgMidpoint(iteratorProtected,source),baseline);
- assert.deepEqual(studyHourlyFvgMidpointAsOf(iteratorProtected,source,cutoff),
-  studyHourlyFvgMidpointAsOf(fixture(),source,cutoff));
+ assert.throws(()=>studyHourlyFvgMidpoint(iteratorProtected,source),
+  /Unexpected FVG archive array metadata/);
+ assert.throws(()=>studyHourlyFvgMidpointAsOf(iteratorProtected,source,cutoff),
+  /Unexpected FVG archive array metadata/);
+ assert.deepEqual(studyHourlyFvgMidpoint(fixture(),source),baseline);
 });
 
 test('v51 illustrative cost stress scenarios are strictly ascending and distinct',()=>{
