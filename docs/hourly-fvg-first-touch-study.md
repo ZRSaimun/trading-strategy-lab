@@ -226,3 +226,7 @@ Additional synthetic regression: hidden non-enumerable indexed **getters** are r
 Archive metadata regression (4 November 2026): synthetic tests reject undeclared symbol-keyed broker/ASK receipt properties on the hourly candle array before evaluating their getters, in both full-history and causal as-of paths. This checks the existing schema boundary; it does not authenticate source receipts, quotes or profitability.
 
 **Hidden symbol receipt regression (4 November 2026).** Both full-history and as-of 1H FVG research must reject non-enumerable symbol-keyed archive metadata before invoking its getter. A synthetic regression covers both paths. This checks undeclared archive metadata handling, not independently authenticated broker ASK receipts, volume, prices, fills or profitability.
+
+## 4 November 2026 — CI repair for iterator schema tightening
+
+The strict BID-only archive array schema rejects own `Symbol.iterator` overrides, even when their functions would never be invoked. Two older regressions incorrectly expected such overridden candle arrays to produce normal study results. Updated those tests to assert fail-closed rejection for full-history and causal as-of paths; the separate cost-array iterator remains inert and ordinary candle arrays remain accepted. This repairs test expectations for the already-implemented archive rule; it does not authenticate broker quotes, classify volume receipts, or establish strategy profitability.
