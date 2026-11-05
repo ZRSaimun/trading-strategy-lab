@@ -610,3 +610,22 @@ test('as-of does not form bearish FVG before third hourly bar closes',()=>{
  assert.equal(before.observations.length,0);
  assert.equal(futureReads,0,'future OHLC, volume and coverage must remain unread');
 });
+
+
+// A decision one second before the close cannot use the third hour's OHLC.
+// Exactly at the close, the same fully completed bar becomes eligible.
+test('as-of bullish formation transitions only at exact third-hour close',()=>{
+ const bars:Bar[]=[
+  {time:0,open:99,high:100,low:98,close:99,volume:1,observed_minutes:60},
+  {time:H,open:101,high:104,low:100,close:103,volume:1,observed_minutes:60},
+  {time:2*H,open:103,high:105,low:102,close:104,volume:1,observed_minutes:60},
+ ];
+ const before=studyHourlyFvgMidpointAsOf(bars,source,3*H-1);
+ const prefix=studyHourlyFvgMidpointAsOf(bars.slice(0,2),source,3*H-1);
+ assert.deepEqual(before,prefix,'a nearly closed bar is still unrevealed');
+ assert.equal(before.observations.length,0);
+ const atClose=studyHourlyFvgMidpointAsOf(bars,source,3*H);
+ assert.ok(atClose.observations.some(o=>
+  o.direction==='BULLISH' && o.formationClosedAt===3*H),
+  'formation first becomes eligible at the exact close');
+});
