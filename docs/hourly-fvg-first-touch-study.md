@@ -70,6 +70,8 @@
 
 **Status: proposed, deterministic, read-only hypothesis.**
 
+**5 November 2026 — CI regression repair:** The as-of study API intentionally accepts only completed UTC hourly close boundaries. A synthetic midpoint-touch test incorrectly requested `4H − 1 ms` and caused the frontend test job to fail, rather than testing candle causality. The repaired test asserts that sub-hour boundary is rejected, compares the full archive to the revealed three-bar prefix at the valid `3H` boundary, and verifies the touch becomes observable at `4H`. This changes tests only, not trading logic. Exact-head CI for the repair must be checked separately; neither synthetic candles nor green CI demonstrate executable fills or profitability.
+
 **Additional v97 regression (4 November 2026):** Causal as-of replay rejects NaN, positive infinity and negative infinity in a future candle timestamp while leaving that unrevealed candle's OHLC and volume getters unread. Synthetic tests verify fail-closed timestamp validation, not independently authenticated data or profitability. The code's current frozen rule is `hourly-fvg-first-midpoint-touch-v97`; older version notes below are retained as a historical changelog.
 
 **CI regression repair (4 November 2026):** A sparse candle array carrying an own `Symbol.iterator` override is rejected at the archive-metadata preflight, before the later missing-own-index guard. The corresponding synthetic regression now asserts the earlier fail-closed error; it does not permit sparse candles or execute the overridden iterator. This verifies error ordering only, not authenticated source provenance or trading outcomes.
