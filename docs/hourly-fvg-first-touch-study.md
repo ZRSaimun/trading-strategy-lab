@@ -301,3 +301,8 @@ Synthetic full-history and causal as-of regression rejects an own non-enumerable
 ### Boolean and symbol future-hour regression (4 November 2026)
 
 The causal as-of hourly FVG archive preflight must reject boolean and `Symbol` future timestamps as invalid UTC-hour metadata without coercion or reading unrevealed OHLC/volume. A synthetic regression covers `false`, `true`, and a symbol separately. This is a no-lookahead/input-contract test only: it does not authenticate market data, demonstrate executable broker fills, or establish trading profitability. PR remains draft, paper-only, unmerged and undeployed.
+
+
+### 5 November 2026 — successful as-of scan future-evidence regression
+
+A synthetic positive-path regression now supplies correctly ordered future hourly timestamps while making the unrevealed future OHLC, volume **and observed-minute coverage** accessor-backed traps. The causal as-of study must complete without accessing any of those future evidence fields. This complements malformed-timestamp rejection tests by checking a successful scan, not only fail-closed error paths. Synthetic integrity testing is not verified source provenance, BID/ASK execution, a statistical edge, or profitability. Remains draft, paper-only, unmerged and undeployed.
