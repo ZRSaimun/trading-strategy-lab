@@ -449,3 +449,29 @@ test('as-of accepts ordered future hours without reading future evidence fields'
  assert.doesNotThrow(()=>studyHourlyFvgMidpointAsOf(bars,source,2*H));
  assert.equal(unrevealedReads,0);
 });
+
+
+// An omitted future hourly bucket is a source-coverage gap, not permission
+// to peek at later OHLC/volume. Timestamp-only preflight must still accept
+// ordered, aligned future metadata; the completed as-of prefix is unchanged.
+test('as-of accepts ordered gapped future timestamps without future evidence reads',()=>{
+ const bars:Bar[]=Array.from({length:4},(_,i)=>({
+  time:i*H,open:100,high:102,low:98,close:100,volume:1,observed_minutes:60,
+ }));
+ bars[2].time=4*H; // 2H and 3H are absent from the archive
+ bars[3].time=7*H; // 5H and 6H are also absent
+ let futureReads=0;
+ for(const row of bars.slice(2)){
+  for(const field of ['open','high','low','close','volume','observed_minutes'] as const){
+   Object.defineProperty(row,field,{
+    configurable:true,enumerable:true,
+    get(){futureReads++;throw Error('future price/volume/coverage accessed');},
+   });
+  }
+ }
+ const prefix=bars.slice(0,2);
+ const expected=studyHourlyFvgMidpointAsOf(prefix,source,2*H);
+ const actual=studyHourlyFvgMidpointAsOf(bars,source,2*H);
+ assert.deepEqual(actual,expected,'future timestamp gaps cannot change as-of result');
+ assert.equal(futureReads,0,'future market evidence must remain unread');
+});
