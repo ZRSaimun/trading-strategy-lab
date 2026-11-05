@@ -884,3 +884,34 @@ test('as-of refuses bullish and bearish FVG formation across missing middle hour
    direction+' missing middle hour must not be bridged by later price evidence');
  }
 });
+
+
+// The first eligible midpoint touch is evidence only after the whole 1H
+// candle closes, including the final millisecond of that candle.
+test('as-of bullish and bearish midpoint touch waits until exact hourly close',()=>{
+ for(const direction of ['BULLISH','BEARISH'] as const){
+  const bars:Bar[]=direction==='BULLISH' ? [
+   {time:0,open:99,high:100,low:98,close:99,volume:1,observed_minutes:60},
+   {time:H,open:101,high:104,low:100,close:103,volume:1,observed_minutes:60},
+   {time:2*H,open:103,high:105,low:102,close:104,volume:1,observed_minutes:60},
+   {time:3*H,open:104,high:105,low:100,close:102,volume:1,observed_minutes:60},
+  ] : [
+   {time:0,open:105,high:106,low:104,close:105,volume:1,observed_minutes:60},
+   {time:H,open:103,high:104,low:100,close:101,volume:1,observed_minutes:60},
+   {time:2*H,open:100,high:102,low:98,close:99,volume:1,observed_minutes:60},
+   {time:3*H,open:103,high:104,low:102,close:103,volume:1,observed_minutes:60},
+  ];
+  const before=studyHourlyFvgMidpointAsOf(bars,source,4*H-1);
+  const prefix=studyHourlyFvgMidpointAsOf(bars.slice(0,3),source,4*H-1);
+  assert.deepEqual(before,prefix,direction+' pre-close result must equal revealed prefix');
+  assert.equal(before.observations.length,1);
+  assert.equal(before.observations[0].firstTouchOutcome,'INCOMPLETE_WINDOW');
+  assert.equal(before.observations[0].firstTouchClosedAt,null);
+  const closed=studyHourlyFvgMidpointAsOf(bars,source,4*H);
+  assert.equal(closed.observations.length,1);
+  assert.equal(closed.observations[0].direction,direction);
+  assert.equal(closed.observations[0].firstTouchOutcome,'TOUCH');
+  assert.equal(closed.observations[0].firstTouchClosedAt,4*H);
+  assert.equal(closed.observations[0].firstTouchOutcomeObservedAt,4*H);
+ }
+});
