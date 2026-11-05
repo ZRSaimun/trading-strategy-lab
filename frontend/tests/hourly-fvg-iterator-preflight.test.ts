@@ -832,3 +832,19 @@ test('as-of bearish first touch remains unknown across a missing hour',()=>{
  assert.equal(result.observations[0].firstTouchOutcome,'INCOMPLETE_WINDOW');
  assert.equal(result.observations[0].firstTouchClosedAt,null);
 });
+
+
+// A missing third formation hour cannot be replaced by a later candle with
+// matching gap prices. Formation requires three consecutive completed hours.
+test('as-of refuses bullish FVG formation across a missing third hour',()=>{
+ const bars:Bar[]=[
+  {time:0,open:99,high:100,low:98,close:99,volume:1,observed_minutes:60},
+  {time:H,open:101,high:104,low:100,close:103,volume:1,observed_minutes:60},
+  // Missing 2H–3H. The next observed candle is NOT the third consecutive hour.
+  {time:3*H,open:103,high:105,low:102,close:104,volume:1,observed_minutes:60},
+ ];
+ const atThree=studyHourlyFvgMidpointAsOf(bars,source,3*H);
+ assert.equal(atThree.observations.length,0,'missing third hour cannot form a gap');
+ const atFour=studyHourlyFvgMidpointAsOf(bars,source,4*H);
+ assert.equal(atFour.observations.length,0,'later prices cannot bridge the gap');
+});
