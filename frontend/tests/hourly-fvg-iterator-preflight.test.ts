@@ -814,3 +814,21 @@ test('as-of refuses first-touch inference across a missing hourly candle',()=>{
  assert.equal(result.observations[0].firstTouchClosedAt,null,
   'later midpoint intersection cannot bypass missing first eligible hour');
 });
+
+
+// Missing first eligible bearish hour cannot be reconstructed from a later
+// midpoint intersection. No fabricated candle or first-touch timestamp.
+test('as-of bearish first touch remains unknown across a missing hour',()=>{
+ const bars:Bar[]=[
+  {time:0,open:105,high:106,low:104,close:105,volume:1,observed_minutes:60},
+  {time:H,open:103,high:104,low:100,close:101,volume:1,observed_minutes:60},
+  {time:2*H,open:100,high:102,low:98,close:99,volume:1,observed_minutes:60},
+  // Missing 3H–4H first eligible candle.
+  {time:4*H,open:101,high:104,low:100,close:103,volume:1,observed_minutes:60},
+ ];
+ const result=studyHourlyFvgMidpointAsOf(bars,source,5*H);
+ assert.equal(result.observations.length,1);
+ assert.equal(result.observations[0].direction,'BEARISH');
+ assert.equal(result.observations[0].firstTouchOutcome,'INCOMPLETE_WINDOW');
+ assert.equal(result.observations[0].firstTouchClosedAt,null);
+});
