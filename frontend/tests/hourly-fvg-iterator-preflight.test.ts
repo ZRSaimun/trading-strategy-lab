@@ -388,3 +388,23 @@ test('as-of rejects boolean and symbol future hours before future price access',
   assert.equal(futureReads,0);
  }
 });
+
+
+// Duplicate future UTC buckets must not be silently deduplicated into a
+// plausible causal prefix; timestamps are inspectable, future prices are not.
+test('as-of rejects duplicate future hourly timestamp without reading future prices',()=>{
+ const bars:Bar[]=Array.from({length:3},(_,i)=>({
+  time:i*H,open:100,high:102,low:98,close:100,volume:1,observed_minutes:60,
+ }));
+ let futureReads=0;
+ for(const field of ['open','high','low','close','volume'] as const){
+  Object.defineProperty(bars[2],field,{
+   configurable:true,enumerable:true,
+   get(){futureReads++;throw Error('unrevealed future OHLC/volume accessed');},
+  });
+ }
+ bars[2].time=H; // duplicate of the preceding, completed hourly bucket
+ assert.throws(()=>studyHourlyFvgMidpointAsOf(bars,source,H),
+  /Invalid or unordered hourly as-of input timestamp/);
+ assert.equal(futureReads,0);
+});
