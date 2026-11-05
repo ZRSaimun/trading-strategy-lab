@@ -429,3 +429,23 @@ test('as-of rejects descending distinct future hourly buckets without future OHL
   /Invalid or unordered hourly as-of input timestamp/);
  assert.equal(futureReads,0);
 });
+
+
+// A valid archive may contain later hourly timestamps. An as-of scan must
+// succeed using only completed rows, not merely avoid future reads on errors.
+test('as-of accepts ordered future hours without reading future evidence fields',()=>{
+ const bars:Bar[]=Array.from({length:4},(_,i)=>({
+  time:i*H,open:100,high:102,low:98,close:100,volume:1,observed_minutes:60,
+ }));
+ let unrevealedReads=0;
+ for(const row of bars.slice(2)){
+  for(const field of ['open','high','low','close','volume','observed_minutes'] as const){
+   Object.defineProperty(row,field,{
+    configurable:true,enumerable:true,
+    get(){unrevealedReads++;throw Error('unrevealed future evidence accessed');},
+   });
+  }
+ }
+ assert.doesNotThrow(()=>studyHourlyFvgMidpointAsOf(bars,source,2*H));
+ assert.equal(unrevealedReads,0);
+});
