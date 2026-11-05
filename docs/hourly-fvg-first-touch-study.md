@@ -1,5 +1,8 @@
 # Hourly FVG first-touch midpoint rejection versus blind limit (research v97)
 
+**5 November 2026 — missing formation-hour regression.** A synthetic bullish gap with hourly starts at 0H, 1H and 3H must not be formed as a three-consecutive-candle 1H FVG: the 2H–3H formation candle is absent. The regression checks both 3H and 4H completed-bar decisions; a later attractive gap cannot repair missing source coverage. This is a causal evidence-integrity check, not authenticated broker data or profitability evidence. CI must be checked on the exact commit.
+
+
 **5 November 2026 — bearish fixture OHLC repair.** Exact-head workflow #42036116252 failed the frontend test `as-of bearish first midpoint touch waits for next completed hour`: the synthetic post-formation candle had `open=101` below `low=102`, violating the engine's basic OHLC validation before any timing assertion. The test fixture now uses `open=103` inside `[102,104]` in both unrevealed and completed representations; the causal assertions and production research logic are unchanged. Recheck CI on the repair commit. This is not broker data or profitability evidence.
 
 
