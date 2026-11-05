@@ -864,3 +864,23 @@ test('as-of refuses bearish FVG formation across a missing third hour',()=>{
  const atFour=studyHourlyFvgMidpointAsOf(bars,source,4*H);
  assert.equal(atFour.observations.length,0,'later bearish prices cannot bridge missing formation evidence');
 });
+
+
+// A missing middle formation hour must not be silently replaced by a later
+// third candle. This tests a distinct gap position from missing third hour.
+test('as-of refuses bullish and bearish FVG formation across missing middle hour',()=>{
+ for(const direction of ['BULLISH','BEARISH'] as const){
+  const bars:Bar[]=direction==='BULLISH' ? [
+   {time:0,open:99,high:100,low:98,close:99,volume:1,observed_minutes:60},
+   {time:2*H,open:101,high:104,low:100,close:103,volume:1,observed_minutes:60},
+   {time:3*H,open:103,high:105,low:102,close:104,volume:1,observed_minutes:60},
+  ] : [
+   {time:0,open:105,high:106,low:104,close:105,volume:1,observed_minutes:60},
+   {time:2*H,open:103,high:104,low:100,close:101,volume:1,observed_minutes:60},
+   {time:3*H,open:100,high:102,low:98,close:99,volume:1,observed_minutes:60},
+  ];
+  assert.equal(studyHourlyFvgMidpointAsOf(bars,source,3*H).observations.length,0);
+  assert.equal(studyHourlyFvgMidpointAsOf(bars,source,4*H).observations.length,0,
+   direction+' missing middle hour must not be bridged by later price evidence');
+ }
+});
