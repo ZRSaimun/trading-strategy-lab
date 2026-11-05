@@ -1,5 +1,8 @@
 # Hourly FVG first-touch midpoint rejection versus blind limit (research v97)
 
+**5 November 2026 — missing middle formation-hour regression.** Synthetic bullish and bearish 1H three-candle candidates with starts at 0H, 2H and 3H must not form an FVG at the 3H or 4H as-of boundary: the 1H–2H middle formation candle is absent. This complements the missing-third-hour checks. It establishes a software evidence boundary only, not source authenticity, fills or profitability. Exact-head CI must be checked after this commit.
+
+
 **5 November 2026 — missing formation-hour regression.** A synthetic bullish gap with hourly starts at 0H, 1H and 3H must not be formed as a three-consecutive-candle 1H FVG: the 2H–3H formation candle is absent. The regression checks both 3H and 4H completed-bar decisions; a later attractive gap cannot repair missing source coverage. This is a causal evidence-integrity check, not authenticated broker data or profitability evidence. CI must be checked on the exact commit.
 
 
