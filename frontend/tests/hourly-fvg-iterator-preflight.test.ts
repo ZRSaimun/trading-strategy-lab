@@ -504,3 +504,33 @@ test('as-of reads a valid future hour getter once but never its market evidence'
  assert.equal(timestampReads,2,'each future timestamp should be read once');
  assert.equal(futureEvidenceReads,0,'unrevealed future market evidence must remain unread');
 });
+
+
+// A nonempty completed prefix must retain an actual formed FVG when later
+// timestamps are inspected. Flat-prefix tests alone cannot catch a regression
+// that accidentally discards valid formations while avoiding future reads.
+test('as-of retains completed bullish FVG with unread future market evidence',()=>{
+ const bars:Bar[]=[
+  {time:0,open:99,high:100,low:98,close:99,volume:1,observed_minutes:60},
+  {time:H,open:101,high:104,low:100,close:103,volume:1,observed_minutes:60},
+  {time:2*H,open:103,high:105,low:102,close:104,volume:1,observed_minutes:60},
+  {time:3*H,open:104,high:106,low:101,close:103,volume:1,observed_minutes:60},
+  {time:4*H,open:103,high:105,low:100,close:102,volume:1,observed_minutes:60},
+ ];
+ let futureReads=0;
+ for(const row of bars.slice(3)){
+  for(const field of ['open','high','low','close','volume','observed_minutes'] as const){
+   Object.defineProperty(row,field,{
+    configurable:true,enumerable:true,
+    get(){futureReads++;throw Error('future evidence accessed');},
+   });
+  }
+ }
+ const expected=studyHourlyFvgMidpointAsOf(bars.slice(0,3),source,3*H);
+ const actual=studyHourlyFvgMidpointAsOf(bars,source,3*H);
+ assert.ok(expected.observations.some(o=>
+  o.direction==='BULLISH' && o.formationClosedAt===3*H),
+  'fixture must contain a real completed bullish gap');
+ assert.deepEqual(actual,expected,'future candles cannot erase completed formation');
+ assert.equal(futureReads,0);
+});
