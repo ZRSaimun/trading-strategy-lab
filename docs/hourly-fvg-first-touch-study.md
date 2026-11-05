@@ -308,3 +308,8 @@ The causal as-of hourly FVG archive preflight must reject boolean and `Symbol` f
 ### 5 November 2026 — successful as-of scan future-evidence regression
 
 A synthetic positive-path regression now supplies correctly ordered future hourly timestamps while making the unrevealed future OHLC, volume **and observed-minute coverage** accessor-backed traps. The causal as-of study must complete without accessing any of those future evidence fields. This complements malformed-timestamp rejection tests by checking a successful scan, not only fail-closed error paths. Synthetic integrity testing is not verified source provenance, BID/ASK execution, a statistical edge, or profitability. Remains draft, paper-only, unmerged and undeployed.
+
+
+### 5 November 2026 — successful future timestamp accessor isolation
+
+A synthetic causal as-of regression supplies two valid future UTC-hour getters and trap getters for their unrevealed OHLC, volume, and observed-minute coverage. The completed-prefix result must equal the prefix-only result; each future timestamp getter is read once and no future market-evidence getter is invoked. This tests accessor ordering on a successful as-of scan, not authenticated source provenance, executable broker quotes, or strategy profitability. Draft, paper-only; no merge or deployment.
