@@ -534,3 +534,33 @@ test('as-of retains completed bullish FVG with unread future market evidence',()
  assert.deepEqual(actual,expected,'future candles cannot erase completed formation');
  assert.equal(futureReads,0);
 });
+
+
+// Mirror the bullish completed-formation replay with a bearish gap. A
+// direction-specific refactor must not let future candles create or erase
+// the already closed bearish formation at the as-of boundary.
+test('as-of retains completed bearish FVG with unread future market evidence',()=>{
+ const bars:Bar[]=[
+  {time:0,open:105,high:106,low:104,close:105,volume:1,observed_minutes:60},
+  {time:H,open:103,high:104,low:100,close:101,volume:1,observed_minutes:60},
+  {time:2*H,open:100,high:102,low:98,close:99,volume:1,observed_minutes:60},
+  {time:3*H,open:99,high:103,low:97,close:101,volume:1,observed_minutes:60},
+  {time:4*H,open:101,high:105,low:99,close:104,volume:1,observed_minutes:60},
+ ];
+ let futureReads=0;
+ for(const row of bars.slice(3)){
+  for(const field of ['open','high','low','close','volume','observed_minutes'] as const){
+   Object.defineProperty(row,field,{
+    configurable:true,enumerable:true,
+    get(){futureReads++;throw Error('future evidence accessed');},
+   });
+  }
+ }
+ const expected=studyHourlyFvgMidpointAsOf(bars.slice(0,3),source,3*H);
+ const actual=studyHourlyFvgMidpointAsOf(bars,source,3*H);
+ assert.ok(expected.observations.some(o=>
+  o.direction==='BEARISH' && o.formationClosedAt===3*H),
+  'fixture must contain a real completed bearish gap');
+ assert.deepEqual(actual,expected,'future candles cannot erase completed bearish formation');
+ assert.equal(futureReads,0);
+});
