@@ -358,3 +358,6 @@ A synthetic completed bullish 1H gap now has a first post-formation candle that 
 
 
 **5 November 2026 — bearish missing-formation-hour regression.** A synthetic bearish three-bar FVG with hourly starts at 0H, 1H and 3H must produce no formation at either the 3H or 4H decision boundary. The absent 2H–3H candle cannot be inferred from later lower prices. This mirrors the bullish missing-third-hour regression, without inventing observations, validating source identity or demonstrating trading returns. Draft research only; no orders or deployment.
+
+
+**5 November 2026 — exact first-touch close boundary (both directions).** Synthetic bullish and bearish FVGs formed at 3H are tested at `4H - 1 ms` and `4H`. Before the first post-formation hour closes, the as-of result must equal the three-candle prefix and retain `INCOMPLETE_WINDOW` without a first-touch timestamp. At the exact 4H close, a candle intersecting the midpoint may first report `TOUCH` observed at 4H. This checks a strict causal decision boundary, not actual tick-level execution, authenticated broker BID/ASK prices, source-classified volume or profitability. Keep draft, paper-only, unmerged and undeployed.
