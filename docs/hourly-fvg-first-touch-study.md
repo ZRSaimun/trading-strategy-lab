@@ -1,5 +1,7 @@
 # Hourly FVG first-touch midpoint rejection versus blind limit (research v97)
 
+**5 November 2026 — bearish exact-close symmetry regression.** The causal 1H FVG test suite now also requires bearish formations to reject an intrahour (`3H−1s`) decision, remain absent at the valid 2H boundary, and first appear at the exact 3H close. This mirrors the bullish test and checks closed-bar timing, not execution quality, source provenance or profitability. Exact-head CI must be checked after the commit.
+
 **5 November 2026 — exact-head CI repair.** Workflow #42003233312 failed one frontend test (1040/1041 passed): the new near-close regression passed `3H-1` to an API that explicitly requires an hourly-aligned as-of close. The repaired test requires an intrahour request to fail closed, checks the last valid 2H boundary against its completed two-bar prefix, and verifies the bullish formation first appears at the valid 3H close. This corrects the test contract; it does not relax the implementation, authenticate prices or establish profitability. CI for the repair must be checked on its exact commit.
 
 **5 November 2026 — bearish third-candle close regression.** A synthetic bearish three-hour FVG is prohibited at the 2H as-of boundary, before its third 1H candle closes. The regression requires exact two-completed-bar prefix equivalence, zero formed observations, and no access to unclosed OHLC, volume or minute coverage. This is causal software testing only, not verified market volume, executable BID/ASK fills, or profitability.
