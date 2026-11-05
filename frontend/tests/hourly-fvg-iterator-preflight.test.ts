@@ -475,3 +475,32 @@ test('as-of accepts ordered gapped future timestamps without future evidence rea
  assert.deepEqual(actual,expected,'future timestamp gaps cannot change as-of result');
  assert.equal(futureReads,0,'future market evidence must remain unread');
 });
+
+
+// A future timestamp accessor is permitted only to reveal its own UTC hour.
+// Its unrevealed price, volume and coverage properties must remain untouched.
+test('as-of reads a valid future hour getter once but never its market evidence',()=>{
+ const bars:Bar[]=Array.from({length:4},(_,i)=>({
+  time:i*H,open:100,high:102,low:98,close:100,volume:1,observed_minutes:60,
+ }));
+ let timestampReads=0;
+ let futureEvidenceReads=0;
+ for(const row of bars.slice(2)){
+  const hour=row.time;
+  Object.defineProperty(row,'time',{
+   configurable:true,enumerable:true,
+   get(){timestampReads++;return hour;},
+  });
+  for(const field of ['open','high','low','close','volume','observed_minutes'] as const){
+   Object.defineProperty(row,field,{
+    configurable:true,enumerable:true,
+    get(){futureEvidenceReads++;throw Error('future market evidence accessed');},
+   });
+  }
+ }
+ const expected=studyHourlyFvgMidpointAsOf(bars.slice(0,2),source,2*H);
+ const actual=studyHourlyFvgMidpointAsOf(bars,source,2*H);
+ assert.deepEqual(actual,expected,'future metadata must not change completed-prefix study');
+ assert.equal(timestampReads,2,'each future timestamp should be read once');
+ assert.equal(futureEvidenceReads,0,'unrevealed future market evidence must remain unread');
+});
