@@ -408,3 +408,24 @@ test('as-of rejects duplicate future hourly timestamp without reading future pri
   /Invalid or unordered hourly as-of input timestamp/);
  assert.equal(futureReads,0);
 });
+
+
+// Out-of-order future metadata can make an older completed candle appear
+// beyond the as-of cutoff. Reject it before reading that candle's prices.
+test('as-of rejects descending distinct future hourly buckets without future OHLC reads',()=>{
+ const bars:Bar[]=Array.from({length:4},(_,i)=>({
+  time:i*H,open:100,high:102,low:98,close:100,volume:1,observed_minutes:60,
+ }));
+ let futureReads=0;
+ for(const field of ['open','high','low','close','volume'] as const){
+  Object.defineProperty(bars[3],field,{
+   configurable:true,enumerable:true,
+   get(){futureReads++;throw Error('unrevealed future evidence accessed');},
+  });
+ }
+ bars[2].time=4*H;
+ bars[3].time=3*H; // distinct and aligned, but descends from the prior bucket
+ assert.throws(()=>studyHourlyFvgMidpointAsOf(bars,source,H),
+  /Invalid or unordered hourly as-of input timestamp/);
+ assert.equal(futureReads,0);
+});
