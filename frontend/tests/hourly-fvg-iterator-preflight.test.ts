@@ -848,3 +848,19 @@ test('as-of refuses bullish FVG formation across a missing third hour',()=>{
  const atFour=studyHourlyFvgMidpointAsOf(bars,source,4*H);
  assert.equal(atFour.observations.length,0,'later prices cannot bridge the gap');
 });
+
+
+// Bearish formation requires the same three contiguous completed hours as
+// bullish formation. A later lower-low candle cannot replace the missing 2H.
+test('as-of refuses bearish FVG formation across a missing third hour',()=>{
+ const bars:Bar[]=[
+  {time:0,open:105,high:106,low:104,close:105,volume:1,observed_minutes:60},
+  {time:H,open:103,high:104,low:100,close:101,volume:1,observed_minutes:60},
+  // No 2H–3H bar; the lower candle at 3H is not a consecutive third bar.
+  {time:3*H,open:100,high:102,low:98,close:99,volume:1,observed_minutes:60},
+ ];
+ const atThree=studyHourlyFvgMidpointAsOf(bars,source,3*H);
+ assert.equal(atThree.observations.length,0,'unobserved third hour cannot form a bearish gap');
+ const atFour=studyHourlyFvgMidpointAsOf(bars,source,4*H);
+ assert.equal(atFour.observations.length,0,'later bearish prices cannot bridge missing formation evidence');
+});
