@@ -633,3 +633,25 @@ test('as-of bullish formation transitions only at exact third-hour close',()=>{
   o.direction==='BULLISH' && o.formationClosedAt===3*H),
   'formation first becomes eligible at the exact close');
 });
+
+
+// The bearish direction must obey the same aligned decision-time contract:
+// no third-bar formation at 2H, and eligibility only once 3H has closed.
+test('as-of bearish formation transitions only at exact third-hour close',()=>{
+ const bars:Bar[]=[
+  {time:0,open:105,high:106,low:104,close:105,volume:1,observed_minutes:60},
+  {time:H,open:103,high:104,low:100,close:101,volume:1,observed_minutes:60},
+  {time:2*H,open:100,high:102,low:98,close:99,volume:1,observed_minutes:60},
+ ];
+ assert.throws(()=>studyHourlyFvgMidpointAsOf(bars,source,3*H-1),
+  /Invalid UTC hourly as-of close/,
+  'an intrahour decision must fail closed rather than round to the next hour');
+ const before=studyHourlyFvgMidpointAsOf(bars,source,2*H);
+ const prefix=studyHourlyFvgMidpointAsOf(bars.slice(0,2),source,2*H);
+ assert.deepEqual(before,prefix,'the bearish third candle is not yet completed');
+ assert.equal(before.observations.length,0);
+ const atClose=studyHourlyFvgMidpointAsOf(bars,source,3*H);
+ assert.ok(atClose.observations.some(o=>
+  o.direction==='BEARISH' && o.formationClosedAt===3*H),
+  'bearish gap first becomes eligible at the exact close');
+});
