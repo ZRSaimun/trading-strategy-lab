@@ -722,3 +722,39 @@ test('as-of bearish first midpoint touch waits for next completed hour',()=>{
  assert.equal(touched.observations[0].firstTouchClosedAt,4*H);
  assert.equal(touched.observations[0].firstTouchOutcomeObservedAt,4*H);
 });
+
+
+// A completed post-formation candle that stays above the bullish midpoint
+// must not be mistaken for a touch. A later completed candle can first touch,
+// but its timestamp must not leak into an earlier as-of decision.
+test('as-of bullish first touch skips completed no-touch bar without lookahead',()=>{
+ const bars:Bar[]=[
+  {time:0,open:99,high:100,low:98,close:99,volume:1,observed_minutes:60},
+  {time:H,open:101,high:104,low:100,close:103,volume:1,observed_minutes:60},
+  {time:2*H,open:103,high:105,low:102,close:104,volume:1,observed_minutes:60},
+  {time:3*H,open:104,high:106,low:103,close:105,volume:1,observed_minutes:60},
+  {time:4*H,open:104,high:105,low:100,close:102,volume:1,observed_minutes:60},
+ ];
+ let futureReads=0;
+ for(const field of ['open','high','low','close','volume','observed_minutes'] as const){
+  Object.defineProperty(bars[4],field,{
+   configurable:true,enumerable:true,
+   get(){futureReads++;throw Error('later touch evidence accessed early');},
+  });
+ }
+ const atFour=studyHourlyFvgMidpointAsOf(bars,source,4*H);
+ const prefix=studyHourlyFvgMidpointAsOf(bars.slice(0,4),source,4*H);
+ assert.deepEqual(atFour,prefix);
+ assert.equal(atFour.observations.length,1);
+ assert.equal(atFour.observations[0].firstTouchOutcome,'INCOMPLETE_WINDOW');
+ assert.equal(atFour.observations[0].firstTouchClosedAt,null);
+ assert.equal(futureReads,0);
+ const completed=bars.slice(0,4).concat([
+  {time:4*H,open:104,high:105,low:100,close:102,volume:1,observed_minutes:60},
+ ]);
+ const atFive=studyHourlyFvgMidpointAsOf(completed,source,5*H);
+ assert.equal(atFive.observations.length,1);
+ assert.equal(atFive.observations[0].firstTouchOutcome,'TOUCH');
+ assert.equal(atFive.observations[0].firstTouchClosedAt,5*H);
+ assert.equal(atFive.observations[0].firstTouchOutcomeObservedAt,5*H);
+});
