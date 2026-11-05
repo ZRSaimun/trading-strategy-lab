@@ -564,3 +564,26 @@ test('as-of retains completed bearish FVG with unread future market evidence',()
  assert.deepEqual(actual,expected,'future candles cannot erase completed bearish formation');
  assert.equal(futureReads,0);
 });
+
+
+// Formation at 3H must not appear at the 2H decision boundary, even when
+// its final candle has a valid timestamp and a tempting bullish gap.
+test('as-of does not form a three-hour FVG before the third bar closes',()=>{
+ const bars:Bar[]=[
+  {time:0,open:99,high:100,low:98,close:99,volume:1,observed_minutes:60},
+  {time:H,open:101,high:104,low:100,close:103,volume:1,observed_minutes:60},
+  {time:2*H,open:103,high:105,low:102,close:104,volume:1,observed_minutes:60},
+ ];
+ let futureReads=0;
+ for(const field of ['open','high','low','close','volume','observed_minutes'] as const){
+  Object.defineProperty(bars[2],field,{
+   configurable:true,enumerable:true,
+   get(){futureReads++;throw Error('unclosed formation evidence accessed');},
+  });
+ }
+ const before=studyHourlyFvgMidpointAsOf(bars,source,2*H);
+ const prefix=studyHourlyFvgMidpointAsOf(bars.slice(0,2),source,2*H);
+ assert.deepEqual(before,prefix,'unclosed third candle cannot form a gap');
+ assert.equal(before.observations.length,0);
+ assert.equal(futureReads,0,'third candle OHLC/volume/coverage must remain unread');
+});
