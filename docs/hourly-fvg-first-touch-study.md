@@ -1,5 +1,7 @@
 # Hourly FVG first-touch midpoint rejection versus blind limit (research v97)
 
+**5 November 2026 — ordered future coverage-gap regression.** A synthetic as-of test now compares the same completed 1H prefix with and without later, chronologically ordered but gapped future timestamps. It requires identical as-of results and zero future OHLC, volume or observed-minute reads. Missing future hours are not filled or treated as verified market closure. This tests causal isolation only; no authenticated source volume, broker two-sided quotes or profitability is established.
+
 **5 November 2026 — distinct descending future-hour regression.** The causal as-of path now has synthetic regression coverage for two different, hourly-aligned future timestamps presented in descending order. Such archive order is rejected before unrevealed future OHLC/volume is accessed. This is an integrity test, not authenticated prices, verified volume, CFD execution, or evidence of profitability.\n\n**5 November 2026 — duplicate future-hour causal regression.** Synthetic as-of coverage rejects a future candle timestamp that repeats the preceding completed hourly bucket without reading unrevealed OHLC/volume. Duplicate or unordered time metadata is invalid source evidence; this test does not verify broker BID/ASK prices, licensed market history, fills, or profitability. Draft research only; no merge or deployment.
 
 
