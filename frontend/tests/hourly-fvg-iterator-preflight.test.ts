@@ -888,7 +888,7 @@ test('as-of refuses bullish and bearish FVG formation across missing middle hour
 
 // The first eligible midpoint touch is evidence only after the whole 1H
 // candle closes, including the final millisecond of that candle.
-test('as-of bullish and bearish midpoint touch waits until exact hourly close',()=>{
+test('as-of bullish and bearish midpoint touch requires completed UTC hour boundary',()=>{
  for(const direction of ['BULLISH','BEARISH'] as const){
   const bars:Bar[]=direction==='BULLISH' ? [
    {time:0,open:99,high:100,low:98,close:99,volume:1,observed_minutes:60},
@@ -901,8 +901,10 @@ test('as-of bullish and bearish midpoint touch waits until exact hourly close',(
    {time:2*H,open:100,high:102,low:98,close:99,volume:1,observed_minutes:60},
    {time:3*H,open:103,high:104,low:102,close:103,volume:1,observed_minutes:60},
   ];
-  const before=studyHourlyFvgMidpointAsOf(bars,source,4*H-1);
-  const prefix=studyHourlyFvgMidpointAsOf(bars.slice(0,3),source,4*H-1);
+  // As-of boundaries are completed UTC hours, never intra-hour instants.
+  assert.throws(()=>studyHourlyFvgMidpointAsOf(bars,source,4*H-1),/Invalid UTC hourly as-of close/);
+  const before=studyHourlyFvgMidpointAsOf(bars,source,3*H);
+  const prefix=studyHourlyFvgMidpointAsOf(bars.slice(0,3),source,3*H);
   assert.deepEqual(before,prefix,direction+' pre-close result must equal revealed prefix');
   assert.equal(before.observations.length,1);
   assert.equal(before.observations[0].firstTouchOutcome,'INCOMPLETE_WINDOW');
