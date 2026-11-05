@@ -336,3 +336,8 @@ A synthetic causal as-of regression supplies two valid future UTC-hour getters a
 
 
 **5 November 2026 — post-formation first-touch close regression.** A completed bullish FVG at 3H must remain an `INCOMPLETE_WINDOW` with no first touch when the 3H–4H candle is still unrevealed. The causal as-of study must not read that candle's OHLC, volume or observed-minute coverage. Only at the 4H close may its observed midpoint intersection become `TOUCH`, with both first-touch and evidence-observed timestamps equal to 4H. This is synthetic closed-bar timing coverage, not a real broker fill, authenticated volume or profitability result. Draft/paper-only; no merge or deployment.
+
+
+## 5 November 2026 — delayed bullish midpoint first-touch regression
+
+A synthetic completed bullish 1H gap now has a first post-formation candle that does **not** intersect its midpoint, followed by a later completed candle that does. The as-of 4H report must match its four-candle prefix without reading the unrevealed fifth candle's OHLC, volume or observed-minute coverage; the later first-touch timestamp is eligible only at 5H. This is a software no-lookahead regression, not a broker fill, verified volume receipt, profitability result or historical price observation. Draft research only; no orders, merge or deployment.
