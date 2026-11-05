@@ -1,5 +1,8 @@
 # Hourly FVG first-touch midpoint rejection versus blind limit (research v97)
 
+**5 November 2026 — bearish fixture OHLC repair.** Exact-head workflow #42036116252 failed the frontend test `as-of bearish first midpoint touch waits for next completed hour`: the synthetic post-formation candle had `open=101` below `low=102`, violating the engine's basic OHLC validation before any timing assertion. The test fixture now uses `open=103` inside `[102,104]` in both unrevealed and completed representations; the causal assertions and production research logic are unchanged. Recheck CI on the repair commit. This is not broker data or profitability evidence.
+
+
 **5 November 2026 — bearish first-touch close regression.** A synthetic bearish 1H FVG at 3H cannot register a midpoint touch from the unclosed 3H–4H candle. The as-of 3H study must leave first touch as `INCOMPLETE_WINDOW` without reading the future bar's OHLC, volume or minute coverage. Only the completed 4H decision can mark `TOUCH` with observation and touch times at 4H. This mirrors the bullish test; neither synthetic test authenticates market data, BID/ASK fills or trading profitability. Exact-head CI must be checked separately.
 
 **5 November 2026 — bearish exact-close symmetry regression.** The causal 1H FVG test suite now also requires bearish formations to reject an intrahour (`3H−1s`) decision, remain absent at the valid 2H boundary, and first appear at the exact 3H close. This mirrors the bullish test and checks closed-bar timing, not execution quality, source provenance or profitability. Exact-head CI must be checked after the commit.
