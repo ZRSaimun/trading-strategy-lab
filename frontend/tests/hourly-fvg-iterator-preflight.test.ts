@@ -697,7 +697,7 @@ test('as-of bearish first midpoint touch waits for next completed hour',()=>{
   {time:0,open:105,high:106,low:104,close:105,volume:1,observed_minutes:60},
   {time:H,open:103,high:104,low:100,close:101,volume:1,observed_minutes:60},
   {time:2*H,open:100,high:102,low:98,close:99,volume:1,observed_minutes:60},
-  {time:3*H,open:101,high:104,low:102,close:103,volume:1,observed_minutes:60},
+  {time:3*H,open:103,high:104,low:102,close:103,volume:1,observed_minutes:60},
  ];
  let futureReads=0;
  for(const field of ['open','high','low','close','volume','observed_minutes'] as const){
@@ -713,7 +713,7 @@ test('as-of bearish first midpoint touch waits for next completed hour',()=>{
  assert.equal(formation.observations[0].firstTouchClosedAt,null);
  assert.equal(futureReads,0,'unclosed bearish touch evidence must remain unread');
  const completed=bars.slice(0,3).concat([
-  {time:3*H,open:101,high:104,low:102,close:103,volume:1,observed_minutes:60},
+  {time:3*H,open:103,high:104,low:102,close:103,volume:1,observed_minutes:60},
  ]);
  const touched=studyHourlyFvgMidpointAsOf(completed,source,4*H);
  assert.equal(touched.observations.length,1);
