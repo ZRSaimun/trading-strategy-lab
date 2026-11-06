@@ -419,3 +419,5 @@ A synthetic as-of regression tests future hourly `observed_minutes` values of -1
 
 
 **6 November 2026 — exact numeric hourly coverage regression.** Synthetic as-of tests now reject fractional observed-minute counts (59.5, 60.5) and a string-form count (`'60'`) when the hour becomes completed. The same future coverage accessor must remain unread at the preceding as-of boundary, preserving prefix equality. This protects against adapter rounding/coercion but does not independently authenticate source coverage, bid/ask quotes, volume identity or returns. Confirm CI on the exact PR head before claiming verification.
+
+**6 November 2026 — boolean minute-coverage regression:** Added synthetic full-history and causal as-of controls for completed 1H candles reporting `observed_minutes` as boolean `false` or `true`. Both must fail closed as invalid evidence, while a genuine numeric 60-minute candle remains eligible. Future coverage must not be read before its hour closes. This does not verify external data provenance, broker quotes, fills or strategy profitability.
