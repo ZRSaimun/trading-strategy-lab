@@ -1133,7 +1133,8 @@ test('future non-finite volume is deferred then rejected at the closed-hour boun
   assert.deepEqual(studyHourlyFvgMidpointAsOf([first,future],source,H),prefix);
   assert.equal(reads,0,'unrevealed non-finite volume must not be read');
   assert.throws(()=>studyHourlyFvgMidpointAsOf([first,future],source,2*H),
-   /Invalid, incomplete, misaligned or unordered hourly BID candles/);
+   /Invalid, incomplete, misaligned or unordered hourly BID candles|Hourly research completed candle field changed during snapshot/,
+   'non-finite completed volume must fail closed, including the NaN snapshot-stability guard');
   assert.ok(reads>0,'invalid completed-hour volume must be validated');
  }
 });
