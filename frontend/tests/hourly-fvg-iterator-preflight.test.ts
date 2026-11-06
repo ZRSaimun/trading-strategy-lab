@@ -978,3 +978,30 @@ test('partial first-touch hour is rejected in full and as-of studies',()=>{
    .observations[0].firstTouchOutcome,'TOUCH');
  }
 });
+
+
+// A partially observed third formation hour cannot establish a three-hour
+// gap, even when its price geometry would otherwise form one. This is
+// distinct from partial first-touch hours: formation itself is unproven.
+test('partial third formation hour fails closed for bullish and bearish FVG',()=>{
+ for(const direction of ['BULLISH','BEARISH'] as const){
+  const bars:Bar[]=direction==='BULLISH' ? [
+   {time:0,open:99,high:100,low:98,close:99,volume:1,observed_minutes:60},
+   {time:H,open:101,high:104,low:100,close:103,volume:1,observed_minutes:60},
+   {time:2*H,open:103,high:105,low:102,close:104,volume:1,observed_minutes:59},
+  ] : [
+   {time:0,open:105,high:106,low:104,close:105,volume:1,observed_minutes:60},
+   {time:H,open:103,high:104,low:100,close:101,volume:1,observed_minutes:60},
+   {time:2*H,open:100,high:102,low:98,close:99,volume:1,observed_minutes:59},
+  ];
+  assert.throws(()=>studyHourlyFvgMidpoint(bars,source),
+   /Invalid, incomplete, misaligned or unordered hourly BID candles/);
+  assert.throws(()=>studyHourlyFvgMidpointAsOf(bars,source,3*H),
+   /Invalid, incomplete, misaligned or unordered hourly BID candles/);
+  const complete=bars.map((bar,i)=>i===2?{...bar,observed_minutes:60}:bar);
+  const formed=studyHourlyFvgMidpointAsOf(complete,source,3*H);
+  assert.equal(formed.observations.length,1);
+  assert.equal(formed.observations[0].direction,direction);
+  assert.equal(formed.observations[0].formationClosedAt,3*H);
+ }
+});
