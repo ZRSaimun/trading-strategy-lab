@@ -390,3 +390,6 @@ A synthetic completed bullish 1H gap now has a first post-formation candle that 
 ## 6 November 2026 — non-finite completed-volume CI repair
 
 The prior synthetic deferred-volume test failed frontend CI (workflow 42203054752, 1/1061 tests) because its assertion expected only the generic invalid-hourly-candle error. A completed `NaN` getter may instead be rejected by the stricter completed-field snapshot-stability guard (`Hourly research completed candle field changed during snapshot`), which is also fail-closed. The regression now accepts either explicit rejection while still requiring no premature future-volume reads and a read after close. No runtime acceptance rule or profitability claim changed. Exact-head CI for this repair must be checked independently.
+
+
+**6 November 2026 — deferred invalid future OHLC.** A synthetic future hourly candle with a non-finite `high` getter must not be inspected by a causal as-of study ending at the preceding completed-hour boundary. The full archive's result must equal the completed prefix. Once the malformed hour closes, the study must reject the non-finite price. This complements deferred-volume checks without inventing prices, source receipts, executable broker quotes, or profitability evidence. Verify exact-head CI; remain draft, paper-only, unmerged and undeployed.
