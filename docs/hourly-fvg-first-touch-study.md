@@ -393,3 +393,6 @@ The prior synthetic deferred-volume test failed frontend CI (workflow 4220305475
 
 
 **6 November 2026 — deferred invalid future OHLC.** A synthetic future hourly candle with a non-finite `high` getter must not be inspected by a causal as-of study ending at the preceding completed-hour boundary. The full archive's result must equal the completed prefix. Once the malformed hour closes, the study must reject the non-finite price. This complements deferred-volume checks without inventing prices, source receipts, executable broker quotes, or profitability evidence. Verify exact-head CI; remain draft, paper-only, unmerged and undeployed.
+
+
+**6 November 2026 — deferred malformed-low regression:** A synthetic future 1H candle with `low` returning `-Infinity` or `NaN` is not read before its completed-hour boundary; the as-of result equals the completed-prefix result. At the hour close, each invalid low must fail closed. This complements the high-field regression and does not establish authentic quotes, volume-source identity, fills, or profitability. Exact-head CI must be verified separately.
