@@ -1031,3 +1031,23 @@ test('partial first or middle formation hour rejects both FVG directions',()=>{
   }
  }
 });
+
+
+// The future candle's source-volume field must remain unread until its
+// completed-hour boundary. Once revealed, negative-zero volume is invalid,
+// not an observed zero-volume receipt.
+test('future negative-zero volume is not inspected before its hourly close',()=>{
+ const first={...candle(0),time:BASE};
+ let volumeReads=0;
+ const future={...candle(1),time:BASE+H};
+ Object.defineProperty(future,'volume',{enumerable:true,configurable:true,get(){
+  volumeReads++;
+  return -0;
+ }});
+ const prefix=studyHourlyFvgMidpointAsOf([first],source,BASE+H);
+ assert.deepEqual(studyHourlyFvgMidpointAsOf([first,future],source,BASE+H),prefix);
+ assert.equal(volumeReads,0,'future volume must not be accessed early');
+ assert.throws(()=>studyHourlyFvgMidpointAsOf([first,future],source,BASE+2*H),
+  /Invalid, incomplete, misaligned or unordered hourly BID candles/);
+ assert.ok(volumeReads>0,'revealed invalid volume must be checked');
+});
