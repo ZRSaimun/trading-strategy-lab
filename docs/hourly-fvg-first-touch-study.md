@@ -405,3 +405,6 @@ The prior synthetic deferred-volume test failed frontend CI (workflow 4220305475
 
 
 **6 November 2026 — deferred throwing future OHLC accessors:** A synthetic unrevealed 1H candle with a getter that throws for each of `open`, `high`, `low`, and `close` must leave the earlier as-of completed-prefix result unchanged without invoking that getter. At the candle's completed-hour boundary the inaccessible price must fail closed rather than be accepted as market evidence. This tests software causality and rejection, not provider authenticity, broker execution or profitability. Verify exact-head CI; retain draft and paper-only status.
+
+
+**6 November 2026 — unavailable future volume accessor regression.** A synthetic future hourly volume getter that throws is not evaluated before its candle closes: the as-of result must match the completed-prefix result, with zero early accessor reads. At the completed-hour boundary, unavailable volume must reject the input rather than silently convert it to zero or source-verified volume. This checks causal input handling only; it does not establish authenticated volume receipts, broker execution prices, or profitability. Exact-head CI must be checked independently.
