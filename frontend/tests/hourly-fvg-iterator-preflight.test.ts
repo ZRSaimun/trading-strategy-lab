@@ -1116,3 +1116,24 @@ test('future null volume is deferred and remains unverified after close',()=>{
  assert.equal(revealed.observations.length,1);
  assert.equal(revealed.observations[0].gates.verifiedVolume,'INSUFFICIENT_DATA');
 });
+
+
+// A non-finite volume must not leak from an unrevealed hour. Unlike null,
+// Infinity is invalid once that candle closes, even if no FVG is formed.
+test('future non-finite volume is deferred then rejected at the closed-hour boundary',()=>{
+ for(const invalidVolume of [Infinity,-Infinity,NaN]){
+  const first:Bar={time:0,open:100,high:102,low:98,close:100,volume:0,observed_minutes:60};
+  const future:Bar={time:H,open:100,high:102,low:98,close:100,volume:0,observed_minutes:60};
+  let reads=0;
+  Object.defineProperty(future,'volume',{
+   enumerable:true,configurable:true,
+   get(){reads++;return invalidVolume;},
+  });
+  const prefix=studyHourlyFvgMidpointAsOf([first],source,H);
+  assert.deepEqual(studyHourlyFvgMidpointAsOf([first,future],source,H),prefix);
+  assert.equal(reads,0,'unrevealed non-finite volume must not be read');
+  assert.throws(()=>studyHourlyFvgMidpointAsOf([first,future],source,2*H),
+   /Invalid, incomplete, misaligned or unordered hourly BID candles/);
+  assert.ok(reads>0,'invalid completed-hour volume must be validated');
+ }
+});
