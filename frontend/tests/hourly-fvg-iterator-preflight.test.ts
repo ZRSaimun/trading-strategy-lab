@@ -1096,3 +1096,23 @@ test('future partial hourly coverage is unread until its completed decision boun
   'the incomplete hour must fail once its close becomes observable');
  assert.ok(coverageReads>0,'completed-hour coverage was actually validated');
 });
+
+
+// Unknown volume is permitted as missing evidence, never promoted to a
+// source-verified signal. Its future getter must not execute before close.
+test('future null volume is deferred and remains unverified after close',()=>{
+ const formation:Bar[]=[
+  {time:0,open:99,high:100,low:98,close:99,volume:1,observed_minutes:60},
+  {time:H,open:101,high:104,low:100,close:103,volume:1,observed_minutes:60},
+ ];
+ let reads=0;
+ const third:Bar={time:2*H,open:103,high:105,low:102,close:104,volume:null,observed_minutes:60};
+ Object.defineProperty(third,'volume',{enumerable:true,configurable:true,get(){reads++;return null;}});
+ const prefix=studyHourlyFvgMidpointAsOf(formation,source,2*H);
+ assert.deepEqual(studyHourlyFvgMidpointAsOf([...formation,third],source,2*H),prefix);
+ assert.equal(reads,0,'future unknown volume cannot be read early');
+ const revealed=studyHourlyFvgMidpointAsOf([...formation,third],source,3*H);
+ assert.ok(reads>0,'completed candle must validate its volume field');
+ assert.equal(revealed.observations.length,1);
+ assert.equal(revealed.observations[0].gates.verifiedVolume,'INSUFFICIENT_DATA');
+});
