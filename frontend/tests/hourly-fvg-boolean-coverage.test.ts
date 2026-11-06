@@ -40,3 +40,28 @@ for(const badCoverage of [false,true,null,undefined]){
    'valid 60-minute synthetic control should form a gap');
  });
 }
+
+// A numeric-looking object must never be coerced into a coverage count.
+// Its conversion hooks could have side effects and cannot certify 60 source minutes.
+test('object coverage fails closed without coercion or future access',()=>{
+ const bars:Bar[]=[
+  {time:0,open:99,high:100,low:98,close:99,volume:1,observed_minutes:60},
+  {time:H,open:101,high:104,low:100,close:103,volume:1,observed_minutes:60},
+  {time:2*H,open:103,high:105,low:102,close:104,volume:1,observed_minutes:60},
+ ];
+ let futureReads=0;
+ let coercions=0;
+ const forgedCoverage={valueOf(){coercions++;return 60;},toString(){coercions++;return '60';}};
+ Object.defineProperty(bars[2],'observed_minutes',{
+  configurable:true,enumerable:true,get(){futureReads++;return forgedCoverage;},
+ });
+ const prefix=studyHourlyFvgMidpointAsOf(bars.slice(0,2),source,2*H);
+ assert.deepEqual(studyHourlyFvgMidpointAsOf(bars,source,2*H),prefix);
+ assert.equal(futureReads,0);
+ assert.equal(coercions,0);
+ assert.throws(()=>studyHourlyFvgMidpointAsOf(bars,source,3*H),/observed.minutes|coverage|invalid|complete/i);
+ assert.ok(futureReads>0);
+ assert.equal(coercions,0,'invalid coverage must not invoke conversion hooks');
+ assert.throws(()=>studyHourlyFvgMidpoint(bars,source),/observed.minutes|coverage|invalid|complete/i);
+ assert.equal(coercions,0);
+});
