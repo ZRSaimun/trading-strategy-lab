@@ -1074,3 +1074,23 @@ test('completed hourly volume distinguishes positive zero from negative zero',()
   assert.throws(study,/Invalid, incomplete, misaligned or unordered hourly BID candles/);
  }
 });
+
+
+test('future partial hourly coverage is unread until its completed decision boundary',()=>{
+ const bars:Bar[]=[
+  {time:0,open:100,high:102,low:98,close:100,volume:0,observed_minutes:60},
+  {time:H,open:100,high:102,low:98,close:100,volume:0,observed_minutes:60},
+ ];
+ let coverageReads=0;
+ Object.defineProperty(bars[1],'observed_minutes',{
+  configurable:true,enumerable:true,
+  get(){coverageReads++;return 59;},
+ });
+ assert.doesNotThrow(()=>studyHourlyFvgMidpointAsOf(bars,source,H),
+  'future partial-hour coverage must not be inspected at the preceding close');
+ assert.equal(coverageReads,0,'no unrevealed minute coverage was read');
+ assert.throws(()=>studyHourlyFvgMidpointAsOf(bars,source,2*H),
+  /Invalid, incomplete, misaligned or unordered hourly BID candles/,
+  'the incomplete hour must fail once its close becomes observable');
+ assert.ok(coverageReads>0,'completed-hour coverage was actually validated');
+});
