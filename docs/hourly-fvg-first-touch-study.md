@@ -399,3 +399,6 @@ The prior synthetic deferred-volume test failed frontend CI (workflow 4220305475
 
 
 **6 November 2026 — deferred malformed hourly close regression:** Synthetic causal as-of checks now cover future hourly `close` accessors returning `Infinity`, `-Infinity` or `NaN`. The unrevealed hour must not be read and cannot change the completed-prefix result; at its close, each malformed value must be rejected. These are software-only integrity fixtures, not authenticated market prices, executable broker quotes or profitability evidence. Exact-head CI must be verified before reporting a pass.
+
+
+**6 November 2026 — deferred malformed hourly open regression:** Synthetic causal as-of tests now cover future hourly `open` accessors returning `Infinity`, `-Infinity` or `NaN`. At the preceding completed-hour boundary, the full archive must match its completed prefix without accessing the future open. Once that hour closes, the malformed open must fail closed. This complements the high/low/close/volume guards. These fixtures do not authenticate BID/ASK quotes, volume source identity, execution costs or profitability; verify CI on the exact commit before claiming a pass. Draft, paper-only, no merge or deployment.
