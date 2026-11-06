@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {studyHourlyFvgMidpointAsOf} from '../lib/hourly-fvg-midpoint-study.ts';
+import {studyHourlyFvgMidpoint,studyHourlyFvgMidpointAsOf} from '../lib/hourly-fvg-midpoint-study.ts';
 import type {Bar} from '../lib/research.ts';
 
 const H=3600;
@@ -948,5 +948,33 @@ test('as-of midpoint wick threshold is inclusive without rounding near misses',(
   assert.equal(touched.observations[0].firstTouchOutcome,'TOUCH');
   assert.equal(touched.observations[0].firstTouchClosedAt,4*H);
   assert.equal(touched.observations[0].firstTouchOutcomeObservedAt,4*H);
+ }
+});
+
+
+// A midpoint-intersecting wick in a partially observed hour is not evidence
+// of the first eligible closed-hour touch. Both paths reject that archive.
+test('partial first-touch hour is rejected in full and as-of studies',()=>{
+ for(const direction of ['BULLISH','BEARISH'] as const){
+  const formation:Bar[]=direction==='BULLISH' ? [
+   {time:0,open:99,high:100,low:98,close:99,volume:1,observed_minutes:60},
+   {time:H,open:101,high:104,low:100,close:103,volume:1,observed_minutes:60},
+   {time:2*H,open:103,high:105,low:102,close:104,volume:1,observed_minutes:60},
+  ] : [
+   {time:0,open:105,high:106,low:104,close:105,volume:1,observed_minutes:60},
+   {time:H,open:103,high:104,low:100,close:101,volume:1,observed_minutes:60},
+   {time:2*H,open:100,high:102,low:98,close:99,volume:1,observed_minutes:60},
+  ];
+  const touch:Bar=direction==='BULLISH'
+   ? {time:3*H,open:103,high:104,low:101,close:103,volume:1,observed_minutes:59}
+   : {time:3*H,open:103,high:104,low:102,close:103,volume:1,observed_minutes:59};
+  const partial=[...formation,touch];
+  assert.throws(()=>studyHourlyFvgMidpointAsOf(partial,source,4*H),
+   /Invalid, incomplete, misaligned or unordered hourly BID candles/);
+  assert.throws(()=>studyHourlyFvgMidpoint(partial,source),
+   /Invalid, incomplete, misaligned or unordered hourly BID candles/);
+  const complete=[...formation,{...touch,observed_minutes:60}];
+  assert.equal(studyHourlyFvgMidpointAsOf(complete,source,4*H)
+   .observations[0].firstTouchOutcome,'TOUCH');
  }
 });
