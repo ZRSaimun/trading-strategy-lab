@@ -408,3 +408,6 @@ The prior synthetic deferred-volume test failed frontend CI (workflow 4220305475
 
 
 **6 November 2026 — unavailable future volume accessor regression.** A synthetic future hourly volume getter that throws is not evaluated before its candle closes: the as-of result must match the completed-prefix result, with zero early accessor reads. At the completed-hour boundary, unavailable volume must reject the input rather than silently convert it to zero or source-verified volume. This checks causal input handling only; it does not establish authenticated volume receipts, broker execution prices, or profitability. Exact-head CI must be checked independently.
+
+
+**6 November 2026 — inaccessible future minute-coverage regression.** Synthetic as-of tests require an unrevealed hourly `observed_minutes` getter that throws to remain unread, preserving exact equality with the completed prefix. At that hour's close the unavailable coverage must fail closed. This is a software no-lookahead check, not authenticated provider completeness, broker BID/ASK execution, or a trading-profit claim. Keep draft, paper-only and unmerged; check CI against the exact new head.
