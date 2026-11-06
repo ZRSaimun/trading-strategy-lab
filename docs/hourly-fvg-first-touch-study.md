@@ -363,3 +363,6 @@ A synthetic completed bullish 1H gap now has a first post-formation candle that 
 
 
 **5 November 2026 — exact first-touch close boundary (both directions).** Synthetic bullish and bearish FVGs formed at 3H are tested at `4H - 1 ms` and `4H`. Before the first post-formation hour closes, the as-of result must equal the three-candle prefix and retain `INCOMPLETE_WINDOW` without a first-touch timestamp. At the exact 4H close, a candle intersecting the midpoint may first report `TOUCH` observed at 4H. This checks a strict causal decision boundary, not actual tick-level execution, authenticated broker BID/ASK prices, source-classified volume or profitability. Keep draft, paper-only, unmerged and undeployed.
+
+
+**6 November 2026 — exact wick-midpoint threshold regression.** A completed bullish first eligible hourly wick stopping at 101.01 must not count as a touch of midpoint 101; an otherwise identical wick at exactly 101 can count only at the 4H close. The symmetric bearish case uses a wick high of 102.99 versus midpoint 103, and an exact 103 touch. Both directions remain source-isolated, synthetic and paper-only. This checks unrounded boundary semantics, not fill likelihood, two-sided broker quotes, independently authenticated volume, trading returns or profitability. Verify CI against the final commit before treating this regression as passing.
