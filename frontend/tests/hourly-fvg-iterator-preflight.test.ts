@@ -1178,3 +1178,24 @@ test('future non-finite low is unread before close and rejected at close',()=>{
   assert.ok(lowReads>0,'completed malformed low must be validated');
  }
 });
+
+
+// A malformed future close is not evidence at an earlier as-of boundary.
+// The completed candle must still be rejected rather than silently skipped.
+test('future non-finite close is unread before close and rejected at close',()=>{
+ for(const invalidClose of [Infinity,-Infinity,NaN]){
+  const first:Bar={time:0,open:100,high:102,low:98,close:100,volume:1,observed_minutes:60};
+  const future:Bar={time:H,open:100,high:102,low:98,close:100,volume:1,observed_minutes:60};
+  let closeReads=0;
+  Object.defineProperty(future,'close',{
+   configurable:true,enumerable:true,
+   get(){closeReads++;return invalidClose;},
+  });
+  const prefix=studyHourlyFvgMidpointAsOf([first],source,H);
+  assert.deepEqual(studyHourlyFvgMidpointAsOf([first,future],source,H),prefix);
+  assert.equal(closeReads,0,'unrevealed close must not be inspected');
+  assert.throws(()=>studyHourlyFvgMidpointAsOf([first,future],source,2*H),
+   /Invalid, incomplete, misaligned or unordered hourly BID candles|Hourly research completed candle field changed during snapshot/);
+  assert.ok(closeReads>0,'malformed completed close must be validated');
+ }
+});
