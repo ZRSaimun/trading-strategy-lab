@@ -1138,3 +1138,22 @@ test('future non-finite volume is deferred then rejected at the closed-hour boun
   assert.ok(reads>0,'invalid completed-hour volume must be validated');
  }
 });
+
+
+// A future malformed OHLC value cannot invalidate a previously completed
+// causal prefix. At its own close, the malformed price must fail closed.
+test('future non-finite high is unread before close and rejected at close',()=>{
+ const first:Bar={time:0,open:100,high:102,low:98,close:100,volume:1,observed_minutes:60};
+ const future:Bar={time:H,open:100,high:102,low:98,close:100,volume:1,observed_minutes:60};
+ let highReads=0;
+ Object.defineProperty(future,'high',{
+  configurable:true,enumerable:true,
+  get(){highReads++;return Infinity;},
+ });
+ const prefix=studyHourlyFvgMidpointAsOf([first],source,H);
+ assert.deepEqual(studyHourlyFvgMidpointAsOf([first,future],source,H),prefix);
+ assert.equal(highReads,0,'future OHLC must remain unread');
+ assert.throws(()=>studyHourlyFvgMidpointAsOf([first,future],source,2*H),
+  /Invalid, incomplete, misaligned or unordered hourly BID candles|Hourly research completed candle field changed during snapshot/);
+ assert.ok(highReads>0,'completed malformed OHLC must be validated');
+});
