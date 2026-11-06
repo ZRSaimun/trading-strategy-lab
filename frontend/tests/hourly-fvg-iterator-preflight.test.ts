@@ -1279,3 +1279,24 @@ test('throwing future hourly minute-coverage getter is deferred until close',()=
   /synthetic unavailable hourly minute coverage|Hourly research completed candle field changed during snapshot|Invalid, incomplete, misaligned or unordered hourly BID candles/);
  assert.ok(reads>0,'unavailable completed-hour coverage must be inspected and rejected');
 });
+
+
+// A future candle with impossible minute coverage must not poison an earlier
+// as-of result, but cannot be counted as a completed hour after its close.
+test('future out-of-range minute coverage is deferred and fails closed',()=>{
+ for(const invalidCoverage of [-1,0,61,Infinity,NaN]){
+  const first:Bar={time:0,open:100,high:102,low:98,close:100,volume:1,observed_minutes:60};
+  const future:Bar={time:H,open:100,high:102,low:98,close:100,volume:1,observed_minutes:60};
+  let reads=0;
+  Object.defineProperty(future,'observed_minutes',{
+   configurable:true,enumerable:true,
+   get(){reads++;return invalidCoverage;},
+  });
+  const prefix=studyHourlyFvgMidpointAsOf([first],source,H);
+  assert.deepEqual(studyHourlyFvgMidpointAsOf([first,future],source,H),prefix);
+  assert.equal(reads,0,'future minute coverage must not leak into an earlier decision');
+  assert.throws(()=>studyHourlyFvgMidpointAsOf([first,future],source,2*H),
+   /Invalid, incomplete, misaligned or unordered hourly BID candles|Hourly research completed candle field changed during snapshot/);
+  assert.ok(reads>0,'invalid coverage must be inspected at the completed-hour boundary');
+ }
+});
