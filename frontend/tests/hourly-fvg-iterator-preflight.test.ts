@@ -1219,3 +1219,25 @@ test('future non-finite close is unread before close and rejected at close',()=>
   assert.ok(closeReads>0,'malformed completed close must be validated');
  }
 });
+
+
+// A hostile or unavailable future price getter is not a reason to reject an
+// earlier completed-prefix decision. Once the hour closes it must fail closed.
+test('throwing future hourly price getter is deferred until its close',()=>{
+ for(const field of ['open','high','low','close'] as const){
+  const first:Bar={time:0,open:100,high:102,low:98,close:100,volume:1,observed_minutes:60};
+  const future:Bar={time:H,open:100,high:102,low:98,close:100,volume:1,observed_minutes:60};
+  let reads=0;
+  Object.defineProperty(future,field,{
+   configurable:true,enumerable:true,
+   get(){reads++;throw new Error('synthetic inaccessible future '+field);},
+  });
+  const prefix=studyHourlyFvgMidpointAsOf([first],source,H);
+  assert.deepEqual(studyHourlyFvgMidpointAsOf([first,future],source,H),prefix,
+   'unrevealed '+field+' cannot alter the completed prefix');
+  assert.equal(reads,0,'unrevealed '+field+' getter must not execute');
+  assert.throws(()=>studyHourlyFvgMidpointAsOf([first,future],source,2*H),
+   /synthetic inaccessible future|Hourly research completed candle field changed during snapshot|Invalid, incomplete, misaligned or unordered hourly BID candles/);
+  assert.ok(reads>0,'completed '+field+' must be inspected and rejected');
+ }
+});
