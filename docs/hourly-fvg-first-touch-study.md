@@ -371,3 +371,6 @@ A synthetic completed bullish 1H gap now has a first post-formation candle that 
 
 
 **6 November 2026 — exact wick-midpoint threshold regression.** A completed bullish first eligible hourly wick stopping at 101.01 must not count as a touch of midpoint 101; an otherwise identical wick at exactly 101 can count only at the 4H close. The symmetric bearish case uses a wick high of 102.99 versus midpoint 103, and an exact 103 touch. Both directions remain source-isolated, synthetic and paper-only. This checks unrounded boundary semantics, not fill likelihood, two-sided broker quotes, independently authenticated volume, trading returns or profitability. Verify CI against the final commit before treating this regression as passing.
+
+
+**6 November 2026 — deferred signed-zero volume validation.** A synthetic future hourly candle with `volume: -0` must remain unread when the causal decision boundary includes only the preceding completed candle. At the future candle's actual close, the as-of study must reject the invalid signed-zero volume rather than treating it as an ordinary zero receipt. The test checks both prefix equivalence and a getter read counter. It does not authenticate provider volume identity, prove executable BID/ASK fills, or establish profitability. The exact-head CI result is required before considering this regression verified.
