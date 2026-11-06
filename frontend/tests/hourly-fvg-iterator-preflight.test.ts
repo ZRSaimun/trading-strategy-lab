@@ -1086,8 +1086,10 @@ test('future partial hourly coverage is unread until its completed decision boun
   configurable:true,enumerable:true,
   get(){coverageReads++;return 59;},
  });
- assert.doesNotThrow(()=>studyHourlyFvgMidpointAsOf(bars,source,H),
-  'future partial-hour coverage must not be inspected at the preceding close');
+ const prefix=studyHourlyFvgMidpointAsOf(bars.slice(0,1),source,H);
+ const before=studyHourlyFvgMidpointAsOf(bars,source,H);
+ assert.deepEqual(before,prefix,
+  'unrevealed partial-hour coverage must not change the completed-prefix study');
  assert.equal(coverageReads,0,'no unrevealed minute coverage was read');
  assert.throws(()=>studyHourlyFvgMidpointAsOf(bars,source,2*H),
   /Invalid, incomplete, misaligned or unordered hourly BID candles/,
