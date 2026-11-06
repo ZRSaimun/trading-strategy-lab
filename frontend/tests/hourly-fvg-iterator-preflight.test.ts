@@ -1005,3 +1005,29 @@ test('partial third formation hour fails closed for bullish and bearish FVG',()=
   assert.equal(formed.observations[0].formationClosedAt,3*H);
  }
 });
+
+
+// All three formation hours require complete observations, not just the third.
+// Missing first/middle coverage must fail closed before any gap is reported.
+test('partial first or middle formation hour rejects both FVG directions',()=>{
+ for(const direction of ['BULLISH','BEARISH'] as const){
+  const base:Bar[]=direction==='BULLISH' ? [
+   {time:0,open:99,high:100,low:98,close:99,volume:1,observed_minutes:60},
+   {time:H,open:101,high:104,low:100,close:103,volume:1,observed_minutes:60},
+   {time:2*H,open:103,high:105,low:102,close:104,volume:1,observed_minutes:60},
+  ] : [
+   {time:0,open:105,high:106,low:104,close:105,volume:1,observed_minutes:60},
+   {time:H,open:103,high:104,low:100,close:101,volume:1,observed_minutes:60},
+   {time:2*H,open:100,high:102,low:98,close:99,volume:1,observed_minutes:60},
+  ];
+  assert.equal(studyHourlyFvgMidpointAsOf(base,source,3*H).observations[0].direction,direction);
+  for(const incompleteIndex of [0,1]){
+   const partial=base.map((bar,index)=>index===incompleteIndex
+    ? {...bar,observed_minutes:59}:bar);
+   assert.throws(()=>studyHourlyFvgMidpoint(partial,source),
+    /Invalid, incomplete, misaligned or unordered hourly BID candles/);
+   assert.throws(()=>studyHourlyFvgMidpointAsOf(partial,source,3*H),
+    /Invalid, incomplete, misaligned or unordered hourly BID candles/);
+  }
+ }
+});
