@@ -411,3 +411,8 @@ The prior synthetic deferred-volume test failed frontend CI (workflow 4220305475
 
 
 **6 November 2026 — inaccessible future minute-coverage regression.** Synthetic as-of tests require an unrevealed hourly `observed_minutes` getter that throws to remain unread, preserving exact equality with the completed prefix. At that hour's close the unavailable coverage must fail closed. This is a software no-lookahead check, not authenticated provider completeness, broker BID/ASK execution, or a trading-profit claim. Keep draft, paper-only and unmerged; check CI against the exact new head.
+
+
+### Completed-hour coverage range regression (6 November 2026)
+
+A synthetic as-of regression tests future hourly `observed_minutes` values of -1, 0, 61, Infinity and NaN. None may be read before the future hour closes; once completed, each must fail the exact 60-observed-minute requirement rather than count as verified full coverage. This is deterministic input validation, not evidence of a licensed feed, market-session availability, or strategy returns.
