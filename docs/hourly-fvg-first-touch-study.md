@@ -386,3 +386,7 @@ A synthetic completed bullish 1H gap now has a first post-formation candle that 
 
 
 **6 November 2026 — non-finite future-volume causality regression.** Synthetic as-of hourly research now tests `Infinity`, `-Infinity` and `NaN` in a future candle's volume getter. Before its completed-hour boundary, the full archive must equal the revealed prefix and must not read that getter. At close, each invalid non-finite value must be rejected; unlike `null`, it is not missing-but-permitted evidence. This is a software-only integrity check, not authenticated volume provenance, broker BID/ASK quotes, fills, or profitability. Keep draft, paper-only and undeployed; verify CI on the exact commit.
+
+## 6 November 2026 — non-finite completed-volume CI repair
+
+The prior synthetic deferred-volume test failed frontend CI (workflow 42203054752, 1/1061 tests) because its assertion expected only the generic invalid-hourly-candle error. A completed `NaN` getter may instead be rejected by the stricter completed-field snapshot-stability guard (`Hourly research completed candle field changed during snapshot`), which is also fail-closed. The regression now accepts either explicit rejection while still requiring no premature future-volume reads and a read after close. No runtime acceptance rule or profitability claim changed. Exact-head CI for this repair must be checked independently.
