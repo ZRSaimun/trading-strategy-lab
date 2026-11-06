@@ -416,3 +416,6 @@ The prior synthetic deferred-volume test failed frontend CI (workflow 4220305475
 ### Completed-hour coverage range regression (6 November 2026)
 
 A synthetic as-of regression tests future hourly `observed_minutes` values of -1, 0, 61, Infinity and NaN. None may be read before the future hour closes; once completed, each must fail the exact 60-observed-minute requirement rather than count as verified full coverage. This is deterministic input validation, not evidence of a licensed feed, market-session availability, or strategy returns.
+
+
+**6 November 2026 — exact numeric hourly coverage regression.** Synthetic as-of tests now reject fractional observed-minute counts (59.5, 60.5) and a string-form count (`'60'`) when the hour becomes completed. The same future coverage accessor must remain unread at the preceding as-of boundary, preserving prefix equality. This protects against adapter rounding/coercion but does not independently authenticate source coverage, bid/ask quotes, volume identity or returns. Confirm CI on the exact PR head before claiming verification.
