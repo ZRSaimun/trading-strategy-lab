@@ -1300,3 +1300,24 @@ test('future out-of-range minute coverage is deferred and fails closed',()=>{
   assert.ok(reads>0,'invalid coverage must be inspected at the completed-hour boundary');
  }
 });
+
+
+// Minute coverage must be an exact numeric count, not a rounded estimate or
+// a string supplied by an archive adapter. Do not inspect unrevealed hours.
+test('fractional or string future hourly coverage is deferred and rejected',()=>{
+ for(const invalidCoverage of [59.5,60.5,'60']){
+  const first:Bar={time:0,open:100,high:102,low:98,close:100,volume:1,observed_minutes:60};
+  const future:Bar={time:H,open:100,high:102,low:98,close:100,volume:1,observed_minutes:60};
+  let reads=0;
+  Object.defineProperty(future,'observed_minutes',{
+   configurable:true,enumerable:true,
+   get(){reads++;return invalidCoverage;},
+  });
+  const prefix=studyHourlyFvgMidpointAsOf([first],source,H);
+  assert.deepEqual(studyHourlyFvgMidpointAsOf([first,future],source,H),prefix);
+  assert.equal(reads,0,'future coverage must not be read before its close');
+  assert.throws(()=>studyHourlyFvgMidpointAsOf([first,future],source,2*H),
+   /Invalid, incomplete, misaligned or unordered hourly BID candles|Hourly research completed candle field changed during snapshot/);
+  assert.ok(reads>0,'invalid completed coverage must be checked');
+ }
+});
