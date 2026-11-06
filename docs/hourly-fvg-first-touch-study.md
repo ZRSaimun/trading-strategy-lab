@@ -1,5 +1,7 @@
 # Hourly FVG first-touch midpoint rejection versus blind limit (research v97)
 
+**Formation-hour completeness regression (2026-11-06):** Synthetic bullish and bearish fixtures now check that a 59/60-minute first **or middle** formation candle fails closed in both full-history and hourly as-of studies. Fully observed 60/60-minute controls form normally. This complements the third-hour coverage regression; observed-minute counts are caller-supplied and do not independently authenticate market-data completeness or profitability.
+
 **6 November 2026 — partial third formation-hour regression.** Synthetic bullish and bearish three-hour FVG candidates whose third hour contains only 59 observed minutes must be rejected by both full-history and causal as-of studies; matching 60-minute controls form at the exact 3H close. This tests source-coverage and closed-bar integrity, not independently verified broker quotes, classified volume, fills or profitability. Verify CI on the exact PR head.\n\n**6 November 2026 — partial first-touch hour regression.** Synthetic bullish and bearish midpoint-intersecting fourth candles with only 59 observed minutes must be rejected by both full-history and causal as-of research; a complete 60-minute control can register a first touch at its close. A partial hour cannot certify a first touch, regardless of its displayed wick. This tests coverage validation only, not actual broker prices, volume source identities, fills or profitability. Check CI at the exact updated PR head.
 
 
