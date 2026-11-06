@@ -1261,3 +1261,21 @@ test('throwing future hourly volume getter is deferred until close',()=>{
   /synthetic unavailable hourly volume|Hourly research completed candle field changed during snapshot|Invalid, incomplete, misaligned or unordered hourly BID candles/);
  assert.ok(reads>0,'completed hour must not silently accept unavailable volume');
 });
+
+
+test('throwing future hourly minute-coverage getter is deferred until close',()=>{
+ const first:Bar={time:0,open:100,high:102,low:98,close:100,volume:1,observed_minutes:60};
+ const future:Bar={time:H,open:100,high:102,low:98,close:100,volume:1,observed_minutes:60};
+ let reads=0;
+ Object.defineProperty(future,'observed_minutes',{
+  configurable:true,enumerable:true,
+  get(){reads++;throw new Error('synthetic unavailable hourly minute coverage');},
+ });
+ const prefix=studyHourlyFvgMidpointAsOf([first],source,H);
+ assert.deepEqual(studyHourlyFvgMidpointAsOf([first,future],source,H),prefix,
+  'unrevealed coverage must not affect completed-prefix research');
+ assert.equal(reads,0,'future coverage getter must remain unread');
+ assert.throws(()=>studyHourlyFvgMidpointAsOf([first,future],source,2*H),
+  /synthetic unavailable hourly minute coverage|Hourly research completed candle field changed during snapshot|Invalid, incomplete, misaligned or unordered hourly BID candles/);
+ assert.ok(reads>0,'unavailable completed-hour coverage must be inspected and rejected');
+});
