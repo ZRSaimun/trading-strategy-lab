@@ -1051,3 +1051,26 @@ test('future negative-zero volume is not inspected before its hourly close',()=>
   /Invalid, incomplete, misaligned or unordered hourly BID candles/);
  assert.ok(volumeReads>0,'revealed invalid volume must be checked');
 });
+
+
+// A signed zero is not an ordinary source-volume observation. Check the
+// completed prefix and full-history APIs independently, with +0 as a control;
+// the source remains explicitly unverified even for the valid control.
+test('completed hourly volume distinguishes positive zero from negative zero',()=>{
+ const base:Bar[]=[
+  {time:0,open:99,high:100,low:98,close:99,volume:1,observed_minutes:60},
+  {time:H,open:101,high:104,low:100,close:103,volume:1,observed_minutes:60},
+  {time:2*H,open:103,high:105,low:102,close:104,volume:0,observed_minutes:60},
+ ];
+ const control=studyHourlyFvgMidpointAsOf(base,source,3*H);
+ assert.equal(control.observations.length,1);
+ assert.equal(control.observations[0].gates.verifiedVolume,'INSUFFICIENT_DATA');
+ assert.deepEqual(studyHourlyFvgMidpoint(base,source).observations,control.observations);
+ const invalid=base.map((bar,index)=>index===2?{...bar,volume:-0}:bar);
+ for(const study of [
+  ()=>studyHourlyFvgMidpoint(invalid,source),
+  ()=>studyHourlyFvgMidpointAsOf(invalid,source,3*H),
+ ]){
+  assert.throws(study,/Invalid, incomplete, misaligned or unordered hourly BID candles/);
+ }
+});
