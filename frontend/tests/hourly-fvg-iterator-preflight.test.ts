@@ -917,3 +917,36 @@ test('as-of bullish and bearish midpoint touch requires completed UTC hour bound
   assert.equal(closed.observations[0].firstTouchOutcomeObservedAt,4*H);
  }
 });
+
+
+// A midpoint touch uses the observed wick, not a rounded display price.
+// Just-missing completed wicks remain unconfirmed; exact boundary intersection
+// is eligible only at that candle's close, in both directional variants.
+test('as-of midpoint wick threshold is inclusive without rounding near misses',()=>{
+ for(const direction of ['BULLISH','BEARISH'] as const){
+  const formation:Bar[]=direction==='BULLISH' ? [
+   {time:0,open:99,high:100,low:98,close:99,volume:1,observed_minutes:60},
+   {time:H,open:101,high:104,low:100,close:103,volume:1,observed_minutes:60},
+   {time:2*H,open:103,high:105,low:102,close:104,volume:1,observed_minutes:60},
+  ] : [
+   {time:0,open:105,high:106,low:104,close:105,volume:1,observed_minutes:60},
+   {time:H,open:103,high:104,low:100,close:101,volume:1,observed_minutes:60},
+   {time:2*H,open:100,high:102,low:98,close:99,volume:1,observed_minutes:60},
+  ];
+  const wick:Bar=direction==='BULLISH'
+   ? {time:3*H,open:103,high:104,low:101.01,close:103,volume:1,observed_minutes:60}
+   : {time:3*H,open:101,high:102.99,low:100,close:101,volume:1,observed_minutes:60};
+  const missed=studyHourlyFvgMidpointAsOf([...formation,wick],source,4*H);
+  assert.equal(missed.observations.length,1);
+  assert.equal(missed.observations[0].firstTouchOutcome,'INCOMPLETE_WINDOW',
+   direction+' near-miss wick must not be rounded to a midpoint touch');
+  assert.equal(missed.observations[0].firstTouchClosedAt,null);
+  const exact={...wick,...(direction==='BULLISH'?{low:101}:{high:103})};
+  const touched=studyHourlyFvgMidpointAsOf([...formation,exact],source,4*H);
+  assert.equal(touched.observations.length,1);
+  assert.equal(touched.observations[0].direction,direction);
+  assert.equal(touched.observations[0].firstTouchOutcome,'TOUCH');
+  assert.equal(touched.observations[0].firstTouchClosedAt,4*H);
+  assert.equal(touched.observations[0].firstTouchOutcomeObservedAt,4*H);
+ }
+});
