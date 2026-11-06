@@ -11,8 +11,8 @@ const source={
 };
 
 // Boolean minute coverage is not an observed minute count. In particular,
-// false must never be coerced to zero and true must never be treated as one.
-for(const badCoverage of [false,true]){
+// false/true must not be coerced into counts; null/undefined must not be\n// treated as a fully observed hour or silently defaulted to 60.
+for(const badCoverage of [false,true,null,undefined]){
  test(`boolean completed-hour coverage ${badCoverage} fails closed without future lookahead`,()=>{
   const makeBars=():Bar[]=>[
    {time:0,open:99,high:100,low:98,close:99,volume:1,observed_minutes:60},
