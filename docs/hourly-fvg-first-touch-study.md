@@ -396,3 +396,6 @@ The prior synthetic deferred-volume test failed frontend CI (workflow 4220305475
 
 
 **6 November 2026 — deferred malformed-low regression:** A synthetic future 1H candle with `low` returning `-Infinity` or `NaN` is not read before its completed-hour boundary; the as-of result equals the completed-prefix result. At the hour close, each invalid low must fail closed. This complements the high-field regression and does not establish authentic quotes, volume-source identity, fills, or profitability. Exact-head CI must be verified separately.
+
+
+**6 November 2026 — deferred malformed hourly close regression:** Synthetic causal as-of checks now cover future hourly `close` accessors returning `Infinity`, `-Infinity` or `NaN`. The unrevealed hour must not be read and cannot change the completed-prefix result; at its close, each malformed value must be rejected. These are software-only integrity fixtures, not authenticated market prices, executable broker quotes or profitability evidence. Exact-head CI must be verified before reporting a pass.
