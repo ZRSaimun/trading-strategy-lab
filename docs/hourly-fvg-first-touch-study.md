@@ -383,3 +383,6 @@ A synthetic completed bullish 1H gap now has a first post-formation candle that 
 
 
 **6 November 2026 — unknown future volume control.** Synthetic causal 1H FVG coverage now verifies that a future formation candle's `null` volume is not read before its hourly close; after closing, the observation may form but its volume gate remains `INSUFFICIENT_DATA`. This distinguishes missing evidence from invalid signed-zero volume without inventing a volume receipt. CI must be verified for the exact head; no market authenticity, broker execution, or profitability is established.
+
+
+**6 November 2026 — non-finite future-volume causality regression.** Synthetic as-of hourly research now tests `Infinity`, `-Infinity` and `NaN` in a future candle's volume getter. Before its completed-hour boundary, the full archive must equal the revealed prefix and must not read that getter. At close, each invalid non-finite value must be rejected; unlike `null`, it is not missing-but-permitted evidence. This is a software-only integrity check, not authenticated volume provenance, broker BID/ASK quotes, fills, or profitability. Keep draft, paper-only and undeployed; verify CI on the exact commit.
