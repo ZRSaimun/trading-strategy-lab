@@ -1157,3 +1157,24 @@ test('future non-finite high is unread before close and rejected at close',()=>{
   /Invalid, incomplete, misaligned or unordered hourly BID candles|Hourly research completed candle field changed during snapshot/);
  assert.ok(highReads>0,'completed malformed OHLC must be validated');
 });
+
+
+// A future malformed low is independent of the high-field guard: a causal
+// scan must not inspect it early, but must reject it after the hour closes.
+test('future non-finite low is unread before close and rejected at close',()=>{
+ for(const invalidLow of [-Infinity,NaN]){
+  const first:Bar={time:0,open:100,high:102,low:98,close:100,volume:1,observed_minutes:60};
+  const future:Bar={time:H,open:100,high:102,low:98,close:100,volume:1,observed_minutes:60};
+  let lowReads=0;
+  Object.defineProperty(future,'low',{
+   configurable:true,enumerable:true,
+   get(){lowReads++;return invalidLow;},
+  });
+  const prefix=studyHourlyFvgMidpointAsOf([first],source,H);
+  assert.deepEqual(studyHourlyFvgMidpointAsOf([first,future],source,H),prefix);
+  assert.equal(lowReads,0,'future low must remain unread');
+  assert.throws(()=>studyHourlyFvgMidpointAsOf([first,future],source,2*H),
+   /Invalid, incomplete, misaligned or unordered hourly BID candles|Hourly research completed candle field changed during snapshot/);
+  assert.ok(lowReads>0,'completed malformed low must be validated');
+ }
+});
