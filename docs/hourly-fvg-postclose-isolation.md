@@ -23,3 +23,7 @@ Synthetic bullish and bearish tests now cover a missing first-eligible 1H candle
 ## 7 November 2026 — still-open successor cannot repair a missing hour
 
 The bullish/bearish missing-first-hour regression also appends a later, **not-yet-closed** hourly candle whose price, volume and minute-coverage getters deliberately throw if evaluated. At the last completed-hour boundary, the causal result must equal the observed-prefix result and remain right-censored; only a subsequently *closed* candle may expose the missing slot and change the censor reason to `MISSING_HOUR`. The test protects against future-field access, not against source tampering or incomplete broker data. No trading permission or profitability is implied.
+
+## Two missing hours and a later completed non-touch
+
+The bullish/bearish synthetic regression now also covers two consecutive absent first-eligible hourly bars (hours 23 and 24), followed by a completed non-touch at hour 25. The first-touch window remains `INCOMPLETE_WINDOW` with `MISSING_HOUR`, exactly two missing slots and no observed first-touch close. The censor reason is observed only at hour 26's completed boundary. This distinguishes a later observed non-touch from an uninterrupted sequence of observed non-touches. Unverified volume and missing broker quotes remain insufficient; no profitability or live eligibility is established. Test: `frontend/tests/hourly-fvg-missing-first-hour-later-no-touch.test.ts`.
