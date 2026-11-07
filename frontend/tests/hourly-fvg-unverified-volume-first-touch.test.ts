@@ -81,3 +81,26 @@ test('unverified first-touch volume cannot backfill a still-open first-touch hou
  assert.equal(futureReads,0);
  assert.equal(asOf.observations.filter(x=>x.firstTouchOutcome==='TOUCH').length,0);
 });
+
+
+test('bearish first-touch volume spike also remains unverified and paper-only',()=>{
+ const bars:Bar[]=Array.from({length:20},(_,i)=>({
+  time:i*H,open:101,high:102,low:100,close:101,volume:10,observed_minutes:60,
+ }));
+ bars.push(
+  {time:20*H,open:101,high:102,low:100,close:101,volume:10,observed_minutes:60},
+  {time:21*H,open:99,high:100,low:96,close:97,volume:10,observed_minutes:60},
+  {time:22*H,open:97,high:98,low:95,close:96,volume:10,observed_minutes:60},
+  {time:23*H,open:97,high:99.5,low:96,close:97,volume:1000000,observed_minutes:60},
+ );
+ const full=studyHourlyFvgMidpoint(bars,source);
+ const asOf=studyHourlyFvgMidpointAsOf(bars,source,24*H);
+ assert.deepEqual(asOf,full);
+ const touched=full.observations.find(x=>x.formationClosedAt===23*H && x.direction==='BEARISH');
+ assert.ok(touched,'the bearish synthetic gap must form');
+ assert.equal(touched.firstTouchOutcome,'TOUCH');
+ assert.equal(touched.volumeEvidenceReason,'SOURCE_UNVERIFIED');
+ assert.equal(touched.gates.verifiedVolume,'INSUFFICIENT_DATA');
+ assert.notEqual(touched.gates.strictCandidate,'PASS');
+ assert.equal(touched.eligibleForLiveTrading,false);
+});
