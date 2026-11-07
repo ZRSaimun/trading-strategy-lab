@@ -19,3 +19,7 @@ A synthetic bearish formation with an unobserved first eligible hourly candle re
 ## 7 November 2026 — missing first hour followed by a non-touch
 
 Synthetic bullish and bearish tests now cover a missing first-eligible 1H candle followed by a *completed non-touch* candle. The later no-touch is not proof that the missing hour also did not touch: the observation remains `INCOMPLETE_WINDOW` / `MISSING_HOUR`, with one missing slot and insufficient midpoint and independently verified volume evidence. This is a conservative causal censoring check only; it cannot establish authentic market coverage, executable broker BID/ASK prices, or profitability. Check exact-head CI separately.
+
+## 7 November 2026 — still-open successor cannot repair a missing hour
+
+The bullish/bearish missing-first-hour regression also appends a later, **not-yet-closed** hourly candle whose price, volume and minute-coverage getters deliberately throw if evaluated. At the last completed-hour boundary, the causal result must equal the observed-prefix result and remain right-censored; only a subsequently *closed* candle may expose the missing slot and change the censor reason to `MISSING_HOUR`. The test protects against future-field access, not against source tampering or incomplete broker data. No trading permission or profitability is implied.
