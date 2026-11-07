@@ -37,3 +37,25 @@ test('missing first eligible hour censors bullish midpoint touch rather than ski
  assert.equal(observation.gates.midpointTouch,'INSUFFICIENT_DATA');
  assert.equal(observation.eligibleForLiveTrading,false);
 });
+
+test('two missing bullish first-touch hours remain censored despite a later completed midpoint wick',()=>{
+ const bars:Bar[]=Array.from({length:21},(_,i)=>({
+  time:i*H,open:100,high:101,low:99,close:100,volume:10,observed_minutes:60,
+ }));
+ bars.push(
+  {time:21*H,open:102,high:105,low:101,close:104,volume:10,observed_minutes:60},
+  {time:22*H,open:104,high:106,low:103,close:105,volume:10,observed_minutes:60},
+  {time:25*H,open:104,high:105,low:100.5,close:104,volume:999,observed_minutes:60},
+ );
+ const result=studyHourlyFvgMidpointAsOf(bars,source,26*H);
+ const observation=result.observations.find(x=>x.direction==='BULLISH'&&x.formationClosedAt===23*H);
+ assert.ok(observation);
+ assert.equal(observation.firstTouchOutcome,'INCOMPLETE_WINDOW');
+ assert.equal(observation.firstTouchCensorReason,'MISSING_HOUR');
+ assert.equal(observation.firstTouchCensorMissingHourSlots,2);
+ assert.equal(observation.firstTouchCensorObservedAt,26*H);
+ assert.equal(observation.firstTouchClosedAt,null);
+ assert.equal(observation.gates.midpointTouch,'INSUFFICIENT_DATA');
+ assert.equal(observation.gates.verifiedVolume,'INSUFFICIENT_DATA');
+ assert.equal(observation.eligibleForLiveTrading,false);
+});
