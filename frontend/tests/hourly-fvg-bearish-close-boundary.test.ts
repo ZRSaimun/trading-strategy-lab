@@ -19,15 +19,18 @@ test('bearish first midpoint touch is withheld at exact open and admitted only a
   {time:22*H,open:97,high:98,low:95,close:96,volume:10,observed_minutes:60},
  );
  const firstTouch:Bar={time:23*H,open:97,high:99.5,low:96,close:97,volume:999,observed_minutes:60};
- const before=studyHourlyFvgMidpointAsOf([...prefix,firstTouch],source,24*H-1);
+ assert.throws(
+  ()=>studyHourlyFvgMidpointAsOf([...prefix,firstTouch],source,24*H-1),
+  /Invalid UTC hourly as-of close/,
+  'an intrahour timestamp must be rejected rather than rounded to a completed close',
+ );
  const atOpen=studyHourlyFvgMidpointAsOf([...prefix,firstTouch],source,23*H);
  const expectedPrefix=studyHourlyFvgMidpoint(prefix,source);
- assert.deepEqual(before,expectedPrefix);
  assert.deepEqual(atOpen,expectedPrefix);
  const atClose=studyHourlyFvgMidpointAsOf([...prefix,firstTouch],source,24*H);
  const full=studyHourlyFvgMidpoint([...prefix,firstTouch],source);
  assert.deepEqual(atClose,full);
- const earlier=before.observations.find(x=>x.direction==='BEARISH' && x.formationClosedAt===23*H);
+ const earlier=atOpen.observations.find(x=>x.direction==='BEARISH' && x.formationClosedAt===23*H);
  const matured=atClose.observations.find(x=>x.direction==='BEARISH' && x.formationClosedAt===23*H);
  assert.ok(earlier);
  assert.ok(matured);
