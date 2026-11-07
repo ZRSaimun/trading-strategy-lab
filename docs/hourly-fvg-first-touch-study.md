@@ -1,4 +1,6 @@
 # Hourly FVG first-touch midpoint rejection versus blind limit (research v97)
+
+**7 November 2026 — pending bearish wick noninterference:** A synthetic bearish 1H FVG formed at the close of hour 23 is evaluated with a still-open hour 24 whose `high` and `low` accessors throw if read. The as-of result must equal the completed-prefix study without accessing either future wick; no first touch may be confirmed before its candle closes. This is a causal regression, not a verified broker quote, volume-source receipt or trading edge. CI must be verified for the exact commit.
 **7 November 2026 — bearish pending-touch volume lookahead regression:** A completed bearish 1H FVG formation is evaluated at its exact 23H close with a still-open midpoint-intersecting 24th candle whose volume getter throws. Causal as-of output must equal the completed-prefix study, preserve the formed bearish observation as `INCOMPLETE_WINDOW`, and never access the future volume. Unverified source volume remains insufficient and no live-trading eligibility is inferred. This synthetic test does not verify market data, fills, or profitability. Check exact-head CI before treating the regression as verified.
 
 
