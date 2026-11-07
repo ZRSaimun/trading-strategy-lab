@@ -39,3 +39,23 @@ test('Symbol.toPrimitive minute-coverage forgery is rejected without coercion or
  assert.throws(()=>studyHourlyFvgMidpoint(bars,source),/observed.minutes|coverage|invalid|complete/i);
  assert.equal(coercions,0);
 });
+
+test('bigint observed-minute coverage fails closed only when its hour is completed',()=>{
+ const bars:Bar[]=[
+  {time:0,open:99,high:100,low:98,close:99,volume:1,observed_minutes:60},
+  {time:H,open:101,high:104,low:100,close:103,volume:1,observed_minutes:60},
+  {time:2*H,open:103,high:105,low:102,close:104,volume:1,observed_minutes:60},
+ ];
+ let reads=0;
+ Object.defineProperty(bars[2],'observed_minutes',{
+  enumerable:true,configurable:true,get(){reads++;return 60n;},
+ });
+ const prefix=studyHourlyFvgMidpointAsOf(bars.slice(0,2),source,2*H);
+ assert.deepEqual(studyHourlyFvgMidpointAsOf(bars,source,2*H),prefix);
+ assert.equal(reads,0,'unclosed hour must not reveal bigint coverage');
+ assert.throws(()=>studyHourlyFvgMidpointAsOf(bars,source,3*H),/observed.minutes|coverage|invalid|complete/i);
+ assert.ok(reads>0);
+ assert.throws(()=>studyHourlyFvgMidpoint(bars,source),/observed.minutes|coverage|invalid|complete/i);
+ Object.defineProperty(bars[2],'observed_minutes',{value:60,enumerable:true,configurable:true});
+ assert.doesNotThrow(()=>studyHourlyFvgMidpoint(bars,source));
+});
