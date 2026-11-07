@@ -440,3 +440,8 @@ A synthetic causal regression leaves the candidate first-midpoint-touch hour unc
 ## Pending bearish first-touch open/close isolation (7 November 2026)
 
 A synthetic as-of regression asserts that an hourly candle still open at the cutoff cannot expose its `open` or `close` getters to the bearish FVG first-midpoint-touch study. Its result must match the completed-only prefix, retain `INCOMPLETE_WINDOW`, and never become live-trading eligible. Together with prior high/low and volume accessor tests, this checks completed-bar isolation of the pending candle's OHLCV. It does not authenticate vendor source identity, measure broker BID/ASK costs, establish real fills, or demonstrate profitability.
+
+
+## Bearish first-touch close-boundary regression (7 November 2026)
+
+Synthetic test `frontend/tests/hourly-fvg-bearish-close-boundary.test.ts` checks the precise 1H close boundary: the same bearish midpoint-intersecting bar must be excluded at its opening timestamp and one second before its close, then included at the close timestamp. As-of output is compared against the appropriate completed prefix or full-history result. The test also requires unverified source-classified volume to remain `INSUFFICIENT_DATA` with no live-trading eligibility even after the touch closes. This verifies causal timing only; it does not authenticate the source, prove an executable BID/ASK fill or estimate profitability.
