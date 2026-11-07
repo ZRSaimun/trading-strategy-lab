@@ -59,3 +59,25 @@ test('unverified future volume cannot influence a completed-prefix first-touch d
  assert.equal(touched.gates.verifiedVolume,'INSUFFICIENT_DATA');
  assert.equal(touched.eligibleForLiveTrading,false);
 });
+
+test('unverified first-touch volume cannot backfill a still-open first-touch hour',()=>{
+ const completed:Bar[]=Array.from({length:20},(_,i)=>({
+  time:i*H,open:99,high:100,low:98,close:99,volume:10,observed_minutes:60,
+ }));
+ completed.push(
+  {time:20*H,open:99,high:100,low:98,close:99,volume:10,observed_minutes:60},
+  {time:21*H,open:101,high:104,low:100,close:103,volume:10,observed_minutes:60},
+  {time:22*H,open:103,high:105,low:102,close:104,volume:10,observed_minutes:60},
+ );
+ const pending={time:23*H,open:103,high:104,low:100.5,close:103.5,observed_minutes:60} as Bar;
+ let futureReads=0;
+ Object.defineProperty(pending,'volume',{enumerable:true,get(){
+  futureReads++;
+  throw new Error('still-open first-touch volume is not available');
+ }});
+ const asOf=studyHourlyFvgMidpointAsOf([...completed,pending],source,23*H);
+ const prefix=studyHourlyFvgMidpoint(completed,source);
+ assert.deepEqual(asOf,prefix,'the still-open first-touch candle cannot create a completed touch');
+ assert.equal(futureReads,0);
+ assert.equal(asOf.observations.filter(x=>x.firstTouchOutcome==='TOUCH').length,0);
+});
