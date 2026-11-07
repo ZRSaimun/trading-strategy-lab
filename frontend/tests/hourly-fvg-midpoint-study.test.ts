@@ -186,7 +186,7 @@ test('strict and markout clocks are causal for bullish/bearish paired, rejected 
  }
 });
 
-test('bounded FVG studies ignore untrusted array iterators for candles and costs',()=>{
+test('bounded FVG studies reject own candle iterators without invoking them',()=>{
  const baseline=studyHourlyFvgMidpoint(fixture(),source);
  const candles=fixture();
  const costs=[0,5,15];
@@ -199,10 +199,12 @@ test('bounded FVG studies ignore untrusted array iterators for candles and costs
   throw Error('untrusted cost iterator invoked');
  }});
  const settings={hypotheticalRoundTripCostsBps:costs};
- assert.deepEqual(studyHourlyFvgMidpoint(candles,source,settings),baseline);
+ assert.throws(()=>studyHourlyFvgMidpoint(candles,source,settings),
+  /Unexpected FVG archive array metadata/);
  const asOf=BASE+37*H;
- assert.deepEqual(studyHourlyFvgMidpointAsOf(candles,source,asOf,settings),
-  studyHourlyFvgMidpointAsOf(fixture(),source,asOf));
+ assert.throws(()=>studyHourlyFvgMidpointAsOf(candles,source,asOf,settings),
+  /Unexpected FVG archive array metadata/);
+ assert.deepEqual(studyHourlyFvgMidpoint(fixture(),source,settings),baseline);
  // Sparse indexed candles must still fail closed rather than being
  // filled or hidden by a custom iterator.
  const sparse=fixture();
@@ -211,7 +213,7 @@ test('bounded FVG studies ignore untrusted array iterators for candles and costs
   throw Error('sparse candle iterator invoked');
  }});
  assert.throws(()=>studyHourlyFvgMidpoint(sparse as Bar[],source),
-  /own-index candle evidence/);
+  /Unexpected FVG archive array metadata/);
 });
 
 test('research rejects candle and cost array resizing during evidence snapshots',()=>{
@@ -710,7 +712,7 @@ test('research report rejects extra source fields without leaking caller private
  const report=studyHourlyFvgMidpoint(fixture(),source);
  assert.deepEqual(report.source,source);
  assert.deepEqual(Object.keys(report.source).sort(),Object.keys(source).sort());
- assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v95');
+ assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v97');
 });
 test('ambiguous source labels and contradictory volume evidence fail closed',()=>{
  // These are declared metadata, not independent vendor authentication.
@@ -785,7 +787,7 @@ test('v61 source labels reject lone surrogates and Unicode noncharacters in both
  assert.deepEqual(studyHourlyFvgMidpoint(bars,valid).source,valid);
  assert.deepEqual(studyHourlyFvgMidpointAsOf(bars,valid,cutoff).source,valid);
  assert.equal(studyHourlyFvgMidpoint(bars,valid).version,
-  'hourly-fvg-first-midpoint-touch-v95');
+  'hourly-fvg-first-midpoint-touch-v97');
 });
 test('v63 source labels reject Unicode space lookalikes without banning ASCII spaces',()=>{
  const bars=fixture(),cutoff=BASE+37*H;
@@ -802,7 +804,7 @@ test('v63 source labels reject Unicode space lookalikes without banning ASCII sp
  assert.deepEqual(studyHourlyFvgMidpoint(bars,legitimate).source,legitimate);
  assert.deepEqual(studyHourlyFvgMidpointAsOf(bars,legitimate,cutoff).source,legitimate);
  assert.equal(studyHourlyFvgMidpoint(bars,legitimate).version,
-  'hourly-fvg-first-midpoint-touch-v95');
+  'hourly-fvg-first-midpoint-touch-v97');
 });
 test('first bullish midpoint touch has a hypothetical blind limit and later next-open rejection markout',()=>{
  const x=target(fixture());
@@ -1147,7 +1149,7 @@ test('an overflowing next-open comparator suppresses both matched markouts',()=>
 });
 test('completed hourly timestamps are safe and numeric rule changes have a new version',()=>{
  const report=studyHourlyFvgMidpoint(fixture(),source);
- assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v95');
+ assert.equal(report.version,'hourly-fvg-first-midpoint-touch-v97');
  const lastSafeAlignedOpen=Math.floor(Number.MAX_SAFE_INTEGER/H)*H;
  assert.equal(Number.isSafeInteger(lastSafeAlignedOpen),true);
  assert.equal(Number.isSafeInteger(lastSafeAlignedOpen+H),false);
@@ -2141,9 +2143,11 @@ test('v50 archive arrays reject undeclared BID/ASK or source metadata without ev
  Object.defineProperty(iteratorProtected,Symbol.iterator,{value(){
   throw Error('untrusted archive iterator must never execute');
  }});
- assert.deepEqual(studyHourlyFvgMidpoint(iteratorProtected,source),baseline);
- assert.deepEqual(studyHourlyFvgMidpointAsOf(iteratorProtected,source,cutoff),
-  studyHourlyFvgMidpointAsOf(fixture(),source,cutoff));
+ assert.throws(()=>studyHourlyFvgMidpoint(iteratorProtected,source),
+  /Unexpected FVG archive array metadata/);
+ assert.throws(()=>studyHourlyFvgMidpointAsOf(iteratorProtected,source,cutoff),
+  /Unexpected FVG archive array metadata/);
+ assert.deepEqual(studyHourlyFvgMidpoint(fixture(),source),baseline);
 });
 
 test('v51 illustrative cost stress scenarios are strictly ascending and distinct',()=>{
@@ -3718,7 +3722,7 @@ test('v85 candle getters cannot rewrite preflighted source, settings or costs',(
   hypotheticalRoundTripCostsBps:costs,
  }),/FVG cost scenario field changed during declaration snapshot/);
  assert.equal(studyHourlyFvgMidpoint(fixture(),source).version,
-  'hourly-fvg-first-midpoint-touch-v95');
+  'hourly-fvg-first-midpoint-touch-v97');
 });
 
 test('v85 future timestamp accessors cannot rewrite as-of provenance or cost axis',()=>{
@@ -4207,4 +4211,43 @@ test('v93 first-touch wick versus volume joint census preserves strict FAIL prec
    Object.values(group[k].PASS).reduce((a,b)=>a+b,0)+
    Object.values(group[k].FAIL).reduce((a,b)=>a+b,0),0),3);
  }
+});
+
+
+test('negative-zero hourly archive timestamp is rejected before research or as-of replay',()=>{
+ const bars=[{...candle(0),time:-0},candle(1)];
+ assert.throws(()=>studyHourlyFvgMidpoint(bars,source),/Invalid, incomplete, misaligned or unordered hourly BID candles/);
+ assert.throws(()=>studyHourlyFvgMidpointAsOf(bars,source,H),/Invalid or unordered hourly as-of input timestamp/);
+ // Positive zero is a real UTC bucket, and should not be rejected as an alias.
+ const valid=[{...candle(0),time:0},{...candle(1),time:H}];
+ assert.doesNotThrow(()=>studyHourlyFvgMidpoint(valid,source));
+ assert.doesNotThrow(()=>studyHourlyFvgMidpointAsOf(valid,source,2*H));
+ // Future-only timestamps are checked without reading future price/volume.
+ const future=[{...candle(0),time:BASE}, {...candle(1),time:-0}];
+ assert.throws(()=>studyHourlyFvgMidpointAsOf(future,source,BASE+H),/Invalid or unordered hourly as-of input timestamp/);
+});
+
+// Regression: the as-of timestamp preflight must reject a future negative-zero
+// archive slot without accessing any future price, volume or coverage fields.
+test('future negative-zero hourly timestamp fails closed without future OHLC reads',()=>{
+ const first={...candle(0),time:BASE};
+ const future={...candle(1),time:-0};
+ for(const field of ['open','high','low','close','volume','observed_minutes'] as const){
+  Object.defineProperty(future,field,{get(){throw Error('future field accessed: '+field);}});
+ }
+ assert.throws(()=>studyHourlyFvgMidpointAsOf([first,future],source,BASE+H),
+  /Invalid or unordered hourly as-of input timestamp/);
+});
+
+// Signed-zero volume is not preserved through JSON serialization. This test
+// verifies both the full-history path and the completed-prefix as-of path.
+test('negative-zero hourly volume fails closed, ordinary zero remains valid',()=>{
+ const negative=[{...candle(0),time:BASE,volume:-0},{...candle(1),time:BASE+H}];
+ assert.throws(()=>studyHourlyFvgMidpoint(negative,source),
+  /Invalid, incomplete, misaligned or unordered hourly BID candles/);
+ assert.throws(()=>studyHourlyFvgMidpointAsOf(negative,source,BASE+2*H),
+  /Invalid, incomplete, misaligned or unordered hourly BID candles/);
+ const ordinary=[{...candle(0),time:BASE,volume:0},{...candle(1),time:BASE+H}];
+ assert.doesNotThrow(()=>studyHourlyFvgMidpoint(ordinary,source));
+ assert.doesNotThrow(()=>studyHourlyFvgMidpointAsOf(ordinary,source,BASE+2*H));
 });

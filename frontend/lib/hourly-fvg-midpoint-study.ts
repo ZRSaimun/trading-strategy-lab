@@ -7,7 +7,7 @@
  */
 import type {Bar} from './research.ts';
 
-export const HOURLY_FVG_VERSION='hourly-fvg-first-midpoint-touch-v95';
+export const HOURLY_FVG_VERSION='hourly-fvg-first-midpoint-touch-v97';
 export type Evidence='PASS'|'FAIL'|'INSUFFICIENT_DATA';
 // First-touch volume evidence is not independent broker/source authentication.
 export type VolumeEvidenceReason='NOT_EVALUATED'|'SOURCE_UNVERIFIED'|
@@ -313,11 +313,12 @@ function validSourceLabel(value:unknown):value is string{
 }
 // A top-level archive array is only an ordered BID-candle population, not a
 // container for silently discarded ASK quotes, broker receipts or provenance.
-// Reject undeclared own metadata without reading its values. The iterator is
-// deliberately ignored because both research paths read bounded own indices.
+// Reject undeclared own metadata without reading its values. Even an own
+// Symbol.iterator override is not part of the frozen BID-only archive schema;
+// accepting it would silently preserve an unaudited caller-controlled hook.
 function validateBarArraySchema(bars:readonly Bar[],count:number){
  for(const key of Reflect.ownKeys(bars)){
-  if(key==='length'||key===Symbol.iterator||
+  if(key==='length'||
    (typeof key==='string'&&/^(0|[1-9][0-9]*)$/.test(key)&&Number(key)<count))
    continue;
   throw Error('Unexpected FVG archive array metadata outside frozen BID-only protocol');
@@ -333,7 +334,8 @@ function captureArchiveSlots(bars:readonly Bar[],count:number):PropertyDescripto
  const slots:PropertyDescriptor[]=[];
  for(let index=0;index<count;index++){
   const descriptor=Object.getOwnPropertyDescriptor(bars,index);
-  if(!descriptor)throw Error('Hourly research array contains missing own-index candle evidence');
+  if(!descriptor||!descriptor.enumerable)
+   throw Error('Hourly research array contains missing or hidden own-index candle evidence');
   slots.push(descriptor);
  }
  return slots;
@@ -400,12 +402,12 @@ function validateBars(bars:readonly Bar[]){
   // A safe integer bar open can still overflow when converted to its
   // completed-bar close. All signal and markout timestamps use close times.
   if(!Number.isSafeInteger(b.time)||!Number.isSafeInteger(b.time+HOUR)||
-   b.time<0||b.time%HOUR!==0||
+   b.time<0||Object.is(b.time,-0)||b.time%HOUR!==0||
    b.observed_minutes!==60||
    ![b.open,b.high,b.low,b.close].every(x=>Number.isFinite(x)&&x>0)||
    b.low>Math.min(b.open,b.close)||b.high<Math.max(b.open,b.close)||
    b.low>b.high||
-   (b.volume!==null&&(!Number.isFinite(b.volume)||b.volume<0))||
+   (b.volume!==null&&(!Number.isFinite(b.volume)||b.volume<0||Object.is(b.volume,-0)))||
    (i>0&&b.time<=bars[i-1].time))
    throw Error('Invalid, incomplete, misaligned or unordered hourly BID candles');
  }
@@ -1925,6 +1927,11 @@ export function studyHourlyFvgMidpointAsOf(
  const barCount=suppliedBars.length;
  validateBarArraySchema(suppliedBars,barCount);
  const archiveSlots=captureArchiveSlots(suppliedBars,barCount);
+ // Indexed getters can change their returned row identity after future
+ // timestamp access without changing their own property descriptors.
+ // As-of research must reject them before executing any caller getter.
+ if(archiveSlots.some(slot=>!('value' in slot)))
+  throw Error('FVG as-of archive requires own data-property candle slots');
  // As-of replay must bind provider, instrument, archive hash and volume
  // certification before reading any future timestamp getter. An accessor
  // could return a different private closure value after that scan without
@@ -2009,7 +2016,7 @@ export function studyHourlyFvgMidpointAsOf(
   // an eligible historical prefix at the first misplaced future candle.
   // Never inspect OHLC, volume or coverage of a future candle.
   const time=bar?.time;
-  if(!Number.isSafeInteger(time)||time<0||time%HOUR!==0||
+  if(!Number.isSafeInteger(time)||time<0||Object.is(time,-0)||time%HOUR!==0||
    !Number.isSafeInteger(time+HOUR)||
    (previousTime!==null&&time<=previousTime))
    throw Error('Invalid or unordered hourly as-of input timestamp');
