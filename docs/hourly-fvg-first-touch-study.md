@@ -448,3 +448,7 @@ A synthetic as-of regression asserts that an hourly candle still open at the cut
 ## Bearish first-touch close-boundary regression (7 November 2026)
 
 Synthetic test `frontend/tests/hourly-fvg-bearish-close-boundary.test.ts` checks the precise 1H close boundary: the same bearish midpoint-intersecting bar must be excluded at its opening timestamp and one second before its close, then included at the close timestamp. As-of output is compared against the appropriate completed prefix or full-history result. The test also requires unverified source-classified volume to remain `INSUFFICIENT_DATA` with no live-trading eligibility even after the touch closes. This verifies causal timing only; it does not authenticate the source, prove an executable BID/ASK fill or estimate profitability.
+
+## Two-hour bullish first-touch gap regression (7 November 2026)
+
+The synthetic bullish first-midpoint-touch fixture now omits two consecutive eligible closed hourly candles before a later completed wick intersects the midpoint. The causal study must report `INCOMPLETE_WINDOW`, `MISSING_HOUR`, exactly two missing slots, and insufficient midpoint and verified-volume evidence; it cannot promote the later wick to an observed *first* touch or live eligibility. This complements the bearish two-gap case. These fixture-only assertions do not authenticate BID/ASK quotes or volume and do not establish performance or profitability.
