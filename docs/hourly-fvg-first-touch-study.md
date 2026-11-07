@@ -435,3 +435,8 @@ A synthetic as-of regression tests future hourly `observed_minutes` values of -1
 ### Unclosed first-touch volume isolation (7 November 2026)
 
 A synthetic causal regression leaves the candidate first-midpoint-touch hour unclosed at the as-of boundary and attaches a throwing volume getter to that future hour. The as-of study must equal the completed-prefix study, report no completed first touch, and never read the future volume. A high reported volume on a subsequently completed touch remains `SOURCE_UNVERIFIED` for an unverified source; neither case certifies source identity, broker execution, or profitability. This is a research-only no-lookahead guard.
+
+
+## Pending bearish first-touch open/close isolation (7 November 2026)
+
+A synthetic as-of regression asserts that an hourly candle still open at the cutoff cannot expose its `open` or `close` getters to the bearish FVG first-midpoint-touch study. Its result must match the completed-only prefix, retain `INCOMPLETE_WINDOW`, and never become live-trading eligible. Together with prior high/low and volume accessor tests, this checks completed-bar isolation of the pending candle's OHLCV. It does not authenticate vendor source identity, measure broker BID/ASK costs, establish real fills, or demonstrate profitability.
