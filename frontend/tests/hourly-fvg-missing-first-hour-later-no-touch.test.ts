@@ -110,3 +110,37 @@ for(const direction of ['BULLISH','BEARISH'] as const){
   assert.equal(observation.eligibleForLiveTrading,false);
  });
 }
+
+
+for(const direction of ['BULLISH','BEARISH'] as const){
+ test(`two missing ${direction} hours remain right-censored before a later candle closes`,()=>{
+  const bullish=direction==='BULLISH';
+  const bars:Bar[]=Array.from({length:21},(_,i)=>({
+   time:i*H,open:bullish?100:101,high:bullish?101:102,
+   low:bullish?99:100,close:bullish?100:101,
+   volume:10,observed_minutes:60,
+  }));
+  bars.push(...(bullish?[
+   {time:21*H,open:102,high:105,low:101,close:104,volume:10,observed_minutes:60},
+   {time:22*H,open:104,high:106,low:103,close:105,volume:10,observed_minutes:60},
+  ]:[
+   {time:21*H,open:99,high:100,low:96,close:97,volume:10,observed_minutes:60},
+   {time:22*H,open:97,high:98,low:95,close:96,volume:10,observed_minutes:60},
+  ]));
+  // Hours 23 and 24 are absent; hour 25 is still open at the 25H boundary.
+  const future={time:25*H} as Bar;
+  for(const field of ['open','high','low','close','volume','observed_minutes'] as const){
+   Object.defineProperty(future,field,{enumerable:true,get(){
+    throw new Error(`future ${field} accessed`);
+   }});
+  }
+  const prefix=studyHourlyFvgMidpointAsOf(bars,source,25*H);
+  const withFuture=studyHourlyFvgMidpointAsOf([...bars,future],source,25*H);
+  const select=(result:typeof prefix)=>result.observations.find(
+   o=>o.direction===direction&&o.formationClosedAt===23*H);
+  assert.deepEqual(select(withFuture),select(prefix));
+  assert.equal(select(withFuture)?.firstTouchCensorReason,'RIGHT_CENSORED');
+  assert.equal(select(withFuture)?.firstTouchClosedAt,null);
+  assert.equal(select(withFuture)?.eligibleForLiveTrading,false);
+ });
+}
