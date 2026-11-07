@@ -31,3 +31,7 @@ The bullish/bearish synthetic regression now also covers two consecutive absent 
 ## Two missing hours before the successor closes
 
 The bullish/bearish synthetic regression also verifies that at the 25H boundary, an appended hour-25 candle has not closed and must not be read, even when hours 23 and 24 are missing. Its price, volume and minute-coverage accessors throw if touched. The as-of result must match the completed prefix and remain `RIGHT_CENSORED`, with no observed touch or live-trading eligibility. At a later completed boundary the missing slots may be classified `MISSING_HOUR` (as covered by the separate completed-successor tests). This is a timing/causality contract, not authenticated market coverage or performance evidence.
+
+## 7 November 2026 — missing middle wait hour followed by a completed non-touch
+
+`frontend/tests/hourly-fvg-middle-gap-later-no-touch.test.ts` adds mirrored synthetic bullish/bearish coverage where the first eligible wait hour is a completed non-touch, the next hour is absent, and a later completed candle also does not intersect the midpoint. The later non-touch cannot establish a complete first-touch history across the missing middle hour. At the later close, the result must remain `INCOMPLETE_WINDOW` / `MISSING_HOUR` with one missing slot and insufficient midpoint and verified-volume evidence. This is a causal archive-coverage regression only; no broker quotes, independently verified volume, fill or profitability evidence is supplied.
