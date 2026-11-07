@@ -27,3 +27,7 @@ The bullish/bearish missing-first-hour regression also appends a later, **not-ye
 ## Two missing hours and a later completed non-touch
 
 The bullish/bearish synthetic regression now also covers two consecutive absent first-eligible hourly bars (hours 23 and 24), followed by a completed non-touch at hour 25. The first-touch window remains `INCOMPLETE_WINDOW` with `MISSING_HOUR`, exactly two missing slots and no observed first-touch close. The censor reason is observed only at hour 26's completed boundary. This distinguishes a later observed non-touch from an uninterrupted sequence of observed non-touches. Unverified volume and missing broker quotes remain insufficient; no profitability or live eligibility is established. Test: `frontend/tests/hourly-fvg-missing-first-hour-later-no-touch.test.ts`.
+
+## Two missing hours before the successor closes
+
+The bullish/bearish synthetic regression also verifies that at the 25H boundary, an appended hour-25 candle has not closed and must not be read, even when hours 23 and 24 are missing. Its price, volume and minute-coverage accessors throw if touched. The as-of result must match the completed prefix and remain `RIGHT_CENSORED`, with no observed touch or live-trading eligibility. At a later completed boundary the missing slots may be classified `MISSING_HOUR` (as covered by the separate completed-successor tests). This is a timing/causality contract, not authenticated market coverage or performance evidence.
