@@ -76,3 +76,37 @@ for(const direction of ['BULLISH','BEARISH'] as const){
   assert.equal(select(extended)?.eligibleForLiveTrading,false);
  });
 }
+
+for(const direction of ['BULLISH','BEARISH'] as const){
+ test(`two absent first-eligible ${direction} hours cannot be cleared by a later closed non-touch`,()=>{
+  const bullish=direction==='BULLISH';
+  const bars:Bar[]=Array.from({length:21},(_,i)=>({
+   time:i*H,open:bullish?100:101,high:bullish?101:102,
+   low:bullish?99:100,close:bullish?100:101,volume:10,observed_minutes:60,
+  }));
+  bars.push(...(bullish?[
+   {time:21*H,open:102,high:105,low:101,close:104,volume:10,observed_minutes:60},
+   {time:22*H,open:104,high:106,low:103,close:105,volume:10,observed_minutes:60},
+   {time:25*H,open:104,high:105,low:103,close:104,volume:10,observed_minutes:60},
+  ]:[
+   {time:21*H,open:99,high:100,low:96,close:97,volume:10,observed_minutes:60},
+   {time:22*H,open:97,high:98,low:95,close:96,volume:10,observed_minutes:60},
+   {time:25*H,open:96,high:97,low:95,close:96,volume:10,observed_minutes:60},
+  ]));
+  const atFormation=studyHourlyFvgMidpointAsOf(bars.slice(0,-1),source,23*H);
+  const atSuccessorClose=studyHourlyFvgMidpointAsOf(bars,source,26*H);
+  const select=(result:typeof atFormation)=>result.observations.find(
+   o=>o.direction===direction&&o.formationClosedAt===23*H);
+  assert.equal(select(atFormation)?.firstTouchCensorReason,'RIGHT_CENSORED');
+  const observation=select(atSuccessorClose);
+  assert.ok(observation);
+  assert.equal(observation.firstTouchOutcome,'INCOMPLETE_WINDOW');
+  assert.equal(observation.firstTouchCensorReason,'MISSING_HOUR');
+  assert.equal(observation.firstTouchCensorMissingHourSlots,2);
+  assert.equal(observation.firstTouchCensorObservedAt,26*H);
+  assert.equal(observation.firstTouchClosedAt,null);
+  assert.equal(observation.gates.midpointTouch,'INSUFFICIENT_DATA');
+  assert.equal(observation.gates.verifiedVolume,'INSUFFICIENT_DATA');
+  assert.equal(observation.eligibleForLiveTrading,false);
+ });
+}
