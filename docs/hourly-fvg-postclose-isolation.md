@@ -15,3 +15,7 @@ The synthetic regression `frontend/tests/hourly-fvg-first-wait-gap-censor.test.t
 ## Bearish first-eligible-hour gap censoring (7 November 2026)
 
 A synthetic bearish formation with an unobserved first eligible hourly candle remains right-censored until a later completed candle exposes the gap. Even when that later candle's wick crosses the midpoint, it cannot establish the *first* touch: the study must report `INCOMPLETE_WINDOW`, `MISSING_HOUR`, one missing hour, and insufficient midpoint/verified-volume evidence. Regression: `frontend/tests/hourly-fvg-bearish-first-wait-gap-censor.test.ts`. This is a software causal-integrity check, not proof of source completeness, broker fills or profitability.
+
+## 7 November 2026 — missing first hour followed by a non-touch
+
+Synthetic bullish and bearish tests now cover a missing first-eligible 1H candle followed by a *completed non-touch* candle. The later no-touch is not proof that the missing hour also did not touch: the observation remains `INCOMPLETE_WINDOW` / `MISSING_HOUR`, with one missing slot and insufficient midpoint and independently verified volume evidence. This is a conservative causal censoring check only; it cannot establish authentic market coverage, executable broker BID/ASK prices, or profitability. Check exact-head CI separately.
