@@ -31,3 +31,31 @@ test('large synthetic first-touch volume cannot override unverified source prove
  assert.notEqual(touched.gates.strictCandidate,'PASS');
  assert.equal(touched.eligibleForLiveTrading,false);
 });
+
+
+test('unverified future volume cannot influence a completed-prefix first-touch decision',()=>{
+ const completed:Bar[]=Array.from({length:20},(_,i)=>({
+  time:i*H,open:99,high:100,low:98,close:99,volume:10,observed_minutes:60,
+ }));
+ completed.push(
+  {time:20*H,open:99,high:100,low:98,close:99,volume:10,observed_minutes:60},
+  {time:21*H,open:101,high:104,low:100,close:103,volume:10,observed_minutes:60},
+  {time:22*H,open:103,high:105,low:102,close:104,volume:10,observed_minutes:60},
+  {time:23*H,open:103,high:104,low:100.5,close:103.5,volume:1000000,observed_minutes:60},
+ );
+ let futureVolumeReads=0;
+ const future={time:24*H,open:103,high:105,low:99,close:100,observed_minutes:60} as Bar;
+ Object.defineProperty(future,'volume',{enumerable:true,get(){
+  futureVolumeReads++;
+  throw new Error('future unclosed hourly volume must not be read');
+ }});
+ const expected=studyHourlyFvgMidpoint(completed,source);
+ const actual=studyHourlyFvgMidpointAsOf([...completed,future],source,24*H);
+ assert.deepEqual(actual,expected);
+ assert.equal(futureVolumeReads,0);
+ const touched=actual.observations.find(x=>x.formationClosedAt===23*H);
+ assert.ok(touched);
+ assert.equal(touched.volumeEvidenceReason,'SOURCE_UNVERIFIED');
+ assert.equal(touched.gates.verifiedVolume,'INSUFFICIENT_DATA');
+ assert.equal(touched.eligibleForLiveTrading,false);
+});
