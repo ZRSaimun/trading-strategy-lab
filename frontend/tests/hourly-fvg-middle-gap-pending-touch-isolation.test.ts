@@ -213,6 +213,30 @@ for(const direction of ['BULLISH','BEARISH'] as const){
   assert.equal(descriptorTimeReads,1);
   assert.equal(completedCloseReads,0);
   assert.equal(reads,0);
+  // Completed source-volume and coverage schema must also be immutable: a
+  // future timestamp getter cannot substitute a lazy accessor for a plain
+  // evidence value, even when the accessor would return that same value.
+  for(const field of ['volume','observed_minutes'] as const){
+   const evidenceBars=bars.map(bar=>({...bar}));
+   const original=evidenceBars[23][field];
+   let timestampReads=0;
+   let evidenceGetterReads=0;
+   const schemaFuture=Object.defineProperties({}, {...Object.getOwnPropertyDescriptors(pending),
+    time:{enumerable:true,configurable:true,get(){
+     timestampReads++;
+     Object.defineProperty(evidenceBars[23],field,{
+      enumerable:true,configurable:true,
+      get(){evidenceGetterReads++;return original;},
+     });
+     return 26*H;
+    }},
+   }) as Bar;
+   assert.throws(()=>studyHourlyFvgMidpointAsOf([...evidenceBars,schemaFuture],source,26*H),
+    /changed|snapshot|candle|field|schema|accessor/i);
+   assert.equal(timestampReads,1);
+   assert.equal(evidenceGetterReads,0);
+   assert.equal(reads,0);
+  }
   const o=actual.observations.find(x=>x.direction===direction&&x.formationClosedAt===23*H);
   assert.ok(o);
   assert.equal(o.firstTouchOutcome,'INCOMPLETE_WINDOW');
