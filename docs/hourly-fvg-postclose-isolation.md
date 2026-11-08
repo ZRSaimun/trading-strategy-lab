@@ -119,3 +119,7 @@ The mirrored bullish/bearish synthetic middle-gap regression now supplies a futu
 ## 8 November 2026 — completed opening-price snapshot isolation
 
 The mirrored bullish/bearish synthetic regression additionally checks that an unclosed future candle's timestamp getter cannot rewrite the `open` of an already completed candle. The as-of scanner must reject the inconsistent snapshot without reading the future candle's OHLC, volume or observed-minute accessors. This is a fail-closed software integrity assertion, not evidence of authenticated source identity, executable quotes, or profitability. Keep the draft PR unmerged and check exact-head CI before claiming the regression passes.
+
+## 8 November 2026 — completed high/low snapshot isolation
+
+The mirrored bullish/bearish pending-hour synthetic regression now also attempts to mutate each completed candle's `high` and `low` independently from a future row's timestamp getter. The as-of scanner must reject both changes before reading any future OHLC, volume or observed-minute evidence. This closes the remaining price-extreme fields in the completed-snapshot mutation test matrix; it does not authenticate source quotes, actual broker execution, volume provenance or trading returns. Keep the PR draft and verify exact-head CI.
