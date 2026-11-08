@@ -86,6 +86,17 @@ for(const direction of ['BULLISH','BEARISH'] as const){
   assert.throws(()=>studyHourlyFvgMidpointAsOf([...bars,pending,duplicateFuture],source,26*H),
    /duplicate|strict|chronolog|timestamp|hourly|invalid/i);
   assert.equal(reads,0);
+  // Two individually aligned future timestamps are still invalid if their
+  // archive order reverses. Preflight must not inspect either unclosed row.
+  const laterFuture=Object.defineProperties({}, {...Object.getOwnPropertyDescriptors(pending),
+   time:{value:28*H,enumerable:true,configurable:true,writable:true},
+  }) as Bar;
+  const earlierFuture=Object.defineProperties({}, {...Object.getOwnPropertyDescriptors(pending),
+   time:{value:27*H,enumerable:true,configurable:true,writable:true},
+  }) as Bar;
+  assert.throws(()=>studyHourlyFvgMidpointAsOf([...bars,laterFuture,earlierFuture],source,26*H),
+   /strict|chronolog|timestamp|hourly|invalid|ascending/i);
+  assert.equal(reads,0);
   const o=actual.observations.find(x=>x.direction===direction&&x.formationClosedAt===23*H);
   assert.ok(o);
   assert.equal(o.firstTouchOutcome,'INCOMPLETE_WINDOW');
