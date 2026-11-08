@@ -59,3 +59,7 @@ The bullish and bearish synthetic regression in `frontend/tests/hourly-fvg-middl
 ## Pending midpoint touch after an exposed middle-hour gap (8 November 2026)
 
 `frontend/tests/hourly-fvg-middle-gap-pending-touch-isolation.test.ts` checks both bullish and bearish synthetic formations with a completed first wait-hour non-touch, missing middle hour and later completed non-touch. At the next hourly opening boundary, an apparent pending midpoint touch must not be inspected: all unrevealed OHLC, volume and coverage getters throw, and the entire as-of report must match the completed prefix. The earlier `MISSING_HOUR` censor remains fixed at 26H, with one observed wait bar and `NOT_EVALUATED` first-touch volume. This regression cannot authenticate a market closure, source identity, executable two-sided quotes, fill, or profitability. Keep research paper-only.
+
+## Intrabar as-of timestamps fail closed (8 November 2026)
+
+The mirrored pending-touch regression also supplies a half-hour as-of timestamp while an hourly candle is still open. The study rejects this non-hourly close boundary with `Invalid UTC hourly as-of close` before reading the pending candle's OHLC, volume or observed-minute accessors. A caller must supply a valid completed UTC hourly boundary, not reinterpret intrabar observations as completed hourly evidence. This is a synthetic input/timing contract, not independently verified broker quotes, market data or profitability.
