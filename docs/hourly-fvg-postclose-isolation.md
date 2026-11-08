@@ -63,3 +63,7 @@ The bullish and bearish synthetic regression in `frontend/tests/hourly-fvg-middl
 ## Intrabar as-of timestamps fail closed (8 November 2026)
 
 The mirrored pending-touch regression also supplies a half-hour as-of timestamp while an hourly candle is still open. The study rejects this non-hourly close boundary with `Invalid UTC hourly as-of close` before reading the pending candle's OHLC, volume or observed-minute accessors. A caller must supply a valid completed UTC hourly boundary, not reinterpret intrabar observations as completed hourly evidence. This is a synthetic input/timing contract, not independently verified broker quotes, market data or profitability.
+
+## 8 November 2026 — nonfinite pending-hour timestamp is not missing evidence
+
+The mirrored bullish/bearish pending-touch test now supplies a future candle with a `NaN` hour timestamp while preserving throwing OHLC, volume and coverage accessors through property descriptors (object spread would wrongly evaluate those getters). The study must reject the malformed timestamp rather than silently omit the row or inspect unrevealed prices. This is synthetic input-integrity coverage, not verified market-data provenance, broker execution, or profitability. Confirm exact-head CI before relying on the regression.
