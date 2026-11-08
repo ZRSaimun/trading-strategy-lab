@@ -78,6 +78,14 @@ for(const direction of ['BULLISH','BEARISH'] as const){
   assert.throws(()=>studyHourlyFvgMidpointAsOf([...bars,pending,invalidSecond],source,26*H),
    /Invalid|hourly|timestamp|candle/i);
   assert.equal(reads,0);
+  // Duplicate future timestamps are ambiguous even when both candles are
+  // unclosed. Reject the archive rather than silently choosing one row.
+  const duplicateFuture=Object.defineProperties({}, {...Object.getOwnPropertyDescriptors(pending),
+   time:{value:26*H,enumerable:true,configurable:true,writable:true},
+  }) as Bar;
+  assert.throws(()=>studyHourlyFvgMidpointAsOf([...bars,pending,duplicateFuture],source,26*H),
+   /duplicate|strict|chronolog|timestamp|hourly|invalid/i);
+  assert.equal(reads,0);
   const o=actual.observations.find(x=>x.direction===direction&&x.formationClosedAt===23*H);
   assert.ok(o);
   assert.equal(o.firstTouchOutcome,'INCOMPLETE_WINDOW');
