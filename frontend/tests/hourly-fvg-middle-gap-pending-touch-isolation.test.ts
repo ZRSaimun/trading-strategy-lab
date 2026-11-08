@@ -109,6 +109,22 @@ for(const direction of ['BULLISH','BEARISH'] as const){
   assert.throws(()=>studyHourlyFvgMidpointAsOf([...bars,laterFuture,earlierFuture],source,26*H),
    /strict|chronolog|timestamp|hourly|invalid|ascending/i);
   assert.equal(reads,0);
+  // A future timestamp getter must not revise an already completed candle's
+  // OHLC after the prefix has been copied. Descriptor revalidation catches
+  // this mutation without ever reading the future candle's price fields.
+  const mutableBars=bars.map(bar=>({...bar}));
+  let futureTimeReads=0;
+  const mutatingFuture=Object.defineProperties({}, {...Object.getOwnPropertyDescriptors(pending),
+   time:{enumerable:true,configurable:true,get(){
+    futureTimeReads++;
+    mutableBars[23].close=mutableBars[23].close+1;
+    return 26*H;
+   }},
+  }) as Bar;
+  assert.throws(()=>studyHourlyFvgMidpointAsOf([...mutableBars,mutatingFuture],source,26*H),
+   /changed|snapshot|candle|field|schema/i);
+  assert.equal(futureTimeReads,1);
+  assert.equal(reads,0);
   const o=actual.observations.find(x=>x.direction===direction&&x.formationClosedAt===23*H);
   assert.ok(o);
   assert.equal(o.firstTouchOutcome,'INCOMPLETE_WINDOW');
