@@ -115,3 +115,7 @@ The mirrored bullish/bearish synthetic middle-gap regression extends the histori
 ## 8 November 2026 — future timestamp cannot retime completed source evidence
 
 The mirrored bullish/bearish synthetic middle-gap regression now supplies a future candle's timestamp getter that attempts to rewrite an already completed hourly candle's `time` field. The causal as-of scan must reject the changed historical snapshot, without reading the future candle's OHLC, volume or minute-coverage accessors. A completed bar's identity cannot be revised by a later, unclosed row. This is a software mutation-integrity check, not independently authenticated quotes, volume provenance, observed broker execution or profitability. Keep paper-only and verify exact-head CI.
+
+## 8 November 2026 — completed opening-price snapshot isolation
+
+The mirrored bullish/bearish synthetic regression additionally checks that an unclosed future candle's timestamp getter cannot rewrite the `open` of an already completed candle. The as-of scanner must reject the inconsistent snapshot without reading the future candle's OHLC, volume or observed-minute accessors. This is a fail-closed software integrity assertion, not evidence of authenticated source identity, executable quotes, or profitability. Keep the draft PR unmerged and check exact-head CI before claiming the regression passes.
