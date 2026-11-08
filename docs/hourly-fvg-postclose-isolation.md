@@ -39,3 +39,7 @@ The bullish/bearish synthetic regression also verifies that at the 25H boundary,
 ## Missing middle hour before successor close (8 November 2026)
 
 The mirrored bullish/bearish regression in `frontend/tests/hourly-fvg-middle-gap-later-no-touch.test.ts` also appends a still-open hour-25 successor after a completed hour-23 non-touch and absent hour 24. At the hour-25 as-of boundary, all future OHLC, volume and coverage accessors must remain unread; the completed-prefix observation must be identical and `RIGHT_CENSORED`. Only a subsequently completed successor can establish `MISSING_HOUR` censoring. These synthetic tests establish causal handling, not broker-source authenticity, actual fills or profitability.
+
+## 8 November 2026 — later completed wick does not undo earlier missing middle hour
+
+The bullish and bearish synthetic middle-gap regressions now append a **completed midpoint-intersecting wick** after a completed non-touch successor, with an earlier unobserved hourly slot between formation and successor. Even after the later wick closes, the first-touch ordering is unknowable: the result must retain `INCOMPLETE_WINDOW` / `MISSING_HOUR` with one missing slot, no established first-touch close, insufficient midpoint/verified-volume evidence and no live-trading eligibility. The tests compare the already-censored prefix to the longer completed sequence. This only checks software censoring; it is not evidence of genuine quotes, authentic volume, fills or returns. See `frontend/tests/hourly-fvg-middle-gap-later-no-touch.test.ts`.
