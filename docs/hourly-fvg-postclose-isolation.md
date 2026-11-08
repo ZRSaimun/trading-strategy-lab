@@ -99,3 +99,7 @@ The mirrored bullish/bearish pending-hour regression now supplies an hour-aligne
 ## 8 November 2026 — source-declared exchange volume cannot resolve a missing hour
 
 The bullish/bearish middle-hour gap fixture is rerun with `volumeType: 'exchange'` and `volumeVerified: true` **as caller-supplied declarations only**. Even under that stronger declared volume classification, the missing first-touch wait hour remains `INCOMPLETE_WINDOW` / `MISSING_HOUR`; only one completed wait hour was observed, first-touch volume stays `NOT_EVALUATED`, verified-volume evidence is `INSUFFICIENT_DATA`, and live eligibility remains false. This regression prevents source labels from overriding temporal coverage. It does **not** authenticate exchange-volume identity, data licensing, broker BID/ASK fills, or profitability.
+
+## 8 November 2026 — declared exchange volume cannot reveal future hours
+
+The mirrored middle-gap regression additionally checks the as-of result with two unclosed future hourly candles while the caller claims `volumeType: 'exchange'` and `volumeVerified: true`. The result must match the completed-prefix observation exactly, without reading future OHLC, volume, or minute-coverage getters. A source label is not an independently verified receipt and cannot bypass the completed-hour boundary or repair the missing middle hour. This synthetic assertion does not establish executable broker quotes, authenticated volume, fills, or profitability.
