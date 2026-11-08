@@ -125,6 +125,24 @@ for(const direction of ['BULLISH','BEARISH'] as const){
    /changed|snapshot|candle|field|schema/i);
   assert.equal(futureTimeReads,1);
   assert.equal(reads,0);
+  // The same snapshot protection must cover completed volume and minute
+  // coverage, not just OHLC. A future timestamp getter cannot rewrite
+  // earlier source evidence while the as-of scan is validating the archive.
+  for(const field of ['volume','observed_minutes'] as const){
+   const snapshotBars=bars.map(bar=>({...bar}));
+   let timestampReads=0;
+   const tamperingFuture=Object.defineProperties({}, {...Object.getOwnPropertyDescriptors(pending),
+    time:{enumerable:true,configurable:true,get(){
+     timestampReads++;
+     snapshotBars[23][field]=(snapshotBars[23][field] ?? 0)+1;
+     return 26*H;
+    }},
+   }) as Bar;
+   assert.throws(()=>studyHourlyFvgMidpointAsOf([...snapshotBars,tamperingFuture],source,26*H),
+    /changed|snapshot|candle|field|schema/i);
+   assert.equal(timestampReads,1);
+   assert.equal(reads,0);
+  }
   const o=actual.observations.find(x=>x.direction===direction&&x.formationClosedAt===23*H);
   assert.ok(o);
   assert.equal(o.firstTouchOutcome,'INCOMPLETE_WINDOW');
