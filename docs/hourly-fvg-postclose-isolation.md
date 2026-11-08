@@ -71,3 +71,7 @@ The mirrored bullish/bearish pending-touch test now supplies a future candle wit
 ## 8 November 2026 — invalid future epoch values fail before price access
 
 The mirrored pending-touch fixture now also rejects positive infinity, negative infinity, and an integer above JavaScript's maximum safe integer as future hourly opening timestamps. Property descriptors preserve deliberately throwing pending OHLC, volume and coverage getters, and the regression requires zero reads of those fields. These are malformed archive records, not missing hours or valid completed-bar evidence. The check does not authenticate broker quotes, source volume or profitability; keep the study paper-only.
+
+## 8 November 2026 — additional malformed pending timestamp boundaries
+
+The bullish/bearish pending-touch regression additionally rejects a fractional future UTC hourly opening timestamp (`26H + 0.5` seconds) and an integer below JavaScript's minimum safe integer. The same deliberately throwing future OHLC, volume and minute-coverage accessors must remain unread. This supplements positive unsafe integers and nonfinite values: an invalid row must never be treated as a missing observation or as a completed bar. These are synthetic input-integrity tests only; they do not verify actual source identities, volume receipts, broker BID/ASK execution, or profitability.
