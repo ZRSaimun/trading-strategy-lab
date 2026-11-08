@@ -67,3 +67,7 @@ The mirrored pending-touch regression also supplies a half-hour as-of timestamp 
 ## 8 November 2026 — nonfinite pending-hour timestamp is not missing evidence
 
 The mirrored bullish/bearish pending-touch test now supplies a future candle with a `NaN` hour timestamp while preserving throwing OHLC, volume and coverage accessors through property descriptors (object spread would wrongly evaluate those getters). The study must reject the malformed timestamp rather than silently omit the row or inspect unrevealed prices. This is synthetic input-integrity coverage, not verified market-data provenance, broker execution, or profitability. Confirm exact-head CI before relying on the regression.
+
+## 8 November 2026 — invalid future epoch values fail before price access
+
+The mirrored pending-touch fixture now also rejects positive infinity, negative infinity, and an integer above JavaScript's maximum safe integer as future hourly opening timestamps. Property descriptors preserve deliberately throwing pending OHLC, volume and coverage getters, and the regression requires zero reads of those fields. These are malformed archive records, not missing hours or valid completed-bar evidence. The check does not authenticate broker quotes, source volume or profitability; keep the study paper-only.
