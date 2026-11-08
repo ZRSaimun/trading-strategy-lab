@@ -159,6 +159,21 @@ for(const direction of ['BULLISH','BEARISH'] as const){
    /changed|snapshot|candle|field|schema|chronolog/i);
   assert.equal(retimeReads,1);
   assert.equal(reads,0);
+  // An unclosed row must not rewrite a completed candle's opening price
+  // during timestamp preflight, even if its own OHLC is never consulted.
+  const openingBars=bars.map(bar=>({...bar}));
+  let openingReads=0;
+  const openingFuture=Object.defineProperties({}, {...Object.getOwnPropertyDescriptors(pending),
+   time:{enumerable:true,configurable:true,get(){
+    openingReads++;
+    openingBars[23].open+=1;
+    return 26*H;
+   }},
+  }) as Bar;
+  assert.throws(()=>studyHourlyFvgMidpointAsOf([...openingBars,openingFuture],source,26*H),
+   /changed|snapshot|candle|field|schema|chronolog/i);
+  assert.equal(openingReads,1);
+  assert.equal(reads,0);
   const o=actual.observations.find(x=>x.direction===direction&&x.formationClosedAt===23*H);
   assert.ok(o);
   assert.equal(o.firstTouchOutcome,'INCOMPLETE_WINDOW');
