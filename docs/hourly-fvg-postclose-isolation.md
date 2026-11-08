@@ -127,3 +127,7 @@ The mirrored bullish/bearish pending-hour synthetic regression now also attempts
 ## 8 November 2026 — completed evidence descriptor replacement
 
 The mirrored bullish/bearish pending-hour regression now checks that a future candle timestamp getter cannot replace a completed candle's ordinary `close` data property with a getter, even one returning the unchanged numeric value. The causal as-of scanner must reject the descriptor change without executing that completed-price getter or any future OHLC, volume, or minute-coverage getter. This is in-process schema integrity, not independently authenticated volume, broker BID/ASK execution, observed fills, or profitability. Keep draft, paper-only and verify exact-head CI.
+
+## 8 November 2026 — completed volume and coverage accessor substitution
+
+Mirrored bullish/bearish synthetic tests now check that an unclosed future hourly timestamp accessor cannot replace a previously completed candle's plain `volume` or `observed_minutes` field with a getter, even when the getter would return the original value. The as-of scanner must reject the descriptor mutation without invoking the substituted getter or reading any future OHLC, volume, or coverage accessors. This protects the completed evidence schema; it does not authenticate a provider, supply genuine BID/ASK quotes, or demonstrate trading profitability. The exact-head CI result must be checked separately; keep draft, paper-only, unmerged, and undeployed.
