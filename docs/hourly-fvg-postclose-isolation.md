@@ -111,3 +111,7 @@ The mirrored bullish/bearish middle-gap regression supplies a future hourly `tim
 ## 8 November 2026 — future timestamp cannot rewrite completed volume or coverage
 
 The mirrored bullish/bearish synthetic middle-gap regression extends the historical-snapshot mutation guard beyond completed OHLC: a future candle's timestamp getter attempts to revise either a completed candle's `volume` or `observed_minutes` while the as-of archive is being preflighted. Both cases must fail closed before accessing the future candle's unrevealed OHLC, volume, or coverage. The test asserts the getter runs exactly once and no future market-evidence accessor runs. This validates a software integrity boundary, not independent volume-source authentication, genuine two-sided broker quotes, fills, or profitability. Keep draft, paper-only, unmerged and undeployed; verify exact-head CI.
+
+## 8 November 2026 — future timestamp cannot retime completed source evidence
+
+The mirrored bullish/bearish synthetic middle-gap regression now supplies a future candle's timestamp getter that attempts to rewrite an already completed hourly candle's `time` field. The causal as-of scan must reject the changed historical snapshot, without reading the future candle's OHLC, volume or minute-coverage accessors. A completed bar's identity cannot be revised by a later, unclosed row. This is a software mutation-integrity check, not independently authenticated quotes, volume provenance, observed broker execution or profitability. Keep paper-only and verify exact-head CI.
