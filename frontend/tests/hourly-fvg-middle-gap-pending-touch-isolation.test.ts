@@ -69,6 +69,18 @@ for(const direction of ['BULLISH','BEARISH'] as const){
     /Invalid|hourly|timestamp|candle/i);
    assert.equal(reads,0);
   }
+  // Even a safe, hour-aligned opening can produce an unsafe close epoch.
+  // Preflight must reject that future row before touching unrevealed fields.
+  const lastAlignedSafeOpen=Math.floor((Number.MAX_SAFE_INTEGER-H)/H)*H;
+  const unsafeCloseOpen=lastAlignedSafeOpen+H;
+  assert.ok(Number.isSafeInteger(unsafeCloseOpen));
+  assert.ok(!Number.isSafeInteger(unsafeCloseOpen+H));
+  const unsafeClose=Object.defineProperties({}, {...Object.getOwnPropertyDescriptors(pending),
+   time:{value:unsafeCloseOpen,enumerable:true,configurable:true,writable:true},
+  }) as Bar;
+  assert.throws(()=>studyHourlyFvgMidpointAsOf([...bars,unsafeClose],source,26*H),
+   /Invalid|hourly|timestamp|candle/i);
+  assert.equal(reads,0);
   // A malformed *second* pending hour must fail the entire archive before
   // reading the first pending hour's unrevealed market evidence. Ignoring
   // malformed trailing rows would make a source gap appear trustworthy.
