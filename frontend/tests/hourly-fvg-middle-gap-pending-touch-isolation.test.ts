@@ -143,6 +143,22 @@ for(const direction of ['BULLISH','BEARISH'] as const){
    assert.equal(timestampReads,1);
    assert.equal(reads,0);
   }
+  // A future timestamp accessor cannot rewrite the time identity of an
+  // already completed row. Otherwise a source gap could be relabelled as
+  // continuous after the historical prefix was inspected.
+  const retimedBars=bars.map(bar=>({...bar}));
+  let retimeReads=0;
+  const retimingFuture=Object.defineProperties({}, {...Object.getOwnPropertyDescriptors(pending),
+   time:{enumerable:true,configurable:true,get(){
+    retimeReads++;
+    retimedBars[23].time=24*H;
+    return 26*H;
+   }},
+  }) as Bar;
+  assert.throws(()=>studyHourlyFvgMidpointAsOf([...retimedBars,retimingFuture],source,26*H),
+   /changed|snapshot|candle|field|schema|chronolog/i);
+  assert.equal(retimeReads,1);
+  assert.equal(reads,0);
   const o=actual.observations.find(x=>x.direction===direction&&x.formationClosedAt===23*H);
   assert.ok(o);
   assert.equal(o.firstTouchOutcome,'INCOMPLETE_WINDOW');
