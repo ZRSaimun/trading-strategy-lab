@@ -123,6 +123,10 @@ for(const direction of ['BULLISH','BEARISH'] as const){
   // hour. It is not an independently authenticated exchange receipt.
   const claimedExchange={...source,volumeType:'exchange' as const,volumeVerified:true};
   const claimed=studyHourlyFvgMidpointAsOf(bars,claimedExchange,26*H);
+  // Even caller-declared verified exchange volume must not expose an
+  // unclosed future candle or change the completed-prefix observation.
+  assert.deepEqual(studyHourlyFvgMidpointAsOf([...bars,pending,fartherPending],claimedExchange,26*H),claimed);
+  assert.equal(reads,0);
   const claimedGap=claimed.observations.find(x=>x.direction===direction&&x.formationClosedAt===23*H);
   assert.ok(claimedGap);
   assert.equal(claimedGap.firstTouchOutcome,'INCOMPLETE_WINDOW');
