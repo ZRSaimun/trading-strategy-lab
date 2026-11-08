@@ -47,3 +47,7 @@ The bullish and bearish synthetic middle-gap regressions now append a **complete
 ## 8 November 2026 — observed wait exposure excludes missing middle hours
 
 The mirrored bullish/bearish middle-gap regression now also asserts that `firstTouchObservedWaitBars` remains exactly **one** after a completed first wait-hour non-touch, an absent second hour, and a later completed non-touch. The missing hour is not an observed no-touch or an additional at-risk observation; it remains an explicit `MISSING_HOUR` censor with one unknown slot. This is synthetic accounting integrity only, not evidence of a real session calendar, source continuity, broker fills or profitability.
+
+## 8 November 2026 — censor time remains fixed after a later completed wick
+
+The bullish/bearish missing-middle-hour regression also checks that a subsequently completed midpoint-intersecting wick cannot move the original `MISSING_HOUR` censor observation time (26H) or increase the observed pre-gap wait-bar count (one). A later price intersection cannot retrospectively certify the absent hour as a no-touch. These are synthetic causal accounting assertions, not independent quote or volume verification, execution evidence, or profitability.
