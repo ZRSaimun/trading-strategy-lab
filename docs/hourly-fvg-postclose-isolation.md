@@ -75,3 +75,7 @@ The mirrored pending-touch fixture now also rejects positive infinity, negative 
 ## 8 November 2026 — additional malformed pending timestamp boundaries
 
 The bullish/bearish pending-touch regression additionally rejects a fractional future UTC hourly opening timestamp (`26H + 0.5` seconds) and an integer below JavaScript's minimum safe integer. The same deliberately throwing future OHLC, volume and minute-coverage accessors must remain unread. This supplements positive unsafe integers and nonfinite values: an invalid row must never be treated as a missing observation or as a completed bar. These are synthetic input-integrity tests only; they do not verify actual source identities, volume receipts, broker BID/ASK execution, or profitability.
+
+## Multiple future hours after a middle-hour gap (8 November 2026)
+
+The bullish and bearish synthetic middle-gap regression now appends **two** unclosed hourly candles after the last completed as-of boundary. Both have throwing OHLC, volume and minute-coverage accessors. Neither can repair the earlier missing hour, manufacture a first midpoint touch, or change the completed-prefix observation; the test checks that no future evidence accessor executes. This is a no-lookahead software check, not authenticated broker quotes, source-classified volume, execution evidence or a profitability result.
