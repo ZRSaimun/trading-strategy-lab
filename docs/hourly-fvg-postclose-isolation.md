@@ -123,3 +123,7 @@ The mirrored bullish/bearish synthetic regression additionally checks that an un
 ## 8 November 2026 — completed high/low snapshot isolation
 
 The mirrored bullish/bearish pending-hour synthetic regression now also attempts to mutate each completed candle's `high` and `low` independently from a future row's timestamp getter. The as-of scanner must reject both changes before reading any future OHLC, volume or observed-minute evidence. This closes the remaining price-extreme fields in the completed-snapshot mutation test matrix; it does not authenticate source quotes, actual broker execution, volume provenance or trading returns. Keep the PR draft and verify exact-head CI.
+
+## 8 November 2026 — completed evidence descriptor replacement
+
+The mirrored bullish/bearish pending-hour regression now checks that a future candle timestamp getter cannot replace a completed candle's ordinary `close` data property with a getter, even one returning the unchanged numeric value. The causal as-of scanner must reject the descriptor change without executing that completed-price getter or any future OHLC, volume, or minute-coverage getter. This is in-process schema integrity, not independently authenticated volume, broker BID/ASK execution, observed fills, or profitability. Keep draft, paper-only and verify exact-head CI.
