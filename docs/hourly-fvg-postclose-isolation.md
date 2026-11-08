@@ -83,3 +83,7 @@ The bullish and bearish synthetic middle-gap regression now appends **two** uncl
 ## Malformed second pending hour (8 November 2026)
 
 The bullish and bearish middle-gap regression also appends two not-yet-eligible hourly candles, with an invalid timestamp on the second. The as-of scan must reject the malformed archive without reading OHLC, volume or minute coverage from either pending candle. A valid two-hour pending suffix remains observationally identical to the completed prefix. These synthetic checks protect causal source-input integrity; they do not authenticate market data, prove midpoint fills or demonstrate profitability.
+
+## 8 November 2026 — duplicate pending-hour timestamps
+
+The mirrored synthetic middle-gap regression rejects two still-unclosed hourly candle records with the same UTC timestamp. Duplicate future rows are an invalid archive, not a reason to choose a preferred row or infer uninterrupted coverage. Both pending rows expose throwing OHLC, volume and minute-coverage accessors, which must not be read before rejection. This protects causal input integrity only; it supplies no authenticated broker BID/ASK quote, volume-source receipt, fill or profitability evidence. Keep the PR draft and check CI at the exact commit.
