@@ -40,6 +40,9 @@ for(const direction of ['BULLISH','BEARISH'] as const){
   assert.equal(o.firstTouchOutcome,'INCOMPLETE_WINDOW');
   assert.equal(o.firstTouchCensorReason,'MISSING_HOUR');
   assert.equal(o.firstTouchCensorMissingHourSlots,1);
+  // Only hour 23 was observed after formation. Missing hour 24 must not
+  // inflate the observed risk set or be counted as a known no-touch.
+  assert.equal(o.firstTouchObservedWaitBars,1);
   assert.equal(o.firstTouchCensorObservedAt,26*H);
   assert.equal(o.firstTouchClosedAt,null);
   assert.equal(o.gates.midpointTouch,'INSUFFICIENT_DATA');
