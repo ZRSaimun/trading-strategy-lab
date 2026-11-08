@@ -119,5 +119,17 @@ for(const direction of ['BULLISH','BEARISH'] as const){
   assert.equal(o.volumeEvidenceReason,'NOT_EVALUATED');
   assert.equal(o.gates.verifiedVolume,'INSUFFICIENT_DATA');
   assert.equal(o.eligibleForLiveTrading,false);
+  // A source *claim* of exchange volume cannot repair an unobserved wait
+  // hour. It is not an independently authenticated exchange receipt.
+  const claimedExchange={...source,volumeType:'exchange' as const,volumeVerified:true};
+  const claimed=studyHourlyFvgMidpointAsOf(bars,claimedExchange,26*H);
+  const claimedGap=claimed.observations.find(x=>x.direction===direction&&x.formationClosedAt===23*H);
+  assert.ok(claimedGap);
+  assert.equal(claimedGap.firstTouchOutcome,'INCOMPLETE_WINDOW');
+  assert.equal(claimedGap.firstTouchCensorReason,'MISSING_HOUR');
+  assert.equal(claimedGap.firstTouchObservedWaitBars,1);
+  assert.equal(claimedGap.volumeEvidenceReason,'NOT_EVALUATED');
+  assert.equal(claimedGap.gates.verifiedVolume,'INSUFFICIENT_DATA');
+  assert.equal(claimedGap.eligibleForLiveTrading,false);
  });
 }
