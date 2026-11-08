@@ -53,7 +53,7 @@ for(const direction of ['BULLISH','BEARISH'] as const){
   // fail before accessing any pending OHLC/volume/coverage getter. Reject
   // both signs of infinity as well; none is a missing-hour observation.
   for(const badTime of [Number.POSITIVE_INFINITY,Number.NEGATIVE_INFINITY,
-   Number.MAX_SAFE_INTEGER+1]){
+   Number.MAX_SAFE_INTEGER+1,Number.MIN_SAFE_INTEGER-1,26*H+0.5]){
    const invalid=Object.defineProperties({}, {...Object.getOwnPropertyDescriptors(pending),
     time:{value:badTime,enumerable:true,configurable:true,writable:true},
    }) as Bar;
