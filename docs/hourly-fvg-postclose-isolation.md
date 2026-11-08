@@ -103,3 +103,7 @@ The bullish/bearish middle-hour gap fixture is rerun with `volumeType: 'exchange
 ## 8 November 2026 — declared exchange volume cannot reveal future hours
 
 The mirrored middle-gap regression additionally checks the as-of result with two unclosed future hourly candles while the caller claims `volumeType: 'exchange'` and `volumeVerified: true`. The result must match the completed-prefix observation exactly, without reading future OHLC, volume, or minute-coverage getters. A source label is not an independently verified receipt and cannot bypass the completed-hour boundary or repair the missing middle hour. This synthetic assertion does not establish executable broker quotes, authenticated volume, fills, or profitability.
+
+## 8 November 2026 — future timestamp cannot rewrite completed OHLC
+
+The mirrored bullish/bearish middle-gap regression supplies a future hourly `time` accessor that mutates an already completed candle's close while the as-of scan reads its timestamp. The study must reject the revised completed-row descriptor rather than return a result computed from an inconsistent historical snapshot. The future row's OHLC, volume and observed-minute accessors remain unread. This is a synthetic mutation-isolation regression; it neither authenticates BID/ASK quotes nor establishes volume provenance, broker execution or profitability. Keep draft, paper-only, unmerged and undeployed; verify the exact commit's CI before treating the regression as passing.
