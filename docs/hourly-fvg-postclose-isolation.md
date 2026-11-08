@@ -95,3 +95,7 @@ The mirrored bullish/bearish middle-gap synthetic regression rejects two individ
 ## 8 November 2026 — safe opening with unsafe completed close
 
 The mirrored bullish/bearish pending-hour regression now supplies an hour-aligned future opening timestamp that is itself a JavaScript safe integer, but whose computed hourly close is not. The as-of scan must reject the row without reading its unrevealed OHLC, volume or minute-coverage getters. A safe opening alone is insufficient when downstream observations use close epochs. This synthetic boundary test does not verify authentic broker data, execution or profitability.
+
+## 8 November 2026 — source-declared exchange volume cannot resolve a missing hour
+
+The bullish/bearish middle-hour gap fixture is rerun with `volumeType: 'exchange'` and `volumeVerified: true` **as caller-supplied declarations only**. Even under that stronger declared volume classification, the missing first-touch wait hour remains `INCOMPLETE_WINDOW` / `MISSING_HOUR`; only one completed wait hour was observed, first-touch volume stays `NOT_EVALUATED`, verified-volume evidence is `INSUFFICIENT_DATA`, and live eligibility remains false. This regression prevents source labels from overriding temporal coverage. It does **not** authenticate exchange-volume identity, data licensing, broker BID/ASK fills, or profitability.
