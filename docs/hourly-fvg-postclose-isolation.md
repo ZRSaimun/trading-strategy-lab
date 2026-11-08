@@ -43,3 +43,7 @@ The mirrored bullish/bearish regression in `frontend/tests/hourly-fvg-middle-gap
 ## 8 November 2026 — later completed wick does not undo earlier missing middle hour
 
 The bullish and bearish synthetic middle-gap regressions now append a **completed midpoint-intersecting wick** after a completed non-touch successor, with an earlier unobserved hourly slot between formation and successor. Even after the later wick closes, the first-touch ordering is unknowable: the result must retain `INCOMPLETE_WINDOW` / `MISSING_HOUR` with one missing slot, no established first-touch close, insufficient midpoint/verified-volume evidence and no live-trading eligibility. The tests compare the already-censored prefix to the longer completed sequence. This only checks software censoring; it is not evidence of genuine quotes, authentic volume, fills or returns. See `frontend/tests/hourly-fvg-middle-gap-later-no-touch.test.ts`.
+
+## 8 November 2026 — observed wait exposure excludes missing middle hours
+
+The mirrored bullish/bearish middle-gap regression now also asserts that `firstTouchObservedWaitBars` remains exactly **one** after a completed first wait-hour non-touch, an absent second hour, and a later completed non-touch. The missing hour is not an observed no-touch or an additional at-risk observation; it remains an explicit `MISSING_HOUR` censor with one unknown slot. This is synthetic accounting integrity only, not evidence of a real session calendar, source continuity, broker fills or profitability.
