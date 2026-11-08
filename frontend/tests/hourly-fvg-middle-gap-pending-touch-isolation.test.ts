@@ -174,6 +174,24 @@ for(const direction of ['BULLISH','BEARISH'] as const){
    /changed|snapshot|candle|field|schema|chronolog/i);
   assert.equal(openingReads,1);
   assert.equal(reads,0);
+  // High/low are independent completed-bar evidence. A pending timestamp
+  // accessor must not revise either extreme after the completed snapshot was
+  // captured, even though its own unrevealed market fields remain untouched.
+  for(const field of ['high','low'] as const){
+   const extremeBars=bars.map(bar=>({...bar}));
+   let timeReads=0;
+   const extremeFuture=Object.defineProperties({}, {...Object.getOwnPropertyDescriptors(pending),
+    time:{enumerable:true,configurable:true,get(){
+     timeReads++;
+     extremeBars[23][field]+=field==='high'?1:-1;
+     return 26*H;
+    }},
+   }) as Bar;
+   assert.throws(()=>studyHourlyFvgMidpointAsOf([...extremeBars,extremeFuture],source,26*H),
+    /changed|snapshot|candle|field|schema|chronolog/i);
+   assert.equal(timeReads,1);
+   assert.equal(reads,0);
+  }
   const o=actual.observations.find(x=>x.direction===direction&&x.formationClosedAt===23*H);
   assert.ok(o);
   assert.equal(o.firstTouchOutcome,'INCOMPLETE_WINDOW');
