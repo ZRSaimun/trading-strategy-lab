@@ -44,7 +44,9 @@ for(const direction of ['BULLISH','BEARISH'] as const){
   assert.equal(reads,0);
   // A malformed future timestamp cannot be silently dropped to make an
   // incomplete source archive appear complete. Reject before touching OHLC.
-  const malformed={...pending,time:Number.NaN} as Bar;
+  const malformed=Object.defineProperties({}, {...Object.getOwnPropertyDescriptors(pending),
+   time:{value:Number.NaN,enumerable:true,configurable:true,writable:true},
+  }) as Bar;
   assert.throws(()=>studyHourlyFvgMidpointAsOf([...bars,malformed],source,26*H));
   assert.equal(reads,0);
   const o=actual.observations.find(x=>x.direction===direction&&x.formationClosedAt===23*H);
