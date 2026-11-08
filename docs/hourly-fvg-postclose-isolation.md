@@ -87,3 +87,7 @@ The bullish and bearish middle-gap regression also appends two not-yet-eligible 
 ## 8 November 2026 — duplicate pending-hour timestamps
 
 The mirrored synthetic middle-gap regression rejects two still-unclosed hourly candle records with the same UTC timestamp. Duplicate future rows are an invalid archive, not a reason to choose a preferred row or infer uninterrupted coverage. Both pending rows expose throwing OHLC, volume and minute-coverage accessors, which must not be read before rejection. This protects causal input integrity only; it supplies no authenticated broker BID/ASK quote, volume-source receipt, fill or profitability evidence. Keep the PR draft and check CI at the exact commit.
+
+## 8 November 2026 — reversed future hourly archive ordering
+
+The mirrored bullish/bearish middle-gap synthetic regression rejects two individually UTC-hour-aligned but reverse-ordered future hourly rows before reading either row's OHLC, volume or observed-minute accessors. Chronological ordering is required for a causal archive even when both rows are beyond the as-of boundary. This is an input-integrity test only; it does not establish broker data authenticity, first-touch fills or strategy profitability.
