@@ -49,6 +49,18 @@ for(const direction of ['BULLISH','BEARISH'] as const){
   }) as Bar;
   assert.throws(()=>studyHourlyFvgMidpointAsOf([...bars,malformed],source,26*H));
   assert.equal(reads,0);
+  // An integer-valued future timestamp outside the safe epoch range must
+  // fail before accessing any pending OHLC/volume/coverage getter. Reject
+  // both signs of infinity as well; none is a missing-hour observation.
+  for(const badTime of [Number.POSITIVE_INFINITY,Number.NEGATIVE_INFINITY,
+   Number.MAX_SAFE_INTEGER+1]){
+   const invalid=Object.defineProperties({}, {...Object.getOwnPropertyDescriptors(pending),
+    time:{value:badTime,enumerable:true,configurable:true,writable:true},
+   }) as Bar;
+   assert.throws(()=>studyHourlyFvgMidpointAsOf([...bars,invalid],source,26*H),
+    /Invalid|hourly|timestamp|candle/i);
+   assert.equal(reads,0);
+  }
   const o=actual.observations.find(x=>x.direction===direction&&x.formationClosedAt===23*H);
   assert.ok(o);
   assert.equal(o.firstTouchOutcome,'INCOMPLETE_WINDOW');
