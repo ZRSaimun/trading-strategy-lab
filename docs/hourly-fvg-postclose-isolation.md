@@ -91,3 +91,7 @@ The mirrored synthetic middle-gap regression rejects two still-unclosed hourly c
 ## 8 November 2026 — reversed future hourly archive ordering
 
 The mirrored bullish/bearish middle-gap synthetic regression rejects two individually UTC-hour-aligned but reverse-ordered future hourly rows before reading either row's OHLC, volume or observed-minute accessors. Chronological ordering is required for a causal archive even when both rows are beyond the as-of boundary. This is an input-integrity test only; it does not establish broker data authenticity, first-touch fills or strategy profitability.
+
+## 8 November 2026 — safe opening with unsafe completed close
+
+The mirrored bullish/bearish pending-hour regression now supplies an hour-aligned future opening timestamp that is itself a JavaScript safe integer, but whose computed hourly close is not. The as-of scan must reject the row without reading its unrevealed OHLC, volume or minute-coverage getters. A safe opening alone is insufficient when downstream observations use close epochs. This synthetic boundary test does not verify authentic broker data, execution or profitability.
