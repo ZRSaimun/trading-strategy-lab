@@ -123,6 +123,10 @@ for(const direction of ['BULLISH','BEARISH'] as const){
   assert.equal(after.firstTouchOutcome,'INCOMPLETE_WINDOW');
   assert.equal(after.firstTouchCensorReason,'MISSING_HOUR');
   assert.equal(after.firstTouchCensorMissingHourSlots,1);
+  // The later wick cannot retroactively expand the observed pre-gap risk set
+  // or move the time at which the missing slot first became observable.
+  assert.equal(after.firstTouchObservedWaitBars,1);
+  assert.equal(after.firstTouchCensorObservedAt,26*H);
   assert.equal(after.firstTouchClosedAt,null);
   assert.equal(after.gates.midpointTouch,'INSUFFICIENT_DATA');
   assert.equal(after.gates.verifiedVolume,'INSUFFICIENT_DATA');
