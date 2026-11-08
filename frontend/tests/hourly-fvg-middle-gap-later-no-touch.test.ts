@@ -133,3 +133,44 @@ for(const direction of ['BULLISH','BEARISH'] as const){
   assert.equal(after.eligibleForLiveTrading,false);
  });
 }
+
+for(const direction of ['BULLISH','BEARISH'] as const){
+ test(`an unclosed later ${direction} wick cannot rewrite an already censored middle-hour gap`,()=>{
+  const bullish=direction==='BULLISH';
+  const bars:Bar[]=Array.from({length:21},(_,i)=>({
+   time:i*H,open:bullish?100:101,high:bullish?101:102,
+   low:bullish?99:100,close:bullish?100:101,
+   volume:10,observed_minutes:60,
+  }));
+  bars.push(...(bullish?[
+   {time:21*H,open:102,high:105,low:101,close:104,volume:10,observed_minutes:60},
+   {time:22*H,open:104,high:106,low:103,close:105,volume:10,observed_minutes:60},
+   {time:23*H,open:104,high:105,low:103,close:104,volume:10,observed_minutes:60},
+   {time:25*H,open:104,high:105,low:103,close:104,volume:10,observed_minutes:60},
+  ]:[
+   {time:21*H,open:99,high:100,low:96,close:97,volume:10,observed_minutes:60},
+   {time:22*H,open:97,high:98,low:95,close:96,volume:10,observed_minutes:60},
+   {time:23*H,open:96,high:97,low:95,close:96,volume:10,observed_minutes:60},
+   {time:25*H,open:96,high:97,low:95,close:96,volume:10,observed_minutes:60},
+  ]));
+  const prefix=studyHourlyFvgMidpointAsOf(bars,source,26*H);
+  const forbidden=()=>{throw Error('unclosed later wick data was inspected');};
+  const pending={
+   time:26*H,
+   get open(){return forbidden() as number;},
+   get high(){return forbidden() as number;},
+   get low(){return forbidden() as number;},
+   get close(){return forbidden() as number;},
+   get volume(){return forbidden() as number;},
+   get observed_minutes(){return forbidden() as number;},
+  } as Bar;
+  const actual=studyHourlyFvgMidpointAsOf([...bars,pending],source,26*H);
+  assert.deepEqual(actual,prefix,'unclosed later candle must not change any completed-prefix evidence');
+  const observed=actual.observations.find(o=>o.direction===direction&&o.formationClosedAt===23*H);
+  assert.ok(observed);
+  assert.equal(observed.firstTouchCensorReason,'MISSING_HOUR');
+  assert.equal(observed.firstTouchCensorObservedAt,26*H);
+  assert.equal(observed.firstTouchObservedWaitBars,1);
+  assert.equal(observed.eligibleForLiveTrading,false);
+ });
+}
