@@ -37,6 +37,10 @@ for(const direction of ['BULLISH','BEARISH'] as const){
   } as Bar;
   const actual=studyHourlyFvgMidpointAsOf([...bars,pending],source,26*H);
   assert.deepEqual(actual,prefix);
+  // Halfway through the pending hour, its wick and volume are still unavailable.
+  // An intrabar as-of timestamp must not promote this candle to closed evidence.
+  const halfway=studyHourlyFvgMidpointAsOf([...bars,pending],source,26*H+H/2);
+  assert.deepEqual(halfway,studyHourlyFvgMidpointAsOf(bars,source,26*H+H/2));
   assert.equal(reads,0);
   const o=actual.observations.find(x=>x.direction===direction&&x.formationClosedAt===23*H);
   assert.ok(o);
