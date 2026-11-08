@@ -79,3 +79,7 @@ The bullish/bearish pending-touch regression additionally rejects a fractional f
 ## Multiple future hours after a middle-hour gap (8 November 2026)
 
 The bullish and bearish synthetic middle-gap regression now appends **two** unclosed hourly candles after the last completed as-of boundary. Both have throwing OHLC, volume and minute-coverage accessors. Neither can repair the earlier missing hour, manufacture a first midpoint touch, or change the completed-prefix observation; the test checks that no future evidence accessor executes. This is a no-lookahead software check, not authenticated broker quotes, source-classified volume, execution evidence or a profitability result.
+
+## Malformed second pending hour (8 November 2026)
+
+The bullish and bearish middle-gap regression also appends two not-yet-eligible hourly candles, with an invalid timestamp on the second. The as-of scan must reject the malformed archive without reading OHLC, volume or minute coverage from either pending candle. A valid two-hour pending suffix remains observationally identical to the completed prefix. These synthetic checks protect causal source-input integrity; they do not authenticate market data, prove midpoint fills or demonstrate profitability.
