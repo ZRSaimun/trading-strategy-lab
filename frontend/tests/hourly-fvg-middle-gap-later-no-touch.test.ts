@@ -87,3 +87,42 @@ for(const direction of ['BULLISH','BEARISH'] as const){
   assert.equal(pick(asOf)?.eligibleForLiveTrading,false);
  });
 }
+
+for(const direction of ['BULLISH','BEARISH'] as const){
+ test(`a still-later completed ${direction} midpoint wick cannot erase an earlier missing middle hour`,()=>{
+  const bullish=direction==='BULLISH';
+  const bars:Bar[]=Array.from({length:21},(_,i)=>({
+   time:i*H,open:bullish?100:101,high:bullish?101:102,
+   low:bullish?99:100,close:bullish?100:101,
+   volume:10,observed_minutes:60,
+  }));
+  bars.push(...(bullish?[
+   {time:21*H,open:102,high:105,low:101,close:104,volume:10,observed_minutes:60},
+   {time:22*H,open:104,high:106,low:103,close:105,volume:10,observed_minutes:60},
+   {time:23*H,open:104,high:105,low:103,close:104,volume:10,observed_minutes:60},
+   {time:25*H,open:104,high:105,low:103,close:104,volume:10,observed_minutes:60},
+   {time:26*H,open:104,high:105,low:100,close:104,volume:10,observed_minutes:60},
+  ]:[
+   {time:21*H,open:99,high:100,low:96,close:97,volume:10,observed_minutes:60},
+   {time:22*H,open:97,high:98,low:95,close:96,volume:10,observed_minutes:60},
+   {time:23*H,open:96,high:97,low:95,close:96,volume:10,observed_minutes:60},
+   {time:25*H,open:96,high:97,low:95,close:96,volume:10,observed_minutes:60},
+   {time:26*H,open:96,high:102,low:95,close:96,volume:10,observed_minutes:60},
+  ]));
+  const first=studyHourlyFvgMidpointAsOf(bars.slice(0,-1),source,26*H);
+  const later=studyHourlyFvgMidpointAsOf(bars,source,27*H);
+  const pick=(r:typeof first)=>r.observations.find(
+   o=>o.direction===direction&&o.formationClosedAt===23*H);
+  const before=pick(first),after=pick(later);
+  assert.ok(before);
+  assert.ok(after);
+  assert.equal(before.firstTouchCensorReason,'MISSING_HOUR');
+  assert.equal(after.firstTouchOutcome,'INCOMPLETE_WINDOW');
+  assert.equal(after.firstTouchCensorReason,'MISSING_HOUR');
+  assert.equal(after.firstTouchCensorMissingHourSlots,1);
+  assert.equal(after.firstTouchClosedAt,null);
+  assert.equal(after.gates.midpointTouch,'INSUFFICIENT_DATA');
+  assert.equal(after.gates.verifiedVolume,'INSUFFICIENT_DATA');
+  assert.equal(after.eligibleForLiveTrading,false);
+ });
+}
