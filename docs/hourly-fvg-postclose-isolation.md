@@ -51,3 +51,7 @@ The mirrored bullish/bearish middle-gap regression now also asserts that `firstT
 ## 8 November 2026 — censor time remains fixed after a later completed wick
 
 The bullish/bearish missing-middle-hour regression also checks that a subsequently completed midpoint-intersecting wick cannot move the original `MISSING_HOUR` censor observation time (26H) or increase the observed pre-gap wait-bar count (one). A later price intersection cannot retrospectively certify the absent hour as a no-touch. These are synthetic causal accounting assertions, not independent quote or volume verification, execution evidence, or profitability.
+
+## Still-open later wick after observed middle-hour gap (8 November 2026)
+
+The bullish and bearish synthetic regression in `frontend/tests/hourly-fvg-middle-gap-later-no-touch.test.ts` now also appends a still-open later candle after a missing middle hour has already been exposed by a completed successor. At that candle's opening boundary, its OHLC, volume and minute-coverage getters must not be accessed; the entire as-of observation must match the completed prefix. The prior `MISSING_HOUR` censor timestamp and one genuinely observed wait bar remain unchanged. This is a causal isolation test only: source volume remains unverified, BID-only geometry is not a two-sided executable broker quote, and no profitability or live eligibility is established.
