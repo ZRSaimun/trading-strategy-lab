@@ -192,6 +192,27 @@ for(const direction of ['BULLISH','BEARISH'] as const){
    assert.equal(timeReads,1);
    assert.equal(reads,0);
   }
+  // A future timestamp accessor must not replace a completed source field
+  // with a getter, even when that getter would return the original value.
+  // A data-to-accessor change invalidates the captured evidence schema.
+  const descriptorBars=bars.map(bar=>({...bar}));
+  let descriptorTimeReads=0;
+  let completedCloseReads=0;
+  const originalClose=descriptorBars[23].close;
+  const descriptorFuture=Object.defineProperties({}, {...Object.getOwnPropertyDescriptors(pending),
+   time:{enumerable:true,configurable:true,get(){
+    descriptorTimeReads++;
+    Object.defineProperty(descriptorBars[23],'close',{
+     enumerable:true,configurable:true,get(){completedCloseReads++;return originalClose;},
+    });
+    return 26*H;
+   }},
+  }) as Bar;
+  assert.throws(()=>studyHourlyFvgMidpointAsOf([...descriptorBars,descriptorFuture],source,26*H),
+   /changed|snapshot|candle|field|schema|accessor/i);
+  assert.equal(descriptorTimeReads,1);
+  assert.equal(completedCloseReads,0);
+  assert.equal(reads,0);
   const o=actual.observations.find(x=>x.direction===direction&&x.formationClosedAt===23*H);
   assert.ok(o);
   assert.equal(o.firstTouchOutcome,'INCOMPLETE_WINDOW');
