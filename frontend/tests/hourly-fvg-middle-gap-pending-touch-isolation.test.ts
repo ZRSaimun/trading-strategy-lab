@@ -69,6 +69,15 @@ for(const direction of ['BULLISH','BEARISH'] as const){
     /Invalid|hourly|timestamp|candle/i);
    assert.equal(reads,0);
   }
+  // A malformed *second* pending hour must fail the entire archive before
+  // reading the first pending hour's unrevealed market evidence. Ignoring
+  // malformed trailing rows would make a source gap appear trustworthy.
+  const invalidSecond=Object.defineProperties({}, {...Object.getOwnPropertyDescriptors(pending),
+   time:{value:27*H+1,enumerable:true,configurable:true,writable:true},
+  }) as Bar;
+  assert.throws(()=>studyHourlyFvgMidpointAsOf([...bars,pending,invalidSecond],source,26*H),
+   /Invalid|hourly|timestamp|candle/i);
+  assert.equal(reads,0);
   const o=actual.observations.find(x=>x.direction===direction&&x.formationClosedAt===23*H);
   assert.ok(o);
   assert.equal(o.firstTouchOutcome,'INCOMPLETE_WINDOW');
