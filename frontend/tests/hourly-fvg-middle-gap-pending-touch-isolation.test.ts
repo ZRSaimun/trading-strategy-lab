@@ -37,6 +37,14 @@ for(const direction of ['BULLISH','BEARISH'] as const){
   } as Bar;
   const actual=studyHourlyFvgMidpointAsOf([...bars,pending],source,26*H);
   assert.deepEqual(actual,prefix);
+  // Multiple not-yet-eligible future candles cannot turn a historical
+  // missing-hour censor into an observed first touch. Neither accessor may
+  // be consulted even when the archive extends beyond the immediate hour.
+  const fartherPending=Object.defineProperties({}, {...Object.getOwnPropertyDescriptors(pending),
+   time:{value:27*H,enumerable:true,configurable:true,writable:true},
+  }) as Bar;
+  assert.deepEqual(studyHourlyFvgMidpointAsOf([...bars,pending,fartherPending],source,26*H),prefix);
+  assert.equal(reads,0);
   // An intrabar timestamp is not a completed hourly close: reject it before
   // consulting any pending price, volume or minute-coverage accessor.
   assert.throws(()=>studyHourlyFvgMidpointAsOf([...bars,pending],source,26*H+H/2),
