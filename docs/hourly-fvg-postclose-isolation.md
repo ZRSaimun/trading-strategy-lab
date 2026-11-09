@@ -159,3 +159,7 @@ The mirrored bullish/bearish synthetic pending-hour regression now also rejects 
 ## Completed archive-slot replacement during future timestamp preflight (9 November 2026)
 
 Mirrored synthetic bullish/bearish tests now replace a previously completed hourly candle **array slot** while a still-open future candle's timestamp is read. The as-of study must reject this changed row identity even if the original completed row's property descriptors remain unchanged; future OHLC, volume and observed-minute accessors must remain unread. This is a fail-closed archive-integrity regression, not independent source authentication, executable BID/ASK midpoint-fill evidence or a profitability claim. Check the new exact-head CI before treating the regression as verified.
+
+## 9 November 2026 — equivalent completed-row replacement
+
+The mirrored bullish/bearish pending-hour regression now rejects replacement of a previously captured completed candle's array slot with a **new object holding identical field values**. This checks completed-prefix row identity separately from numeric changes and property-descriptor mutation. The still-open candle's OHLC, volume and observed-minute getters must remain unread. This is synthetic source-integrity coverage, not verified broker data, trading execution, or profitability. Verify CI for the exact commit; keep the PR draft, paper-only, unmerged and undeployed.
