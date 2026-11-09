@@ -221,3 +221,7 @@ Mirrored bullish/bearish synthetic regressions now require the causal 1H FVG as-
 ## 9 November 2026 — direction-specific completed-close revision fixture
 
 The mirrored completed-hour close-mutation regression now changes the bullish fixture's closed candle from 100 to 100.5 and the bearish fixture's closed candle from 101 to 101.5, rather than assigning both directions the same replacement close. Both cases must reject the changed captured archive before accessing any unclosed future market fields. These are synthetic integrity tests only; they do not establish real broker data provenance, trading edge or profitability.
+
+## 9 November 2026 — completed wick extremes are immutable during pending-hour preflight
+
+Mirrored bullish/bearish synthetic tests now check both `high` and `low` independently: an unclosed future hourly candle's timestamp getter cannot rewrite an already captured completed-hour wick while leaving its timestamp, other prices, volume and minute coverage intact. Such a revision could change a historical midpoint-touch decision. The causal as-of FVG scanner must reject the altered completed archive without reading any future OHLC, volume or coverage getter. This tests snapshot integrity, **not** actual broker BID/ASK fills, authenticated volume provenance, or trading profitability. Verify CI against the exact new head before claiming success; remain draft, paper-only, unmerged and undeployed.
