@@ -395,6 +395,29 @@ for(const direction of ['BULLISH','BEARISH'] as const){
    get volume(){return forbidden();},
    get observed_minutes(){return forbidden();},
   }) as Bar;
+  // A byte-for-byte-equivalent replacement is still a new archive row.
+  // Reject it rather than relying solely on matching OHLC or descriptors.
+  const identicalRows=rows.map(row=>({...row}));
+  let identicalTimeReads=0;
+  let identicalMarketReads=0;
+  const identicalPending=({
+   get time(){
+    identicalTimeReads++;
+    identicalRows[23]={...identicalRows[23]};
+    return 26*H;
+   },
+   get open(){identicalMarketReads++;throw Error('future open accessed');},
+   get high(){identicalMarketReads++;throw Error('future high accessed');},
+   get low(){identicalMarketReads++;throw Error('future low accessed');},
+   get close(){identicalMarketReads++;throw Error('future close accessed');},
+   get volume(){identicalMarketReads++;throw Error('future volume accessed');},
+   get observed_minutes(){identicalMarketReads++;throw Error('future coverage accessed');},
+  }) as Bar;
+  identicalRows.push(identicalPending);
+  assert.throws(()=>studyHourlyFvgMidpointAsOf(identicalRows,source,26*H),
+   /changed|snapshot|archive|slot|candle|schema/i);
+  assert.equal(identicalTimeReads,1);
+  assert.equal(identicalMarketReads,0);
   hostileRows.push(pending);
   assert.throws(()=>studyHourlyFvgMidpointAsOf(hostileRows,source,26*H),
    /changed|snapshot|archive|slot|candle|schema/i);
