@@ -175,3 +175,7 @@ Mirrored bullish/bearish synthetic regressions now swap two already-completed ho
 ## Completed archive index visibility regression (9 November 2026)
 
 A synthetic still-open future candle's timestamp getter can attempt to make an already-completed hourly archive index non-enumerable after the completed prefix is captured. The bullish and bearish regression cases require the causal as-of scan to reject the changed archive shape without reading future OHLC, volume, or minute-coverage accessors. This is a source-integrity assertion, not evidence of an executable broker quote, authenticated volume, or trading profitability. CI must be checked against the exact new commit.
+
+## 9 November 2026 — completed archive slot writability
+
+Mirrored bullish/bearish synthetic regression cases now require the causal 1H FVG as-of scan to reject a still-open candle's timestamp getter changing a completed archive index from writable to non-writable. The row and its numeric fields are unchanged, but the captured array-slot descriptor is no longer the same historical evidence. The regression also requires that no future OHLC, volume, or observed-minute getter executes. This complements the archive-index visibility regression; it is not an authenticated volume receipt, executable broker quote, or profitability result. Verify CI on the exact new head before treating this assertion as passing. Remain draft, paper-only, unmerged and undeployed.
