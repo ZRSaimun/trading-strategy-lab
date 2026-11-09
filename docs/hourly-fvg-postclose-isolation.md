@@ -147,3 +147,7 @@ The mirrored bullish/bearish synthetic regression additionally rejects an unclos
 ## 9 November 2026 — completed opening/extreme deletion guard
 
 The mirrored bullish/bearish synthetic pending-touch regression now deletes each of a previously completed candle's `open`, `high`, and `low` fields in turn from a still-open future candle's timestamp getter. The causal as-of preflight must reject the changed completed snapshot without consulting any unrevealed future OHLC, volume, or observed-minute getter. This closes the deletion coverage alongside existing `close`, volume, and minute-coverage checks. It tests archive integrity only: neither source authenticity, real BID/ASK fills, nor profitability is established. Verify the new exact-head CI independently before treating the regression as passing.
+
+## 9 November 2026 — completed evidence descriptor-flag stability
+
+The mirrored synthetic bullish/bearish pending-hour regression now checks that a still-open future candle's timestamp accessor cannot silently change a previously completed candle's `enumerable` or `writable` descriptor flag on any of `time`, OHLC, `volume`, or `observed_minutes`, even when the underlying numeric value stays unchanged. The as-of study must reject the changed historical snapshot without reading future market fields. This protects archive-schema integrity only: it does not authenticate volume, establish a broker fill, or prove profitability. Keep the research paper-only and verify the exact-head CI before treating the regression as passing.
