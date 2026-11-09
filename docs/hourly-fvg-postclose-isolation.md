@@ -155,3 +155,7 @@ The mirrored synthetic bullish/bearish pending-hour regression now checks that a
 ## 9 November 2026 — completed field configurability integrity
 
 The mirrored bullish/bearish synthetic pending-hour regression now also rejects a still-open future timestamp accessor changing the `configurable` descriptor of any completed `time`, OHLC, `volume`, or `observed_minutes` field while leaving its numeric value intact. Together with the existing enumerable/writable checks, this covers all three ordinary data-property descriptor flags. Future unrevealed OHLC, volume and coverage getters remain forbidden. This is an archive-integrity regression, not independently authenticated source data, broker execution, a trading signal, or profitability evidence. Verify exact-head CI separately; keep draft, paper-only, unmerged and undeployed.
+
+## Completed archive-slot replacement during future timestamp preflight (9 November 2026)
+
+Mirrored synthetic bullish/bearish tests now replace a previously completed hourly candle **array slot** while a still-open future candle's timestamp is read. The as-of study must reject this changed row identity even if the original completed row's property descriptors remain unchanged; future OHLC, volume and observed-minute accessors must remain unread. This is a fail-closed archive-integrity regression, not independent source authentication, executable BID/ASK midpoint-fill evidence or a profitability claim. Check the new exact-head CI before treating the regression as verified.
