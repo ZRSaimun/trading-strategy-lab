@@ -733,7 +733,7 @@ for(const direction of ['BULLISH','BEARISH'] as const){
     timeReads++;
     // A pending timestamp cannot retroactively alter a closed candle's
     // close, which can change the historical FVG and rejection decision.
-    rows[23].close=bull?100.5:100.5;
+    rows[23].close=bull?100.5:101.5;
     return 26*H;
    },
    get open(){return forbidden();},get high(){return forbidden();},
