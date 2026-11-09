@@ -319,6 +319,26 @@ for(const direction of ['BULLISH','BEARISH'] as const){
    assert.equal(substitutedReads,0);
    assert.equal(reads,0);
   }
+  // A future timestamp getter cannot change the descriptor flags of a
+  // completed historical field while preserving its value. A frozen or
+  // hidden field is not the same source schema as the captured plain row.
+  for(const field of ['time','open','high','low','close','volume','observed_minutes'] as const){
+   for(const changedFlag of ['enumerable','writable'] as const){
+    const immutableBars=bars.map(bar=>({...bar}));
+    let futureReads=0;
+    const hostileFuture=Object.defineProperties({}, {...Object.getOwnPropertyDescriptors(pending),
+     time:{enumerable:true,configurable:true,get(){
+      futureReads++;
+      Object.defineProperty(immutableBars[23],field,{[changedFlag]:false});
+      return 26*H;
+     }},
+    }) as Bar;
+    assert.throws(()=>studyHourlyFvgMidpointAsOf([...immutableBars,hostileFuture],source,26*H),
+     /changed|snapshot|candle|field|schema|descriptor/i);
+    assert.equal(futureReads,1);
+    assert.equal(reads,0);
+   }
+  }
   const o=actual.observations.find(x=>x.direction===direction&&x.formationClosedAt===23*H);
   assert.ok(o);
   assert.equal(o.firstTouchOutcome,'INCOMPLETE_WINDOW');
