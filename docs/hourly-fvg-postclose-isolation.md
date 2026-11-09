@@ -196,3 +196,7 @@ Mirrored synthetic bullish/bearish tests now delete an already captured complete
 ## 9 November 2026 — reject appended backdated completed-hour evidence
 
 Mirrored bullish/bearish synthetic regressions now check that an unclosed future candle's timestamp getter cannot append a backdated completed-hour row after the source archive was captured. Such a row is not part of the original as-of evidence even when its timestamp is earlier than the evaluation boundary. The scan must reject the mutated archive without reading the future candle's OHLC, volume or observed-minute getters. This is causal source-integrity coverage only, not real broker data, executable fills or trading profitability. Verify the new exact-head CI; keep draft, paper-only, unmerged and undeployed.
+
+## 9 November 2026 — pending timestamp cannot splice completed archive history
+
+Mirrored bullish/bearish synthetic regressions insert a duplicate completed-hour object into the middle of the captured archive from a still-open candle's timestamp getter. Unlike an append, this shifts completed row indices; the causal as-of 1H FVG study must reject the changed historical source without reading any unrevealed future OHLC, volume, or observed-minute getter. This is an in-memory archive integrity test only, not independently verified market data, broker fills, or profitability. Exact-head CI must pass before considering the change verified. Keep draft, paper-only, unmerged and undeployed.
