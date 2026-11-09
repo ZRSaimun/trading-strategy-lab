@@ -143,3 +143,7 @@ Mirrored bullish/bearish synthetic tests now cover an unclosed future candle's t
 ## 9 November 2026 — completed OHLC descriptor isolation matrix
 
 The mirrored bullish/bearish synthetic regression additionally rejects an unclosed future timestamp accessor that substitutes a getter for a completed candle's `open`, `high`, or `low` data property, even when the getter would return the original numeric value. The substituted completed getter and the future candle's unrevealed OHLC, volume and minute-coverage getters must remain unread. This completes the completed-OHLC accessor-substitution coverage alongside `close`; it is not an authenticated source receipt, fill observation, or profitability result. Keep draft and verify the new exact-head CI separately.
+
+## 9 November 2026 — completed opening/extreme deletion guard
+
+The mirrored bullish/bearish synthetic pending-touch regression now deletes each of a previously completed candle's `open`, `high`, and `low` fields in turn from a still-open future candle's timestamp getter. The causal as-of preflight must reject the changed completed snapshot without consulting any unrevealed future OHLC, volume, or observed-minute getter. This closes the deletion coverage alongside existing `close`, volume, and minute-coverage checks. It tests archive integrity only: neither source authenticity, real BID/ASK fills, nor profitability is established. Verify the new exact-head CI independently before treating the regression as passing.
