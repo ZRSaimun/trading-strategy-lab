@@ -163,3 +163,7 @@ Mirrored synthetic bullish/bearish tests now replace a previously completed hour
 ## 9 November 2026 — equivalent completed-row replacement
 
 The mirrored bullish/bearish pending-hour regression now rejects replacement of a previously captured completed candle's array slot with a **new object holding identical field values**. This checks completed-prefix row identity separately from numeric changes and property-descriptor mutation. The still-open candle's OHLC, volume and observed-minute getters must remain unread. This is synthetic source-integrity coverage, not verified broker data, trading execution, or profitability. Verify CI for the exact commit; keep the PR draft, paper-only, unmerged and undeployed.
+
+## 9 November 2026 — repair TypeScript build for hostile getter regression
+
+The equivalent completed-row replacement fixture deliberately uses future market-field getters that only throw, so TypeScript infers `void` rather than numeric candle fields. The fixture now casts through `unknown` before the `Bar` test type; runtime behavior, assertions and production strategy code are unchanged. Previous exact-head CI #42580126545 failed frontend, Docker and free-cloud build jobs at TS2352 (test line 403), while 1,114 frontend tests and the three backend/PostgreSQL jobs passed. Recheck CI on the repair commit; the earlier failure is not evidence of a trading result. Remains draft, paper-only, unmerged and undeployed.
