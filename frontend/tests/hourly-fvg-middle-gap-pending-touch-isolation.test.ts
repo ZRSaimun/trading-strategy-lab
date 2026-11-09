@@ -657,3 +657,33 @@ for(const direction of ['BULLISH','BEARISH'] as const){
   assert.equal(futureMarketReads,0);
  });
 }
+
+
+for(const direction of ['BULLISH','BEARISH'] as const){
+ test(`pending ${direction} timestamp cannot reverse captured completed-hour chronology`,()=>{
+  const bull=direction==='BULLISH';
+  const rows:Bar[]=Array.from({length:26},(_,i)=>({
+   time:i*H,open:bull?100:101,high:bull?101:102,
+   low:bull?99:100,close:bull?100:101,volume:10,observed_minutes:60,
+  }));
+  let timeReads=0;
+  let futureMarketReads=0;
+  const forbidden=():number=>{futureMarketReads++;throw Error('future market evidence accessed');};
+  const pending=({
+   get time(){
+    timeReads++;
+    // A pending timestamp cannot reorder the completed historical prefix.
+    rows.reverse();
+    return 26*H;
+   },
+   get open(){return forbidden();},get high(){return forbidden();},
+   get low(){return forbidden();},get close(){return forbidden();},
+   get volume(){return forbidden();},get observed_minutes(){return forbidden();},
+  }) as unknown as Bar;
+  rows.push(pending);
+  assert.throws(()=>studyHourlyFvgMidpointAsOf(rows,source,26*H),
+   /changed|snapshot|archive|slot|candle|schema|chronolog|order/i);
+  assert.equal(timeReads,1);
+  assert.equal(futureMarketReads,0);
+ });
+}
