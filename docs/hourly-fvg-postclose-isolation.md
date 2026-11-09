@@ -205,3 +205,7 @@ Mirrored bullish/bearish synthetic regressions insert a duplicate completed-hour
 ## 9 November 2026 — pending timestamp cannot reverse completed chronology
 
 Mirrored bullish/bearish synthetic regressions now attempt to reverse the captured hourly archive from a still-open future candle's timestamp getter. The causal as-of 1H FVG study must reject this changed chronology rather than silently accepting rearranged completed evidence, and must not read future OHLC, volume, or observed-minute accessors. This is an in-memory integrity assertion, not an authenticated source receipt, broker execution test, or profitability evidence. Exact-head CI remains authoritative; keep the PR draft, paper-only, unmerged and undeployed.
+
+## 9 November 2026 — pending timestamp must not revise completed volume
+
+Mirrored bullish/bearish synthetic regressions now check that reading an unclosed future hour's timestamp cannot rewrite the numeric volume of a previously captured completed-hour candle while preserving timestamps and archive indices. The causal as-of scanner must fail closed and must not read the future candle's OHLC, volume or observed-minute accessors. This protects the integrity of the completed source snapshot; it **does not** verify the source classification, exchange/broker provenance, or trading profitability. Run exact-head CI before considering the regression verified. Keep draft, paper-only, unmerged and undeployed.
