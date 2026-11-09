@@ -412,7 +412,7 @@ for(const direction of ['BULLISH','BEARISH'] as const){
    get close(){identicalMarketReads++;throw Error('future close accessed');},
    get volume(){identicalMarketReads++;throw Error('future volume accessed');},
    get observed_minutes(){identicalMarketReads++;throw Error('future coverage accessed');},
-  }) as Bar;
+  }) as unknown as Bar;
   identicalRows.push(identicalPending);
   assert.throws(()=>studyHourlyFvgMidpointAsOf(identicalRows,source,26*H),
    /changed|snapshot|archive|slot|candle|schema/i);
