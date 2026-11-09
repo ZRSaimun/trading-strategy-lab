@@ -188,3 +188,7 @@ Mirrored bullish/bearish synthetic tests now reject a still-open future hourly c
 ## 9 November 2026 — pending timestamp cannot truncate completed archive
 
 Mirrored bullish/bearish synthetic regressions attempt to shorten the hourly source array while an unclosed future candle's timestamp accessor is evaluated. The causal as-of study must reject removal of previously captured completed rows without consulting any future OHLC, volume, or observed-minute fields. This is an in-memory archive-integrity test only, not authenticated quote or volume evidence, fill validation, or proof of profitability. Keep draft and verify the exact new head in CI before claiming the regression passes.
+
+## 9 November 2026 — sparse completed-hour deletion guard
+
+Mirrored synthetic bullish/bearish tests now delete an already captured completed hourly archive index from a still-open future candle's timestamp getter, leaving the array length unchanged. The causal as-of scan must fail closed on this sparse historical archive instead of interpreting the deleted hour as an observed no-touch, and must never inspect the future candle's unrevealed OHLC, volume or minute-coverage fields. This checks in-memory source integrity only; it does not authenticate a broker feed, prove first-touch execution, or demonstrate returns. Confirm exact-head CI separately. Paper-only, no deployment.
