@@ -320,10 +320,10 @@ for(const direction of ['BULLISH','BEARISH'] as const){
    assert.equal(reads,0);
   }
   // A future timestamp getter cannot change the descriptor flags of a
-  // completed historical field while preserving its value. A frozen or
+  // completed historical field while preserving its value. A frozen, non-configurable or
   // hidden field is not the same source schema as the captured plain row.
   for(const field of ['time','open','high','low','close','volume','observed_minutes'] as const){
-   for(const changedFlag of ['enumerable','writable'] as const){
+   for(const changedFlag of ['enumerable','writable','configurable'] as const){
     const immutableBars=bars.map(bar=>({...bar}));
     let futureReads=0;
     const hostileFuture=Object.defineProperties({}, {...Object.getOwnPropertyDescriptors(pending),
