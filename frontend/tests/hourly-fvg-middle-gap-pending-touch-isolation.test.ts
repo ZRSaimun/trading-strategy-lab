@@ -237,6 +237,24 @@ for(const direction of ['BULLISH','BEARISH'] as const){
    assert.equal(evidenceGetterReads,0);
    assert.equal(reads,0);
   }
+  // Removing a completed candle's evidence field during future timestamp
+  // preflight must invalidate the captured prefix, not silently coerce an
+  // absent price or coverage field into usable historical evidence.
+  for(const field of ['close','volume','observed_minutes'] as const){
+   const deletionBars=bars.map(bar=>({...bar}));
+   let timeReads=0;
+   const deletingFuture=Object.defineProperties({}, {...Object.getOwnPropertyDescriptors(pending),
+    time:{enumerable:true,configurable:true,get(){
+     timeReads++;
+     Reflect.deleteProperty(deletionBars[23],field);
+     return 26*H;
+    }},
+   }) as Bar;
+   assert.throws(()=>studyHourlyFvgMidpointAsOf([...deletionBars,deletingFuture],source,26*H),
+    /changed|snapshot|candle|field|schema|missing/i);
+   assert.equal(timeReads,1);
+   assert.equal(reads,0);
+  }
   const o=actual.observations.find(x=>x.direction===direction&&x.formationClosedAt===23*H);
   assert.ok(o);
   assert.equal(o.firstTouchOutcome,'INCOMPLETE_WINDOW');
