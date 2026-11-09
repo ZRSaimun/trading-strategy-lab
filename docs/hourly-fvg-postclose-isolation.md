@@ -213,3 +213,7 @@ Mirrored bullish/bearish synthetic regressions now check that reading an unclose
 ## 9 November 2026 — completed close cannot be revised by pending timestamp
 
 Mirrored synthetic bullish/bearish tests assert that a still-open hour's timestamp getter cannot change an already captured completed candle's `close` while retaining its time, position and volume. A revised close could alter the historical FVG or midpoint-rejection decision; the as-of scanner must reject the archive mutation without reading future OHLC, volume or observed-minute fields. This is a causal integrity regression, not an authenticated market-data or profitability result. Verify exact-head CI before considering it passing; keep draft, paper-only and undeployed.
+
+## 9 November 2026 — completed minute-coverage evidence cannot be revised
+
+Mirrored bullish/bearish synthetic regressions now require the causal 1H FVG as-of scan to reject a still-open future candle timestamp accessor changing a captured completed-hour `observed_minutes` value from 60 to 59 while keeping its OHLC, volume, timestamp and archive slot unchanged. The pending candle's future OHLC, volume and minute-coverage accessors must not execute. This prevents retroactive completeness changes from silently altering first-touch eligibility. This is only an in-memory causal-integrity assertion, not authenticated market coverage, executable broker quotes, or profitability. Verify exact-head CI before claiming a pass; keep draft, paper-only, unmerged and undeployed.
