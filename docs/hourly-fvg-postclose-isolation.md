@@ -171,3 +171,7 @@ The equivalent completed-row replacement fixture deliberately uses future market
 ## 9 November 2026 — completed-hour order cannot change during pending timestamp preflight
 
 Mirrored bullish/bearish synthetic regressions now swap two already-completed hourly archive rows from a still-open future candle's timestamp accessor. The causal as-of FVG study must reject this mid-scan historical reorder, rather than treating the modified sequence as the original completed prefix, and must not read the future candle's unrevealed OHLC, volume or observed-minute fields. This protects archive identity and causal ordering only; it does not authenticate real quotes, volume provenance, broker execution or profitability. Exact-head CI must be checked separately; remain draft, paper-only and undeployed.
+
+## Completed archive index visibility regression (9 November 2026)
+
+A synthetic still-open future candle's timestamp getter can attempt to make an already-completed hourly archive index non-enumerable after the completed prefix is captured. The bullish and bearish regression cases require the causal as-of scan to reject the changed archive shape without reading future OHLC, volume, or minute-coverage accessors. This is a source-integrity assertion, not evidence of an executable broker quote, authenticated volume, or trading profitability. CI must be checked against the exact new commit.
