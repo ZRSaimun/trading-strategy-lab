@@ -367,3 +367,38 @@ for(const direction of ['BULLISH','BEARISH'] as const){
   assert.equal(claimedGap.eligibleForLiveTrading,false);
  });
 }
+
+
+for(const direction of ['BULLISH','BEARISH'] as const){
+ test(`pending ${direction} timestamp cannot swap a completed archive slot after prefix capture`,()=>{
+  const bull=direction==='BULLISH';
+  const rows:Bar[]=Array.from({length:26},(_,i)=>({
+   time:i*H,open:bull?100:101,high:bull?101:102,
+   low:bull?99:100,close:bull?100:101,volume:10,observed_minutes:60,
+  }));
+  const original=studyHourlyFvgMidpointAsOf(rows,source,26*H);
+  assert.ok(original);
+  const hostileRows=rows.map(row=>({...row}));
+  let futureTimeReads=0;
+  let futureMarketReads=0;
+  const forbidden=():number=>{futureMarketReads++;throw Error('future market field accessed');};
+  const pending=({
+   get time(){
+    futureTimeReads++;
+    // Replacing an indexed row can invalidate the captured completed prefix
+    // even if the original row and its own field descriptors remain intact.
+    hostileRows[23]={...hostileRows[23],close:hostileRows[23].close+1};
+    return 26*H;
+   },
+   get open(){return forbidden();},get high(){return forbidden();},
+   get low(){return forbidden();},get close(){return forbidden();},
+   get volume(){return forbidden();},
+   get observed_minutes(){return forbidden();},
+  }) as Bar;
+  hostileRows.push(pending);
+  assert.throws(()=>studyHourlyFvgMidpointAsOf(hostileRows,source,26*H),
+   /changed|snapshot|archive|slot|candle|schema/i);
+  assert.equal(futureTimeReads,1);
+  assert.equal(futureMarketReads,0);
+ });
+}
