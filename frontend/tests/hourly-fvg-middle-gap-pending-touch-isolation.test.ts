@@ -277,6 +277,30 @@ for(const direction of ['BULLISH','BEARISH'] as const){
   assert.equal(futureTimestampReads,1);
   assert.equal(completedTimestampReads,0);
   assert.equal(reads,0);
+  // Completed OHLC opening/high/low fields must retain their plain-data
+  // descriptors during future timestamp preflight, not merely their values.
+  // This closes the descriptor substitution matrix beyond close/volume/time.
+  for(const field of ['open','high','low'] as const){
+   const protectedBars=bars.map(bar=>({...bar}));
+   const original=protectedBars[23][field];
+   let futureReads=0;
+   let substitutedReads=0;
+   const hostileFuture=Object.defineProperties({}, {...Object.getOwnPropertyDescriptors(pending),
+    time:{enumerable:true,configurable:true,get(){
+     futureReads++;
+     Object.defineProperty(protectedBars[23],field,{
+      enumerable:true,configurable:true,
+      get(){substitutedReads++;return original;},
+     });
+     return 26*H;
+    }},
+   }) as Bar;
+   assert.throws(()=>studyHourlyFvgMidpointAsOf([...protectedBars,hostileFuture],source,26*H),
+    /changed|snapshot|candle|field|schema|accessor/i);
+   assert.equal(futureReads,1);
+   assert.equal(substitutedReads,0);
+   assert.equal(reads,0);
+  }
   const o=actual.observations.find(x=>x.direction===direction&&x.formationClosedAt===23*H);
   assert.ok(o);
   assert.equal(o.firstTouchOutcome,'INCOMPLETE_WINDOW');
