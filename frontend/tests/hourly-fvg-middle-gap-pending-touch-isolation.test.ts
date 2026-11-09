@@ -255,6 +255,28 @@ for(const direction of ['BULLISH','BEARISH'] as const){
    assert.equal(timeReads,1);
    assert.equal(reads,0);
   }
+  // Timestamp identity is evidence too: an unclosed row cannot replace a
+  // completed hour's plain timestamp with a getter returning the same epoch.
+  // The completed timestamp accessor must never execute during rejection.
+  const timeSchemaBars=bars.map(bar=>({...bar}));
+  let futureTimestampReads=0;
+  let completedTimestampReads=0;
+  const originalTime=timeSchemaBars[23].time;
+  const timeSchemaFuture=Object.defineProperties({}, {...Object.getOwnPropertyDescriptors(pending),
+   time:{enumerable:true,configurable:true,get(){
+    futureTimestampReads++;
+    Object.defineProperty(timeSchemaBars[23],'time',{
+     enumerable:true,configurable:true,
+     get(){completedTimestampReads++;return originalTime;},
+    });
+    return 26*H;
+   }},
+  }) as Bar;
+  assert.throws(()=>studyHourlyFvgMidpointAsOf([...timeSchemaBars,timeSchemaFuture],source,26*H),
+   /changed|snapshot|candle|field|schema|accessor/i);
+  assert.equal(futureTimestampReads,1);
+  assert.equal(completedTimestampReads,0);
+  assert.equal(reads,0);
   const o=actual.observations.find(x=>x.direction===direction&&x.formationClosedAt===23*H);
   assert.ok(o);
   assert.equal(o.firstTouchOutcome,'INCOMPLETE_WINDOW');
