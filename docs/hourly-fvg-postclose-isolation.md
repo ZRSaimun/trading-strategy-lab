@@ -183,3 +183,8 @@ Mirrored bullish/bearish synthetic regression cases now require the causal 1H FV
 ## 9 November 2026 — completed archive slot configurability
 
 Mirrored bullish/bearish synthetic tests now reject a still-open future hourly candle's timestamp getter making a captured completed archive index non-configurable. The indexed row and its OHLC/volume/coverage values remain unchanged, but the historical array-slot descriptor has changed. The causal as-of scanner must fail closed without invoking any future OHLC, volume or observed-minute getter. This completes the ordinary index descriptor-flag regression matrix alongside enumerability and writability; it does not authenticate source identity, volume, broker quotes or trading performance. Check exact-head CI before claiming the new test passes. Keep draft, paper-only, unmerged and undeployed.
+
+
+## 9 November 2026 — pending timestamp cannot truncate completed archive
+
+Mirrored bullish/bearish synthetic regressions attempt to shorten the hourly source array while an unclosed future candle's timestamp accessor is evaluated. The causal as-of study must reject removal of previously captured completed rows without consulting any future OHLC, volume, or observed-minute fields. This is an in-memory archive-integrity test only, not authenticated quote or volume evidence, fill validation, or proof of profitability. Keep draft and verify the exact new head in CI before claiming the regression passes.
