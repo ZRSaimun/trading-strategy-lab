@@ -167,3 +167,7 @@ The mirrored bullish/bearish pending-hour regression now rejects replacement of 
 ## 9 November 2026 — repair TypeScript build for hostile getter regression
 
 The equivalent completed-row replacement fixture deliberately uses future market-field getters that only throw, so TypeScript infers `void` rather than numeric candle fields. The fixture now casts through `unknown` before the `Bar` test type; runtime behavior, assertions and production strategy code are unchanged. Previous exact-head CI #42580126545 failed frontend, Docker and free-cloud build jobs at TS2352 (test line 403), while 1,114 frontend tests and the three backend/PostgreSQL jobs passed. Recheck CI on the repair commit; the earlier failure is not evidence of a trading result. Remains draft, paper-only, unmerged and undeployed.
+
+## 9 November 2026 — completed-hour order cannot change during pending timestamp preflight
+
+Mirrored bullish/bearish synthetic regressions now swap two already-completed hourly archive rows from a still-open future candle's timestamp accessor. The causal as-of FVG study must reject this mid-scan historical reorder, rather than treating the modified sequence as the original completed prefix, and must not read the future candle's unrevealed OHLC, volume or observed-minute fields. This protects archive identity and causal ordering only; it does not authenticate real quotes, volume provenance, broker execution or profitability. Exact-head CI must be checked separately; remain draft, paper-only and undeployed.
