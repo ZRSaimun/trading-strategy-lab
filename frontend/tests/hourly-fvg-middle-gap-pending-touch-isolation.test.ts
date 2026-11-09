@@ -255,6 +255,24 @@ for(const direction of ['BULLISH','BEARISH'] as const){
    assert.equal(timeReads,1);
    assert.equal(reads,0);
   }
+  // A future timestamp accessor must not delete completed opening or extreme
+  // prices. Missing OHLC evidence cannot be silently accepted as a valid
+  // historical first-touch sequence; reject before future market-field reads.
+  for(const field of ['open','high','low'] as const){
+   const protectedBars=bars.map(bar=>({...bar}));
+   let futureReads=0;
+   const deletingFuture=Object.defineProperties({}, {...Object.getOwnPropertyDescriptors(pending),
+    time:{enumerable:true,configurable:true,get(){
+     futureReads++;
+     Reflect.deleteProperty(protectedBars[23],field);
+     return 26*H;
+    }},
+   }) as Bar;
+   assert.throws(()=>studyHourlyFvgMidpointAsOf([...protectedBars,deletingFuture],source,26*H),
+    /changed|snapshot|candle|field|schema|missing/i);
+   assert.equal(futureReads,1);
+   assert.equal(reads,0);
+  }
   // Timestamp identity is evidence too: an unclosed row cannot replace a
   // completed hour's plain timestamp with a getter returning the same epoch.
   // The completed timestamp accessor must never execute during rejection.
