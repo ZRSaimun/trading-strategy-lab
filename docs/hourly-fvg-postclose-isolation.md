@@ -151,3 +151,7 @@ The mirrored bullish/bearish synthetic pending-touch regression now deletes each
 ## 9 November 2026 — completed evidence descriptor-flag stability
 
 The mirrored synthetic bullish/bearish pending-hour regression now checks that a still-open future candle's timestamp accessor cannot silently change a previously completed candle's `enumerable` or `writable` descriptor flag on any of `time`, OHLC, `volume`, or `observed_minutes`, even when the underlying numeric value stays unchanged. The as-of study must reject the changed historical snapshot without reading future market fields. This protects archive-schema integrity only: it does not authenticate volume, establish a broker fill, or prove profitability. Keep the research paper-only and verify the exact-head CI before treating the regression as passing.
+
+## 9 November 2026 — completed field configurability integrity
+
+The mirrored bullish/bearish synthetic pending-hour regression now also rejects a still-open future timestamp accessor changing the `configurable` descriptor of any completed `time`, OHLC, `volume`, or `observed_minutes` field while leaving its numeric value intact. Together with the existing enumerable/writable checks, this covers all three ordinary data-property descriptor flags. Future unrevealed OHLC, volume and coverage getters remain forbidden. This is an archive-integrity regression, not independently authenticated source data, broker execution, a trading signal, or profitability evidence. Verify exact-head CI separately; keep draft, paper-only, unmerged and undeployed.
