@@ -131,3 +131,7 @@ The mirrored bullish/bearish pending-hour regression now checks that a future ca
 ## 8 November 2026 — completed volume and coverage accessor substitution
 
 Mirrored bullish/bearish synthetic tests now check that an unclosed future hourly timestamp accessor cannot replace a previously completed candle's plain `volume` or `observed_minutes` field with a getter, even when the getter would return the original value. The as-of scanner must reject the descriptor mutation without invoking the substituted getter or reading any future OHLC, volume, or coverage accessors. This protects the completed evidence schema; it does not authenticate a provider, supply genuine BID/ASK quotes, or demonstrate trading profitability. The exact-head CI result must be checked separately; keep draft, paper-only, unmerged, and undeployed.
+
+## 9 November 2026 — completed evidence field deletion during future preflight
+
+Mirrored bullish/bearish synthetic regressions now attempt to delete a completed candle's `close`, `volume`, or `observed_minutes` while an unclosed future candle's timestamp is being inspected. The causal as-of study must reject the changed historical snapshot without accessing future OHLC, volume, or coverage getters. This checks fail-closed in-memory schema integrity only: no independent source authentication, genuine broker BID/ASK execution, licensed historical validation, or profitability evidence is supplied. Keep the PR draft, paper-only, unmerged and undeployed; verify CI against the exact new head.
