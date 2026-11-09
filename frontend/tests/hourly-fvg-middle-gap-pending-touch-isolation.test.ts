@@ -418,6 +418,30 @@ for(const direction of ['BULLISH','BEARISH'] as const){
    /changed|snapshot|archive|slot|candle|schema/i);
   assert.equal(identicalTimeReads,1);
   assert.equal(identicalMarketReads,0);
+  // A future timestamp getter must not reorder two completed archive rows.
+  // Even when their OHLC values are identical, their hourly identities and
+  // chronological source positions are historical evidence, not future data.
+  const reorderedRows=rows.map(row=>({...row}));
+  let reorderTimeReads=0;
+  let reorderMarketReads=0;
+  const reorderedPending=({
+   get time(){
+    reorderTimeReads++;
+    [reorderedRows[22],reorderedRows[23]]=[reorderedRows[23],reorderedRows[22]];
+    return 26*H;
+   },
+   get open(){reorderMarketReads++;throw Error('future open accessed');},
+   get high(){reorderMarketReads++;throw Error('future high accessed');},
+   get low(){reorderMarketReads++;throw Error('future low accessed');},
+   get close(){reorderMarketReads++;throw Error('future close accessed');},
+   get volume(){reorderMarketReads++;throw Error('future volume accessed');},
+   get observed_minutes(){reorderMarketReads++;throw Error('future coverage accessed');},
+  }) as unknown as Bar;
+  reorderedRows.push(reorderedPending);
+  assert.throws(()=>studyHourlyFvgMidpointAsOf(reorderedRows,source,26*H),
+   /changed|snapshot|archive|slot|candle|schema|chronolog/i);
+  assert.equal(reorderTimeReads,1);
+  assert.equal(reorderMarketReads,0);
   hostileRows.push(pending);
   assert.throws(()=>studyHourlyFvgMidpointAsOf(hostileRows,source,26*H),
    /changed|snapshot|archive|slot|candle|schema/i);
