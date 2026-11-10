@@ -288,3 +288,7 @@ The mirrored bullish/bearish synthetic cases in `frontend/tests/hourly-fvg-pendi
 ## 10 November 2026 — completed formation open cannot be rewritten by pending timestamp
 
 `frontend/tests/hourly-fvg-pending-completed-open-rewrite.test.ts` adds mirrored bullish/bearish synthetic regressions. A still-open successor's timestamp getter tries to alter the already-completed FVG formation candle's `open` while the causal as-of scan is checking the archive. The scanner must reject the completed-row mutation without inspecting the successor's OHLC, volume or minute-coverage accessors. An unchanged completed prefix is a positive control. These tests establish only internal snapshot consistency, not independently authenticated quotes or volume, executable broker fills, or trading profitability. Keep draft and paper-only; verify exact-head CI separately.
+
+## 10 November 2026 — completed prior-20 baseline close snapshot isolation
+
+`frontend/tests/hourly-fvg-pending-baseline-close-rewrite.test.ts` adds mirrored synthetic bullish/bearish regressions. Reading the timestamp of an unclosed successor hour attempts to rewrite the close of a previously completed candle in the FVG study's prior-20 baseline. The as-of scanner must fail closed rather than accept changed baseline evidence, without reading the future candle's OHLC, volume or observed-minute accessors. This tests internal causal snapshot integrity only; it does not authenticate volume, two-sided broker quotes, fills or profitability. Verify the new exact-head CI before treating the regression as passed.
