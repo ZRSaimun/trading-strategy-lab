@@ -262,3 +262,7 @@ Mirrored synthetic bullish/bearish regression verifies that a future timestamp g
 ## 10 November 2026 — pending timestamp cannot delete completed archive evidence
 
 `frontend/tests/hourly-fvg-pending-append.test.ts` now also exercises mirrored bullish and bearish synthetic cases in which a still-open candle's timestamp getter removes an already completed archive row. The scanner must reject the changed archive length rather than silently recalculate a shorter history; future OHLC, volume and minute-coverage getters must remain unread. This tests software snapshot integrity only, not authenticated source provenance, executable broker quotes, fills or profitability. Exact-head CI must be checked after the commit.
+
+## 10 November 2026 — pending timestamp cannot inject archive quote metadata
+
+`frontend/tests/hourly-fvg-pending-archive-metadata.test.ts` adds mirrored synthetic bullish/bearish cases in which a still-open future candle's timestamp accessor inserts a hidden archive-level `askQuoteReceipt` field after the BID-only array schema was first validated. The as-of scanner must reject the changed archive schema, rather than silently drop an undeclared ASK/broker receipt; no future OHLC, volume or minute-coverage getter may run. This checks snapshot schema isolation only: the fixture receipt is not an authenticated two-sided broker quote, volume receipt, execution record or profitability evidence. Exact-head CI must be checked independently.
