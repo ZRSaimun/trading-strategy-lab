@@ -253,3 +253,7 @@ Mirrored synthetic bullish/bearish regression verifies that a future timestamp g
 ## 10 November 2026 — pending-hour source instrument, side and volume type remain fixed
 
 `frontend/tests/hourly-fvg-pending-instrument-side-volume-type.test.ts` adds six mirrored bullish/bearish synthetic regressions. A still-open future hourly candle's timestamp accessor tries to rewrite the captured instrument identity, BID/ASK side or volume classification. The as-of 1H FVG scanner must reject each declaration mutation without inspecting future OHLC, volume or observed-minute getters. These checks protect snapshot consistency; they do not independently verify source identities, volume receipts, two-sided broker quotes, fills or profitability. Keep draft and paper-only, and verify exact-head CI before treating the new tests as passing.
+
+## 10 November 2026 — future timestamp cannot extend archive length
+
+`frontend/tests/hourly-fvg-pending-append.test.ts` adds mirrored bullish/bearish synthetic cases where a still-open future candle's timestamp getter appends an additional archive row during the as-of scan. The completed-prefix scan now rejects a changed archive length before accepting results; no pending OHLC, volume or minute-coverage getters may run. This guards against silently ignoring an appended source row because the original archive length was captured earlier. The test is not independently authenticated source, broker execution, or profitability evidence. Keep paper-only; verify exact-head CI separately.
