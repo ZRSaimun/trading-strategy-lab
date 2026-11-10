@@ -840,3 +840,28 @@ for(const direction of ['BULLISH','BEARISH'] as const){
   assert.equal(futureMarketReads,0);
  });
 }
+
+// A pending timestamp accessor must not truncate completed historical evidence.
+for (const direction of ['BULLISH','BEARISH'] as const) {
+ test(`pending ${direction} timestamp cannot truncate completed hourly archive`, () => {
+  const rows: Bar[] = Array.from({length:26}, (_,i)=>({
+   time:i*H,open:direction==='BULLISH'?100:101,
+   high:direction==='BULLISH'?101:102,low:direction==='BULLISH'?99:100,
+   close:direction==='BULLISH'?100:101,volume:10,observed_minutes:60,
+  }));
+  let timestampReads=0;
+  let futureMarketReads=0;
+  const forbidden=():number=>{futureMarketReads++;throw Error('unclosed market evidence read');};
+  const pending={
+   get time(){timestampReads++;rows.length=23;return 26*H;},
+   get open(){return forbidden();},get high(){return forbidden();},
+   get low(){return forbidden();},get close(){return forbidden();},
+   get volume(){return forbidden();},get observed_minutes(){return forbidden();},
+  } as Bar;
+  rows.push(pending);
+  assert.throws(()=>studyHourlyFvgMidpointAsOf(rows,source,26*H),
+   /changed|snapshot|archive|slot|candle|schema|length/i);
+  assert.equal(timestampReads,1);
+  assert.equal(futureMarketReads,0);
+ });
+}
