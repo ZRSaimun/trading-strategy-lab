@@ -37,7 +37,7 @@ for(const direction of ['BULLISH','BEARISH'] as const){
   } as unknown as Bar;
   bars.push(pending);
   assert.throws(()=>studyHourlyFvgMidpointAsOf(bars,source,23*H),
-   /Hourly research candle archive length changed during snapshot/);
+   /Hourly research candle (?:array|archive) length changed during snapshot/);
   assert.equal(timeReads,1);
   assert.equal(futureMarketReads,0);
  });
