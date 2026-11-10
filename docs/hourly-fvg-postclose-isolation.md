@@ -270,3 +270,8 @@ Mirrored synthetic bullish/bearish regression verifies that a future timestamp g
 ## 10 November 2026 — hidden broker spread metadata injection
 
 The mirrored bullish/bearish synthetic regression in `frontend/tests/hourly-fvg-pending-archive-metadata.test.ts` now also injects a non-enumerable `brokerSpreadBps` property into the BID-only archive when a still-open future candle's timestamp is inspected. The as-of scanner must reject this out-of-protocol broker-cost metadata rather than silently treating it as authenticated two-sided execution evidence. Future OHLC, volume and minute-coverage getters must remain unread. This does not establish a real broker spread, executable price, fill, or profitable strategy. Verify the exact commit in CI before treating the regression as passed.
+
+
+## 10 November 2026 — completed close rewrite during pending timestamp access
+
+`frontend/tests/hourly-fvg-pending-completed-close-rewrite.test.ts` adds bullish and bearish synthetic regressions: a still-open successor candle's timestamp getter attempts to change the already-completed formation candle close after the completed prefix was captured. The as-of study must reject the changed completed-candle field and must not inspect the successor's unrevealed OHLC, volume or observed-minute getters. The ordinary unchanged prefix remains a positive control. This checks snapshot consistency only: the source identity and volume remain unverified, and no broker fill, historical return, or trading profitability is demonstrated.
