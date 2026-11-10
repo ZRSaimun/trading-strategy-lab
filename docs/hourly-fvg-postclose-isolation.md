@@ -233,3 +233,7 @@ Mirrored bullish/bearish synthetic tests now require the causal 1H FVG as-of sca
 ## 10 November 2026 — pending timestamp cannot truncate completed archive
 
 Mirrored synthetic bullish/bearish regression verifies that a future timestamp getter cannot shorten the captured completed-hour array during as-of preflight. Reject altered historical source length before reading any unclosed OHLC, volume or minute-coverage getter. This is a source-integrity test only, not independently authenticated quotes, executable fills or profitability.
+
+## 10 November 2026 — unreadable pending timestamp fails closed
+
+`frontend/tests/hourly-fvg-unreadable-future-timestamp.test.ts` checks bullish and bearish completed 1H FVG prefixes with a subsequent unclosed candle whose timestamp getter throws. The as-of scan must propagate the timestamp-read failure rather than silently omit the row or reinterpret the source as a complete archive; it must not inspect the pending candle's OHLC, volume or coverage. This is synthetic source-integrity testing only, not verified volume, broker BID/ASK execution, or profitability. Verify exact-head CI before relying on the regression.
