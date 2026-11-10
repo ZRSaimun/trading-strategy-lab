@@ -275,3 +275,7 @@ The mirrored bullish/bearish synthetic regression in `frontend/tests/hourly-fvg-
 ## 10 November 2026 — completed close rewrite during pending timestamp access
 
 `frontend/tests/hourly-fvg-pending-completed-close-rewrite.test.ts` adds bullish and bearish synthetic regressions: a still-open successor candle's timestamp getter attempts to change the already-completed formation candle close after the completed prefix was captured. The as-of study must reject the changed completed-candle field and must not inspect the successor's unrevealed OHLC, volume or observed-minute getters. The ordinary unchanged prefix remains a positive control. This checks snapshot consistency only: the source identity and volume remain unverified, and no broker fill, historical return, or trading profitability is demonstrated.
+
+## 10 November 2026 — completed formation wick cannot be rewritten by pending timestamp
+
+The mirrored bullish/bearish synthetic cases in `frontend/tests/hourly-fvg-pending-completed-close-rewrite.test.ts` now also mutate the completed formation candle's low (bullish) or high (bearish) from a still-open successor's timestamp getter. The causal as-of scanner must fail closed on changed completed-candle evidence without evaluating the pending successor's OHLC, volume or observed-minute getters. This complements the completed-close mutation checks; it is not evidence of authentic source archives, two-sided broker fills, or profitability. Confirm exact-head CI independently.
