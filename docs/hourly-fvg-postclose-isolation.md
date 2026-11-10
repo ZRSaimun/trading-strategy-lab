@@ -305,3 +305,7 @@ The mirrored bullish/bearish synthetic cases in `frontend/tests/hourly-fvg-pendi
 ## 10 November 2026 — completed baseline volume and coverage are immutable
 
 `frontend/tests/hourly-fvg-pending-baseline-volume-coverage-rewrite.test.ts` adds four synthetic bullish/bearish × volume/observed-minute regressions. A still-open successor's timestamp accessor attempts to rewrite a completed candle in the prior-20 FVG baseline; the as-of scan must reject the mutated snapshot while never accessing pending OHLC, volume, or minute coverage. This is source-integrity regression coverage only: the fixture's BID prices and unverified volume cannot establish licensed provenance, broker ASK/spread execution, midpoint fills, or profitable trading. Verify CI on the exact updated PR head before relying on this change.
+
+## 10 November 2026 — completed baseline timestamp integrity
+
+`frontend/tests/hourly-fvg-pending-baseline-time-rewrite.test.ts` adds bullish and bearish synthetic regressions: reading a still-open future candle timestamp attempts to rewrite an already-completed prior-20 baseline candle timestamp. The causal 1H FVG scan must reject the completed-row mutation without accessing the future candle's OHLC, volume, or minute-coverage getters. This is a source-snapshot integrity check only, not authenticated data provenance, real BID/ASK execution, or profitability evidence. Check CI at the exact new head; remain draft, paper-only, unmerged and undeployed.
