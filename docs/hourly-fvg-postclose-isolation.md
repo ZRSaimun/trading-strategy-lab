@@ -317,3 +317,7 @@ The two synthetic bullish/bearish pending-timestamp baseline tests initially fai
 ## Pending timestamp cannot delete a completed baseline row (10 November 2026)
 
 Two synthetic bullish/bearish regressions in `frontend/tests/hourly-fvg-pending-baseline-time-rewrite.test.ts` verify that reading the timestamp of a still-open successor cannot delete an indexed completed candle in the prior-20 1H FVG baseline. The archive identity guard must reject the resulting missing slot, read the pending timestamp once, and never access the pending candle's OHLC, volume or observed-minute fields. This checks in-process mutation resistance, not independent feed provenance, broker execution, data completeness or profitability. Exact-head CI must be checked after this commit; keep draft, paper-only, unmerged and undeployed.
+
+## 10 November 2026 — completed baseline row replacement guard
+
+`frontend/tests/hourly-fvg-pending-baseline-row-replacement.test.ts` adds mirrored bullish/bearish synthetic checks for a still-open successor whose timestamp getter replaces a previously completed prior-20 baseline candle with a *new object containing identical values*. The as-of study must reject the row-identity change even though its OHLC values are unchanged, and must not read the successor's future OHLC, volume or coverage accessors. This tests snapshot integrity only: no real source identity, volume authentication, broker BID/ASK fill, cost or profitability is demonstrated. Verify the new exact-head CI before treating these regressions as passing.
