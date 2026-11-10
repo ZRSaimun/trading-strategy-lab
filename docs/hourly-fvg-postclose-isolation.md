@@ -300,3 +300,8 @@ The mirrored bullish/bearish synthetic cases in `frontend/tests/hourly-fvg-pendi
 ## 10 November 2026 — prior-20 wick-extrema snapshot integrity
 
 `frontend/tests/hourly-fvg-pending-baseline-close-rewrite.test.ts` now includes four synthetic bullish/bearish × high/low regressions. Reading a still-open successor's timestamp may not retroactively rewrite the high or low of a completed candle in the prior-20 FVG baseline. The as-of scanner must reject the changed completed snapshot and never read the pending successor's OHLC, volume or minute-coverage fields. These are mutation/causality tests using invented fixture values, **not** authenticated volume, two-sided broker quotes, execution, win-rate or profitability evidence. Keep the PR draft and verify exact-head CI independently.
+
+
+## 10 November 2026 — completed baseline volume and coverage are immutable
+
+`frontend/tests/hourly-fvg-pending-baseline-volume-coverage-rewrite.test.ts` adds four synthetic bullish/bearish × volume/observed-minute regressions. A still-open successor's timestamp accessor attempts to rewrite a completed candle in the prior-20 FVG baseline; the as-of scan must reject the mutated snapshot while never accessing pending OHLC, volume, or minute coverage. This is source-integrity regression coverage only: the fixture's BID prices and unverified volume cannot establish licensed provenance, broker ASK/spread execution, midpoint fills, or profitable trading. Verify CI on the exact updated PR head before relying on this change.
