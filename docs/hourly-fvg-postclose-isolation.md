@@ -266,3 +266,7 @@ Mirrored synthetic bullish/bearish regression verifies that a future timestamp g
 ## 10 November 2026 — pending timestamp cannot inject archive quote metadata
 
 `frontend/tests/hourly-fvg-pending-archive-metadata.test.ts` adds mirrored synthetic bullish/bearish cases in which a still-open future candle's timestamp accessor inserts a hidden archive-level `askQuoteReceipt` field after the BID-only array schema was first validated. The as-of scanner must reject the changed archive schema, rather than silently drop an undeclared ASK/broker receipt; no future OHLC, volume or minute-coverage getter may run. This checks snapshot schema isolation only: the fixture receipt is not an authenticated two-sided broker quote, volume receipt, execution record or profitability evidence. Exact-head CI must be checked independently.
+
+## 10 November 2026 — hidden broker spread metadata injection
+
+The mirrored bullish/bearish synthetic regression in `frontend/tests/hourly-fvg-pending-archive-metadata.test.ts` now also injects a non-enumerable `brokerSpreadBps` property into the BID-only archive when a still-open future candle's timestamp is inspected. The as-of scanner must reject this out-of-protocol broker-cost metadata rather than silently treating it as authenticated two-sided execution evidence. Future OHLC, volume and minute-coverage getters must remain unread. This does not establish a real broker spread, executable price, fill, or profitable strategy. Verify the exact commit in CI before treating the regression as passed.
