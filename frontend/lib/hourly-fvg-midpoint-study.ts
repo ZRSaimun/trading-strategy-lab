@@ -341,6 +341,8 @@ function captureArchiveSlots(bars:readonly Bar[],count:number):PropertyDescripto
  return slots;
 }
 function assertArchiveSlotsUnchanged(bars:readonly Bar[],slots:readonly PropertyDescriptor[]){
+ if(bars.length!==slots.length)
+  throw Error('Hourly research candle archive length changed during snapshot');
  for(let index=0;index<slots.length;index++){
   const initial=slots[index],current=Object.getOwnPropertyDescriptor(bars,index);
   const initialData='value' in initial;
