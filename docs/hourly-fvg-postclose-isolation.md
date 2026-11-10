@@ -296,3 +296,7 @@ The mirrored bullish/bearish synthetic cases in `frontend/tests/hourly-fvg-pendi
 ## 10 November 2026 — prior-20 baseline open snapshot integrity
 
 `frontend/tests/hourly-fvg-pending-baseline-close-rewrite.test.ts` additionally exercises mirrored bullish/bearish synthetic cases where a still-open hour's timestamp accessor rewrites the **open** of an already-completed prior-20 baseline candle. The causal as-of scanner must reject the mutated completed snapshot without accessing the pending hour's OHLC, volume or minute coverage. The previously covered baseline close rewrite remains tested. These checks concern in-memory immutability only: they do not authenticate source-classified volume, broker BID/ASK quotes, financing, calendar evidence, execution or profitability. Keep the PR draft, paper-only and undeployed; verify exact-head CI before review.
+
+## 10 November 2026 — prior-20 wick-extrema snapshot integrity
+
+`frontend/tests/hourly-fvg-pending-baseline-close-rewrite.test.ts` now includes four synthetic bullish/bearish × high/low regressions. Reading a still-open successor's timestamp may not retroactively rewrite the high or low of a completed candle in the prior-20 FVG baseline. The as-of scanner must reject the changed completed snapshot and never read the pending successor's OHLC, volume or minute-coverage fields. These are mutation/causality tests using invented fixture values, **not** authenticated volume, two-sided broker quotes, execution, win-rate or profitability evidence. Keep the PR draft and verify exact-head CI independently.
