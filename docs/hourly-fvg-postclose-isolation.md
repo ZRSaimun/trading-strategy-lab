@@ -257,3 +257,8 @@ Mirrored synthetic bullish/bearish regression verifies that a future timestamp g
 ## 10 November 2026 — future timestamp cannot extend archive length
 
 `frontend/tests/hourly-fvg-pending-append.test.ts` adds mirrored bullish/bearish synthetic cases where a still-open future candle's timestamp getter appends an additional archive row during the as-of scan. The completed-prefix scan now rejects a changed archive length before accepting results; no pending OHLC, volume or minute-coverage getters may run. This guards against silently ignoring an appended source row because the original archive length was captured earlier. The test is not independently authenticated source, broker execution, or profitability evidence. Keep paper-only; verify exact-head CI separately.
+
+
+## 10 November 2026 — pending timestamp cannot delete completed archive evidence
+
+`frontend/tests/hourly-fvg-pending-append.test.ts` now also exercises mirrored bullish and bearish synthetic cases in which a still-open candle's timestamp getter removes an already completed archive row. The scanner must reject the changed archive length rather than silently recalculate a shorter history; future OHLC, volume and minute-coverage getters must remain unread. This tests software snapshot integrity only, not authenticated source provenance, executable broker quotes, fills or profitability. Exact-head CI must be checked after the commit.
