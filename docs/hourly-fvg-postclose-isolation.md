@@ -229,3 +229,7 @@ Mirrored bullish/bearish synthetic tests now check both `high` and `low` indepen
 ## 10 November 2026 — completed timestamp value cannot change during pending-hour preflight
 
 Mirrored bullish/bearish synthetic tests now require the causal 1H FVG as-of scanner to reject a still-open future candle's timestamp accessor rewriting a previously completed candle's numeric `time` from hour 23 to hour 22. The completed row remains in the same array slot with unchanged OHLC, volume and minute coverage; no future OHLC, volume or coverage getter may run. This closes the in-place completed-field revision matrix alongside OHLC, volume and coverage. It checks causal archive integrity only, not authenticated market data, broker execution or profitability. Keep draft and paper-only; verify exact-head CI independently.
+
+## 10 November 2026 — pending timestamp cannot truncate completed archive
+
+Mirrored synthetic bullish/bearish regression verifies that a future timestamp getter cannot shorten the captured completed-hour array during as-of preflight. Reject altered historical source length before reading any unclosed OHLC, volume or minute-coverage getter. This is a source-integrity test only, not independently authenticated quotes, executable fills or profitability.
