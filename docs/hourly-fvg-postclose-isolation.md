@@ -237,3 +237,7 @@ Mirrored synthetic bullish/bearish regression verifies that a future timestamp g
 ## 10 November 2026 — unreadable pending timestamp fails closed
 
 `frontend/tests/hourly-fvg-unreadable-future-timestamp.test.ts` checks bullish and bearish completed 1H FVG prefixes with a subsequent unclosed candle whose timestamp getter throws. The as-of scan must propagate the timestamp-read failure rather than silently omit the row or reinterpret the source as a complete archive; it must not inspect the pending candle's OHLC, volume or coverage. This is synthetic source-integrity testing only, not verified volume, broker BID/ASK execution, or profitability. Verify exact-head CI before relying on the regression.
+
+## 10 November 2026 — malformed pending-hour timestamp cannot be silently skipped
+
+`frontend/tests/hourly-fvg-invalid-pending-timestamp.test.ts` exercises mirrored bullish/bearish synthetic archives with a pending candle whose timestamp is NaN, positive/negative infinity, fractional-hour, non-aligned integer or negative zero. Each must fail closed during as-of timestamp preflight, even though its OHLC, volume and observed-minute fields are deliberately unreadable. No pending market getter may run. This is an archive-integrity regression only; it neither authenticates source volume nor establishes broker BID/ASK fills or profitability. Keep this PR draft, paper-only, unmerged and undeployed pending exact-head CI.
