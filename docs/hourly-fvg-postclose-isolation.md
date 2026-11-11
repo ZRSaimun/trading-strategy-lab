@@ -343,3 +343,7 @@ Two synthetic bullish/bearish regressions in `frontend/tests/hourly-fvg-pending-
 ## 11 November 2026 — pending timestamp cannot revise numeric completed volume
 
 `frontend/tests/hourly-fvg-pending-baseline-volume-revision.test.ts` adds mirrored synthetic bullish/bearish checks that a future, unclosed candle timestamp getter cannot change an existing completed prior-20 baseline row's numeric volume from 10 to 11. The as-of scanner must fail closed on snapshot-integrity mismatch before reading pending OHLC, volume or minute-coverage fields. This checks archive mutation isolation only: fixture volume remains unverified, BID-only geometry is not an executable two-sided quote, and no live-trading eligibility or profitability follows. Check exact-head CI before treating the regression as verified.
+
+## 11 November 2026 — pending timestamp cannot revise completed minute coverage
+
+`frontend/tests/hourly-fvg-pending-baseline-volume-revision.test.ts` now also covers bullish and bearish synthetic attempts to change a previously completed prior-20 candle's `observed_minutes` from 60 to 59 while the scanner reads an unclosed future candle's timestamp. The snapshot-integrity guard must reject the changed completed field before reading any future OHLC, volume or minute-coverage accessor. This does not authenticate the minute coverage or historical feed, prove execution costs, or demonstrate profitability; verify the exact-head CI result before claiming a pass.
