@@ -359,3 +359,8 @@ Mirrored bullish/bearish synthetic cases in `frontend/tests/hourly-fvg-pending-b
 ## 11 November 2026 — completed baseline open/high/low mutation isolation
 
 Six synthetic regressions (bullish/bearish × open/high/low) in `frontend/tests/hourly-fvg-pending-baseline-volume-revision.test.ts` assert that reading an unclosed future hour's timestamp cannot silently revise a completed prior-20 candle's remaining OHLC fields. The as-of scanner must reject the changed snapshot after one future timestamp read, without touching any future OHLC, volume or coverage getter. This completes field-wise mutation coverage alongside earlier close, timestamp, volume and coverage checks. The tests use fabricated BID-only candles and unverified volume; they cannot establish source provenance, broker fills or profitability. Check CI at the new commit before claiming verification.
+
+
+## 11 November 2026 — pending timestamp cannot delete completed minute coverage
+
+The bullish/bearish synthetic regression in `frontend/tests/hourly-fvg-pending-baseline-volume-revision.test.ts` now checks that a still-open future hour's timestamp getter cannot delete the `observed_minutes` property of an already-completed prior-20 baseline candle. The as-of scan must fail closed after one pending timestamp read, without reading future OHLC, volume or coverage accessors. Deletion of an earlier receipt is not evidence of a valid complete hour. This checks snapshot integrity only; it does not authenticate historical prices, volume-source identity, actual broker BID/ASK quotes, midpoint fills or profitability. Verify CI on the exact PR head before claiming the new test passes; keep draft and paper-only.
