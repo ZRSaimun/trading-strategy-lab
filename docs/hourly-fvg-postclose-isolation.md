@@ -383,3 +383,7 @@ Mirrored bullish/bearish synthetic regressions in `frontend/tests/hourly-fvg-pen
 ## 11 November 2026 — completed zero-volume receipt cannot be downgraded
 
 Added bullish/bearish synthetic as-of regressions in `frontend/tests/hourly-fvg-pending-baseline-volume-revision.test.ts`: a pending future timestamp getter tries to change an already-completed prior-20 numeric zero volume into explicit unknown `null`. The scan must reject the revision after one timestamp read, without accessing pending OHLC, volume or coverage. This complements null-to-zero checks and guards observed-versus-unknown evidence semantics. These fixtures do not authenticate volume sources, executable broker quotes, historical performance or profitability. Keep draft, paper-only and undeployed; verify CI for the exact new head.
+
+## 11 November 2026 — completed zero-volume receipt cannot be revised to positive
+
+Two mirrored bullish/bearish synthetic as-of regressions assert that reading an unclosed successor's timestamp cannot change a completed prior-20 hourly volume receipt from numeric `0` to numeric `10`. The scan must reject the completed snapshot mutation after exactly one pending timestamp read without accessing future OHLC, volume or minute-coverage getters. Both values are numeric observations, unlike `null` (unknown), but neither authenticates a real volume feed. These tests do not establish market provenance, executable broker quotes, profitability or any license to trade. Keep this PR draft and verify CI for its exact head.
