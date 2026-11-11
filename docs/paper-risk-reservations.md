@@ -682,3 +682,7 @@ This is only internal consistency checking of self-attested audit data,
 not tamper-proof history, a trusted clock, broker position reconciliation,
 execution authorization, or evidence of positive trading expectancy.
 Keep the PR draft, PAPER-only, unmerged and undeployed.
+
+## PostgreSQL READ COMMITTED stale-audit race (11 November 2026)
+
+Two concurrent paper-only reservations may both read revision 1 before either commits. Under PostgreSQL READ COMMITTED, the losing transaction can subsequently observe the winner's newly committed audit row while retaining its older state-envelope read. The verifier then sees an apparent state/audit mismatch. The loser now re-reads the bounded state envelope: if it changed, the operation returns a stale-revision denial without writing; if unchanged, the audit mismatch still raises a fail-closed integrity error. The existing two-thread PostgreSQL acceptance test asserts exactly one success, one denial, one reserved order and a consistent audit count. This is a local randomized test-schema check, not evidence of broker execution or production deployment; exact-head CI must be checked independently.
