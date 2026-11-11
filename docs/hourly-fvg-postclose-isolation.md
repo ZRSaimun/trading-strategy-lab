@@ -338,3 +338,8 @@ Two synthetic bullish/bearish regressions in `frontend/tests/hourly-fvg-pending-
 ## Pending-hour deletion of completed volume evidence (11 November 2026)
 
 `frontend/tests/hourly-fvg-pending-baseline-volume-deletion.test.ts` adds mirrored synthetic bullish/bearish regressions: a still-open future hour's timestamp getter deletes the `volume` property of a completed prior-20 baseline candle. The as-of study must fail closed on completed-snapshot field mutation, read that pending timestamp only once, and never access the pending candle's OHLC, volume, or minute-coverage getters. Deletion is different from the previously tested numeric volume rewrite: it attempts to reclassify known evidence as missing. This is an archive-integrity test only. Unverified volume remains unverified; no broker quotes, real fill evidence, licensed market history, or profitability is established.
+
+
+## 11 November 2026 — pending timestamp cannot revise numeric completed volume
+
+`frontend/tests/hourly-fvg-pending-baseline-volume-revision.test.ts` adds mirrored synthetic bullish/bearish checks that a future, unclosed candle timestamp getter cannot change an existing completed prior-20 baseline row's numeric volume from 10 to 11. The as-of scanner must fail closed on snapshot-integrity mismatch before reading pending OHLC, volume or minute-coverage fields. This checks archive mutation isolation only: fixture volume remains unverified, BID-only geometry is not an executable two-sided quote, and no live-trading eligibility or profitability follows. Check exact-head CI before treating the regression as verified.
