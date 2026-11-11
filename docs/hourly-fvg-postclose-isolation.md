@@ -355,3 +355,7 @@ The bullish and bearish causal 1H FVG regression cases now also mutate a previou
 ## 11 November 2026 — completed baseline timestamp rewrite from pending hour
 
 Mirrored bullish/bearish synthetic cases in `frontend/tests/hourly-fvg-pending-baseline-volume-revision.test.ts` now test a pending hourly candle timestamp getter changing a completed prior-20 candle time by one second. The causal study must fail closed on the completed snapshot mismatch, read the pending timestamp once, and never access pending OHLC, volume, or coverage fields. This protects in-memory causal chronology only; synthetic BID candles and unverified volume cannot establish broker execution, authenticated market data, or profitability. Verify CI on the exact head before treating this new test as passing.
+
+## 11 November 2026 — completed baseline open/high/low mutation isolation
+
+Six synthetic regressions (bullish/bearish × open/high/low) in `frontend/tests/hourly-fvg-pending-baseline-volume-revision.test.ts` assert that reading an unclosed future hour's timestamp cannot silently revise a completed prior-20 candle's remaining OHLC fields. The as-of scanner must reject the changed snapshot after one future timestamp read, without touching any future OHLC, volume or coverage getter. This completes field-wise mutation coverage alongside earlier close, timestamp, volume and coverage checks. The tests use fabricated BID-only candles and unverified volume; they cannot establish source provenance, broker fills or profitability. Check CI at the new commit before claiming verification.
