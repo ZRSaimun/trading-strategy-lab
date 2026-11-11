@@ -325,3 +325,7 @@ Two synthetic bullish/bearish regressions in `frontend/tests/hourly-fvg-pending-
 ## 11 November 2026 — completed archive index descriptor substitution
 
 `frontend/tests/hourly-fvg-pending-baseline-index-accessor-rewrite.test.ts` adds mirrored bullish/bearish synthetic checks that a pending future hour's timestamp accessor cannot replace an already-snapshotted prior-20 archive **array index data descriptor** with an accessor, even if that accessor would return the identical completed row. The archive identity guard must fail closed without invoking the substituted completed-row getter or any pending OHLC, volume or minute-coverage getter. This tests in-process archive identity integrity, not market-data source authentication, two-sided broker execution, fill probability or profitability. The change is paper-only; verify CI at the exact new head before claiming the regression passed.
+
+## 11 November 2026 — pending timestamp cannot reorder prior-20 rows
+
+`frontend/tests/hourly-fvg-pending-baseline-reorder.test.ts` checks bullish and bearish synthetic 1H formations. Reading a still-open future candle's timestamp tries to swap two already-completed baseline rows without changing their values. The archive identity guard must reject the reorder before future OHLC, volume, or minute coverage is read. This protects causal snapshot integrity; synthetic BID-only candles and unverified volume cannot establish source authenticity, executable fills, or profitability. Exact-head CI must be checked after this commit.
