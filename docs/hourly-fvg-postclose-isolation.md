@@ -347,3 +347,7 @@ Two synthetic bullish/bearish regressions in `frontend/tests/hourly-fvg-pending-
 ## 11 November 2026 — pending timestamp cannot revise completed minute coverage
 
 `frontend/tests/hourly-fvg-pending-baseline-volume-revision.test.ts` now also covers bullish and bearish synthetic attempts to change a previously completed prior-20 candle's `observed_minutes` from 60 to 59 while the scanner reads an unclosed future candle's timestamp. The snapshot-integrity guard must reject the changed completed field before reading any future OHLC, volume or minute-coverage accessor. This does not authenticate the minute coverage or historical feed, prove execution costs, or demonstrate profitability; verify the exact-head CI result before claiming a pass.
+
+## Completed closing-price revision from pending timestamp (synthetic)
+
+The bullish and bearish causal 1H FVG regression cases now also mutate a previously completed prior-20 candle's `close` while evaluating a still-open candle's timestamp. The scanner must fail closed on the changed completed snapshot; future OHLC, volume, and minute-coverage accessors must not run. This is an in-memory mutation-integrity test, **not** evidence of genuine market-source identity, reliable broker quotes, executable fills, or profitable performance. The PR remains draft, paper-only, unmerged and undeployed.
