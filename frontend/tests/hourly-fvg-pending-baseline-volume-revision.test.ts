@@ -182,7 +182,7 @@ for (const direction of ['BULLISH', 'BEARISH'] as const) {
     get volume(){return forbidden();},get observed_minutes(){return forbidden();},
    } as unknown as Bar);
    assert.throws(()=>studyHourlyFvgMidpointAsOf(bars,source,23*H),
-    /Hourly as-of completed candle schema changed during snapshot/);
+    /Hourly research completed candle field changed during snapshot/);
    assert.equal(timestampReads,1);
    assert.equal(futureMarketReads,0);
   });
