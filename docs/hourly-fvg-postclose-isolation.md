@@ -378,3 +378,8 @@ Two synthetic bullish/bearish regressions in `frontend/tests/hourly-fvg-pending-
 ## 11 November 2026 — explicit zero is not missing volume
 
 Mirrored bullish/bearish synthetic regressions in `frontend/tests/hourly-fvg-pending-baseline-volume-revision.test.ts` check that a pending hour's timestamp getter cannot turn a completed prior-20 `null` volume receipt into numeric `0`. Zero is an observed value; null remains unknown. The causal scanner must reject the completed evidence mutation after one pending timestamp read, without accessing pending OHLC, volume or minute-coverage getters. This tests snapshot integrity only, not authenticated volume-source identity, broker BID/ASK execution, historical market prices, or profitability. Keep draft, paper-only, unmerged and undeployed; check exact-head CI.
+
+
+## 11 November 2026 — completed zero-volume receipt cannot be downgraded
+
+Added bullish/bearish synthetic as-of regressions in `frontend/tests/hourly-fvg-pending-baseline-volume-revision.test.ts`: a pending future timestamp getter tries to change an already-completed prior-20 numeric zero volume into explicit unknown `null`. The scan must reject the revision after one timestamp read, without accessing pending OHLC, volume or coverage. This complements null-to-zero checks and guards observed-versus-unknown evidence semantics. These fixtures do not authenticate volume sources, executable broker quotes, historical performance or profitability. Keep draft, paper-only and undeployed; verify CI for the exact new head.
