@@ -329,3 +329,7 @@ Two synthetic bullish/bearish regressions in `frontend/tests/hourly-fvg-pending-
 ## 11 November 2026 — pending timestamp cannot reorder prior-20 rows
 
 `frontend/tests/hourly-fvg-pending-baseline-reorder.test.ts` checks bullish and bearish synthetic 1H formations. Reading a still-open future candle's timestamp tries to swap two already-completed baseline rows without changing their values. The archive identity guard must reject the reorder before future OHLC, volume, or minute coverage is read. This protects causal snapshot integrity; synthetic BID-only candles and unverified volume cannot establish source authenticity, executable fills, or profitability. Exact-head CI must be checked after this commit.
+
+## Pending timestamp insertion regression (11 November 2026)
+
+`frontend/tests/hourly-fvg-pending-baseline-insertion.test.ts` supplies mirrored synthetic bullish/bearish cases where a still-open candle's timestamp getter inserts a forged completed-looking row into the prior-20 hourly baseline. The causal scan must reject archive identity/length mutation before reading the pending candle's OHLC, volume, or minute-coverage getters. This checks in-memory archive integrity only; fixture volume is unverified, and no market profitability or execution evidence is implied.
