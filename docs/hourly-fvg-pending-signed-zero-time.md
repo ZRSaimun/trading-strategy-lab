@@ -65,3 +65,7 @@ The synthetic `hourly-fvg-pending-delete-slot.test.ts` regression covers a futur
 ## Prepend archive recovery after caller restoration (12 November 2026)
 
 `frontend/tests/hourly-fvg-pending-prepend.test.ts` now verifies both bullish and bearish synthetic studies can be reproduced after a pending timestamp getter prepends a row and the scanner rejects the changed archive length. The caller explicitly removes the hostile pending row and reconstructs the original completed prefix from a separate copy; the subsequent as-of result must equal the independently computed clean baseline. This tests deterministic recovery after caller repair, not automatic data repair, authenticated market provenance, executable quotes, or profitability. The new commit requires exact-head CI verification.
+
+## Pending append/removal recovery after caller restoration (12 November 2026)
+
+`frontend/tests/hourly-fvg-pending-append.test.ts` now checks deterministic re-evaluation for both bullish and bearish synthetic formations after a pending timestamp getter either appends an unseen hour or removes a completed archive row. Each rejected scan must avoid future OHLC, volume and minute-coverage reads; the caller then explicitly reconstructs the original completed archive from a separate copy, and the next scan must match the clean baseline exactly. This is not automatic repair, authenticated volume provenance, real BID/ASK execution, or evidence of profitability. Verify the updated PR head in CI.
