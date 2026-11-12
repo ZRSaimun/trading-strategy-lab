@@ -53,3 +53,7 @@ Synthetic bullish/bearish tests in `frontend/tests/hourly-fvg-pending-prepend.te
 ## Completed baseline slot deletion during pending timestamp access
 
 The synthetic `hourly-fvg-pending-delete-slot.test.ts` regression covers a future candle timestamp getter deleting an already-completed prior-20 volume-baseline array index while preserving the array length. A sparse hole is not an observed closed candle and must fail the as-of snapshot before any future OHLC, volume, or minute-coverage access. Both bullish and bearish formation fixtures are checked. This is a representation-integrity test only: it does not authenticate volume, prices, broker costs, or profitability.
+
+## Sparse-slot rejection recovery regression
+
+`frontend/tests/hourly-fvg-pending-delete-slot.test.ts` now also verifies both formation directions recover the exact completed-prefix study output after the caller removes the hostile pending row and restores the deleted prior-20 volume-baseline candle. Rejection is fail-closed for the corrupted invocation, but must not contaminate a subsequent clean, independently evaluated scan. The fixture is synthetic and supplies no independently authenticated volume, executable quote, or trading edge.
