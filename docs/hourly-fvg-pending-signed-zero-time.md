@@ -29,3 +29,7 @@ The pending-row-swap test now also checks the **last completed hourly formation 
 ## Prior-20 baseline row identity (12 November 2026)
 
 Synthetic bullish and bearish regressions now check a pending hourly timestamp accessor attempting to substitute a middle completed candle used in the historical volume-baseline window with a distinct object carrying identical values. The as-of scanner must fail closed after one pending timestamp read and before any future OHLC, volume, or minute-coverage access. This checks in-memory archive consistency, not independent volume-source authentication, real BID/ASK quotes, executable fills, or trading returns. Exact-head CI must be checked after the commit.
+
+## Completed-row permutation regression (12 November 2026)
+
+Mirrored bullish/bearish synthetic tests now exercise a pending timestamp accessor that swaps two already-completed historical row objects without changing archive length, row values, or the multiset of object identities. The as-of scanner must reject the changed slot-to-object mapping after exactly one pending timestamp read, before any future OHLC, volume, or minute-coverage access. This tests causal archive chronology rather than market-source authenticity; it provides no broker execution or profitability evidence. Exact-head CI verification is required for the new commit.
