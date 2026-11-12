@@ -72,3 +72,35 @@ for(const direction of ['BULLISH','BEARISH'] as const){
   assert.equal(futureMarketReads,0);
  });
 }
+
+
+// Rejecting a mutated archive must not permanently poison a caller's ability
+// to re-run a corrected completed-prefix snapshot (no implicit global cache).
+test('corrected completed timestamp can be studied after signed-zero rejection',()=>{
+ const bars:Bar[]=Array.from({length:21},(_,i)=>({
+  time:i*H,open:100,high:101,low:99,close:100,volume:10,observed_minutes:60,
+ }));
+ bars.push(
+  {time:21*H,open:102,high:105,low:101,close:104,volume:10,observed_minutes:60},
+  {time:22*H,open:104,high:106,low:103,close:105,volume:10,observed_minutes:60},
+ );
+ const expected=studyHourlyFvgMidpointAsOf(bars,source,23*H);
+ assert.ok(expected.observations.length>0);
+ let reads=0;
+ const pending:Bar={
+  get time(){reads++;bars[0].time=-0;return 23*H;},
+  get open(){throw Error('future OHLC read');},
+  get high(){throw Error('future OHLC read');},
+  get low(){throw Error('future OHLC read');},
+  get close(){throw Error('future OHLC read');},
+  get volume(){throw Error('future volume read');},
+  get observed_minutes(){throw Error('future coverage read');},
+ } as Bar;
+ bars.push(pending);
+ assert.throws(()=>studyHourlyFvgMidpointAsOf(bars,source,23*H),
+  /FVG as-of timestamp field changed during declaration snapshot/);
+ assert.equal(reads,1);
+ bars[0].time=0;
+ bars.pop();
+ assert.deepEqual(studyHourlyFvgMidpointAsOf(bars,source,23*H),expected);
+});
