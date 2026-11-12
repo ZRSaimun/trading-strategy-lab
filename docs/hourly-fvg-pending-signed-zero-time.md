@@ -57,3 +57,7 @@ The synthetic `hourly-fvg-pending-delete-slot.test.ts` regression covers a futur
 ## Sparse-slot rejection recovery regression
 
 `frontend/tests/hourly-fvg-pending-delete-slot.test.ts` now also verifies both formation directions recover the exact completed-prefix study output after the caller removes the hostile pending row and restores the deleted prior-20 volume-baseline candle. Rejection is fail-closed for the corrupted invocation, but must not contaminate a subsequent clean, independently evaluated scan. The fixture is synthetic and supplies no independently authenticated volume, executable quote, or trading edge.
+
+## Truncated archive recovery after caller restoration (12 November 2026)
+
+`frontend/tests/hourly-fvg-pending-truncation.test.ts` now also verifies both bullish and bearish synthetic cases can be re-evaluated deterministically after a rejected pending timestamp getter truncates the completed archive. The caller explicitly reconstructs the original completed rows from an independent copy, removes the hostile pending row, and requires the next as-of result to match the clean completed-prefix study. This does **not** imply the scanner repairs a damaged input archive automatically. The test establishes local fail-closed/recovery behavior only; source provenance, volume authenticity, broker BID/ASK execution, costs, and profitability remain unverified. Exact-head CI is required for the updated regression.
