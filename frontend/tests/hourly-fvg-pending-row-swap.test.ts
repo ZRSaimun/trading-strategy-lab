@@ -37,6 +37,16 @@ for(const direction of ['BULLISH','BEARISH'] as const){
   assert.equal(timeReads,1);
   assert.equal(marketReads,0);
   assert.notStrictEqual(bars[0],original);
+  // A rejected invocation must not poison the next independent scan.
+  // The caller explicitly restores the original object and drops the pending
+  // accessor; the study never claims to repair mutated source evidence.
+  const completed=bars.slice(0,-1);
+  completed[0]=original;
+  const baseline=studyHourlyFvgMidpointAsOf(completed,source,23*H);
+  assert.ok(baseline.observations.length>0);
+  bars[0]=original;
+  bars.pop();
+  assert.deepEqual(studyHourlyFvgMidpointAsOf(bars,source,23*H),baseline);
  });
 }
 
