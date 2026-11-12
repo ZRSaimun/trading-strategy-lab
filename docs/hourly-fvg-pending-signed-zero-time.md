@@ -74,3 +74,7 @@ The synthetic `hourly-fvg-pending-delete-slot.test.ts` regression covers a futur
 ## Completed first-row identity restoration regression (12 November 2026)
 
 The mirrored bullish/bearish first-row substitution tests now check deterministic recovery after a pending timestamp getter replaces the first completed hourly candle with a distinct, same-valued object. After the initial scan rejects the archive identity mutation, the caller explicitly restores the original row object and removes the hostile pending candle. A subsequent independent as-of study must exactly match a clean completed-prefix baseline. This does not imply automatic restoration, source authentication, executable broker fills or profitable trading; verify CI at the new exact head.
+
+## Prior-20 volume-baseline row recovery
+
+The bullish/bearish synthetic pending-row-swap regression also exercises caller-side recovery when a pending timestamp getter replaces a completed candle inside the prior-20 volume baseline with an equal-valued but different object. After the expected fail-closed rejection and zero future market-field reads, the caller restores the original historical object, removes the pending row, and compares a new as-of scan with an independently reconstructed clean completed-prefix baseline. This establishes deterministic recovery after explicit restoration only; it does not prove volume provenance, authentic BID/ASK prices, execution feasibility, or profitability.
