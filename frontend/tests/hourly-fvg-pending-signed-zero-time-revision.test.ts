@@ -95,7 +95,7 @@ test('corrected completed timestamp can be studied after signed-zero rejection',
   get close(){throw Error('future OHLC read');},
   get volume(){throw Error('future volume read');},
   get observed_minutes(){throw Error('future coverage read');},
- } as Bar;
+ } as unknown as Bar;
  bars.push(pending);
  assert.throws(()=>studyHourlyFvgMidpointAsOf(bars,source,23*H),
   /FVG as-of timestamp field changed during declaration snapshot/);
