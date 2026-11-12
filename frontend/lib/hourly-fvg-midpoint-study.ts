@@ -372,7 +372,7 @@ function assertCompletedFieldsUnchanged(row:Bar,initial:readonly PropertyDescrip
   const data='value' in before;
   if(!after||before.configurable!==after.configurable||
    before.enumerable!==after.enumerable||data!==('value' in after)||
-   (data?before.value!==after.value||before.writable!==after.writable:
+   (data?!Object.is(before.value,after.value)||before.writable!==after.writable:
     before.get!==after.get||before.set!==after.set))
    throw Error('Hourly research completed candle field changed during snapshot');
  });
