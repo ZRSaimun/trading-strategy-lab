@@ -33,3 +33,7 @@ Synthetic bullish and bearish regressions now check a pending hourly timestamp a
 ## Completed-row permutation regression (12 November 2026)
 
 Mirrored bullish/bearish synthetic tests now exercise a pending timestamp accessor that swaps two already-completed historical row objects without changing archive length, row values, or the multiset of object identities. The as-of scanner must reject the changed slot-to-object mapping after exactly one pending timestamp read, before any future OHLC, volume, or minute-coverage access. This tests causal archive chronology rather than market-source authenticity; it provides no broker execution or profitability evidence. Exact-head CI verification is required for the new commit.
+
+## Completed archive-slot descriptor regression (12 November 2026)
+
+The pending-row-swap suite now also tests a future timestamp accessor changing a completed volume-baseline slot from writable to read-only without changing the candle object or its values. Mirrored bullish/bearish synthetic tests require fail-closed archive-slot identity validation after exactly one pending timestamp read and zero future market-field reads. This verifies that a same-value property-descriptor mutation cannot silently pass as an unchanged historical snapshot. It does not authenticate data, prove fills or profitability. Verify the exact-head GitHub Actions workflow before considering the regression accepted.
