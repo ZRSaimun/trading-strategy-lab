@@ -23,6 +23,9 @@ for(const direction of ['BULLISH','BEARISH'] as const){
   ]));
   let timeReads=0,marketReads=0;
   const forbidden=():never=>{marketReads++;throw Error('future market field read');};
+  const completedBaseline=studyHourlyFvgMidpointAsOf(bars,source,23*H);
+  assert.ok(completedBaseline.observations.length>0);
+  const originalRow=bars[10];
   bars.push({
    get time(){timeReads++;delete bars[10];return 23*H;},
    get open(){return forbidden();},get high(){return forbidden();},
@@ -35,5 +38,10 @@ for(const direction of ['BULLISH','BEARISH'] as const){
   assert.equal(marketReads,0);
   assert.equal(bars.length,24);
   assert.equal(Object.hasOwn(bars,10),false);
+  // Caller-side restoration must recover the identical completed-prefix result;
+  // rejection must not poison later independent research scans.
+  bars.pop();
+  bars[10]=originalRow;
+  assert.deepEqual(studyHourlyFvgMidpointAsOf(bars,source,23*H),completedBaseline);
  });
 }
