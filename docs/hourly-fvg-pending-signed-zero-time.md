@@ -9,3 +9,7 @@ This protects representation-level causality; it does **not** independently auth
 A paired positive control for each direction appends a benign pending timestamp getter with forbidden future market-field getters. The completed-prefix observations must remain identical to those without the pending candle, with exactly one timestamp read and zero future market-field reads. This prevents the integrity guard from becoming an unconditional rejection of valid timestamp-only pending data.
 
 A recovery regression also verifies that, after the scanner rejects a pending getter's signed-zero mutation, explicitly restoring the completed timestamp and removing the hostile pending row reproduces the original completed-prefix observations. This checks deterministic re-evaluation after caller-side correction, not automatic repair or source authenticity.
+
+## 12 November 2026 — CI TypeScript repair
+
+The recovery regression's intentionally forbidden future OHLC/volume getters return `never` (inferred as `void` in the object literal), so a direct `as Bar` assertion failed TypeScript's TS2352 structural-overlap check during Next.js production builds. The test now uses `as unknown as Bar`, matching the other deliberately hostile pending-row fixtures. This is confined to a synthetic test: the runtime scanner still must not read those getters. Frontend, Docker smoke and free-cloud smoke builds previously failed on the same type-check error; the updated commit requires fresh exact-head CI verification before claiming a pass.
