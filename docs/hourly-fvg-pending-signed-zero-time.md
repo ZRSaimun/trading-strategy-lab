@@ -37,3 +37,7 @@ Mirrored bullish/bearish synthetic tests now exercise a pending timestamp access
 ## Completed archive-slot descriptor regression (12 November 2026)
 
 The pending-row-swap suite now also tests a future timestamp accessor changing a completed volume-baseline slot from writable to read-only without changing the candle object or its values. Mirrored bullish/bearish synthetic tests require fail-closed archive-slot identity validation after exactly one pending timestamp read and zero future market-field reads. This verifies that a same-value property-descriptor mutation cannot silently pass as an unchanged historical snapshot. It does not authenticate data, prove fills or profitability. Verify the exact-head GitHub Actions workflow before considering the regression accepted.
+
+## Pending timestamp hides completed indexed slot (12 November 2026)
+
+Mirrored synthetic bullish/bearish regressions verify that a still-open future hour's timestamp getter cannot make a completed, previously enumerable archive index non-enumerable while preserving the exact same candle object and values. The as-of scan must reject the archive-slot descriptor change after one pending timestamp read, without accessing future OHLC, volume or minute coverage. This is a representation-level causality guard, not independently authenticated source volume, real BID/ASK quotes or profitability evidence. Exact-head CI remains required.
