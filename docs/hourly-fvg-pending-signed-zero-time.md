@@ -13,3 +13,7 @@ A recovery regression also verifies that, after the scanner rejects a pending ge
 ## 12 November 2026 — CI TypeScript repair
 
 The recovery regression's intentionally forbidden future OHLC/volume getters return `never` (inferred as `void` in the object literal), so a direct `as Bar` assertion failed TypeScript's TS2352 structural-overlap check during Next.js production builds. The test now uses `as unknown as Bar`, matching the other deliberately hostile pending-row fixtures. This is confined to a synthetic test: the runtime scanner still must not read those getters. Frontend, Docker smoke and free-cloud smoke builds previously failed on the same type-check error; the updated commit requires fresh exact-head CI verification before claiming a pass.
+
+## Reverse signed-zero mutation regression
+
+`frontend/tests/hourly-fvg-pending-reverse-signed-zero-time.test.ts` independently checks the opposite completed timestamp representation change, from `-0` to `+0`, in both bullish and bearish synthetic FVGs. A still-open pending hour may expose its timestamp once, but cannot rewrite the earlier completed timestamp, and no future OHLC, volume or coverage accessor may be evaluated. This is a representation-integrity test only; source authentication, real BID/ASK quotes, execution feasibility and profitability remain unverified.
