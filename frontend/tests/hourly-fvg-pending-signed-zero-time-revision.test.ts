@@ -41,3 +41,34 @@ for(const direction of ['BULLISH','BEARISH'] as const){
   assert.equal(futureMarketReads,0);
  });
 }
+
+// A benign pending timestamp accessor must not be mistaken for a historical
+// mutation merely because it is an accessor. Only its timestamp is eligible.
+for(const direction of ['BULLISH','BEARISH'] as const){
+ test(`pending ${direction} timestamp-only accessor preserves completed-prefix results`,()=>{
+  const bars:Bar[]=Array.from({length:21},(_,i)=>({
+   time:i*H,open:100,high:101,low:99,close:100,volume:10,observed_minutes:60,
+  }));
+  bars.push(...(direction==='BULLISH'?[
+   {time:21*H,open:102,high:105,low:101,close:104,volume:10,observed_minutes:60},
+   {time:22*H,open:104,high:106,low:103,close:105,volume:10,observed_minutes:60},
+  ]:[
+   {time:21*H,open:99,high:100,low:96,close:97,volume:10,observed_minutes:60},
+   {time:22*H,open:97,high:98,low:95,close:96,volume:10,observed_minutes:60},
+  ]));
+  const expected=studyHourlyFvgMidpointAsOf(bars,source,23*H);
+  assert.ok(expected.observations.length>0);
+  let timestampReads=0,futureMarketReads=0;
+  const forbidden=():never=>{futureMarketReads++;throw Error('future market read');};
+  bars.push({
+   get time(){timestampReads++;return 23*H;},
+   get open(){return forbidden();},get high(){return forbidden();},
+   get low(){return forbidden();},get close(){return forbidden();},
+   get volume(){return forbidden();},get observed_minutes(){return forbidden();},
+  } as unknown as Bar);
+  const actual=studyHourlyFvgMidpointAsOf(bars,source,23*H);
+  assert.deepEqual(actual,expected);
+  assert.equal(timestampReads,1);
+  assert.equal(futureMarketReads,0);
+ });
+}
