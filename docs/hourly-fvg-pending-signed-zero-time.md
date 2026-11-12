@@ -25,3 +25,7 @@ The recovery regression's intentionally forbidden future OHLC/volume getters ret
 ## Latest completed formation-row substitution regression
 
 The pending-row-swap test now also checks the **last completed hourly formation candle** (index 22), in both bullish and bearish synthetic fixtures. A pending hour's timestamp accessor replaces that completed object with a new object containing identical fields. The as-of study must reject the archive identity change after exactly one pending timestamp read, without accessing future OHLC, volume or minute coverage. This complements the first-row substitution test; it does not prove independent source provenance, market performance or execution feasibility. Exact-head CI must be checked for the new commit.
+
+## Prior-20 baseline row identity (12 November 2026)
+
+Synthetic bullish and bearish regressions now check a pending hourly timestamp accessor attempting to substitute a middle completed candle used in the historical volume-baseline window with a distinct object carrying identical values. The as-of scanner must fail closed after one pending timestamp read and before any future OHLC, volume, or minute-coverage access. This checks in-memory archive consistency, not independent volume-source authentication, real BID/ASK quotes, executable fills, or trading returns. Exact-head CI must be checked after the commit.
