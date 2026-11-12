@@ -114,6 +114,15 @@ for(const direction of ['BULLISH','BEARISH'] as const){
   assert.equal(timeReads,1);
   assert.equal(marketReads,0);
   assert.notStrictEqual(bars[12],original);
+  // Rebuild a clean reference independently of the hostile pending accessor.
+  // Restoration is caller-owned: the scanner does not repair its inputs.
+  const repaired=bars.slice(0,-1);
+  repaired[12]=original;
+  const baseline=studyHourlyFvgMidpointAsOf(repaired,source,23*H);
+  assert.ok(baseline.observations.length>0);
+  bars[12]=original;
+  bars.pop();
+  assert.deepEqual(studyHourlyFvgMidpointAsOf(bars,source,23*H),baseline);
  });
 }
 
