@@ -41,3 +41,7 @@ The pending-row-swap suite now also tests a future timestamp accessor changing a
 ## Pending timestamp hides completed indexed slot (12 November 2026)
 
 Mirrored synthetic bullish/bearish regressions verify that a still-open future hour's timestamp getter cannot make a completed, previously enumerable archive index non-enumerable while preserving the exact same candle object and values. The as-of scan must reject the archive-slot descriptor change after one pending timestamp read, without accessing future OHLC, volume or minute coverage. This is a representation-level causality guard, not independently authenticated source volume, real BID/ASK quotes or profitability evidence. Exact-head CI remains required.
+
+## Pending timestamp truncates completed archive (12 November 2026)
+
+`frontend/tests/hourly-fvg-pending-truncation.test.ts` adds mirrored synthetic bullish/bearish checks that an unclosed hour's timestamp accessor cannot shorten the previously observed completed candle array. The causal scanner must reject the changed historical snapshot after one pending timestamp read without reading future OHLC, volume or minute-coverage fields. This protects in-memory causal consistency only; it does not authenticate source data, model fills or demonstrate profitability. Exact-head CI must verify the regression.
