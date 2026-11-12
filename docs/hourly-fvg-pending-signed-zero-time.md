@@ -69,3 +69,8 @@ The synthetic `hourly-fvg-pending-delete-slot.test.ts` regression covers a futur
 ## Pending append/removal recovery after caller restoration (12 November 2026)
 
 `frontend/tests/hourly-fvg-pending-append.test.ts` now checks deterministic re-evaluation for both bullish and bearish synthetic formations after a pending timestamp getter either appends an unseen hour or removes a completed archive row. Each rejected scan must avoid future OHLC, volume and minute-coverage reads; the caller then explicitly reconstructs the original completed archive from a separate copy, and the next scan must match the clean baseline exactly. This is not automatic repair, authenticated volume provenance, real BID/ASK execution, or evidence of profitability. Verify the updated PR head in CI.
+
+
+## Completed first-row identity restoration regression (12 November 2026)
+
+The mirrored bullish/bearish first-row substitution tests now check deterministic recovery after a pending timestamp getter replaces the first completed hourly candle with a distinct, same-valued object. After the initial scan rejects the archive identity mutation, the caller explicitly restores the original row object and removes the hostile pending candle. A subsequent independent as-of study must exactly match a clean completed-prefix baseline. This does not imply automatic restoration, source authentication, executable broker fills or profitable trading; verify CI at the new exact head.
