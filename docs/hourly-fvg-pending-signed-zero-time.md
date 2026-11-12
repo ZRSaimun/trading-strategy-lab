@@ -49,3 +49,7 @@ Mirrored synthetic bullish/bearish regressions verify that a still-open future h
 ## Pending timestamp prepend regression (12 November 2026)
 
 Synthetic bullish/bearish tests in `frontend/tests/hourly-fvg-pending-prepend.test.ts` assert that a still-open candle's timestamp getter cannot prepend a historical row to the already-observed hourly archive. The as-of scan must reject the archive-length mutation after one timestamp read and before any pending OHLC, volume or minute-coverage access. This is snapshot integrity only; it does not validate source identities, CFD quotes, execution costs or profitability.
+
+## Completed baseline slot deletion during pending timestamp access
+
+The synthetic `hourly-fvg-pending-delete-slot.test.ts` regression covers a future candle timestamp getter deleting an already-completed prior-20 volume-baseline array index while preserving the array length. A sparse hole is not an observed closed candle and must fail the as-of snapshot before any future OHLC, volume, or minute-coverage access. Both bullish and bearish formation fixtures are checked. This is a representation-integrity test only: it does not authenticate volume, prices, broker costs, or profitability.
