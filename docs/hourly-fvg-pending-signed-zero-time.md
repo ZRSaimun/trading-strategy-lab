@@ -21,3 +21,7 @@ The recovery regression's intentionally forbidden future OHLC/volume getters ret
 ## Pending timestamp archive-row substitution
 
 `frontend/tests/hourly-fvg-pending-row-swap.test.ts` adds mirrored bullish/bearish synthetic checks for a separate as-of provenance boundary: a future, unclosed hour's timestamp getter must not replace an already-completed candle object with a distinct object containing identical field values. The archive-slot identity guard must reject the swap after one timestamp read, without reading future OHLC, volume or minute-coverage fields. Matching price numbers alone are not sufficient evidence of an unchanged historical archive. This does not authenticate the input source or establish a broker fill, strategy edge or profitability.
+
+## Latest completed formation-row substitution regression
+
+The pending-row-swap test now also checks the **last completed hourly formation candle** (index 22), in both bullish and bearish synthetic fixtures. A pending hour's timestamp accessor replaces that completed object with a new object containing identical fields. The as-of study must reject the archive identity change after exactly one pending timestamp read, without accessing future OHLC, volume or minute coverage. This complements the first-row substitution test; it does not prove independent source provenance, market performance or execution feasibility. Exact-head CI must be checked for the new commit.
