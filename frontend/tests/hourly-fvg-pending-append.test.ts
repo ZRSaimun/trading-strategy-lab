@@ -22,7 +22,9 @@ for(const direction of ['BULLISH','BEARISH'] as const){
    {time:21*H,open:99,high:100,low:96,close:97,volume:10,observed_minutes:60},
    {time:22*H,open:97,high:98,low:95,close:96,volume:10,observed_minutes:60},
   ]));
-  assert.ok(studyHourlyFvgMidpointAsOf(bars,source,23*H).observations.length>0);
+  const completed=bars.slice();
+  const baseline=studyHourlyFvgMidpointAsOf(completed,source,23*H);
+  assert.ok(baseline.observations.length>0);
   let futureMarketReads=0,timeReads=0;
   const forbidden=():never=>{futureMarketReads++;throw Error('future OHLC read');};
   const pending={
@@ -40,6 +42,9 @@ for(const direction of ['BULLISH','BEARISH'] as const){
    /Hourly research candle (?:array|archive) length changed during snapshot/);
   assert.equal(timeReads,1);
   assert.equal(futureMarketReads,0);
+  // Explicit caller-side restoration must recover the identical completed-prefix result.
+  bars.splice(0,bars.length,...completed);
+  assert.deepEqual(studyHourlyFvgMidpointAsOf(bars,source,23*H),baseline);
  });
 }
 
@@ -60,7 +65,9 @@ for(const direction of ['BULLISH','BEARISH'] as const){
    {time:21*H,open:99,high:100,low:96,close:97,volume:10,observed_minutes:60},
    {time:22*H,open:97,high:98,low:95,close:96,volume:10,observed_minutes:60},
   ]));
-  assert.ok(studyHourlyFvgMidpointAsOf(bars,source,23*H).observations.length>0);
+  const completed=bars.slice();
+  const baseline=studyHourlyFvgMidpointAsOf(completed,source,23*H);
+  assert.ok(baseline.observations.length>0);
   let futureMarketReads=0,timeReads=0;
   const forbidden=():never=>{futureMarketReads++;throw Error('future OHLC read');};
   const pending={
@@ -78,5 +85,8 @@ for(const direction of ['BULLISH','BEARISH'] as const){
    /Hourly research candle (?:array|archive) length changed during snapshot/);
   assert.equal(timeReads,1);
   assert.equal(futureMarketReads,0);
+  // Explicit caller-side restoration must recover the identical completed-prefix result.
+  bars.splice(0,bars.length,...completed);
+  assert.deepEqual(studyHourlyFvgMidpointAsOf(bars,source,23*H),baseline);
  });
 }
