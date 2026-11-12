@@ -45,3 +45,7 @@ Mirrored synthetic bullish/bearish regressions verify that a still-open future h
 ## Pending timestamp truncates completed archive (12 November 2026)
 
 `frontend/tests/hourly-fvg-pending-truncation.test.ts` adds mirrored synthetic bullish/bearish checks that an unclosed hour's timestamp accessor cannot shorten the previously observed completed candle array. The causal scanner must reject the changed historical snapshot after one pending timestamp read without reading future OHLC, volume or minute-coverage fields. This protects in-memory causal consistency only; it does not authenticate source data, model fills or demonstrate profitability. Exact-head CI must verify the regression.
+
+## Pending timestamp prepend regression (12 November 2026)
+
+Synthetic bullish/bearish tests in `frontend/tests/hourly-fvg-pending-prepend.test.ts` assert that a still-open candle's timestamp getter cannot prepend a historical row to the already-observed hourly archive. The as-of scan must reject the archive-length mutation after one timestamp read and before any pending OHLC, volume or minute-coverage access. This is snapshot integrity only; it does not validate source identities, CFD quotes, execution costs or profitability.
