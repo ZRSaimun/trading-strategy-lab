@@ -100,3 +100,8 @@ The mirrored bullish/bearish pending-row-swap regressions now also verify that, 
 ## Irreversible frozen baseline slot (13 November 2026)
 
 The sealed-slot synthetic regression also covers a pending-hour timestamp getter making an already-completed prior-20 volume-baseline index both **non-configurable and non-writable**, while retaining the same candle object and numerical values. Both bullish and bearish cases require rejection after exactly one pending timestamp read and zero future market-field reads. Unlike a configurable descriptor mutation, the frozen slot cannot be restored in place; callers must discard the tainted array and rebuild it from independently retained evidence. This checks in-memory causality only, not licensed source identity, authentic volume, broker quotes, fills, or profitability. Verify exact-head CI before treating this regression as passing.
+
+
+### Completed formation-row descriptor regression (13 November 2026)
+
+Synthetic bullish and bearish as-of tests also cover irreversible non-writable, non-configurable mutations to each of the two completed formation rows (slots 21 and 22), triggered by the still-open hour's timestamp getter. These must fail closed after one pending timestamp read, without touching future market fields. This extends the prior-20 baseline-slot checks; it does not prove volume authenticity, real bid/ask execution, or strategy performance. A tainted input array requires reconstruction from independent evidence; no automatic repair is claimed.
