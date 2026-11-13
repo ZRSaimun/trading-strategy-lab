@@ -125,3 +125,8 @@ The sealed-field synthetic regression now covers `open`, `high`, `low`, and `clo
 ### Formation-close field sealing regression (13 November 2026)
 
 The synthetic sealed-field suite additionally checks both completed FVG formation rows (indices 21 and 22), for bullish and bearish fixtures. A pending hour's timestamp accessor freezes an unchanged completed `close` field as non-configurable and non-writable. The causal as-of scanner must reject the altered descriptor after one pending timestamp read without accessing pending market fields. This complements the earlier baseline-row field test, and remains a representation-integrity check only: no independently verified volume, broker quotes, execution, or trading edge is inferred. Exact-head CI must be checked separately.
+
+
+## 13 November 2026 — completed formation evidence descriptors
+
+The synthetic sealed-field regression now checks both completed formation rows (indices 21 and 22) in bullish and bearish fixtures when a pending-hour timestamp getter irreversibly seals their `time`, `volume`, or `observed_minutes` fields without changing values. The causal scanner must reject the declaration change after one pending timestamp read, before any future OHLC/volume/coverage getter. Timestamp mutations use the earlier timestamp-specific guard; volume and coverage use the completed-field snapshot guard. These are archive-integrity checks, not verification of volume-source identities, real prices, execution, or profitability. Keep the research draft-only, paper-only, unmerged and undeployed.
