@@ -31,7 +31,7 @@ for(const field of ['datasetId','archiveSha256','instrument','provider',
    get time(){
     timestampReads++;
     Object.defineProperty(source,field,{
-     value,enumerable:true,...variant,
+     value,...variant,
     });
     return 23*H;
    },
