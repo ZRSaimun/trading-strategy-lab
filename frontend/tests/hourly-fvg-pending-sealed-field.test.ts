@@ -40,8 +40,12 @@ for(const direction of ['BULLISH','BEARISH'] as const){
     get volume(){return forbidden();},
     get observed_minutes(){return forbidden();},
    } as unknown as Bar);
-   assert.throws(()=>studyHourlyFvgMidpointAsOf(bars,source,23*H),
-    /Hourly research completed candle field changed during snapshot/);
+   // The timestamp has an earlier, more specific declaration-snapshot guard.
+   // Both rejection paths are fail-closed; only non-time fields use the general guard.
+   const rejection=field==='time'
+    ? /FVG as-of timestamp field changed during declaration snapshot/
+    : /Hourly research completed candle field changed during snapshot/;
+   assert.throws(()=>studyHourlyFvgMidpointAsOf(bars,source,23*H),rejection);
    assert.equal(timeReads,1);
    assert.equal(marketReads,0);
    assert.equal(completed[field],value);
