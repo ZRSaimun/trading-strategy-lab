@@ -120,3 +120,8 @@ The sealed-slot regression now exercises indices **0, 12 and 20** for both descr
 ### Completed OHLC field descriptor coverage (13 November 2026)
 
 The sealed-field synthetic regression now covers `open`, `high`, `low`, and `close` alongside `time`, `volume`, and `observed_minutes`, in both bullish and bearish fixtures. A still-open hour's timestamp getter attempts to freeze an unchanged completed historical price field. The as-of scanner must reject the descriptor mutation after one pending timestamp read and before any future market-field access. The `time` case retains its more specific declaration-snapshot error; all other fields use the general completed-candle snapshot guard. This tests integrity of in-memory historical price evidence only. It neither authenticates external quotes nor validates profitability, and exact-head CI is required.
+
+
+### Formation-close field sealing regression (13 November 2026)
+
+The synthetic sealed-field suite additionally checks both completed FVG formation rows (indices 21 and 22), for bullish and bearish fixtures. A pending hour's timestamp accessor freezes an unchanged completed `close` field as non-configurable and non-writable. The causal as-of scanner must reject the altered descriptor after one pending timestamp read without accessing pending market fields. This complements the earlier baseline-row field test, and remains a representation-integrity check only: no independently verified volume, broker quotes, execution, or trading edge is inferred. Exact-head CI must be checked separately.
