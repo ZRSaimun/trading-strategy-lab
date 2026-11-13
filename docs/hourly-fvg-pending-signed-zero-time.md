@@ -115,3 +115,8 @@ The sealed-slot regression now exercises indices **0, 12 and 20** for both descr
 ### Irreversible completed candle field mutation (13 November 2026)
 
 `frontend/tests/hourly-fvg-pending-sealed-field.test.ts` tests a different boundary from array-slot sealing: a still-open hour's timestamp getter freezes a **field on an already-completed candle object** (`time`, `volume`, or `observed_minutes`) without changing its value. Both synthetic formation directions must reject the descriptor mutation after exactly one pending timestamp read, before any pending OHLC/volume/coverage read. The scanner cannot restore a non-configurable field; callers must discard the tainted objects and reconstruct from independently retained evidence. This is only in-memory causality protection; it does not authenticate historical market data, source-classified volume, broker quotes, costs or returns. Exact-head CI must verify the regression.
+
+
+### Completed OHLC field descriptor coverage (13 November 2026)
+
+The sealed-field synthetic regression now covers `open`, `high`, `low`, and `close` alongside `time`, `volume`, and `observed_minutes`, in both bullish and bearish fixtures. A still-open hour's timestamp getter attempts to freeze an unchanged completed historical price field. The as-of scanner must reject the descriptor mutation after one pending timestamp read and before any future market-field access. The `time` case retains its more specific declaration-snapshot error; all other fields use the general completed-candle snapshot guard. This tests integrity of in-memory historical price evidence only. It neither authenticates external quotes nor validates profitability, and exact-head CI is required.
