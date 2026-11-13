@@ -61,7 +61,8 @@ for(const direction of ['BULLISH','BEARISH'] as const){
 // baseline rows. These are completed candles, not pending confirmation data.
 for (const direction of ['BULLISH','BEARISH'] as const) {
  for (const formationIndex of [21,22] as const) {
-  test(`pending timestamp cannot seal completed ${direction} formation row ${formationIndex} close`,()=>{
+  for (const field of ['time','volume','observed_minutes'] as const) {
+  test(`pending timestamp cannot seal completed ${direction} formation row ${formationIndex} ${field}`,()=>{
    const bars:Bar[]=Array.from({length:21},(_,i)=>({
     time:i*H,open:100,high:101,low:99,close:100,volume:10,observed_minutes:60,
    }));
@@ -73,14 +74,14 @@ for (const direction of ['BULLISH','BEARISH'] as const) {
     {time:22*H,open:97,high:98,low:95,close:96,volume:10,observed_minutes:60},
    ]));
    const completed=bars[formationIndex];
-   const originalClose=completed.close;
+   const originalValue=completed[field];
    let timeReads=0,marketReads=0;
    const forbidden=():never=>{marketReads++;throw Error('future market field read');};
    bars.push({
     get time(){
      timeReads++;
-     Object.defineProperty(completed,'close',{
-      value:originalClose,writable:false,enumerable:true,configurable:false,
+     Object.defineProperty(completed,field,{
+      value:originalValue,writable:false,enumerable:true,configurable:false,
      });
      return 23*H;
     },
@@ -89,11 +90,12 @@ for (const direction of ['BULLISH','BEARISH'] as const) {
     get volume(){return forbidden();},get observed_minutes(){return forbidden();},
    } as unknown as Bar);
    assert.throws(()=>studyHourlyFvgMidpointAsOf(bars,source,23*H),
-    /Hourly research completed candle field changed during snapshot/);
+    field==='time' ? /FVG as-of timestamp field changed during declaration snapshot/ : /Hourly research completed candle field changed during snapshot/);
    assert.equal(timeReads,1);
    assert.equal(marketReads,0);
-   assert.equal(completed.close,originalClose);
-   assert.equal(Object.getOwnPropertyDescriptor(completed,'close')?.configurable,false);
+   assert.equal(completed[field],originalValue);
+   assert.equal(Object.getOwnPropertyDescriptor(completed,field)?.configurable,false);
   });
+  }
  }
 }
