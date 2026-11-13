@@ -9,11 +9,12 @@ const H=3600;
 for(const field of ['datasetId','archiveSha256','instrument','provider',
  'priceSide','volumeType','volumeVerified'] as const){
  for(const variant of [
-  {configurable:false,writable:true},
-  {configurable:false,writable:false},
-  {configurable:true,writable:false},
+  {configurable:false,writable:true,enumerable:true},
+  {configurable:false,writable:false,enumerable:true},
+  {configurable:true,writable:false,enumerable:true},
+  {configurable:true,writable:true,enumerable:false},
  ] as const){
- test(`pending timestamp cannot permanently seal source declaration ${field} configurable=${variant.configurable} writable=${variant.writable}`,()=>{
+ test(`pending timestamp cannot permanently seal source declaration ${field} configurable=${variant.configurable} writable=${variant.writable} enumerable=${variant.enumerable}`,()=>{
   const source:FvgSource={
    datasetId:'a'.repeat(64),archiveSha256:'b'.repeat(64),
    instrument:'SYNTHETIC',provider:'fixture',priceSide:'bid',
@@ -46,6 +47,7 @@ for(const field of ['datasetId','archiveSha256','instrument','provider',
   assert.equal(source[field],value);
   assert.equal(Object.getOwnPropertyDescriptor(source,field)?.configurable,variant.configurable);
   assert.equal(Object.getOwnPropertyDescriptor(source,field)?.writable,variant.writable);
+  assert.equal(Object.getOwnPropertyDescriptor(source,field)?.enumerable,variant.enumerable);
  });
  }
 }
