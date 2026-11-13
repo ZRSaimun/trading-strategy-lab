@@ -160,3 +160,40 @@ for(const field of ['datasetId','archiveSha256','instrument','provider',
   assert.equal(source[field],original);
  });
 }
+
+for(const field of ['datasetId','archiveSha256','instrument','provider',
+ 'priceSide','volumeType','volumeVerified'] as const){
+ test(`pending timestamp cannot replace source identity ${field} with a same-value accessor`,()=>{
+  const source:FvgSource={
+   datasetId:'a'.repeat(64),archiveSha256:'b'.repeat(64),
+   instrument:'SYNTHETIC',provider:'fixture',priceSide:'bid',
+   volumeType:'unverified',volumeVerified:false,
+  };
+  const original=source[field];
+  const bars:Bar[]=Array.from({length:23},(_,i)=>({
+   time:i*H,open:100,high:101,low:99,close:100,
+   volume:10,observed_minutes:60,
+  }));
+  let timestampReads=0,marketReads=0,sourceGetterReads=0;
+  const forbidden=():never=>{marketReads++;throw Error('future market field read');};
+  bars.push({
+   get time(){
+    timestampReads++;
+    Object.defineProperty(source,field,{
+     enumerable:true,configurable:true,
+     get(){sourceGetterReads++;return original;},
+    });
+    return 23*H;
+   },
+   get open(){return forbidden();},get high(){return forbidden();},
+   get low(){return forbidden();},get close(){return forbidden();},
+   get volume(){return forbidden();},
+   get observed_minutes(){return forbidden();},
+  } as unknown as Bar);
+  assert.throws(()=>studyHourlyFvgMidpointAsOf(bars,source,23*H),
+   /FVG source declaration field changed during declaration snapshot/);
+  assert.equal(timestampReads,1);
+  assert.equal(marketReads,0);
+  assert.equal(sourceGetterReads,0,'descriptor comparison must not invoke replacement accessor');
+ });
+}
