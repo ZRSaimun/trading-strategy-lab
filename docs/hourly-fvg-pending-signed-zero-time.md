@@ -105,3 +105,8 @@ The sealed-slot synthetic regression also covers a pending-hour timestamp getter
 ### Completed formation-row descriptor regression (13 November 2026)
 
 Synthetic bullish and bearish as-of tests also cover irreversible non-writable, non-configurable mutations to each of the two completed formation rows (slots 21 and 22), triggered by the still-open hour's timestamp getter. These must fail closed after one pending timestamp read, without touching future market fields. This extends the prior-20 baseline-slot checks; it does not prove volume authenticity, real bid/ask execution, or strategy performance. A tainted input array requires reconstruction from independent evidence; no automatic repair is claimed.
+
+
+### Baseline boundary-slot descriptor coverage (13 November 2026)
+
+The sealed-slot regression now exercises indices **0, 12 and 20** for both descriptor changes (non-configurable and frozen non-writable) and both synthetic directions. This covers the first and last completed baseline indices in addition to the interior index; each case must fail closed after one pending timestamp read and before any future market-field access. The cases test in-memory archive integrity, not verified source volume, broker quotes or profitability. Exact-head CI remains the verification requirement.
