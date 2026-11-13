@@ -8,7 +8,8 @@ import type {Bar} from '../lib/research.ts';
 const H=3600;
 for(const field of ['datasetId','archiveSha256','instrument','provider',
  'priceSide','volumeType','volumeVerified'] as const){
- test(`pending timestamp cannot permanently seal source declaration ${field}`,()=>{
+ for(const writable of [true,false]){
+ test(`pending timestamp cannot permanently seal source declaration ${field} writable=${writable}`,()=>{
   const source:FvgSource={
    datasetId:'a'.repeat(64),archiveSha256:'b'.repeat(64),
    instrument:'SYNTHETIC',provider:'fixture',priceSide:'bid',
@@ -25,7 +26,7 @@ for(const field of ['datasetId','archiveSha256','instrument','provider',
    get time(){
     timestampReads++;
     Object.defineProperty(source,field,{
-     value,enumerable:true,configurable:false,writable:false,
+     value,enumerable:true,configurable:false,writable,
     });
     return 23*H;
    },
@@ -40,6 +41,7 @@ for(const field of ['datasetId','archiveSha256','instrument','provider',
   assert.equal(marketReads,0);
   assert.equal(source[field],value);
   assert.equal(Object.getOwnPropertyDescriptor(source,field)?.configurable,false);
-  assert.equal(Object.getOwnPropertyDescriptor(source,field)?.writable,false);
+  assert.equal(Object.getOwnPropertyDescriptor(source,field)?.writable,writable);
  });
+ }
 }
