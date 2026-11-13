@@ -10,7 +10,7 @@ const source={datasetId:'a'.repeat(64),archiveSha256:'b'.repeat(64),
  volumeType:'unverified' as const,volumeVerified:false};
 
 for(const direction of ['BULLISH','BEARISH'] as const){
- for(const field of ['time','volume','observed_minutes'] as const){
+ for(const field of ['time','open','high','low','close','volume','observed_minutes'] as const){
   test(`pending timestamp cannot freeze completed ${direction} ${field} field`,()=>{
    const bars:Bar[]=Array.from({length:21},(_,i)=>({
     time:i*H,open:100,high:101,low:99,close:100,
