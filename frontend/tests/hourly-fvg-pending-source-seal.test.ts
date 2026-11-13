@@ -122,3 +122,41 @@ for(const field of Object.keys(alternateSourceValues) as (keyof typeof alternate
   assert.equal(source[field],alternateSourceValues[field]);
  });
 }
+
+for(const field of ['datasetId','archiveSha256','instrument','provider',
+ 'priceSide','volumeType','volumeVerified'] as const){
+ test(`pending timestamp cannot replace own source identity ${field} with inherited prototype evidence`,()=>{
+  const source:FvgSource={
+   datasetId:'a'.repeat(64),archiveSha256:'b'.repeat(64),
+   instrument:'SYNTHETIC',provider:'fixture',priceSide:'bid',
+   volumeType:'unverified',volumeVerified:false,
+  };
+  const original=source[field];
+  const bars:Bar[]=Array.from({length:23},(_,i)=>({
+   time:i*H,open:100,high:101,low:99,close:100,
+   volume:10,observed_minutes:60,
+  }));
+  let timestampReads=0,marketReads=0;
+  const forbidden=():never=>{marketReads++;throw Error('future market field read');};
+  bars.push({
+   get time(){
+    timestampReads++;
+    const inherited=Object.create(null) as Record<string,unknown>;
+    Object.defineProperty(inherited,field,{value:original,enumerable:true});
+    Object.setPrototypeOf(source,inherited);
+    assert.equal(Reflect.deleteProperty(source,field),true);
+    return 23*H;
+   },
+   get open(){return forbidden();},get high(){return forbidden();},
+   get low(){return forbidden();},get close(){return forbidden();},
+   get volume(){return forbidden();},
+   get observed_minutes(){return forbidden();},
+  } as unknown as Bar);
+  assert.throws(()=>studyHourlyFvgMidpointAsOf(bars,source,23*H),
+   /FVG as-of source declaration schema changed during timestamp scan/);
+  assert.equal(timestampReads,1);
+  assert.equal(marketReads,0);
+  assert.equal(Object.hasOwn(source,field),false);
+  assert.equal(source[field],original);
+ });
+}
