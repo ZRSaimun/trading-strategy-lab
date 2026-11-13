@@ -210,6 +210,17 @@ for(const direction of ['BULLISH','BEARISH'] as const){
   assert.equal(marketReads,0);
   assert.strictEqual(bars[12],original);
   assert.equal(Object.getOwnPropertyDescriptor(bars,'12')?.writable,false);
+  // Caller repairs the descriptor and removes the hostile pending hour.
+  // The rejected invocation must not contaminate a later clean scan.
+  const restored=bars.slice(0,-1);
+  Object.defineProperty(restored,'12',{value:original,writable:true,
+   enumerable:true,configurable:true});
+  const baseline=studyHourlyFvgMidpointAsOf(restored,source,23*H);
+  assert.ok(baseline.observations.length>0);
+  Object.defineProperty(bars,'12',{value:original,writable:true,
+   enumerable:true,configurable:true});
+  bars.pop();
+  assert.deepEqual(studyHourlyFvgMidpointAsOf(bars,source,23*H),baseline);
  });
 }
 
