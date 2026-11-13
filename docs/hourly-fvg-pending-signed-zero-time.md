@@ -110,3 +110,8 @@ Synthetic bullish and bearish as-of tests also cover irreversible non-writable, 
 ### Baseline boundary-slot descriptor coverage (13 November 2026)
 
 The sealed-slot regression now exercises indices **0, 12 and 20** for both descriptor changes (non-configurable and frozen non-writable) and both synthetic directions. This covers the first and last completed baseline indices in addition to the interior index; each case must fail closed after one pending timestamp read and before any future market-field access. The cases test in-memory archive integrity, not verified source volume, broker quotes or profitability. Exact-head CI remains the verification requirement.
+
+
+### Irreversible completed candle field mutation (13 November 2026)
+
+`frontend/tests/hourly-fvg-pending-sealed-field.test.ts` tests a different boundary from array-slot sealing: a still-open hour's timestamp getter freezes a **field on an already-completed candle object** (`time`, `volume`, or `observed_minutes`) without changing its value. Both synthetic formation directions must reject the descriptor mutation after exactly one pending timestamp read, before any pending OHLC/volume/coverage read. The scanner cannot restore a non-configurable field; callers must discard the tainted objects and reconstruct from independently retained evidence. This is only in-memory causality protection; it does not authenticate historical market data, source-classified volume, broker quotes, costs or returns. Exact-head CI must verify the regression.
