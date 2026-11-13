@@ -78,7 +78,7 @@ for(const field of ['datasetId','archiveSha256','instrument','provider',
    get observed_minutes(){return forbidden();},
   } as unknown as Bar);
   assert.throws(()=>studyHourlyFvgMidpointAsOf(bars,source,23*H),
-   /FVG source declaration field changed during declaration snapshot/);
+   /FVG as-of source declaration schema changed during timestamp scan/);
   assert.equal(timestampReads,1);
   assert.equal(marketReads,0);
   assert.equal(Object.hasOwn(source,field),false);
