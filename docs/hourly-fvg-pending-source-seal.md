@@ -51,3 +51,7 @@ Two synthetic as-of regressions reject a pending hourly timestamp represented as
 ## Object timestamp coercion boundary
 
 A synthetic regression supplies an object-valued pending-hour timestamp with hostile `valueOf` and `toString` hooks. The causal as-of scanner must reject the non-numeric timestamp after one timestamp read without invoking either coercion hook or reading any pending OHLC, volume, or minute-coverage field. This prevents a malformed timestamp object from executing side effects during implicit numeric comparison. It does not validate market provenance or profitability.
+
+## Off-grid future-hour timestamps
+
+A synthetic regression supplies a strictly future timestamp one millisecond beyond a UTC hour boundary. The causal 1H FVG scanner must reject the off-grid value rather than simply ignoring it as future data, and must not read the corresponding future OHLC, volume or minute-coverage fields. This checks archive timestamp alignment, not the authenticity of the originating feed or profitability. Exact-head CI must be verified before treating this change as regression-protected.
