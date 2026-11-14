@@ -99,3 +99,7 @@ The causal 1H FVG as-of entry point now rejects UTC cutoffs later than 2100-01-0
 ## Future archive timestamp horizon (14 November 2026)
 
 The causal 1H FVG as-of scanner now rejects even a **future-only** archive timestamp later than `2100-01-01T00:00:00Z`, consistent with the existing upper bound on the as-of cutoff. Previously, an otherwise aligned, safe-integer future timestamp could be silently skipped without the same unit/horizon check. A synthetic regression requires fail-closed rejection after one future timestamp read and zero future OHLC, volume or minute-coverage reads; a normally aligned future timestamp remains skippable. This is a conservative input-integrity horizon, not a verified market calendar or broker financing schedule. No real volume-source, executable quote, profitability or live-order evidence is claimed. Verify exact-head CI before considering the change tested.
+
+## Multiple pending future-hour bars (14 November 2026)
+
+A synthetic regression now supplies two strictly future, UTC-aligned hourly bars after a completed prefix. Their timestamps are allowed to be read once each for chronological validation, but all OHLC, volume and observed-minute getters throw if touched. The causal report must exactly match the completed-prefix report. This protects the timestamp-only rule across more than one pending bar rather than only the first boundary bar. It is not a real-feed acceptance test, volume provenance, broker quote validation or evidence of profitability. Keep this draft paper-only; verify exact-head CI after the change.
