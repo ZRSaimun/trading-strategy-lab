@@ -55,3 +55,9 @@ A synthetic regression supplies an object-valued pending-hour timestamp with hos
 ## Off-grid future-hour timestamps
 
 A synthetic regression supplies a strictly future timestamp one millisecond beyond a UTC hour boundary. The causal 1H FVG scanner must reject the off-grid value rather than simply ignoring it as future data, and must not read the corresponding future OHLC, volume or minute-coverage fields. This checks archive timestamp alignment, not the authenticity of the originating feed or profitability. Exact-head CI must be verified before treating this change as regression-protected.
+
+## Future timestamp cost-array iterator injection
+
+A future hourly timestamp getter must not add an own `Symbol.iterator` property to an already snapshotted hypothetical cost-scenario array. The as-of cost schema now rejects this undeclared symbol key instead of exempting it. `frontend/tests/hourly-fvg-future-cost-iterator.test.ts` checks that the mutation fails closed after one future timestamp read, without invoking the injected iterator getter or reading future OHLC, volume or coverage. An ordinary unchanged numeric cost array remains accepted as a positive control.
+
+This prevents in-memory study-configuration drift only. It does not validate the illustrative bps costs against actual two-sided broker demo quotes, establish licensed market-data provenance, or prove profitable trading. The PR remains draft and paper-only.
