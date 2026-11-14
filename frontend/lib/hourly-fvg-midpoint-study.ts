@@ -2068,7 +2068,7 @@ export function studyHourlyFvgMidpointAsOf(
  if(asOfCosts){
   if(asOfCosts.length!==asOfCostCount||
    Reflect.ownKeys(asOfCosts).some(key=>key!=='length'&&
-    key!==Symbol.iterator&&!asOfCostKeys.includes(String(key)))||
+    !asOfCostKeys.includes(String(key)))||
    asOfCostKeys.some(key=>!hasOwnField(asOfCosts,key)))
    throw Error('FVG as-of cost scenario schema changed during timestamp scan');
   assertFrozenFieldDescriptors(asOfCosts,asOfCostKeys,
