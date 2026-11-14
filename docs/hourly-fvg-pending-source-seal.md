@@ -39,3 +39,7 @@ Two additional synthetic regressions reject positive and negative infinity in th
 ## Non-numeric pending timestamp boundary
 
 Two synthetic cases supply a pending-hour timestamp as `null` or a numeric-looking string. Neither is a valid numeric closed-bar receipt; implicit JavaScript coercion must not turn them into admissible evidence. Each case asserts one timestamp read, rejection, and zero reads of pending OHLC, volume, or observed-minute fields. This tests input validation only and does not authenticate market data, source volume, broker quotes, fills, or profitability.
+
+## Boolean and missing pending-hour timestamps
+
+Three synthetic cases reject `false`, `true`, and `undefined` pending-hour timestamps. In JavaScript, booleans can coerce to numeric zero or one, and a missing timestamp is not a completed-bar receipt. Each regression asserts one timestamp access and no future OHLC, volume, or coverage reads. These are parser/causality checks only; no real quote or profitability evidence is claimed.
