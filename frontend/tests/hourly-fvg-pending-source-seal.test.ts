@@ -653,3 +653,34 @@ test('future-only aligned hourly timestamp remains timestamp-only across multipl
  assert.deepEqual(reads,[1,1],'each future timestamp is read once');
  assert.deepEqual(marketReads,[0,0],'no future market fields may be read');
 });
+
+test('second future timestamp cannot rewrite a sealed source after a benign future bar',()=>{
+ const cutoff=Date.UTC(2026,10,1,6)/1000;
+ const source:FvgSource={
+  datasetId:'a'.repeat(64),archiveSha256:'b'.repeat(64),
+  instrument:'SYNTHETIC',provider:'fixture',priceSide:'bid',
+  volumeType:'unverified',volumeVerified:false,
+ };
+ const prefix:Bar[]=Array.from({length:23},(_,i)=>({
+  time:cutoff-(23-i)*H,open:100,high:101,low:99,close:100,
+  volume:10,observed_minutes:60,
+ }));
+ const reads=[0,0],marketReads=[0,0];
+ const future=[1,2].map((offset,index)=>({
+  get time(){
+   reads[index]++;
+   if(index===1)source.archiveSha256='c'.repeat(64);
+   return cutoff+offset*H;
+  },
+  get open(){marketReads[index]++;throw Error('future open read');},
+  get high(){marketReads[index]++;throw Error('future high read');},
+  get low(){marketReads[index]++;throw Error('future low read');},
+  get close(){marketReads[index]++;throw Error('future close read');},
+  get volume(){marketReads[index]++;throw Error('future volume read');},
+  get observed_minutes(){marketReads[index]++;throw Error('future coverage read');},
+ })) as unknown as Bar[];
+ assert.throws(()=>studyHourlyFvgMidpointAsOf([...prefix,...future],source,cutoff),
+  /FVG source declaration field changed during declaration snapshot/);
+ assert.deepEqual(reads,[1,1],'both future timestamps inspected exactly once');
+ assert.deepEqual(marketReads,[0,0],'neither future candle supplies market evidence');
+});
