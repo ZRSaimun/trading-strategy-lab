@@ -43,3 +43,7 @@ Two synthetic cases supply a pending-hour timestamp as `null` or a numeric-looki
 ## Boolean and missing pending-hour timestamps
 
 Three synthetic cases reject `false`, `true`, and `undefined` pending-hour timestamps. In JavaScript, booleans can coerce to numeric zero or one, and a missing timestamp is not a completed-bar receipt. Each regression asserts one timestamp access and no future OHLC, volume, or coverage reads. These are parser/causality checks only; no real quote or profitability evidence is claimed.
+
+## Non-JSON timestamp types
+
+Two synthetic as-of regressions reject a pending hourly timestamp represented as a JavaScript `bigint` or `symbol`. Neither is a valid JSON numeric UTC close timestamp; the scanner must not coerce either into closed-bar evidence. Both tests require exactly one timestamp read and no access to pending OHLC, volume, or observed-minute fields. These tests are input-integrity checks, not source authentication, trading execution or profitability evidence.
