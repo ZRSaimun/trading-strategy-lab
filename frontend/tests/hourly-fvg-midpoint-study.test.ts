@@ -204,7 +204,7 @@ test('bounded FVG studies reject own candle iterators without invoking them',()=
  const asOf=BASE+37*H;
  assert.throws(()=>studyHourlyFvgMidpointAsOf(candles,source,asOf,settings),
   /Unexpected FVG archive array metadata/);
- assert.deepEqual(studyHourlyFvgMidpoint(fixture(),source,settings),baseline);
+ // The control must use an ordinary cost array: a custom iterator is now rejected.\n assert.deepEqual(studyHourlyFvgMidpoint(fixture(),source,{hypotheticalRoundTripCostsBps:[0,5,15]}),baseline);
  // Sparse indexed candles must still fail closed rather than being
  // filled or hidden by a custom iterator.
  const sparse=fixture();
