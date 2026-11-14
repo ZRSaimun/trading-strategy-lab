@@ -111,3 +111,7 @@ A synthetic two-future-bar regression checks that a benign first future timestam
 ## Future-hour chronological reversal regression (14 November 2026)
 
 A synthetic two-future-hour fixture now supplies UTC-aligned timestamps in reverse order after a completed prefix. Even though neither future bar is eligible as closed evidence, the causal as-of scanner must reject the unordered archive after one read of each future timestamp, without touching either bar's OHLC, volume, or observed-minute accessors. This checks chronology validation across skipped future bars; it is not authenticated source volume, executable broker pricing, a market calendar, or trading profitability evidence. Keep the PR draft, paper-only, unmerged and undeployed. Verify CI for the exact new head before claiming a pass.
+
+## Duplicate future-hour timestamp rejection (14 November 2026)
+
+A synthetic regression in `frontend/tests/hourly-fvg-duplicate-future-hour.test.ts` presents two pending hourly candles with the same strictly future UTC start. The causal 1H FVG scanner must reject the duplicate timestamp rather than skipping both as unavailable evidence. It must inspect each timestamp once and read no pending OHLC, volume or minute-coverage fields. This complements the reversed-future chronology regression. It is an input-integrity test only, not a licensed-data receipt, broker quote, authenticated volume observation or profitability demonstration. Keep this PR draft and paper-only; check exact-head CI separately.
