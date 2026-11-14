@@ -47,3 +47,7 @@ Three synthetic cases reject `false`, `true`, and `undefined` pending-hour times
 ## Non-JSON timestamp types
 
 Two synthetic as-of regressions reject a pending hourly timestamp represented as a JavaScript `bigint` or `symbol`. Neither is a valid JSON numeric UTC close timestamp; the scanner must not coerce either into closed-bar evidence. Both tests require exactly one timestamp read and no access to pending OHLC, volume, or observed-minute fields. These tests are input-integrity checks, not source authentication, trading execution or profitability evidence.
+
+## Object timestamp coercion boundary
+
+A synthetic regression supplies an object-valued pending-hour timestamp with hostile `valueOf` and `toString` hooks. The causal as-of scanner must reject the non-numeric timestamp after one timestamp read without invoking either coercion hook or reading any pending OHLC, volume, or minute-coverage field. This prevents a malformed timestamp object from executing side effects during implicit numeric comparison. It does not validate market provenance or profitability.
