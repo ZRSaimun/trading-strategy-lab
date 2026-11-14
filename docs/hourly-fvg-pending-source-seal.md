@@ -61,3 +61,8 @@ A synthetic regression supplies a strictly future timestamp one millisecond beyo
 A future hourly timestamp getter must not add an own `Symbol.iterator` property to an already snapshotted hypothetical cost-scenario array. The as-of cost schema now rejects this undeclared symbol key instead of exempting it. `frontend/tests/hourly-fvg-future-cost-iterator.test.ts` checks that the mutation fails closed after one future timestamp read, without invoking the injected iterator getter or reading future OHLC, volume or coverage. An ordinary unchanged numeric cost array remains accepted as a positive control.
 
 This prevents in-memory study-configuration drift only. It does not validate the illustrative bps costs against actual two-sided broker demo quotes, establish licensed market-data provenance, or prove profitable trading. The PR remains draft and paper-only.
+
+
+## CI regression repair — own cost-array iterator
+
+The strict cost-array `Symbol.iterator` rejection introduced on this draft branch invalidated an older v49 test that still expected a custom own iterator to be accepted. The regression now requires both full-history and causal as-of paths to reject that unsupported array metadata; it also retains a normal numeric-cost control. This is a test expectation repair following the fail-closed schema change, not a relaxation of the source gate. GitHub Actions must pass on the new exact head before claiming verification. No real broker quotes, authenticated volume or trading-profit evidence is implied.
