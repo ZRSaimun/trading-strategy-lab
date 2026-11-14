@@ -512,10 +512,11 @@ test('exact as-of cutoff timestamp is pending and cannot expose unclosed hourly 
 
 
 test('UTC hourly cutoff across New York autumn DST transition remains causal',()=>{
- const HOUR=60*60*1000;
+ const HOUR=60*60;
  // 2026-11-01 06:00 UTC is the New York fall-back transition;
  // the study uses UTC candle starts, never an assumed local 17:00 close.
- const cutoff=Date.UTC(2026,10,1,6);
+ const cutoff=Date.UTC(2026,10,1,6)/1000;
+ assert.equal(new Date(cutoff*1000).toISOString(),'2026-11-01T06:00:00.000Z');
  const source:FvgSource={
   datasetId:'a'.repeat(64),archiveSha256:'b'.repeat(64),
   instrument:'SYNTHETIC',provider:'fixture',priceSide:'bid',
@@ -542,7 +543,8 @@ test('UTC hourly cutoff across New York autumn DST transition remains causal',()
 
 
 test('UTC hourly cutoff across New York spring DST transition remains causal',()=>{
- const cutoff=Date.UTC(2026,2,8,7); // 2026-03-08T07:00Z: New York spring-forward
+ const cutoff=Date.UTC(2026,2,8,7)/1000; // UTC epoch seconds, not JS milliseconds
+ assert.equal(new Date(cutoff*1000).toISOString(),'2026-03-08T07:00:00.000Z');
  const source:FvgSource={
   datasetId:'a'.repeat(64),archiveSha256:'b'.repeat(64),
   instrument:'SYNTHETIC',provider:'fixture',priceSide:'bid',
