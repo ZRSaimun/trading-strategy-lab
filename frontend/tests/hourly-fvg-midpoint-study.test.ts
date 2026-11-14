@@ -2110,6 +2110,19 @@ test('v49 cost scenario arrays reject unmodeled broker-cost evidence without rea
   hypotheticalRoundTripCostsBps:iteratorProtected,
  }),/Unexpected FVG cost scenario field|FVG as-of cost scenario schema changed during timestamp scan/,
  'as-of study must reject unmodeled iterator metadata before executing it');
+ let iteratorReads=0;
+ const getterProtected=[0,5,15];
+ Object.defineProperty(getterProtected,Symbol.iterator,{get(){
+  iteratorReads++;
+  throw Error('untrusted iterator getter must not run');
+ }});
+ assert.throws(()=>studyHourlyFvgMidpoint(bars,source,{
+  hypotheticalRoundTripCostsBps:getterProtected,
+ }),/Unexpected FVG cost scenario field/);
+ assert.throws(()=>studyHourlyFvgMidpointAsOf(bars,source,cutoff,{
+  hypotheticalRoundTripCostsBps:getterProtected,
+ }),/Unexpected FVG cost scenario field/);
+ assert.equal(iteratorReads,0,'reject iterator metadata without executing its getter');
  assert.deepEqual(studyHourlyFvgMidpoint(bars,source),baseline,
  'ordinary numeric scenarios remain accepted');
 });
