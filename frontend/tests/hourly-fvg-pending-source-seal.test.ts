@@ -595,3 +595,33 @@ for (const [label, utcMilliseconds] of [
   assert.equal(marketReads,0,'invalid as-of units must fail before market evidence');
  });
 }
+
+test('future archive timestamp beyond declared 2100 horizon fails closed before market reads',()=>{
+ const cutoff=Date.UTC(2026,10,1,6)/1000;
+ const horizon=Date.UTC(2100,0,1)/1000;
+ const source:FvgSource={
+  datasetId:'a'.repeat(64),archiveSha256:'b'.repeat(64),
+  instrument:'SYNTHETIC',provider:'fixture',priceSide:'bid',
+  volumeType:'unverified',volumeVerified:false,
+ };
+ const prefix:Bar[]=Array.from({length:23},(_,i)=>({
+  time:cutoff-(23-i)*H,open:100,high:101,low:99,close:100,
+  volume:10,observed_minutes:60,
+ }));
+ let timestampReads=0,marketReads=0;
+ const forbidden=():never=>{marketReads++;throw Error('future market evidence read');};
+ const future={
+  get time(){timestampReads++;return horizon+H;},
+  get open(){return forbidden();},get high(){return forbidden();},
+  get low(){return forbidden();},get close(){return forbidden();},
+  get volume(){return forbidden();},get observed_minutes(){return forbidden();},
+ } as unknown as Bar;
+ assert.throws(()=>studyHourlyFvgMidpointAsOf([...prefix,future],source,cutoff),
+  /Invalid or unordered hourly as-of input timestamp/);
+ assert.equal(timestampReads,1);
+ assert.equal(marketReads,0);
+ // A normal future timestamp within the declared horizon is still skipped.
+ const normalFuture={...future,time:cutoff+H};
+ assert.doesNotThrow(()=>studyHourlyFvgMidpointAsOf([...prefix,normalFuture],source,cutoff));
+ assert.equal(marketReads,0);
+});
