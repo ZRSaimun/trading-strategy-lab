@@ -539,3 +539,30 @@ test('UTC hourly cutoff across New York autumn DST transition remains causal',()
  assert.equal(timestampReads,1);
  assert.equal(marketReads,0);
 });
+
+
+test('UTC hourly cutoff across New York spring DST transition remains causal',()=>{
+ const cutoff=Date.UTC(2026,2,8,7); // 2026-03-08T07:00Z: New York spring-forward
+ const source:FvgSource={
+  datasetId:'a'.repeat(64),archiveSha256:'b'.repeat(64),
+  instrument:'SYNTHETIC',provider:'fixture',priceSide:'bid',
+  volumeType:'unverified',volumeVerified:false,
+ };
+ const prefix:Bar[]=Array.from({length:23},(_,i)=>({
+  time:cutoff-(23-i)*H,open:100,high:101,low:99,close:100,
+  volume:10,observed_minutes:60,
+ }));
+ let timestampReads=0,marketReads=0;
+ const forbidden=():never=>{marketReads++;throw Error('spring DST pending market field read');};
+ const pending={
+  get time(){timestampReads++;return cutoff;},
+  get open(){return forbidden();},get high(){return forbidden();},
+  get low(){return forbidden();},get close(){return forbidden();},
+  get volume(){return forbidden();},get observed_minutes(){return forbidden();},
+ } as unknown as Bar;
+ const expected=studyHourlyFvgMidpointAsOf(prefix,source,cutoff);
+ const actual=studyHourlyFvgMidpointAsOf([...prefix,pending],source,cutoff);
+ assert.deepEqual(actual,expected,'spring-forward does not make a cutoff-start bar complete');
+ assert.equal(timestampReads,1);
+ assert.equal(marketReads,0);
+});
