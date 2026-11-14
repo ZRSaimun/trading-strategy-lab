@@ -321,3 +321,29 @@ test('non-finite future timestamp fails closed without reading future market evi
  assert.equal(timestampReads,1);
  assert.equal(marketReads,0);
 });
+
+for(const invalidTime of [Number.POSITIVE_INFINITY,Number.NEGATIVE_INFINITY] as const){
+ test(`infinite future timestamp ${invalidTime} fails closed before market evidence access`,()=>{
+  const source:FvgSource={
+   datasetId:'a'.repeat(64),archiveSha256:'b'.repeat(64),
+   instrument:'SYNTHETIC',provider:'fixture',priceSide:'bid',
+   volumeType:'unverified',volumeVerified:false,
+  };
+  const bars:Bar[]=Array.from({length:23},(_,i)=>({
+   time:i*H,open:100,high:101,low:99,close:100,
+   volume:10,observed_minutes:60,
+  }));
+  let timestampReads=0,marketReads=0;
+  const forbidden=():never=>{marketReads++;throw Error('future market field read');};
+  bars.push({
+   get time(){timestampReads++;return invalidTime;},
+   get open(){return forbidden();},get high(){return forbidden();},
+   get low(){return forbidden();},get close(){return forbidden();},
+   get volume(){return forbidden();},
+   get observed_minutes(){return forbidden();},
+  } as unknown as Bar);
+  assert.throws(()=>studyHourlyFvgMidpointAsOf(bars,source,23*H));
+  assert.equal(timestampReads,1);
+  assert.equal(marketReads,0);
+ });
+}
