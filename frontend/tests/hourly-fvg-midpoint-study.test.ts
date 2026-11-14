@@ -2102,13 +2102,16 @@ test('v49 cost scenario arrays reject unmodeled broker-cost evidence without rea
  Object.defineProperty(iteratorProtected,Symbol.iterator,{value(){
   throw Error('untrusted scenario iterator must never execute');
  }});
- assert.deepEqual(studyHourlyFvgMidpoint(bars,source,{
+ assert.throws(()=>studyHourlyFvgMidpoint(bars,source,{
   hypotheticalRoundTripCostsBps:iteratorProtected,
- }),baseline,'index-only valid bps scenarios retain the existing research output');
- assert.deepEqual(studyHourlyFvgMidpointAsOf(bars,source,cutoff,{
+ }),/Unexpected FVG cost scenario field/,
+ 'full-history study must reject an own iterator override before executing it');
+ assert.throws(()=>studyHourlyFvgMidpointAsOf(bars,source,cutoff,{
   hypotheticalRoundTripCostsBps:iteratorProtected,
- }),studyHourlyFvgMidpointAsOf(bars,source,cutoff),
- 'as-of replay retains the same valid bps-only scenarios');
+ }),/Unexpected FVG cost scenario field|FVG as-of cost scenario schema changed during timestamp scan/,
+ 'as-of study must reject unmodeled iterator metadata before executing it');
+ assert.deepEqual(studyHourlyFvgMidpoint(bars,source),baseline,
+ 'ordinary numeric scenarios remain accepted');
 });
 
 test('v50 archive arrays reject undeclared BID/ASK or source metadata without evaluating it',()=>{
