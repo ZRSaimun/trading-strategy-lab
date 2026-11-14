@@ -78,3 +78,7 @@ Exact-head [workflow #43590191994](https://github.com/ZRSaimun/trading-strategy-
 ## Exact as-of cutoff boundary regression (14 November 2026)
 
 A synthetic hourly candle whose UTC **start** equals the as-of cutoff is pending, not a completed candle. The causal 1H FVG study must match the report from the completed prefix, read the pending timestamp only once, and never read that pending candle's OHLC, volume or observed-minute fields. Regression: `frontend/tests/hourly-fvg-pending-source-seal.test.ts`. This validates a narrow no-lookahead boundary, not source authentication, executable broker quotes or profitable performance. No orders, merge or deployment.
+
+## UTC hourly causal boundary during New York fall-back (14 November 2026)
+
+A synthetic regression places the as-of cutoff at `2026-11-01T06:00:00Z`, the New York autumn clock-change instant. The candle starting exactly at that UTC cutoff remains pending; the report must equal the completed-prefix result, read the pending timestamp once and never read its OHLC, volume or observed-minute fields. This prevents accidental use of a New York local-hour assumption in the hourly research boundary. It does **not** establish broker-specific financing cutoffs, actual session calendars, volume provenance, execution quotes or profitability. The PR remains draft, paper-only, unmerged and undeployed; verify exact-head CI separately.
