@@ -2020,7 +2020,7 @@ export function studyHourlyFvgMidpointAsOf(
   // Never inspect OHLC, volume or coverage of a future candle.
   const time=bar?.time;
   if(!Number.isSafeInteger(time)||time<0||Object.is(time,-0)||time%HOUR!==0||
-   !Number.isSafeInteger(time+HOUR)||
+   time>Date.UTC(2100,0,1)/1000||!Number.isSafeInteger(time+HOUR)||
    (previousTime!==null&&time<=previousTime))
    throw Error('Invalid or unordered hourly as-of input timestamp');
   previousTime=time;
