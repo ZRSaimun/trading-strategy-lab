@@ -19,3 +19,7 @@ Seven additional synthetic regressions cover replacing each previously snapshott
 A non-mutating pending timestamp accessor is accepted as an ordinary as-of boundary. The synthetic control asserts that the pending timestamp is read once and pending OHLC, volume and observed-minute accessors are never invoked. This prevents the mutation rejection tests from passing merely because the scanner rejects every pending timestamp. This control is not a real-data or profitable-strategy validation.
 
 A second non-mutating synthetic control places the last hourly timestamp strictly after the as-of cutoff. It verifies the scanner reads that timestamp once, skips the future bar, and never invokes its OHLC, volume, or minute-coverage accessors. This is a causal boundary check, not source authentication or trading-performance evidence.
+
+## Strictly future timestamp side-effect guard
+
+A synthetic regression now changes the completed-prefix dataset identity while reading a timestamp strictly later than the as-of cutoff. Even though the future candle itself is skipped, the scanner must reject the changed source declaration after one timestamp read and without reading future OHLC, volume, or coverage. This closes the gap between the non-mutating future-hour control and pending-hour source-mutation cases. It does not validate real source identity or strategy profitability.
