@@ -621,7 +621,7 @@ test('future archive timestamp beyond declared 2100 horizon fails closed before 
  assert.equal(timestampReads,1);
  assert.equal(marketReads,0);
  // A normal future timestamp within the declared horizon is still skipped.
- const normalFuture={...future,time:cutoff+H};
+ const normalFuture={time:cutoff+H,open:100,high:101,low:99,close:100,volume:10,observed_minutes:60};
  assert.doesNotThrow(()=>studyHourlyFvgMidpointAsOf([...prefix,normalFuture],source,cutoff));
  assert.equal(marketReads,0);
 });
