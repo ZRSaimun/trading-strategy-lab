@@ -426,3 +426,33 @@ for (const malformedTime of [23n * BigInt(H), Symbol('future-hour')] as const) {
   assert.equal(marketReads,0);
  });
 }
+
+
+test('object-valued pending timestamp cannot execute coercion hooks or reveal future market data',()=>{
+ const source:FvgSource={
+  datasetId:'a'.repeat(64),archiveSha256:'b'.repeat(64),
+  instrument:'SYNTHETIC',provider:'fixture',priceSide:'bid',
+  volumeType:'unverified',volumeVerified:false,
+ };
+ const bars:Bar[]=Array.from({length:23},(_,i)=>({
+  time:i*H,open:100,high:101,low:99,close:100,
+  volume:10,observed_minutes:60,
+ }));
+ let timestampReads=0,marketReads=0,coercionReads=0;
+ const forbidden=():never=>{marketReads++;throw Error('future market field read');};
+ const disguisedTime={
+  valueOf(){coercionReads++;throw Error('timestamp coercion must not run');},
+  toString(){coercionReads++;throw Error('timestamp coercion must not run');},
+ };
+ bars.push({
+  get time(){timestampReads++;return disguisedTime as unknown as number;},
+  get open(){return forbidden();},get high(){return forbidden();},
+  get low(){return forbidden();},get close(){return forbidden();},
+  get volume(){return forbidden();},
+  get observed_minutes(){return forbidden();},
+ } as unknown as Bar);
+ assert.throws(()=>studyHourlyFvgMidpointAsOf(bars,source,23*H));
+ assert.equal(timestampReads,1);
+ assert.equal(coercionReads,0,'object coercion cannot become timestamp evidence');
+ assert.equal(marketReads,0);
+});
