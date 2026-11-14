@@ -568,3 +568,30 @@ test('UTC hourly cutoff across New York spring DST transition remains causal',()
  assert.equal(timestampReads,1);
  assert.equal(marketReads,0);
 });
+
+
+for (const [label, utcMilliseconds] of [
+ ['spring-forward', Date.UTC(2026,2,8,7)],
+ ['fall-back', Date.UTC(2026,10,1,6)],
+] as const) {
+ test(`as-of ${label} cutoff rejects JavaScript millisecond epochs before reading market evidence`,()=>{
+  let timestampReads=0,marketReads=0;
+  const forbidden=():never=>{marketReads++;throw Error('market evidence read');};
+  const bars=[{
+   get time(){timestampReads++;return 0;},
+   get open(){return forbidden();},get high(){return forbidden();},
+   get low(){return forbidden();},get close(){return forbidden();},
+   get volume(){return forbidden();},get observed_minutes(){return forbidden();},
+  }] as unknown as Bar[];
+  const source:FvgSource={
+   datasetId:'a'.repeat(64),archiveSha256:'b'.repeat(64),
+   instrument:'SYNTHETIC',provider:'fixture',priceSide:'bid',
+   volumeType:'unverified',volumeVerified:false,
+  };
+  assert.equal(utcMilliseconds%H,0,'fixture is an aligned millisecond epoch');
+  assert.throws(()=>studyHourlyFvgMidpointAsOf(bars,source,utcMilliseconds),
+   /Invalid UTC hourly as-of close/);
+  assert.equal(timestampReads,0,'invalid as-of units must fail before timestamp inspection');
+  assert.equal(marketReads,0,'invalid as-of units must fail before market evidence');
+ });
+}
