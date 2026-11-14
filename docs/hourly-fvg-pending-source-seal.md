@@ -107,3 +107,7 @@ A synthetic regression now supplies two strictly future, UTC-aligned hourly bars
 ## Second future-hour source drift (14 November 2026)
 
 A synthetic two-future-bar regression checks that a benign first future timestamp does not disable provenance checks for a later future timestamp. The second timestamp getter rewrites the already-declared archive SHA-256. The causal 1H FVG study must reject that source-identity drift after one read of each future timestamp, without accessing either future candle's OHLC, volume or observed-minute fields. This is a regression for repeated as-of snapshot checks, not a verified provider receipt, broker quote, executable strategy, or profitability result. Keep the PR draft, paper-only and unmerged; verify CI on the exact updated head.
+
+## Future-hour chronological reversal regression (14 November 2026)
+
+A synthetic two-future-hour fixture now supplies UTC-aligned timestamps in reverse order after a completed prefix. Even though neither future bar is eligible as closed evidence, the causal as-of scanner must reject the unordered archive after one read of each future timestamp, without touching either bar's OHLC, volume, or observed-minute accessors. This checks chronology validation across skipped future bars; it is not authenticated source volume, executable broker pricing, a market calendar, or trading profitability evidence. Keep the PR draft, paper-only, unmerged and undeployed. Verify CI for the exact new head before claiming a pass.
