@@ -1378,7 +1378,7 @@ export function studyHourlyFvgMidpoint(
  const initialCostDescriptors=costIndexKeys.map(key=>
   Object.getOwnPropertyDescriptor(suppliedCosts,key));
  for(const key of Reflect.ownKeys(suppliedCosts)){
-  if(key==='length'||key===Symbol.iterator||
+  if(key==='length'||
      (typeof key==='string'&&allowedCostIndices.has(key)))continue;
   throw Error('Unexpected FVG cost scenario field outside frozen bps-only protocol');
  }
@@ -1394,7 +1394,7 @@ export function studyHourlyFvgMidpoint(
  // Cost getters cannot attach undeclared broker commissions or delete an
  // original scenario after the initial allowlist preflight.
  for(const key of Reflect.ownKeys(suppliedCosts)){
-  if(key==='length'||key===Symbol.iterator||
+  if(key==='length'||
    (typeof key==='string'&&allowedCostIndices.has(key)))continue;
   throw Error('Unexpected FVG cost scenario field outside frozen bps-only protocol');
  }
