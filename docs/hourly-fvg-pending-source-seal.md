@@ -103,3 +103,7 @@ The causal 1H FVG as-of scanner now rejects even a **future-only** archive times
 ## Multiple pending future-hour bars (14 November 2026)
 
 A synthetic regression now supplies two strictly future, UTC-aligned hourly bars after a completed prefix. Their timestamps are allowed to be read once each for chronological validation, but all OHLC, volume and observed-minute getters throw if touched. The causal report must exactly match the completed-prefix report. This protects the timestamp-only rule across more than one pending bar rather than only the first boundary bar. It is not a real-feed acceptance test, volume provenance, broker quote validation or evidence of profitability. Keep this draft paper-only; verify exact-head CI after the change.
+
+## Second future-hour source drift (14 November 2026)
+
+A synthetic two-future-bar regression checks that a benign first future timestamp does not disable provenance checks for a later future timestamp. The second timestamp getter rewrites the already-declared archive SHA-256. The causal 1H FVG study must reject that source-identity drift after one read of each future timestamp, without accessing either future candle's OHLC, volume or observed-minute fields. This is a regression for repeated as-of snapshot checks, not a verified provider receipt, broker quote, executable strategy, or profitability result. Keep the PR draft, paper-only and unmerged; verify CI on the exact updated head.
