@@ -23,3 +23,7 @@ A second non-mutating synthetic control places the last hourly timestamp strictl
 ## Strictly future timestamp side-effect guard
 
 A synthetic regression now changes the completed-prefix dataset identity while reading a timestamp strictly later than the as-of cutoff. Even though the future candle itself is skipped, the scanner must reject the changed source declaration after one timestamp read and without reading future OHLC, volume, or coverage. This closes the gap between the non-mutating future-hour control and pending-hour source-mutation cases. It does not validate real source identity or strategy profitability.
+
+## Unavailable future timestamp control
+
+A synthetic future hourly timestamp getter that throws must terminate the causal scan without accessing any future OHLC, volume, or observed-minute getter. The test checks one timestamp read and zero future market-field reads. This verifies fail-closed propagation for an inaccessible timestamp, not provider authenticity, market performance, or profitability.
