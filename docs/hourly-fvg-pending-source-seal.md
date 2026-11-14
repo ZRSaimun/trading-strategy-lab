@@ -35,3 +35,7 @@ A synthetic future-hour timestamp accessor returning `NaN` must cause the as-of 
 ## Infinite future timestamps
 
 Two additional synthetic regressions reject positive and negative infinity in the final hourly timestamp getter. Each checks that the causal as-of scan reads that timestamp exactly once and never touches its future OHLC, volume or observed-minute fields. Together with the NaN control, these distinguish malformed numeric evidence from an ordinary strictly future bar. These checks do not authenticate a source or establish profitability.
+
+## Non-numeric pending timestamp boundary
+
+Two synthetic cases supply a pending-hour timestamp as `null` or a numeric-looking string. Neither is a valid numeric closed-bar receipt; implicit JavaScript coercion must not turn them into admissible evidence. Each case asserts one timestamp read, rejection, and zero reads of pending OHLC, volume, or observed-minute fields. This tests input validation only and does not authenticate market data, source volume, broker quotes, fills, or profitability.
