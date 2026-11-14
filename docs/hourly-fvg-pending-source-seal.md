@@ -31,3 +31,7 @@ A synthetic future hourly timestamp getter that throws must terminate the causal
 ## Non-finite future timestamp control
 
 A synthetic future-hour timestamp accessor returning `NaN` must cause the as-of scanner to reject the archive after exactly one timestamp read, without accessing the future candle's OHLC, volume, or minute-coverage getters. This complements the throwing-accessor control: an invalid numeric timestamp is not a closed bar and cannot be interpreted as evidence of a trade. These checks do not establish source authenticity or profitability.
+
+## Infinite future timestamps
+
+Two additional synthetic regressions reject positive and negative infinity in the final hourly timestamp getter. Each checks that the causal as-of scan reads that timestamp exactly once and never touches its future OHLC, volume or observed-minute fields. Together with the NaN control, these distinguish malformed numeric evidence from an ordinary strictly future bar. These checks do not authenticate a source or establish profitability.
