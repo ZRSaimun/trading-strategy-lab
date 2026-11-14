@@ -509,3 +509,33 @@ test('exact as-of cutoff timestamp is pending and cannot expose unclosed hourly 
  assert.equal(timestampReads,1);
  assert.equal(marketReads,0);
 });
+
+
+test('UTC hourly cutoff across New York autumn DST transition remains causal',()=>{
+ const HOUR=60*60*1000;
+ // 2026-11-01 06:00 UTC is the New York fall-back transition;
+ // the study uses UTC candle starts, never an assumed local 17:00 close.
+ const cutoff=Date.UTC(2026,10,1,6);
+ const source:FvgSource={
+  datasetId:'a'.repeat(64),archiveSha256:'b'.repeat(64),
+  instrument:'SYNTHETIC',provider:'fixture',priceSide:'bid',
+  volumeType:'unverified',volumeVerified:false,
+ };
+ const prefix:Bar[]=Array.from({length:23},(_,i)=>({
+  time:cutoff-(23-i)*HOUR,open:100,high:101,low:99,close:100,
+  volume:10,observed_minutes:60,
+ }));
+ let timestampReads=0,marketReads=0;
+ const forbidden=():never=>{marketReads++;throw Error('unclosed DST-boundary market field read');};
+ const pending={
+  get time(){timestampReads++;return cutoff;},
+  get open(){return forbidden();},get high(){return forbidden();},
+  get low(){return forbidden();},get close(){return forbidden();},
+  get volume(){return forbidden();},get observed_minutes(){return forbidden();},
+ } as unknown as Bar;
+ const expected=studyHourlyFvgMidpointAsOf(prefix,source,cutoff);
+ const actual=studyHourlyFvgMidpointAsOf([...prefix,pending],source,cutoff);
+ assert.deepEqual(actual,expected);
+ assert.equal(timestampReads,1);
+ assert.equal(marketReads,0);
+});
