@@ -74,3 +74,7 @@ Workflow [#43585073224](https://github.com/ZRSaimun/trading-strategy-lab/actions
 ## 14 November 2026 — normal-cost control CI repair
 
 Exact-head [workflow #43590191994](https://github.com/ZRSaimun/trading-strategy-lab/actions/runs/43590191994) failed one frontend test (1,384/1,385 passed), while five other jobs passed. The iterator-rejection regression correctly expected both FVG entry points to reject custom candle/cost iterators, but its final positive control reused the same invalid cost array. The positive control now supplies a fresh ordinary `[0,5,15]` array; the hostile iterator rejection assertions remain unchanged. This is a regression fixture correction, not evidence of broker cost accuracy, execution or profitability. Verify CI on the new exact head before claiming a pass; keep draft, paper-only and undeployed.
+
+## Exact as-of cutoff boundary regression (14 November 2026)
+
+A synthetic hourly candle whose UTC **start** equals the as-of cutoff is pending, not a completed candle. The causal 1H FVG study must match the report from the completed prefix, read the pending timestamp only once, and never read that pending candle's OHLC, volume or observed-minute fields. Regression: `frontend/tests/hourly-fvg-pending-source-seal.test.ts`. This validates a narrow no-lookahead boundary, not source authentication, executable broker quotes or profitable performance. No orders, merge or deployment.
