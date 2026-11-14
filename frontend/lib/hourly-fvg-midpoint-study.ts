@@ -1922,7 +1922,8 @@ export function studyHourlyFvgMidpoint(
 export function studyHourlyFvgMidpointAsOf(
  suppliedBars:readonly Bar[],source:FvgSource,asOfClosedAt:number,config:FvgConfig={},
 ):FvgStudy{
- if(!Number.isSafeInteger(asOfClosedAt)||asOfClosedAt<HOUR||asOfClosedAt%HOUR!==0)
+ if(!Number.isSafeInteger(asOfClosedAt)||asOfClosedAt<HOUR||
+  asOfClosedAt>Date.UTC(2100,0,1)/1000||asOfClosedAt%HOUR!==0)
   throw Error('Invalid UTC hourly as-of close');
  if(!Array.isArray(suppliedBars)||suppliedBars.length>20000)
   throw Error('Invalid or oversized hourly research window');
