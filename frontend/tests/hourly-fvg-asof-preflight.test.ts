@@ -229,3 +229,18 @@ test('as-of scanner rejects accessor-backed archive rows without executing gette
   /FVG as-of archive requires own data-property candle slots/);
  assert.equal(reads,0);
 });
+
+// Exactly 20,000 slots is within the declared work bound, but an unfilled
+// archive is still missing evidence. Distinguish the size gate from the
+// own-row evidence gate without manufacturing historical candles.
+test('as-of archive maximum length is inclusive but sparse evidence fails closed',()=>{
+ let sourceReads=0;
+ const source=new Proxy({} as FvgSource,{
+  get(){sourceReads++;throw Error('source accessed before archive evidence');},
+  ownKeys(){sourceReads++;throw Error('source enumerated before archive evidence');},
+ });
+ const archive=new Array(20000) as Bar[];
+ assert.throws(()=>studyHourlyFvgMidpointAsOf(archive,source,3600),
+  /Hourly research array contains missing or hidden own-index candle evidence/);
+ assert.equal(sourceReads,0);
+});
