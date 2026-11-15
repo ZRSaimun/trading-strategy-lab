@@ -43,3 +43,25 @@ test('non-numeric as-of cutoffs fail before coercion or evidence access',()=>{
  }
  assert.equal(coercions,0);
 });
+
+
+// Symbols and callable objects are valid JavaScript values despite being
+// impossible UTC timestamps. Fail closed without invoking a callable cutoff
+// or touching source/archive evidence.
+test('symbol and callable as-of cutoffs fail closed before evidence access',()=>{
+ let calls=0;
+ const callable=()=>{calls++;throw Error('callable cutoff must not run');};
+ const source=Object.defineProperty({},'provider',{
+  get(){throw Error('source getter must not run');},enumerable:true,
+ }) as FvgSource;
+ const bars=new Proxy([] as Bar[],{
+  get(){throw Error('archive getter must not run');},
+  getOwnPropertyDescriptor(){throw Error('archive descriptor must not run');},
+  ownKeys(){throw Error('archive keys must not be read');},
+ });
+ for(const cutoff of [Symbol('as-of'),Symbol.for('as-of'),callable]){
+  assert.throws(()=>studyHourlyFvgMidpointAsOf(
+   bars,source,cutoff as number),/Invalid UTC hourly as-of close/);
+ }
+ assert.equal(calls,0);
+});
