@@ -120,3 +120,13 @@ test('invalid as-of cutoff never inspects revoked evidence proxies',()=>{
    /Invalid UTC hourly as-of close/);
  }
 });
+
+// Missing evidence is not a reason to bypass the as-of timestamp contract.
+// This guards validation precedence even when runtime callers bypass TS types.
+test('invalid as-of cutoff precedes null evidence validation',()=>{
+ for(const cutoff of [0,-0,3600.5,Number.NaN]){
+  assert.throws(()=>studyHourlyFvgMidpointAsOf(
+   null as unknown as Bar[],null as unknown as FvgSource,cutoff),
+   /Invalid UTC hourly as-of close/);
+ }
+});
