@@ -23,3 +23,5 @@ The inclusive-horizon positive control also covers 2099-12-31 23:00 UTC, the las
 A further synthetic regression uses a proxy source with hostile property reads, key enumeration, and property-descriptor traps. Invalid as-of cutoffs must be rejected before **any** source provenance introspection, not merely before a named field getter. This checks validation ordering only; it cannot authenticate source declarations or historical market data.
 
 The invalid-cutoff regression also installs hostile prototype-discovery, membership, mutation and property-definition proxy traps on both source and archive. None may run before the cutoff validation error. This guards the no-evidence-access ordering contract; it does not validate market prices, volume provenance or trading outcomes.
+
+The revoked-proxy regression additionally proves that malformed cutoffs are rejected before any operation on revoked source/archive proxies (which would otherwise throw a native proxy error). This is a synthetic input-precedence check, not an authentication or market-quality check.
