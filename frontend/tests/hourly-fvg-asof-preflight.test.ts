@@ -147,3 +147,22 @@ test('valid as-of cutoff rejects absent candle archive instead of fabricating ev
  }
  assert.equal(reads,0);
 });
+
+
+// Runtime callers can supply primitives despite the Bar[] type annotation.
+// With a valid cutoff, these must fail as absent archive evidence before any
+// source metadata is read, not produce an apparently empty research result.
+test('valid as-of cutoff rejects primitive candle archives before source inspection',()=>{
+ let reads=0;
+ const source=new Proxy({} as FvgSource,{
+  get(){reads++;throw Error('source read without valid archive');},
+  ownKeys(){reads++;throw Error('source enumerated without valid archive');},
+  getOwnPropertyDescriptor(){reads++;throw Error('source described without valid archive');},
+ });
+ for(const archive of [false,0,3600,'', 'candles', 1n, Symbol('archive')]){
+  assert.throws(()=>studyHourlyFvgMidpointAsOf(
+   archive as unknown as Bar[],source,3600),
+   /Invalid or oversized hourly research window/);
+ }
+ assert.equal(reads,0);
+});
