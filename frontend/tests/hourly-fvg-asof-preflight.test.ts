@@ -39,7 +39,7 @@ test('non-numeric as-of cutoffs fail before coercion or evidence access',()=>{
  });
  for(const cutoff of [hostile,'3600',3600n,null,undefined,true]){
   assert.throws(()=>studyHourlyFvgMidpointAsOf(
-   bars,source,cutoff as number),/Invalid UTC hourly as-of close/);
+   bars,source,cutoff as unknown as number),/Invalid UTC hourly as-of close/);
  }
  assert.equal(coercions,0);
 });
