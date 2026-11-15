@@ -20,3 +20,26 @@ test('invalid as-of close rejects before touching any archive or source getter',
   assert.throws(()=>studyHourlyFvgMidpointAsOf(bars,source,cutoff),
    /Invalid UTC hourly as-of close/);
 });
+
+
+// A caller can bypass TypeScript at runtime. Reject object/string cutoffs
+// without invoking valueOf/Symbol.toPrimitive or reading source/archive data.
+test('non-numeric as-of cutoffs fail before coercion or evidence access',()=>{
+ let coercions=0;
+ const hostile=Object.defineProperty({},Symbol.toPrimitive,{
+  get(){coercions++;throw Error('coercion hook must not run');},
+ });
+ const source=Object.defineProperty({},'datasetId',{
+  get(){throw Error('source getter must not run');},enumerable:true,
+ }) as FvgSource;
+ const bars=new Proxy([] as Bar[],{
+  get(){throw Error('archive getter must not run');},
+  getOwnPropertyDescriptor(){throw Error('archive descriptor must not run');},
+  ownKeys(){throw Error('archive keys must not be read');},
+ });
+ for(const cutoff of [hostile,'3600',3600n,null,undefined,true]){
+  assert.throws(()=>studyHourlyFvgMidpointAsOf(
+   bars,source,cutoff as number),/Invalid UTC hourly as-of close/);
+ }
+ assert.equal(coercions,0);
+});
