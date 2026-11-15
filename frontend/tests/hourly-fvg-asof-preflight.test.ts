@@ -130,3 +130,20 @@ test('invalid as-of cutoff precedes null evidence validation',()=>{
    /Invalid UTC hourly as-of close/);
  }
 });
+
+// A valid completed-hour cutoff must not turn absent evidence into an empty
+// (apparently evaluated) research study. Reject before touching source fields.
+test('valid as-of cutoff rejects absent candle archive instead of fabricating evidence',()=>{
+ let reads=0;
+ const source=new Proxy({} as FvgSource,{
+  get(){reads++;throw Error('source must not be inspected without an archive');},
+  ownKeys(){reads++;throw Error('source must not be enumerated');},
+  getOwnPropertyDescriptor(){reads++;throw Error('source must not be described');},
+ });
+ for(const archive of [null,undefined,{}]){
+  assert.throws(()=>studyHourlyFvgMidpointAsOf(
+   archive as unknown as Bar[],source,3600),
+   /Invalid or oversized hourly research window/);
+ }
+ assert.equal(reads,0);
+});
