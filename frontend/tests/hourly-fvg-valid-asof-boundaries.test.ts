@@ -15,8 +15,8 @@ test('valid UTC as-of boundaries reach archive validation',()=>{
    return Reflect.get(_target,key);
   },
  });
- // UTC hourly closes remain valid across NY DST and the 2038 signed-32-bit Unix rollover; no local-session assumption.
- const validCutoffs=[3600,Date.UTC(2026,2,8,6)/1000,Date.UTC(2026,2,8,7)/1000,Date.UTC(2026,2,8,8)/1000,Date.UTC(2026,10,1,5)/1000,Date.UTC(2026,10,1,6)/1000,Date.UTC(2026,10,1,7)/1000,Date.UTC(2038,0,19,3)/1000,Date.UTC(2038,0,19,4)/1000,Date.UTC(2100,0,1)/1000];
+ // UTC hourly closes remain valid across NY DST, the 2028 UTC leap day and the 2038 signed-32-bit Unix rollover; no local-session assumption.
+ const validCutoffs=[3600,Date.UTC(2026,2,8,6)/1000,Date.UTC(2026,2,8,7)/1000,Date.UTC(2026,2,8,8)/1000,Date.UTC(2026,10,1,5)/1000,Date.UTC(2026,10,1,6)/1000,Date.UTC(2026,10,1,7)/1000,Date.UTC(2028,1,28,23)/1000,Date.UTC(2028,1,29,0)/1000,Date.UTC(2028,1,29,23)/1000,Date.UTC(2028,2,1,0)/1000,Date.UTC(2038,0,19,3)/1000,Date.UTC(2038,0,19,4)/1000,Date.UTC(2100,0,1)/1000];
  for(const cutoff of validCutoffs){
   assert.throws(()=>studyHourlyFvgMidpointAsOf(archive,source,cutoff),
    /archive validation reached/);
