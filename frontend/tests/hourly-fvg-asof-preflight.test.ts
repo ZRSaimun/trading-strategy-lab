@@ -184,3 +184,27 @@ test('valid as-of cutoff rejects array-like archive impostors before source acce
   /Invalid or oversized hourly research window/);
  assert.equal(evidenceReads,0);
 });
+
+
+// An oversized archive must be rejected by its declared length, without
+// iterating over rows or inspecting source identity. This bounds as-of work
+// before untrusted candle access; no market data are fabricated here.
+test('valid as-of cutoff rejects oversized archive before row or source reads',()=>{
+ let reads=0;
+ const source=new Proxy({} as FvgSource,{
+  get(){reads++;throw Error('source read before size preflight');},
+  ownKeys(){reads++;throw Error('source enumeration before size preflight');},
+  getOwnPropertyDescriptor(){reads++;throw Error('source descriptor before size preflight');},
+ });
+ const archive=new Proxy(new Array(20001) as Bar[],{
+  get(target,key,receiver){
+   if(key==='length')return Reflect.get(target,key,receiver);
+   reads++;throw Error('oversized archive row accessed');
+  },
+  ownKeys(){reads++;throw Error('oversized archive enumerated');},
+  getOwnPropertyDescriptor(){reads++;throw Error('oversized archive described');},
+ });
+ assert.throws(()=>studyHourlyFvgMidpointAsOf(archive,source,3600),
+  /Invalid or oversized hourly research window/);
+ assert.equal(reads,0);
+});
