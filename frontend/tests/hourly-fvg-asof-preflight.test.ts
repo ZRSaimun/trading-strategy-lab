@@ -244,3 +244,26 @@ test('as-of archive maximum length is inclusive but sparse evidence fails closed
   /Hourly research array contains missing or hidden own-index candle evidence/);
  assert.equal(sourceReads,0);
 });
+
+
+// A hole can appear populated through the array's prototype chain. Such a
+// value is not an own archived candle and must never count as source evidence.
+test('as-of scanner rejects prototype-inherited candle slots without reading them',()=>{
+ let inheritedReads=0;
+ let sourceReads=0;
+ const prototype=Object.create(Array.prototype);
+ Object.defineProperty(prototype,'0',{
+  configurable:true,
+  get(){inheritedReads++;throw Error('inherited candle getter executed');},
+ });
+ const archive=new Array(1) as Bar[];
+ Object.setPrototypeOf(archive,prototype);
+ const source=new Proxy({} as FvgSource,{
+  get(){sourceReads++;throw Error('source read before own-slot validation');},
+  ownKeys(){sourceReads++;throw Error('source enumerated before own-slot validation');},
+ });
+ assert.throws(()=>studyHourlyFvgMidpointAsOf(archive,source,3600),
+  /Hourly research array contains missing or hidden own-index candle evidence/);
+ assert.equal(inheritedReads,0);
+ assert.equal(sourceReads,0);
+});
