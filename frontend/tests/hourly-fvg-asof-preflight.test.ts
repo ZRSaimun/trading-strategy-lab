@@ -107,3 +107,16 @@ test('invalid as-of cutoff avoids prototype, membership and mutation traps',()=>
  }
  assert.equal(traps,0);
 });
+
+// Revoked proxies throw on every attempted internal operation, including
+// operations not represented by the explicit hostile traps above.
+test('invalid as-of cutoff never inspects revoked evidence proxies',()=>{
+ const source=Proxy.revocable({} as FvgSource,{});
+ const archive=Proxy.revocable([] as Bar[],{});
+ source.revoke();
+ archive.revoke();
+ for(const cutoff of [-0,0,3600.5,Number.NaN]){
+  assert.throws(()=>studyHourlyFvgMidpointAsOf(archive.proxy,source.proxy,cutoff),
+   /Invalid UTC hourly as-of close/);
+ }
+});
