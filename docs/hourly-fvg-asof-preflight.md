@@ -27,3 +27,5 @@ The invalid-cutoff regression also installs hostile prototype-discovery, members
 The revoked-proxy regression additionally proves that malformed cutoffs are rejected before any operation on revoked source/archive proxies (which would otherwise throw a native proxy error). This is a synthetic input-precedence check, not an authentication or market-quality check.
 
 A null-evidence positive-precedence regression passes invalid UTC cutoffs alongside absent source and archive objects (runtime TypeScript bypass). The timestamp error must win before source/archive type checks. This does not make missing evidence acceptable for a valid cutoff or demonstrate market-data quality.
+
+A valid UTC hourly cutoff (3600 seconds) paired with a null, undefined, or non-array candle archive must fail closed with the archive-validation error before inspecting source provenance. The synthetic regression prevents missing evidence from being misrepresented as an evaluated empty study. It does not authenticate any volume or price feed, prove strategy returns, or permit live orders.
