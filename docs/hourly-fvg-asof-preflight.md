@@ -25,3 +25,5 @@ A further synthetic regression uses a proxy source with hostile property reads, 
 The invalid-cutoff regression also installs hostile prototype-discovery, membership, mutation and property-definition proxy traps on both source and archive. None may run before the cutoff validation error. This guards the no-evidence-access ordering contract; it does not validate market prices, volume provenance or trading outcomes.
 
 The revoked-proxy regression additionally proves that malformed cutoffs are rejected before any operation on revoked source/archive proxies (which would otherwise throw a native proxy error). This is a synthetic input-precedence check, not an authentication or market-quality check.
+
+A null-evidence positive-precedence regression passes invalid UTC cutoffs alongside absent source and archive objects (runtime TypeScript bypass). The timestamp error must win before source/archive type checks. This does not make missing evidence acceptable for a valid cutoff or demonstrate market-data quality.
