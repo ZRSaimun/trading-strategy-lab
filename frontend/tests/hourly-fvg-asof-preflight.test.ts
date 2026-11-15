@@ -22,6 +22,28 @@ test('invalid as-of close rejects before touching any archive or source getter',
 });
 
 
+// An invalid cutoff must not even enumerate source provenance metadata.
+// This catches preflight regressions that invoke Reflect.ownKeys or descriptor
+// inspection before validating the caller's timestamp.
+test('invalid as-of cutoff avoids source metadata introspection',()=>{
+ let sourceInspections=0;
+ const source=new Proxy({} as FvgSource,{
+  get(){sourceInspections++;throw Error('source read before cutoff validation');},
+  ownKeys(){sourceInspections++;throw Error('source keys before cutoff validation');},
+  getOwnPropertyDescriptor(){sourceInspections++;throw Error('source descriptor before cutoff validation');},
+ });
+ const bars=new Proxy([] as Bar[],{
+  get(){throw Error('archive read before cutoff validation');},
+  ownKeys(){throw Error('archive keys before cutoff validation');},
+  getOwnPropertyDescriptor(){throw Error('archive descriptor before cutoff validation');},
+ });
+ for(const cutoff of [0,-0,3600.5,Date.UTC(2100,0,1,1)/1000]){
+  assert.throws(()=>studyHourlyFvgMidpointAsOf(bars,source,cutoff),
+   /Invalid UTC hourly as-of close/);
+ }
+ assert.equal(sourceInspections,0);
+});
+
 // A caller can bypass TypeScript at runtime. Reject object/string cutoffs
 // without invoking valueOf/Symbol.toPrimitive or reading source/archive data.
 test('non-numeric as-of cutoffs fail before coercion or evidence access',()=>{
