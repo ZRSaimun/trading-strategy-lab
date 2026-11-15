@@ -87,3 +87,23 @@ test('symbol and callable as-of cutoffs fail closed before evidence access',()=>
  }
  assert.equal(calls,0);
 });
+
+
+// Preflight must not attempt prototype discovery, membership checks, or
+// mutations on caller-owned evidence when the cutoff is already invalid.
+test('invalid as-of cutoff avoids prototype, membership and mutation traps',()=>{
+ let traps=0;
+ const deny=()=>{traps++;throw Error('evidence trap invoked before cutoff preflight');};
+ const handlers={
+  get:deny,ownKeys:deny,getOwnPropertyDescriptor:deny,
+  getPrototypeOf:deny,has:deny,set:deny,defineProperty:deny,
+  deleteProperty:deny,setPrototypeOf:deny,
+ };
+ const source=new Proxy({} as FvgSource,handlers);
+ const archive=new Proxy([] as Bar[],handlers);
+ for(const cutoff of [0,-0,3600.5,Number.POSITIVE_INFINITY]){
+  assert.throws(()=>studyHourlyFvgMidpointAsOf(archive,source,cutoff),
+   /Invalid UTC hourly as-of close/);
+ }
+ assert.equal(traps,0);
+});
