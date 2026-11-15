@@ -17,3 +17,5 @@ The DST positive control now checks the immediately preceding and following UTC 
 The same positive-control suite also checks UTC hourly closes at 2038-01-19 03:00 and 04:00 UTC, straddling the signed 32-bit Unix timestamp rollover (03:14:08 UTC). Both must pass cutoff preflight and reach archive validation. This detects accidental 32-bit timestamp truncation in the cutoff path, but does not establish compatibility of upstream feeds, storage, broker calendars, or historical datasets with 2038 dates.
 
 The UTC calendar positive control also checks 2028-02-28 23:00, 2028-02-29 00:00 and 23:00, and 2028-03-01 00:00. All four must pass hourly cutoff preflight and reach archive validation, including the leap-day boundary. This does not verify actual market sessions or feed coverage on those dates.
+
+The inclusive-horizon positive control also covers 2099-12-31 23:00 UTC, the last completed hourly cutoff before 2100-01-01 00:00 UTC. Both reach archive validation, guarding against an off-by-one rejection at the supported upper boundary. It does not validate real market-data coverage at either timestamp.
