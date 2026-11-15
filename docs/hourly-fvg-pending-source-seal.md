@@ -119,3 +119,7 @@ A synthetic regression in `frontend/tests/hourly-fvg-duplicate-future-hour.test.
 ## Duplicate pending hour at the as-of boundary
 
 `frontend/tests/hourly-fvg-duplicate-boundary-hour.test.ts` adds a synthetic UTC autumn-clock-change fixture with two candles whose timestamps both equal the as-of cutoff. Neither candle has closed. The scanner must reject the duplicate timestamp, read each timestamp exactly once, and avoid every pending OHLC, volume, and minute-coverage getter. This complements the strictly-future duplicate regression; a repeated pending boundary is not evidence of two completed hours. This is a software-integrity test only, not authenticated market data, broker fills, or profitability evidence. Exact-head CI is required before claiming the regression passes.
+
+## Second future timestamp accessor failure (15 November 2026)
+
+`frontend/tests/hourly-fvg-second-future-timestamp-failure.test.ts` exercises two strictly future UTC-aligned hourly candle slots after a completed prefix. The first timestamp is readable; the second throws. The causal 1H FVG scanner must propagate the failure after reading each timestamp once, without accessing either future candle's OHLC, volume or minute-coverage getters. This prevents a later inaccessible timestamp from being silently treated as harmless skipped future evidence. The fixture is synthetic; it cannot authenticate market data, volume, two-sided broker quotes, fills or profitability. Keep draft and paper-only; verify exact-head CI before treating this as protected.
