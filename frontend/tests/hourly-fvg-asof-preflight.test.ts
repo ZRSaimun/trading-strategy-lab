@@ -208,3 +208,24 @@ test('valid as-of cutoff rejects oversized archive before row or source reads',(
   /Invalid or oversized hourly research window/);
  assert.equal(reads,0);
 });
+
+
+// An own accessor slot is not stable historical evidence: its getter could
+// return different candles on successive reads. Reject without invoking it,
+// and without reading the source declaration or future OHLC values.
+test('as-of scanner rejects accessor-backed archive rows without executing getters',()=>{
+ let reads=0;
+ const archive=new Array(1) as Bar[];
+ Object.defineProperty(archive,'0',{
+  enumerable:true,configurable:true,
+  get(){reads++;throw Error('unstable archive row getter executed');},
+ });
+ const source=new Proxy({} as FvgSource,{
+  get(){reads++;throw Error('source accessed before archive slot preflight');},
+  ownKeys(){reads++;throw Error('source enumerated before archive slot preflight');},
+  getOwnPropertyDescriptor(){reads++;throw Error('source described before archive slot preflight');},
+ });
+ assert.throws(()=>studyHourlyFvgMidpointAsOf(archive,source,3600),
+  /FVG as-of archive requires own data-property candle slots/);
+ assert.equal(reads,0);
+});
