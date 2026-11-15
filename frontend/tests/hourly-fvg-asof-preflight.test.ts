@@ -61,7 +61,7 @@ test('symbol and callable as-of cutoffs fail closed before evidence access',()=>
  });
  for(const cutoff of [Symbol('as-of'),Symbol.for('as-of'),callable]){
   assert.throws(()=>studyHourlyFvgMidpointAsOf(
-   bars,source,cutoff as number),/Invalid UTC hourly as-of close/);
+   bars,source,cutoff as unknown as number),/Invalid UTC hourly as-of close/);
  }
  assert.equal(calls,0);
 });
