@@ -166,3 +166,21 @@ test('valid as-of cutoff rejects primitive candle archives before source inspect
  }
  assert.equal(reads,0);
 });
+
+// Array-like objects can masquerade as a complete archive at runtime. Their
+// length and indexed getters must not be evaluated as candle evidence.
+test('valid as-of cutoff rejects array-like archive impostors before source access',()=>{
+ let evidenceReads=0;
+ const source=new Proxy({} as FvgSource,{
+  get(){evidenceReads++;throw Error('source accessed before archive validation');},
+  ownKeys(){evidenceReads++;throw Error('source enumerated before archive validation');},
+ });
+ const impostor=Object.defineProperties({}, {
+  length:{get(){evidenceReads++;throw Error('array-like length evaluated');}},
+  0:{get(){evidenceReads++;throw Error('array-like candle evaluated');}},
+ });
+ assert.throws(()=>studyHourlyFvgMidpointAsOf(
+  impostor as unknown as Bar[],source,3600),
+  /Invalid or oversized hourly research window/);
+ assert.equal(evidenceReads,0);
+});
