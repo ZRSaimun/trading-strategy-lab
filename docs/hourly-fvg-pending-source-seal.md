@@ -127,3 +127,7 @@ A synthetic regression in `frontend/tests/hourly-fvg-duplicate-future-hour.test.
 ## 15 November 2026 — second future-hour object timestamp coercion
 
 A synthetic regression (`frontend/tests/hourly-fvg-second-future-object-timestamp.test.ts`) places an ordinary strictly future hour before a second future row whose timestamp is an object with hostile `valueOf` and `toString` hooks. The causal scanner must reject the second timestamp after one read of each future timestamp, with zero coercion-hook calls and zero reads of either future candle's OHLC, volume or minute coverage. This extends the earlier single-boundary object test across multiple skipped future rows. It validates defensive parsing only, not real source identity, licensed volume, executable broker quotes or profitability. Keep draft and paper-only; verify exact-head CI before review.
+
+## Second future-hour timestamp beyond supported horizon (15 November 2026)
+
+`frontend/tests/hourly-fvg-second-future-horizon.test.ts` supplies a valid strictly future hourly timestamp followed by a UTC-aligned timestamp one hour beyond the 2100-01-01 supported horizon. The causal scanner must reject the second timestamp after one read of each future timestamp and without reading either future candle's OHLC, volume or observed-minute fields. The test uses synthetic values; it does not authenticate source data, validate broker costs, or demonstrate trading performance. Keep the PR draft and paper-only pending exact-head CI.
