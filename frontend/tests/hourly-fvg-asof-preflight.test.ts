@@ -354,3 +354,24 @@ test('as-of scanner rejects hidden symbol-keyed archive receipts before provenan
   /Unexpected FVG archive array metadata outside frozen BID-only protocol/);
  assert.equal(reads,0);
 });
+
+
+// A JavaScript array can carry a numeric-looking property outside its indexed
+// length (2^32-1 is not an array index). It must not smuggle an unaccounted
+// future candle or alternate quote into a completed-prefix BID-only study.
+test('as-of rejects out-of-range numeric archive metadata without getter execution',()=>{
+ let reads=0;
+ const archive=[] as Bar[];
+ Object.defineProperty(archive,'4294967295',{
+  configurable:true,enumerable:false,
+  get(){reads++;throw Error('out-of-range archive getter executed');},
+ });
+ const source=new Proxy({} as FvgSource,{
+  get(){reads++;throw Error('source read before archive schema rejection');},
+  ownKeys(){reads++;throw Error('source enumerated before archive schema rejection');},
+  getOwnPropertyDescriptor(){reads++;throw Error('source described before archive schema rejection');},
+ });
+ assert.throws(()=>studyHourlyFvgMidpointAsOf(archive,source,3600),
+  /Unexpected FVG archive array metadata outside frozen BID-only protocol/);
+ assert.equal(reads,0);
+});
