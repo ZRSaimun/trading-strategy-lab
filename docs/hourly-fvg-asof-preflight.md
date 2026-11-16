@@ -66,3 +66,5 @@ A synthetic precedence regression additionally combines a hidden symbol-keyed AS
 
 
 Binary array views (including `Uint8Array` and `DataView`) are not candle archives. A synthetic valid-cutoff regression requires the as-of scanner to reject them before optional cost configuration or source-provenance inspection. Numeric bytes cannot substitute for timestamped, completed OHLC candles; this does not validate actual feed provenance or trading returns.
+
+Iterable archive impostors (a custom lazy iterable, `Set`, `Map`, or string) are also invalid inputs to the causal 1H FVG BID-only study. A synthetic valid-cutoff regression requires rejection before executing an iterator getter or inspecting optional cost/source metadata. This is an input-schema and no-side-effect test, not authentication of real candles, volume, broker quotes or trading performance.
