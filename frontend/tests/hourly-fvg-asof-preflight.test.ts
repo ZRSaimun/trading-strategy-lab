@@ -398,3 +398,26 @@ test('as-of rejects noncanonical numeric archive aliases without executing gette
   assert.equal(reads,0,'getter executed for '+key);
  }
 });
+
+// Invalid completed-hour cutoffs must also precede configuration introspection.
+// A hostile caller-supplied cost scenario cannot run before the time boundary
+// is validated, even when archive/source are otherwise present.
+test('invalid as-of cutoff never inspects cost configuration',()=>{
+ let reads=0;
+ const deny=()=>{reads++;throw Error('cost configuration read before cutoff validation');};
+ const config=new Proxy({}, {
+  get:deny,ownKeys:deny,getOwnPropertyDescriptor:deny,
+  getPrototypeOf:deny,has:deny,
+ });
+ const archive=new Proxy([] as Bar[],{
+  get:deny,ownKeys:deny,getOwnPropertyDescriptor:deny,
+ });
+ const source=new Proxy({} as FvgSource,{
+  get:deny,ownKeys:deny,getOwnPropertyDescriptor:deny,
+ });
+ for(const cutoff of [-0,0,3600.5,Number.NaN,Date.UTC(2100,0,1,1)/1000]){
+  assert.throws(()=>studyHourlyFvgMidpointAsOf(archive,source,cutoff,config),
+   /Invalid UTC hourly as-of close/);
+ }
+ assert.equal(reads,0);
+});
