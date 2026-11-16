@@ -467,3 +467,26 @@ test('oversized as-of archive precedes cost and provenance inspection',()=>{
   /Invalid or oversized hourly research window/);
  assert.equal(reads,0);
 });
+
+
+// An accessor-backed candle is not stable evidence even when the optional
+// cost scenario is hostile. Archive row validation must win without executing
+// the row getter, source receipt or cost configuration.
+test('accessor-backed as-of row fails before optional cost and source inspection',()=>{
+ let reads=0;
+ const deny=()=>{reads++;throw Error('untrusted evidence getter executed');};
+ const archive=new Array(1) as Bar[];
+ Object.defineProperty(archive,'0',{
+  enumerable:true,configurable:true,get:deny,
+ });
+ const source=new Proxy({} as FvgSource,{
+  get:deny,ownKeys:deny,getOwnPropertyDescriptor:deny,
+ });
+ const costs=new Proxy({},{
+  get:deny,ownKeys:deny,getOwnPropertyDescriptor:deny,
+  getPrototypeOf:deny,has:deny,
+ });
+ assert.throws(()=>studyHourlyFvgMidpointAsOf(archive,source,3600,costs),
+  /FVG as-of archive requires own data-property candle slots/);
+ assert.equal(reads,0);
+});
