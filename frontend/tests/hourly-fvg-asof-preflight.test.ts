@@ -267,3 +267,26 @@ test('as-of scanner rejects prototype-inherited candle slots without reading the
  assert.equal(inheritedReads,0);
  assert.equal(sourceReads,0);
 });
+
+
+// A non-enumerable own slot is hidden from ordinary archive enumeration.
+// It must not be counted as an observed candle even if its value is present.
+// The rejection must precede source access and any candle-field reads.
+test('as-of scanner rejects hidden own candle slots before reading evidence',()=>{
+ let reads=0;
+ const row=new Proxy({} as Bar,{
+  get(){reads++;throw Error('hidden candle was inspected');},
+  ownKeys(){reads++;throw Error('hidden candle enumerated');},
+ });
+ const archive=[row] as Bar[];
+ Object.defineProperty(archive,'0',{
+  value:row,enumerable:false,writable:true,configurable:true,
+ });
+ const source=new Proxy({} as FvgSource,{
+  get(){reads++;throw Error('source read before hidden-slot rejection');},
+  ownKeys(){reads++;throw Error('source enumerated before hidden-slot rejection');},
+ });
+ assert.throws(()=>studyHourlyFvgMidpointAsOf(archive,source,3600),
+  /Hourly research array contains missing or hidden own-index candle evidence/);
+ assert.equal(reads,0);
+});
