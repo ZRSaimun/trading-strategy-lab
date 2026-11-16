@@ -442,3 +442,28 @@ test('valid as-of cutoff rejects missing archive before cost configuration acces
  }
  assert.equal(reads,0);
 });
+
+
+// A size-invalid archive must fail before optional cost scenarios or source
+// metadata are inspected. This is important for bounded causal scans: a
+// caller cannot use a hostile cost getter to mask an oversized evidence set.
+test('oversized as-of archive precedes cost and provenance inspection',()=>{
+ let reads=0;
+ const deny=()=>{reads++;throw Error('optional evidence inspected before archive size gate');};
+ const costs=new Proxy({},{
+  get:deny,ownKeys:deny,getOwnPropertyDescriptor:deny,getPrototypeOf:deny,has:deny,
+ });
+ const source=new Proxy({} as FvgSource,{
+  get:deny,ownKeys:deny,getOwnPropertyDescriptor:deny,
+ });
+ const archive=new Proxy(new Array(20001) as Bar[],{
+  get(target,key,receiver){
+   if(key==='length')return Reflect.get(target,key,receiver);
+   return deny();
+  },
+  ownKeys:deny,getOwnPropertyDescriptor:deny,
+ });
+ assert.throws(()=>studyHourlyFvgMidpointAsOf(archive,source,3600,costs),
+  /Invalid or oversized hourly research window/);
+ assert.equal(reads,0);
+});
