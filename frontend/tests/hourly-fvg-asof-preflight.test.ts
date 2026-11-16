@@ -531,3 +531,26 @@ test('as-of rejects binary array views before cost or source introspection',()=>
  }
  assert.equal(reads,0);
 });
+
+
+// Iterable impostors may expose arbitrary lazy or reordered rows, but a
+// frozen BID-only research archive requires an actual array of candle records.
+// No caller-owned iterator, cost configuration or source receipt may execute.
+test('as-of rejects iterable archive impostors before optional evidence inspection',()=>{
+ let reads=0;
+ const deny=()=>{reads++;throw Error('untrusted iterator or evidence inspected');};
+ const costs=new Proxy({}, {get:deny,ownKeys:deny,getOwnPropertyDescriptor:deny});
+ const source=new Proxy({} as FvgSource,{
+  get:deny,ownKeys:deny,getOwnPropertyDescriptor:deny,
+ });
+ const iterable={
+  get [Symbol.iterator](){return deny();},
+  get length(){return deny();},
+ };
+ for(const archive of [iterable,new Set([1]),new Map([[0,1]]),'not candles']){
+  assert.throws(()=>studyHourlyFvgMidpointAsOf(
+   archive as unknown as Bar[],source,3600,costs),
+   /Invalid or oversized hourly research window/);
+ }
+ assert.equal(reads,0);
+});
