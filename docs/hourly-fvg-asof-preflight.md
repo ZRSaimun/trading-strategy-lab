@@ -63,3 +63,6 @@ An oversized 20,001-slot hourly archive must also be rejected **before** evaluat
 A valid completed-hour cutoff with an accessor-backed indexed candle must fail the own-data-property archive gate **before** inspecting optional cost scenarios or source provenance. A synthetic hostile-getter regression checks that neither the candle accessor nor cost/source traps execute. This validates input precedence, not authentic market data, execution prices, or profitability.
 
 A synthetic precedence regression additionally combines a hidden symbol-keyed ASK receipt on the BID-only archive with hostile optional cost and source proxies. At a valid completed-hour cutoff, the undeclared receipt must be rejected without invoking any receipt, cost or provenance getter. This only verifies fail-closed schema validation order; it cannot establish authentic broker quotes, licensed history or profitability.
+
+
+Binary array views (including `Uint8Array` and `DataView`) are not candle archives. A synthetic valid-cutoff regression requires the as-of scanner to reject them before optional cost configuration or source-provenance inspection. Numeric bytes cannot substitute for timestamped, completed OHLC candles; this does not validate actual feed provenance or trading returns.
