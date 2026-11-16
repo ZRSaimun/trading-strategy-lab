@@ -512,3 +512,22 @@ test('symbol archive receipt rejection precedes cost and source access',()=>{
   /Unexpected FVG archive array metadata outside frozen BID-only protocol/);
  assert.equal(reads,0);
 });
+
+
+// Typed arrays and other ArrayBuffer views are not historical Bar[] archives.
+// Even if a view has a plausible length, its elements are numeric bytes, not
+// completed candles. Reject before inspecting optional costs or provenance.
+test('as-of rejects binary array views before cost or source introspection',()=>{
+ let reads=0;
+ const deny=()=>{reads++;throw Error('optional evidence inspected before archive type gate');};
+ const costs=new Proxy({}, {get:deny,ownKeys:deny,getOwnPropertyDescriptor:deny});
+ const source=new Proxy({} as FvgSource,{
+  get:deny,ownKeys:deny,getOwnPropertyDescriptor:deny,
+ });
+ for(const view of [new Uint8Array([1,2,3]),new DataView(new ArrayBuffer(8))]){
+  assert.throws(()=>studyHourlyFvgMidpointAsOf(
+   view as unknown as Bar[],source,3600,costs),
+   /Invalid or oversized hourly research window/);
+ }
+ assert.equal(reads,0);
+});
