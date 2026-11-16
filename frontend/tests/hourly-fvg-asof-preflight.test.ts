@@ -421,3 +421,24 @@ test('invalid as-of cutoff never inspects cost configuration',()=>{
  }
  assert.equal(reads,0);
 });
+
+
+// At a valid cutoff, missing historical rows must fail before optional cost
+// scenarios are inspected. A malformed cost object cannot turn absent market
+// evidence into a completed (or apparently evaluated) research result.
+test('valid as-of cutoff rejects missing archive before cost configuration access',()=>{
+ let reads=0;
+ const deny=()=>{reads++;throw Error('untrusted input inspected before archive evidence');};
+ const costs=new Proxy({},{
+  get:deny,ownKeys:deny,getOwnPropertyDescriptor:deny,getPrototypeOf:deny,has:deny,
+ });
+ const source=new Proxy({} as FvgSource,{
+  get:deny,ownKeys:deny,getOwnPropertyDescriptor:deny,
+ });
+ for(const archive of [null,undefined,{}]){
+  assert.throws(()=>studyHourlyFvgMidpointAsOf(
+   archive as unknown as Bar[],source,3600,costs),
+   /Invalid or oversized hourly research window/);
+ }
+ assert.equal(reads,0);
+});
