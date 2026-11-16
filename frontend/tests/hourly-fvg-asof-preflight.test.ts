@@ -311,3 +311,24 @@ test('as-of scanner rejects undeclared archive metadata without executing it',()
   /Unexpected FVG archive array metadata outside frozen BID-only protocol/);
  assert.equal(reads,0);
 });
+
+
+// A custom iterator can substitute or skip source rows during iteration.
+// The frozen BID-only archive must reject the override by descriptor without
+// running it or inspecting a source receipt, even for an empty archive.
+test('as-of scanner rejects custom archive iterator without executing getter',()=>{
+ let reads=0;
+ const archive=[] as Bar[];
+ Object.defineProperty(archive,Symbol.iterator,{
+  configurable:true,enumerable:false,
+  get(){reads++;throw Error('custom archive iterator executed');},
+ });
+ const source=new Proxy({} as FvgSource,{
+  get(){reads++;throw Error('source read before archive schema rejection');},
+  ownKeys(){reads++;throw Error('source enumerated before archive schema rejection');},
+  getOwnPropertyDescriptor(){reads++;throw Error('source described before archive schema rejection');},
+ });
+ assert.throws(()=>studyHourlyFvgMidpointAsOf(archive,source,3600),
+  /Unexpected FVG archive array metadata outside frozen BID-only protocol/);
+ assert.equal(reads,0);
+});
