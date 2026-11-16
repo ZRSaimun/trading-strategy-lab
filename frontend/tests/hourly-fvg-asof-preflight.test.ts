@@ -290,3 +290,24 @@ test('as-of scanner rejects hidden own candle slots before reading evidence',()=
   /Hourly research array contains missing or hidden own-index candle evidence/);
  assert.equal(reads,0);
 });
+
+
+// A declared array-level property must not smuggle a second feed or receipt
+// into a BID-only study. Reject metadata by descriptor without executing its
+// getter or reading source identity, even when there are no candle rows.
+test('as-of scanner rejects undeclared archive metadata without executing it',()=>{
+ let reads=0;
+ const archive=[] as Bar[];
+ Object.defineProperty(archive,'askQuotes',{
+  enumerable:false,configurable:true,
+  get(){reads++;throw Error('undeclared ASK metadata getter executed');},
+ });
+ const source=new Proxy({} as FvgSource,{
+  get(){reads++;throw Error('source read before archive schema rejection');},
+  ownKeys(){reads++;throw Error('source enumerated before archive schema rejection');},
+  getOwnPropertyDescriptor(){reads++;throw Error('source described before archive schema rejection');},
+ });
+ assert.throws(()=>studyHourlyFvgMidpointAsOf(archive,source,3600),
+  /Unexpected FVG archive array metadata outside frozen BID-only protocol/);
+ assert.equal(reads,0);
+});
