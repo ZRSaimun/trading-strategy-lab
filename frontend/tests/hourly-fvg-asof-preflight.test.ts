@@ -490,3 +490,25 @@ test('accessor-backed as-of row fails before optional cost and source inspection
   /FVG as-of archive requires own data-property candle slots/);
  assert.equal(reads,0);
 });
+
+
+// Undeclared symbol receipts must fail archive validation before a hostile
+// optional cost scenario is inspected; neither getter may execute.
+test('symbol archive receipt rejection precedes cost and source access',()=>{
+ let reads=0;
+ const deny=()=>{reads++;throw Error('untrusted getter executed');};
+ const archive=[] as Bar[];
+ Object.defineProperty(archive,Symbol('askReceipt'),{
+  configurable:true,enumerable:false,get:deny,
+ });
+ const source=new Proxy({} as FvgSource,{
+  get:deny,ownKeys:deny,getOwnPropertyDescriptor:deny,
+ });
+ const costs=new Proxy({},{
+  get:deny,ownKeys:deny,getOwnPropertyDescriptor:deny,
+  getPrototypeOf:deny,has:deny,
+ });
+ assert.throws(()=>studyHourlyFvgMidpointAsOf(archive,source,3600,costs),
+  /Unexpected FVG archive array metadata outside frozen BID-only protocol/);
+ assert.equal(reads,0);
+});
