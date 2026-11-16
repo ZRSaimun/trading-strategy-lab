@@ -47,3 +47,5 @@ A non-enumerable own indexed candle slot is also hidden evidence, even when it h
 A valid completed-hour cutoff also rejects an undeclared archive-level `askQuotes` getter before invoking that getter or inspecting source provenance. The synthetic case demonstrates that an extra ASK-side payload cannot silently accompany the frozen BID-only candle array; it does **not** authenticate a real two-sided broker quote or establish realistic execution costs.
 
 A valid completed-hour cutoff also rejects an own `Symbol.iterator` override on the BID-only archive before executing its getter or inspecting source metadata. The synthetic regression ensures a caller-controlled iterator cannot be silently admitted as undeclared archive behavior; it does not prove price or volume authenticity, execution quality, or profitability.
+
+A further synthetic regression rejects a non-enumerable symbol-keyed archive receipt (for example, an undeclared ASK-side payload) before executing its getter or reading source identity. This ensures that symbol metadata cannot bypass the BID-only array schema; it does not validate broker ASK quotes or volume provenance.
