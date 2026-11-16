@@ -332,3 +332,25 @@ test('as-of scanner rejects custom archive iterator without executing getter',()
   /Unexpected FVG archive array metadata outside frozen BID-only protocol/);
  assert.equal(reads,0);
 });
+
+
+// A symbol-keyed property can carry an undeclared broker receipt or mutable
+// source payload that string-key enumeration misses. Reject it by descriptor
+// without running a caller-owned getter or accepting it as BID candle evidence.
+test('as-of scanner rejects hidden symbol-keyed archive receipts before provenance access',()=>{
+ let reads=0;
+ const archive=[] as Bar[];
+ const receipt=Symbol('brokerAskReceipt');
+ Object.defineProperty(archive,receipt,{
+  configurable:true,enumerable:false,
+  get(){reads++;throw Error('hidden receipt getter executed');},
+ });
+ const source=new Proxy({} as FvgSource,{
+  get(){reads++;throw Error('source read before archive schema validation');},
+  ownKeys(){reads++;throw Error('source enumerated before archive schema validation');},
+  getOwnPropertyDescriptor(){reads++;throw Error('source described before archive schema validation');},
+ });
+ assert.throws(()=>studyHourlyFvgMidpointAsOf(archive,source,3600),
+  /Unexpected FVG archive array metadata outside frozen BID-only protocol/);
+ assert.equal(reads,0);
+});
