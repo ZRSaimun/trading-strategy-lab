@@ -45,3 +45,5 @@ A prototype-inherited candle slot is not owned historical archive evidence, even
 A non-enumerable own indexed candle slot is also hidden evidence, even when it holds a row object. The synthetic regression confirms the as-of scanner rejects such a slot before reading its candle fields or source declaration. This checks archive completeness and validation order only; it cannot establish source authenticity or a trading edge.
 
 A valid completed-hour cutoff also rejects an undeclared archive-level `askQuotes` getter before invoking that getter or inspecting source provenance. The synthetic case demonstrates that an extra ASK-side payload cannot silently accompany the frozen BID-only candle array; it does **not** authenticate a real two-sided broker quote or establish realistic execution costs.
+
+A valid completed-hour cutoff also rejects an own `Symbol.iterator` override on the BID-only archive before executing its getter or inspecting source metadata. The synthetic regression ensures a caller-controlled iterator cannot be silently admitted as undeclared archive behavior; it does not prove price or volume authenticity, execution quality, or profitability.
