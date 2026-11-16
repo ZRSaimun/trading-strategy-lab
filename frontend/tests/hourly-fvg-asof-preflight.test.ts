@@ -375,3 +375,26 @@ test('as-of rejects out-of-range numeric archive metadata without getter executi
   /Unexpected FVG archive array metadata outside frozen BID-only protocol/);
  assert.equal(reads,0);
 });
+
+
+// Noncanonical numeric-looking keys are not array indices. Reject hidden
+// negative and leading-zero aliases before evaluating their payloads or source.
+test('as-of rejects noncanonical numeric archive aliases without executing getters',()=>{
+ for(const key of ['-1','01','1.0']){
+  let reads=0;
+  const archive=[] as Bar[];
+  Object.defineProperty(archive,key,{
+   configurable:true,enumerable:false,
+   get(){reads++;throw Error('numeric alias payload getter executed');},
+  });
+  const source=new Proxy({} as FvgSource,{
+   get(){reads++;throw Error('source read before alias validation');},
+   ownKeys(){reads++;throw Error('source enumerated before alias validation');},
+   getOwnPropertyDescriptor(){reads++;throw Error('source described before alias validation');},
+  });
+  assert.throws(()=>studyHourlyFvgMidpointAsOf(archive,source,3600),
+   /Unexpected FVG archive array metadata outside frozen BID-only protocol/,
+   'unexpected acceptance of '+key);
+  assert.equal(reads,0,'getter executed for '+key);
+ }
+});
