@@ -122,9 +122,9 @@ test('inherited completed timestamp is not accepted as own historical evidence',
  } as unknown as Bar;
  assert.throws(
   ()=>studyHourlyFvgMidpointAsOf([completed,future],source,H),
-  /FVG as-of completed timestamps require own data properties/,
+  /Hourly as-of timestamp lacks own field evidence/,
  );
- assert.equal(inheritedReads,1,'inherited timestamp is not a stable own candle field');
+ assert.equal(inheritedReads,0,'inherited timestamp getter must never execute');
  assert.equal(futureTimeReads,0);
  assert.equal(futureMarketReads,0);
 });
