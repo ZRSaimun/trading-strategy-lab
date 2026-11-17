@@ -177,3 +177,33 @@ test('later completed inherited timestamp fails before a future time accessor',(
  assert.equal(inheritedReads,0,'second completed inherited getter must not execute');
  assert.equal(futureReads,0,'future timestamp must remain unread');
 });
+
+
+test('second completed inherited plain timestamp is not accepted before future evidence',()=>{
+ const H=3600;
+ const source:FvgSource={
+  datasetId:'a'.repeat(64),archiveSha256:'b'.repeat(64),
+  instrument:'SYNTHETIC',provider:'fixture',priceSide:'bid',
+  volumeType:'unverified',volumeVerified:false,
+ };
+ const first:Bar={time:0,open:100,high:101,low:99,close:100,volume:10,observed_minutes:60};
+ const second=Object.assign(Object.create({time:H}),{
+  open:100,high:101,low:99,close:100,volume:10,observed_minutes:60,
+ }) as Bar;
+ let futureTimeReads=0,futureMarketReads=0;
+ const future={
+  get time(){futureTimeReads++;throw Error('future timestamp read');},
+  get open(){futureMarketReads++;throw Error('future open read');},
+  get high(){futureMarketReads++;throw Error('future high read');},
+  get low(){futureMarketReads++;throw Error('future low read');},
+  get close(){futureMarketReads++;throw Error('future close read');},
+  get volume(){futureMarketReads++;throw Error('future volume read');},
+  get observed_minutes(){futureMarketReads++;throw Error('future coverage read');},
+ } as unknown as Bar;
+ assert.throws(
+  ()=>studyHourlyFvgMidpointAsOf([first,second,future],source,2*H),
+  /Hourly as-of timestamp lacks own field evidence/,
+ );
+ assert.equal(futureTimeReads,0,'reject second inherited data timestamp before future time');
+ assert.equal(futureMarketReads,0,'no future market fields may be accessed');
+});
