@@ -76,3 +76,5 @@ A synthetic later-row regression now checks that an accessor-backed timestamp on
 A final completed-hour regression also rejects an accessor-backed timestamp when the archive contains **no future row at all**. The causal snapshot requirement applies to every completed row, not only when future evidence is present. This synthetic test does not authenticate historical prices, source-classified volume, broker quotes or profitability.
 
 A synthetic inherited-timestamp regression rejects a completed hourly candle whose `time` exists only on its prototype. The inherited getter must not run, and no future timestamp, OHLC, volume or coverage getter may run. Only an own timestamp field can supply completed-bar evidence; this does not verify market data or strategy profitability.
+
+A separate synthetic regression checks a prototype-inherited **plain data** timestamp (not a getter). The completed candle is rejected before reading a later future timestamp. This complements inherited-getter coverage and prevents prototype defaults from counting as observed completed-hour evidence; it does not establish licensed market data, quote authenticity, or profitability.
