@@ -2025,6 +2025,13 @@ export function studyHourlyFvgMidpointAsOf(
    throw Error('Invalid or unordered hourly as-of input timestamp');
   previousTime=time;
   if(time+HOUR>asOfClosedAt)continue;
+  // A completed timestamp accessor can change its private return value after
+  // its one permitted read without changing its property descriptor. Do not
+  // certify such a mutable completed-hour identity as a stable as-of prefix.
+  // Future timestamp accessors remain readable once for ordering only; their
+  // unrevealed OHLC/volume/coverage must never be inspected.
+  if(!('value' in timestampDescriptor))
+   throw Error('FVG as-of completed timestamps require own data properties');
   // Future OHLC remains unread; completed historical rows need own fields.
   if(!CANDLE_FIELDS.every(field=>hasOwnField(bar,field)))
    throw Error('Hourly as-of candle lacks own field evidence');
