@@ -150,3 +150,30 @@ test('inherited plain timestamp data cannot certify a completed hourly candle',(
  );
  assert.equal(futureReads,0,'reject inherited plain data before future timestamp');
 });
+
+
+test('later completed inherited timestamp fails before a future time accessor',()=>{
+ const H=3600;
+ const source:FvgSource={
+  datasetId:'a'.repeat(64),archiveSha256:'b'.repeat(64),
+  instrument:'SYNTHETIC',provider:'fixture',priceSide:'bid',
+  volumeType:'unverified',volumeVerified:false,
+ };
+ const first:Bar={time:0,open:100,high:101,low:99,close:100,volume:10,observed_minutes:60};
+ let inheritedReads=0,futureReads=0;
+ const prototype=Object.create(null);
+ Object.defineProperty(prototype,'time',{get(){inheritedReads++;return H;},enumerable:true});
+ const second=Object.assign(Object.create(prototype),{
+  open:100,high:101,low:99,close:100,volume:10,observed_minutes:60,
+ }) as Bar;
+ const future={
+  get time(){futureReads++;throw Error('future timestamp read');},
+  get open(){throw Error('future OHLC read');},
+ } as unknown as Bar;
+ assert.throws(
+  ()=>studyHourlyFvgMidpointAsOf([first,second,future],source,2*H),
+  /Hourly as-of timestamp lacks own field evidence/,
+ );
+ assert.equal(inheritedReads,0,'second completed inherited getter must not execute');
+ assert.equal(futureReads,0,'future timestamp must remain unread');
+});
