@@ -128,3 +128,25 @@ test('inherited completed timestamp is not accepted as own historical evidence',
  assert.equal(futureTimeReads,0);
  assert.equal(futureMarketReads,0);
 });
+
+test('inherited plain timestamp data cannot certify a completed hourly candle',()=>{
+ const H=3600;
+ const source:FvgSource={
+  datasetId:'a'.repeat(64),archiveSha256:'b'.repeat(64),
+  instrument:'SYNTHETIC',provider:'fixture',priceSide:'bid',
+  volumeType:'unverified',volumeVerified:false,
+ };
+ let futureReads=0;
+ const completed=Object.assign(Object.create({time:0}),{
+  open:100,high:101,low:99,close:100,volume:10,observed_minutes:60,
+ }) as Bar;
+ const future={
+  get time(){futureReads++;throw Error('future time read');},
+  get open(){throw Error('future open read');},
+ } as unknown as Bar;
+ assert.throws(
+  ()=>studyHourlyFvgMidpointAsOf([completed,future],source,H),
+  /Hourly as-of timestamp lacks own field evidence/,
+ );
+ assert.equal(futureReads,0,'reject inherited plain data before future timestamp');
+});
