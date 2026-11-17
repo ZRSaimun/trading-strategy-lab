@@ -95,3 +95,36 @@ test('last completed hourly timestamp accessor fails without requiring a future 
  );
  assert.equal(reads,1,'reject final completed accessor even without a future row');
 });
+
+test('inherited completed timestamp is not accepted as own historical evidence',()=>{
+ const H=3600;
+ const source:FvgSource={
+  datasetId:'a'.repeat(64),archiveSha256:'b'.repeat(64),
+  instrument:'SYNTHETIC',provider:'fixture',priceSide:'bid',
+  volumeType:'unverified',volumeVerified:false,
+ };
+ let inheritedReads=0,futureTimeReads=0,futureMarketReads=0;
+ const prototype=Object.create(null) as {time:number};
+ Object.defineProperty(prototype,'time',{
+  get(){inheritedReads++;return 0;},enumerable:true,
+ });
+ const completed=Object.assign(Object.create(prototype),{
+  open:100,high:101,low:99,close:100,volume:10,observed_minutes:60,
+ }) as Bar;
+ const future={
+  get time(){futureTimeReads++;return 2*H;},
+  get open(){futureMarketReads++;throw Error('future open read');},
+  get high(){futureMarketReads++;throw Error('future high read');},
+  get low(){futureMarketReads++;throw Error('future low read');},
+  get close(){futureMarketReads++;throw Error('future close read');},
+  get volume(){futureMarketReads++;throw Error('future volume read');},
+  get observed_minutes(){futureMarketReads++;throw Error('future coverage read');},
+ } as unknown as Bar;
+ assert.throws(
+  ()=>studyHourlyFvgMidpointAsOf([completed,future],source,H),
+  /FVG as-of completed timestamps require own data properties/,
+ );
+ assert.equal(inheritedReads,1,'inherited timestamp is not a stable own candle field');
+ assert.equal(futureTimeReads,0);
+ assert.equal(futureMarketReads,0);
+});
