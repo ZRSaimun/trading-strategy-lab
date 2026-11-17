@@ -207,3 +207,29 @@ test('second completed inherited plain timestamp is not accepted before future e
  assert.equal(futureTimeReads,0,'reject second inherited data timestamp before future time');
  assert.equal(futureMarketReads,0,'no future market fields may be accessed');
 });
+
+test('null-prototype own completed timestamp remains valid as-of evidence',()=>{
+ const H=3600;
+ const source:FvgSource={
+  datasetId:'a'.repeat(64),archiveSha256:'b'.repeat(64),
+  instrument:'SYNTHETIC',provider:'fixture',priceSide:'bid',
+  volumeType:'unverified',volumeVerified:false,
+ };
+ const completed=Object.assign(Object.create(null),{
+  time:0,open:100,high:101,low:99,close:100,
+  volume:10,observed_minutes:60,
+ }) as Bar;
+ let futureMarketReads=0;
+ const future={
+  time:2*H,
+  get open(){futureMarketReads++;throw Error('future open read');},
+  get high(){futureMarketReads++;throw Error('future high read');},
+  get low(){futureMarketReads++;throw Error('future low read');},
+  get close(){futureMarketReads++;throw Error('future close read');},
+  get volume(){futureMarketReads++;throw Error('future volume read');},
+  get observed_minutes(){futureMarketReads++;throw Error('future coverage read');},
+ } as unknown as Bar;
+ const study=studyHourlyFvgMidpointAsOf([completed,future],source,H);
+ assert.equal(study.coverage.observedBars,1);
+ assert.equal(futureMarketReads,0,'future market data must remain unread');
+});
