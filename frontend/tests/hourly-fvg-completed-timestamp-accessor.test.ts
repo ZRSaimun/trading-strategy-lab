@@ -44,3 +44,34 @@ test('completed hourly timestamp accessor cannot certify mutable private time st
  assert.equal(futureReads,1);
  assert.equal(futureMarketReads,0);
 });
+
+test('later completed timestamp accessor is rejected before any future timestamp or market field',()=>{
+ const H=3600;
+ const source:FvgSource={
+  datasetId:'a'.repeat(64),archiveSha256:'b'.repeat(64),
+  instrument:'SYNTHETIC',provider:'fixture',priceSide:'bid',
+  volumeType:'unverified',volumeVerified:false,
+ };
+ let completedReads=0,futureTimeReads=0,futureMarketReads=0;
+ const first:Bar={time:0,open:100,high:101,low:99,close:100,volume:10,observed_minutes:60};
+ const second={
+  get time(){completedReads++;return H;},
+  open:100,high:101,low:99,close:100,volume:10,observed_minutes:60,
+ } as Bar;
+ const future={
+  get time(){futureTimeReads++;return 3*H;},
+  get open(){futureMarketReads++;throw Error('future open read');},
+  get high(){futureMarketReads++;throw Error('future high read');},
+  get low(){futureMarketReads++;throw Error('future low read');},
+  get close(){futureMarketReads++;throw Error('future close read');},
+  get volume(){futureMarketReads++;throw Error('future volume read');},
+  get observed_minutes(){futureMarketReads++;throw Error('future coverage read');},
+ } as unknown as Bar;
+ assert.throws(
+  ()=>studyHourlyFvgMidpointAsOf([first,second,future],source,2*H),
+  /FVG as-of completed timestamps require own data properties/,
+ );
+ assert.equal(completedReads,1);
+ assert.equal(futureTimeReads,0);
+ assert.equal(futureMarketReads,0);
+});
