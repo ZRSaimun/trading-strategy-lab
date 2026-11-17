@@ -75,3 +75,23 @@ test('later completed timestamp accessor is rejected before any future timestamp
  assert.equal(futureTimeReads,0);
  assert.equal(futureMarketReads,0);
 });
+
+test('last completed hourly timestamp accessor fails without requiring a future row',()=>{
+ const H=3600;
+ const source:FvgSource={
+  datasetId:'a'.repeat(64),archiveSha256:'b'.repeat(64),
+  instrument:'SYNTHETIC',provider:'fixture',priceSide:'bid',
+  volumeType:'unverified',volumeVerified:false,
+ };
+ let reads=0;
+ const first:Bar={time:0,open:100,high:101,low:99,close:100,volume:10,observed_minutes:60};
+ const last={
+  get time(){reads++;return H;},
+  open:100,high:101,low:99,close:100,volume:10,observed_minutes:60,
+ } as Bar;
+ assert.throws(
+  ()=>studyHourlyFvgMidpointAsOf([first,last],source,2*H),
+  /FVG as-of completed timestamps require own data properties/,
+ );
+ assert.equal(reads,1,'reject final completed accessor even without a future row');
+});
