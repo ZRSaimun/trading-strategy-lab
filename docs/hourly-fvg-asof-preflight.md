@@ -96,3 +96,5 @@ A synthetic prior-volume mutation regression checks that a future candle's times
 A synthetic regression also changes the **second completed hour's observed-minute coverage** through a future timestamp getter. The as-of snapshot must reject the changed coverage descriptor without reading future OHLC, volume or coverage. This protects completed-bar eligibility metadata, not source authenticity or trading performance.
 
 A companion synthetic test now checks the **first** completed hour's observed-minute coverage against mutation triggered by an unrevealed future timestamp getter. The as-of scan must fail closed without reading future market fields. This is snapshot integrity, not independently verified historical coverage or profitability.
+
+A synthetic completed-close mutation regression checks that an unrevealed future candle's timestamp getter cannot alter the second completed 1H candle's closing price while preserving its apparent historical eligibility. The scanner must fail closed before reading any future OHLC, volume or coverage getter. This verifies in-memory snapshot integrity only, not market provenance, broker execution or profitability.
