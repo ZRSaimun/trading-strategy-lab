@@ -233,3 +233,31 @@ test('null-prototype own completed timestamp remains valid as-of evidence',()=>{
  assert.equal(study.coverage.observedBars,1);
  assert.equal(futureMarketReads,0,'future market data must remain unread');
 });
+
+
+test('second null-prototype completed own timestamp remains valid without future market reads',()=>{
+ const H=3600;
+ const source:FvgSource={
+  datasetId:'a'.repeat(64),archiveSha256:'b'.repeat(64),
+  instrument:'SYNTHETIC',provider:'fixture',priceSide:'bid',
+  volumeType:'unverified',volumeVerified:false,
+ };
+ const first:Bar={time:0,open:100,high:101,low:99,close:100,volume:10,observed_minutes:60};
+ const second=Object.assign(Object.create(null),{
+  time:H,open:100,high:101,low:99,close:100,
+  volume:10,observed_minutes:60,
+ }) as Bar;
+ let futureMarketReads=0;
+ const future={
+  time:3*H,
+  get open(){futureMarketReads++;throw Error('future open read');},
+  get high(){futureMarketReads++;throw Error('future high read');},
+  get low(){futureMarketReads++;throw Error('future low read');},
+  get close(){futureMarketReads++;throw Error('future close read');},
+  get volume(){futureMarketReads++;throw Error('future volume read');},
+  get observed_minutes(){futureMarketReads++;throw Error('future coverage read');},
+ } as unknown as Bar;
+ const study=studyHourlyFvgMidpointAsOf([first,second,future],source,2*H);
+ assert.equal(study.coverage.observedBars,2);
+ assert.equal(futureMarketReads,0,'future OHLC, volume and coverage remain unread');
+});
