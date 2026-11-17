@@ -26,7 +26,7 @@ test('completed hourly timestamp accessor cannot certify mutable private time st
   get close(){futureMarketReads++;throw Error('future close read');},
   get volume(){futureMarketReads++;throw Error('future volume read');},
   get observed_minutes(){futureMarketReads++;throw Error('future coverage read');},
- } as Bar;
+ } as unknown as Bar;
  assert.throws(
   ()=>studyHourlyFvgMidpointAsOf([completed,future],source,H),
   /FVG as-of completed timestamps require own data properties/,
