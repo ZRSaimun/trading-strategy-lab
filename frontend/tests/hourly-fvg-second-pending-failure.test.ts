@@ -484,3 +484,33 @@ test('negative-zero second pending timestamp is rejected before later future evi
   'signed-zero pending time must stop before the third timestamp');
  assert.equal(marketReads,0,'unrevealed market and coverage fields remain unread');
 });
+
+// A runtime bypass can supply bigint despite the declared numeric Bar type.
+// Do not coerce it, even when its magnitude is a valid hourly timestamp.
+test('bigint second pending timestamp fails closed before later future evidence',()=>{
+ const H=3600;
+ const source:FvgSource={datasetId:'a'.repeat(64),archiveSha256:'b'.repeat(64),
+  instrument:'SYNTHETIC',provider:'fixture',priceSide:'bid',
+  volumeType:'unverified',volumeVerified:false};
+ const completed=(time:number):Bar=>({time,open:100,high:101,low:99,
+  close:100,volume:10,observed_minutes:60});
+ const reads=[0,0,0];
+ let marketReads=0;
+ const pending=(index:number)=>Object.defineProperties({}, {
+  time:{enumerable:true,get:()=>{
+   reads[index]++;
+   return index===1?BigInt(4*H):(index+3)*H;
+  }},
+  ...Object.fromEntries(['open','high','low','close','volume','observed_minutes'].map(
+   field=>[field,{enumerable:true,get:()=>{
+    marketReads++;throw Error('unrevealed '+field+' accessed');
+   }}]
+  )),
+ }) as Bar;
+ assert.throws(()=>studyHourlyFvgMidpointAsOf(
+  [completed(0),completed(H),...reads.map((_,i)=>pending(i))],source,2*H),
+  /Invalid or unordered hourly as-of input timestamp/);
+ assert.deepEqual(reads,[1,1,0],
+  'bigint timestamp cannot authorize later pending timestamp reads');
+ assert.equal(marketReads,0,'unrevealed OHLC, volume and coverage remain unread');
+});
