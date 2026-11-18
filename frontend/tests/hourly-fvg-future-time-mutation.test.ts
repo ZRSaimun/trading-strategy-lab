@@ -244,3 +244,33 @@ test('future timestamp cannot rewrite second completed prior-volume evidence',()
  assert.equal(futureMarketReads,0,'future market evidence remains unread');
  assert.equal(second.volume,999,'hostile second-hour volume mutation occurred');
 });
+
+test('future timestamp cannot rewrite first completed high used by FVG geometry',()=>{
+ const H=3600;
+ const source:FvgSource={
+  datasetId:'a'.repeat(64),archiveSha256:'b'.repeat(64),
+  instrument:'SYNTHETIC',provider:'fixture',priceSide:'bid',
+  volumeType:'unverified',volumeVerified:false,
+ };
+ const first:Bar={time:0,open:100,high:101,low:99,close:100,
+  volume:10,observed_minutes:60};
+ const second:Bar={time:H,open:100,high:101,low:99,close:100,
+  volume:10,observed_minutes:60};
+ let futureTimeReads=0,futureMarketReads=0;
+ const future={
+  get time(){futureTimeReads++;first.high=120;return 4*H;},
+  get open(){futureMarketReads++;throw Error('future open read');},
+  get high(){futureMarketReads++;throw Error('future high read');},
+  get low(){futureMarketReads++;throw Error('future low read');},
+  get close(){futureMarketReads++;throw Error('future close read');},
+  get volume(){futureMarketReads++;throw Error('future volume read');},
+  get observed_minutes(){futureMarketReads++;throw Error('future coverage read');},
+ } as unknown as Bar;
+ assert.throws(
+  ()=>studyHourlyFvgMidpointAsOf([first,second,future],source,2*H),
+  /Hourly research completed candle field changed during snapshot/,
+ );
+ assert.equal(futureTimeReads,1,'future timestamp inspected only for ordering');
+ assert.equal(futureMarketReads,0,'future market fields remain unread');
+ assert.equal(first.high,120,'hostile historical FVG boundary mutation occurred');
+});
