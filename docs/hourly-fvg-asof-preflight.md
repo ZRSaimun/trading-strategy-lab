@@ -152,3 +152,6 @@ A synthetic second-pending-hour regression rejects a timestamp beyond the inclus
 A second-pending-row signed-zero regression rejects IEEE-754 `-0` as an unrevealed 1H timestamp, even after an earlier valid pending timestamp. The scan must stop before the third pending timestamp and must never evaluate future OHLC, volume or minute-coverage getters. This is a synthetic temporal-integrity check only, not authenticated feed evidence or a trading-performance result.
 
 A synthetic pending-row regression also rejects a `bigint` future 1H timestamp even when its numeric magnitude is hour-aligned. It verifies chronological scanning halts before later future timestamps or unrevealed OHLC, volume and coverage getters. This tests strict runtime typing and causal access only, not broker/source authenticity or strategy profitability.
+
+
+A synthetic regression rejects an object-wrapped `Number` timestamp on the second pending hourly candle, even when its value is aligned to an hour. The causal preflight must not coerce object wrappers, inspect a third pending timestamp, or read unrevealed market/coverage fields. This guards runtime type integrity only, not source authenticity, execution, or profitability.
