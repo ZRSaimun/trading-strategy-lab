@@ -574,3 +574,29 @@ test('pending timestamp coercion hooks stay uncalled and future evidence unread'
  assert.equal(coercionReads,0,'invalid object timestamp must never be coerced');
  assert.equal(marketReads,0,'unrevealed OHLC, volume and coverage remain unread');
 });
+
+
+test('inclusive 2100 UTC horizon remains a valid unrevealed timestamp without future field reads',()=>{
+ const H=3600;
+ const horizon=Date.UTC(2100,0,1)/1000;
+ const source:FvgSource={datasetId:'a'.repeat(64),archiveSha256:'b'.repeat(64),
+  instrument:'SYNTHETIC',provider:'fixture',priceSide:'bid',
+  volumeType:'unverified',volumeVerified:false};
+ const completed=(time:number):Bar=>({time,open:100,high:101,low:99,
+  close:100,volume:10,observed_minutes:60});
+ let timestampReads=0,marketReads=0;
+ const pending=Object.defineProperties({},{
+  time:{enumerable:true,get:()=>{timestampReads++;return horizon;}},
+  ...Object.fromEntries(['open','high','low','close','volume','observed_minutes'].map(
+   field=>[field,{enumerable:true,get:()=>{
+    marketReads++;throw Error('unrevealed '+field+' accessed');
+   }}]
+  )),
+ }) as Bar;
+ const result=studyHourlyFvgMidpointAsOf(
+  [completed(0),completed(H),pending],source,2*H);
+ assert.equal(result.coverage.observedBars,2,
+  'far-future boundary timestamp must not count as completed evidence');
+ assert.equal(timestampReads,1,'boundary timestamp checked once for ordering');
+ assert.equal(marketReads,0,'unrevealed market and coverage fields remain unread');
+});
