@@ -130,3 +130,7 @@ A synthetic test in `frontend/tests/hourly-fvg-second-pending-failure.test.ts` s
 ## Descending unrevealed timestamp regression (18 November 2026)
 
 A synthetic regression in `frontend/tests/hourly-fvg-second-pending-failure.test.ts` now supplies a second pending hourly timestamp that is strictly **earlier** than the first pending timestamp, rather than merely equal to it. The causal as-of scanner must reject the archive immediately, without evaluating a third pending timestamp or reading any pending OHLC, volume, or observed-minute coverage getter. This guards chronological input integrity; it does not verify licensed price history, authentic two-sided broker quotes, source-classified volume, execution, or profitability.
+
+## Valid future timestamp positive control (18 November 2026)
+
+A synthetic positive control in `frontend/tests/hourly-fvg-second-pending-failure.test.ts` supplies three strictly increasing unrevealed 1H timestamps after two completed hours. The as-of scanner must accept timestamp ordering, count only the two completed bars in coverage, and never read pending OHLC, volume or observed-minute coverage accessors. This complements the malformed/duplicate/descending failure tests and prevents an overstrict preflight from rejecting a well-ordered archive merely because future price getters are unavailable. Timestamp ordering is not independent source authentication, broker execution evidence or profitability validation.
