@@ -122,3 +122,7 @@ A synthetic invalid-value regression now checks that a **second pending future t
 A synthetic pending-row regression also rejects positive infinity as the second unrevealed hourly timestamp, stopping before a third pending timestamp or any future OHLC, volume or coverage getter is read. This complements NaN rejection and checks finite-number validation only; it is not a verified market-data, broker-execution or profitability result.
 
 A companion synthetic regression rejects negative infinity in the second pending future-hour timestamp, stopping before the third timestamp or any future OHLC, volume or coverage getter executes. Both signs of infinity now have explicit pending-row tests. This is input-integrity coverage, not authenticated market evidence, realistic broker costs or profitability.
+
+## Duplicate unrevealed timestamp regression (18 November 2026)
+
+A synthetic test in `frontend/tests/hourly-fvg-second-pending-failure.test.ts` supplies a second pending 1H timestamp equal to the first pending timestamp. The as-of scanner must reject the non-increasing archive ordering before invoking any later pending timestamp or any future OHLC, volume, or minute-coverage getter. This validates causal input ordering only; no authenticated market source, execution quote, or trading performance is inferred.
