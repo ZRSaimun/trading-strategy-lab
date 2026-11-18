@@ -155,3 +155,6 @@ A synthetic pending-row regression also rejects a `bigint` future 1H timestamp e
 
 
 A synthetic regression rejects an object-wrapped `Number` timestamp on the second pending hourly candle, even when its value is aligned to an hour. The causal preflight must not coerce object wrappers, inspect a third pending timestamp, or read unrevealed market/coverage fields. This guards runtime type integrity only, not source authenticity, execution, or profitability.
+
+
+A synthetic second-pending-candle regression rejects a coercible object timestamp without invoking `Symbol.toPrimitive`, `valueOf`, or `toString`, and without reading any later pending timestamp or unrevealed OHLC/volume/coverage getters. It checks fail-closed runtime validation and side-effect ordering, not verified source identities, broker quotes, or trading profitability.
