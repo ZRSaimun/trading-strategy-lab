@@ -412,3 +412,40 @@ test('numeric-looking string pending timestamp is rejected without coercion or f
   'coercible string timestamp must not permit reading later future timestamps');
  assert.equal(marketReads,0,'future OHLC, volume and coverage remain unread');
 });
+
+
+test('second pending timestamp beyond supported 2100 horizon rejects before later evidence',()=>{
+ const H=3600;
+ const source:FvgSource={
+  datasetId:'a'.repeat(64),archiveSha256:'b'.repeat(64),
+  instrument:'SYNTHETIC',provider:'fixture',priceSide:'bid',
+  volumeType:'unverified',volumeVerified:false,
+ };
+ const completed=(time:number):Bar=>({
+  time,open:100,high:101,low:99,close:100,volume:10,observed_minutes:60,
+ });
+ const reads=[0,0,0];
+ let marketReads=0;
+ const horizon=Date.UTC(2100,0,1)/1000;
+ const pending=(index:number)=>Object.defineProperties({},{
+  time:{enumerable:true,get:()=>{
+   reads[index]++;
+   return index===1?horizon+H:(index+3)*H;
+  }},
+  ...Object.fromEntries(['open','high','low','close','volume','observed_minutes'].map(
+   field=>[field,{enumerable:true,get:()=>{
+    marketReads++;throw Error('future '+field+' accessed');
+   }}]
+  )),
+ }) as Bar;
+ assert.throws(
+  ()=>studyHourlyFvgMidpointAsOf(
+   [completed(0),completed(H),...reads.map((_,index)=>pending(index))],
+   source,2*H,
+  ),
+  /Invalid or unordered hourly as-of input timestamp/,
+ );
+ assert.deepEqual(reads,[1,1,0],
+  'out-of-horizon future time must stop before later pending timestamp');
+ assert.equal(marketReads,0,'future market evidence must remain unread');
+});
