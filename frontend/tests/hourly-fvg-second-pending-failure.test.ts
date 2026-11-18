@@ -163,3 +163,34 @@ test('nonfinite positive infinity in a pending timestamp fails before any later 
   'nonfinite pending timestamp must prevent later future timestamp reads');
  assert.equal(marketReads,0,'nonfinite future time cannot authorize future market reads');
 });
+
+test('negative infinity in second pending timestamp fails before later future evidence',()=>{
+ const H=3600;
+ const source:FvgSource={
+  datasetId:'a'.repeat(64),archiveSha256:'b'.repeat(64),
+  instrument:'SYNTHETIC',provider:'fixture',priceSide:'bid',
+  volumeType:'unverified',volumeVerified:false,
+ };
+ const completed=(time:number):Bar=>({
+  time,open:100,high:101,low:99,close:100,volume:10,observed_minutes:60,
+ });
+ const reads=[0,0,0];
+ let marketReads=0;
+ const pending=(index:number)=>Object.defineProperties({},{
+  time:{enumerable:true,get:()=>{
+   reads[index]++;
+   return index===1?Number.NEGATIVE_INFINITY:(index+3)*H;
+  }},
+  ...Object.fromEntries(['open','high','low','close','volume','observed_minutes'].map(
+   field=>[field,{enumerable:true,get:()=>{
+    marketReads++;throw Error('future '+field+' accessed');
+   }}]
+  )),
+ }) as Bar;
+ const rows=[completed(0),completed(H),...reads.map((_,index)=>pending(index))];
+ assert.throws(()=>studyHourlyFvgMidpointAsOf(rows,source,2*H),
+  /Invalid or unordered hourly as-of input timestamp/);
+ assert.deepEqual(reads,[1,1,0],
+  'negative infinity must stop before later pending timestamp access');
+ assert.equal(marketReads,0,'future market evidence must remain unread');
+});
