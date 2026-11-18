@@ -315,3 +315,29 @@ test('bar opening exactly at as-of cutoff stays unrevealed even with valid chron
  assert.deepEqual(reads,[1,1],'future timestamps may be checked for order once');
  assert.equal(futureMarketReads,0,'unclosed cutoff-boundary bar must stay unread');
 });
+
+test('hour ending exactly at as-of cutoff is included while the next opening hour stays unread',()=>{
+ const H=3600;
+ const source:FvgSource={
+  datasetId:'a'.repeat(64),archiveSha256:'b'.repeat(64),
+  instrument:'SYNTHETIC',provider:'fixture',priceSide:'bid',
+  volumeType:'unverified',volumeVerified:false,
+ };
+ const completed=(time:number):Bar=>({
+  time,open:100,high:101,low:99,close:100,volume:10,observed_minutes:60,
+ });
+ let timeReads=0,marketReads=0;
+ const pending=Object.defineProperties({},{
+  time:{enumerable:true,get:()=>{timeReads++;return 3*H;}},
+  ...Object.fromEntries(['open','high','low','close','volume','observed_minutes'].map(
+   field=>[field,{enumerable:true,get:()=>{marketReads++;throw Error('future '+field+' accessed');}}]
+  )),
+ }) as Bar;
+ const result=studyHourlyFvgMidpointAsOf(
+  [completed(0),completed(H),completed(2*H),pending],source,3*H,
+ );
+ assert.equal(result.coverage.observedBars,3,
+  'the bar closing at cutoff is completed and must count toward coverage');
+ assert.equal(timeReads,1,'next unopened bar timestamp may be checked once');
+ assert.equal(marketReads,0,'future OHLC, volume and coverage must remain unread');
+});
