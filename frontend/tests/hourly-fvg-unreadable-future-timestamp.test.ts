@@ -46,3 +46,31 @@ for(const direction of ['BULLISH','BEARISH'] as const){
   assert.equal(futureMarketReads,0);
  });
 }
+
+test('a failed first pending timestamp cannot inspect a later pending candle',()=>{
+ const H=3600;
+ const bars:Bar[]=Array.from({length:23},(_,i)=>({
+  time:i*H,open:100,high:101,low:99,close:100,
+  volume:10,observed_minutes:60,
+ }));
+ let firstTimeReads=0,laterReads=0,marketReads=0;
+ const forbidden=():never=>{marketReads++;throw Error('future market field read');};
+ const first={
+  get time(){firstTimeReads++;throw Error('unreadable first pending timestamp');},
+  get open(){return forbidden();},get high(){return forbidden();},
+  get low(){return forbidden();},get close(){return forbidden();},
+  get volume(){return forbidden();},get observed_minutes(){return forbidden();},
+ } as unknown as Bar;
+ const later=new Proxy({time:25*H} as Bar,{
+  get(){laterReads++;throw Error('later pending candle inspected');},
+  ownKeys(){laterReads++;throw Error('later pending candle enumerated');},
+  getOwnPropertyDescriptor(){laterReads++;throw Error('later pending descriptor inspected');},
+ });
+ assert.throws(
+  ()=>studyHourlyFvgMidpointAsOf([...bars,first,later],source,23*H),
+  /unreadable first pending timestamp|timestamp|invalid/i,
+ );
+ assert.equal(firstTimeReads,1);
+ assert.equal(marketReads,0,'first pending market fields remain unread');
+ assert.equal(laterReads,0,'later pending candle must not be inspected after failure');
+});
