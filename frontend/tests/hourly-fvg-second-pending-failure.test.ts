@@ -286,3 +286,32 @@ test('valid increasing unrevealed timestamps do not authorize future market-fiel
  assert.equal(marketReads,0,
   'valid future timestamps must not unlock future OHLC, volume or coverage');
 });
+
+test('bar opening exactly at as-of cutoff stays unrevealed even with valid chronological successors',()=>{
+ const H=3600;
+ const source:FvgSource={
+  datasetId:'a'.repeat(64),archiveSha256:'b'.repeat(64),
+  instrument:'SYNTHETIC',provider:'fixture',priceSide:'bid',
+  volumeType:'unverified',volumeVerified:false,
+ };
+ const completed=(time:number):Bar=>({
+  time,open:100,high:101,low:99,close:100,volume:10,observed_minutes:60,
+ });
+ const reads=[0,0];
+ let futureMarketReads=0;
+ const future=(index:number)=>Object.defineProperties({},{
+  time:{enumerable:true,get:()=>{reads[index]++;return (index+2)*H;}},
+  ...Object.fromEntries(['open','high','low','close','volume','observed_minutes'].map(
+   field=>[field,{enumerable:true,get:()=>{
+    futureMarketReads++;throw Error('unclosed '+field+' accessed');
+   }}]
+  )),
+ }) as Bar;
+ const result=studyHourlyFvgMidpointAsOf(
+  [completed(0),completed(H),future(0),future(1)],source,2*H,
+ );
+ assert.equal(result.coverage.observedBars,2,
+  'bar opening at cutoff cannot count as closed until its own close');
+ assert.deepEqual(reads,[1,1],'future timestamps may be checked for order once');
+ assert.equal(futureMarketReads,0,'unclosed cutoff-boundary bar must stay unread');
+});
