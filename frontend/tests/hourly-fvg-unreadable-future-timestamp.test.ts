@@ -61,16 +61,20 @@ test('a failed first pending timestamp cannot inspect a later pending candle',()
   get low(){return forbidden();},get close(){return forbidden();},
   get volume(){return forbidden();},get observed_minutes(){return forbidden();},
  } as unknown as Bar;
- const later=new Proxy({time:25*H} as Bar,{
-  get(){laterReads++;throw Error('later pending candle inspected');},
-  ownKeys(){laterReads++;throw Error('later pending candle enumerated');},
-  getOwnPropertyDescriptor(){laterReads++;throw Error('later pending descriptor inspected');},
- });
+ const later={
+  get time(){laterReads++;throw Error('later pending timestamp inspected');},
+  get open(){laterReads++;throw Error('later pending open inspected');},
+  get high(){laterReads++;throw Error('later pending high inspected');},
+  get low(){laterReads++;throw Error('later pending low inspected');},
+  get close(){laterReads++;throw Error('later pending close inspected');},
+  get volume(){laterReads++;throw Error('later pending volume inspected');},
+  get observed_minutes(){laterReads++;throw Error('later pending coverage inspected');},
+ } as unknown as Bar;
  assert.throws(
   ()=>studyHourlyFvgMidpointAsOf([...bars,first,later],source,23*H),
   /unreadable first pending timestamp|timestamp|invalid/i,
  );
  assert.equal(firstTimeReads,1);
  assert.equal(marketReads,0,'first pending market fields remain unread');
- assert.equal(laterReads,0,'later pending candle must not be inspected after failure');
+ assert.equal(laterReads,0,'later pending getters must not execute after failure');
 });
