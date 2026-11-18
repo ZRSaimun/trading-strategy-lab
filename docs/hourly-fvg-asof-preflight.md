@@ -126,3 +126,7 @@ A companion synthetic regression rejects negative infinity in the second pending
 ## Duplicate unrevealed timestamp regression (18 November 2026)
 
 A synthetic test in `frontend/tests/hourly-fvg-second-pending-failure.test.ts` supplies a second pending 1H timestamp equal to the first pending timestamp. The as-of scanner must reject the non-increasing archive ordering before invoking any later pending timestamp or any future OHLC, volume, or minute-coverage getter. This validates causal input ordering only; no authenticated market source, execution quote, or trading performance is inferred.
+
+## Descending unrevealed timestamp regression (18 November 2026)
+
+A synthetic regression in `frontend/tests/hourly-fvg-second-pending-failure.test.ts` now supplies a second pending hourly timestamp that is strictly **earlier** than the first pending timestamp, rather than merely equal to it. The causal as-of scanner must reject the archive immediately, without evaluating a third pending timestamp or reading any pending OHLC, volume, or observed-minute coverage getter. This guards chronological input integrity; it does not verify licensed price history, authentic two-sided broker quotes, source-classified volume, execution, or profitability.
