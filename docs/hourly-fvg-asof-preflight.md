@@ -141,3 +141,8 @@ A synthetic cutoff-boundary regression checks that a 1H candle **opening exactly
 A complementary synthetic cutoff-boundary regression verifies that an hourly candle opening at `2*3600` UTC seconds **is completed** at the `3*3600` cutoff and contributes to observed-bar coverage, while a candle opening exactly at `3*3600` remains unrevealed. Only the future timestamp may be read for ordering; future OHLC, volume and minute coverage must remain unread. This tests closed-bar inclusion without asserting genuine market evidence or profitability.
 
 A synthetic pending-candle regression also rejects a fractional, off-hour future timestamp (for example, `14400.5` seconds) after one valid unrevealed hour. The scanner must stop before reading any subsequent pending timestamp or any unrevealed OHLC, volume, or minute-coverage field. This tests chronological hourly archive integrity, not independently sourced timestamps or trading performance. Exact-head CI must be checked separately.
+
+
+## Numeric-string pending timestamp rejection (18 November 2026)
+
+A synthetic regression supplies a second unrevealed hourly timestamp as the string `"14400"`, rather than a numeric UTC-second value. The causal preflight must reject this coercible representation before inspecting any later pending timestamp or any unrevealed OHLC, volume or observed-minute coverage getter. This prevents silent timestamp type coercion from being mistaken for validated source chronology. It does not establish authenticated market-data provenance, broker quote execution or profitability.
