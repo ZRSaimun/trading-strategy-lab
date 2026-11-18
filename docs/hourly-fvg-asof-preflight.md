@@ -146,3 +146,5 @@ A synthetic pending-candle regression also rejects a fractional, off-hour future
 ## Numeric-string pending timestamp rejection (18 November 2026)
 
 A synthetic regression supplies a second unrevealed hourly timestamp as the string `"14400"`, rather than a numeric UTC-second value. The causal preflight must reject this coercible representation before inspecting any later pending timestamp or any unrevealed OHLC, volume or observed-minute coverage getter. This prevents silent timestamp type coercion from being mistaken for validated source chronology. It does not establish authenticated market-data provenance, broker quote execution or profitability.
+
+A synthetic second-pending-hour regression rejects a timestamp beyond the inclusive 2100-01-01 UTC research horizon before inspecting the third pending timestamp or any unrevealed OHLC, volume or observed-minute coverage. This protects the bounded UTC timestamp schema; it does not certify market-data provenance, execution or strategy returns.
