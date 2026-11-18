@@ -158,3 +158,5 @@ A synthetic regression rejects an object-wrapped `Number` timestamp on the secon
 
 
 A synthetic second-pending-candle regression rejects a coercible object timestamp without invoking `Symbol.toPrimitive`, `valueOf`, or `toString`, and without reading any later pending timestamp or unrevealed OHLC/volume/coverage getters. It checks fail-closed runtime validation and side-effect ordering, not verified source identities, broker quotes, or trading profitability.
+
+A positive boundary regression accepts an unrevealed future hourly timestamp exactly at the inclusive 2100-01-01 UTC research horizon, while excluding that candle from completed coverage and never reading its OHLC, volume or minute-coverage fields. This complements the beyond-horizon rejection case and prevents accidental off-by-one tightening. It is synthetic chronological validation, not a source receipt or trading result.
