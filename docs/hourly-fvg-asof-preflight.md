@@ -219,3 +219,8 @@ A synthetic regression in `frontend/tests/hourly-fvg-second-completed-high-mutat
 ## Second completed-hour low geometry mutation (19 November 2026)
 
 `frontend/tests/hourly-fvg-second-completed-low-mutation.test.ts` checks that a future hourly timestamp accessor cannot change the second completed BID candle's `low` from 99 to 98.5 while retaining valid OHLC. The causal as-of scanner must reject the revised completed-bar snapshot, without reading unrevealed OHLC, volume or minute coverage. This complements the second completed-hour high regression and protects only in-memory no-lookahead integrity. It does not authenticate volume provenance, broker BID/ASK execution, licensed historical data or profitability. Exact-head CI must be checked independently.
+
+
+## Completed minute-coverage integrity during future timestamp preflight (19 November 2026)
+
+`frontend/tests/hourly-fvg-second-completed-coverage-mutation.test.ts` supplies a synthetic future candle whose timestamp getter changes the second completed hourly BID candle's `observed_minutes` from 60 to 59. The as-of scanner must reject the altered completed snapshot, while reading no unrevealed future OHLC, volume, or minute-coverage fields. This tests a local causal integrity boundary only. It does not prove real minute coverage, source identity, authentic volume, broker costs, strategy edge, or profitability; exact-head CI must be checked separately.
