@@ -169,3 +169,8 @@ A paired horizon-ordering regression accepts the first unrevealed timestamp at 2
 A synthetic as-of regression rejects a `null` timestamp on the second unrevealed 1H candle after one valid pending timestamp. The scanner must not coerce `null` to numeric zero, read a later pending timestamp, or access unrevealed OHLC, volume or minute-coverage fields. This tests fail-closed chronological evidence handling only; it does not authenticate a source, prove execution costs, or demonstrate profitability.
 
 A synthetic positive-control regression also attaches a hostile, non-enumerable `askQuotes` getter to an unrevealed hourly candle. The as-of scanner may inspect that candle's timestamp once for chronological validation, but must not enumerate or invoke the ASK receipt or any future OHLC, volume or coverage getter. This does not supply real two-sided broker quotes or authenticate source provenance; it protects the completed-bar evidence boundary only.
+
+
+## Completed coverage mutation guard (19 November 2026)
+
+A synthetic regression in `frontend/tests/hourly-fvg-second-pending-failure.test.ts` supplies a future timestamp accessor that changes the first *completed* 1H candle's `observed_minutes` from 60 to 0. The causal scanner must reject the altered completed-bar snapshot rather than silently recalculate coverage using a value introduced after the as-of cutoff. Only the future timestamp may be read; future OHLC, volume and minute-coverage accessors must stay unread. This tests in-memory no-lookahead integrity, not the authenticity of volume, broker BID/ASK quotes, licensed history or trading performance. CI must be verified against the exact updated PR head.
