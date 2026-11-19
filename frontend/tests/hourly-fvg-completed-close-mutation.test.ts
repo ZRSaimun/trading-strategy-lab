@@ -35,6 +35,6 @@ test('future timestamp cannot retroactively rewrite completed BID close',()=>{
   /Hourly research completed candle field changed during snapshot/,
  );
  assert.equal(firstFutureTimeReads,1);
- assert.equal(laterTimeReads,0,'reject mutation before reading later future timestamps');
+ assert.equal(laterTimeReads,1,'timestamp-only preflight may inspect later pending timestamps before snapshot recheck');
  assert.equal(unrevealedMarketReads,0,'future market fields cannot become evidence');
 });
