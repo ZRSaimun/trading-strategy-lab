@@ -162,3 +162,8 @@ A synthetic second-pending-candle regression rejects a coercible object timestam
 A positive boundary regression accepts an unrevealed future hourly timestamp exactly at the inclusive 2100-01-01 UTC research horizon, while excluding that candle from completed coverage and never reading its OHLC, volume or minute-coverage fields. This complements the beyond-horizon rejection case and prevents accidental off-by-one tightening. It is synthetic chronological validation, not a source receipt or trading result.
 
 A paired horizon-ordering regression accepts the first unrevealed timestamp at 2100-01-01 UTC but rejects the immediately following hour as out of the supported range. The scan must not read the third pending timestamp or any unrevealed OHLC, volume, or minute-coverage field. The synthetic fixture tests chronological validation only; it cannot certify market-data authenticity or strategy returns.
+
+
+## Null second pending timestamp (19 November 2026)
+
+A synthetic as-of regression rejects a `null` timestamp on the second unrevealed 1H candle after one valid pending timestamp. The scanner must not coerce `null` to numeric zero, read a later pending timestamp, or access unrevealed OHLC, volume or minute-coverage fields. This tests fail-closed chronological evidence handling only; it does not authenticate a source, prove execution costs, or demonstrate profitability.
