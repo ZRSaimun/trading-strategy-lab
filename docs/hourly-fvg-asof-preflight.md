@@ -196,3 +196,8 @@ The synthetic completed-BID-close mutation regression now distinguishes timestam
 ## Completed hourly volume mutation regression (19 November 2026)
 
 `frontend/tests/hourly-fvg-completed-volume-mutation.test.ts` supplies a future timestamp getter that changes the second completed hourly candle's volume from 10 to 11 after the as-of snapshot. The causal scanner must reject the changed completed evidence and must not read future OHLC, volume or observed-minute fields. This synthetic check prevents retroactive in-memory volume changes from being silently accepted; it does **not** verify volume source identity, authentic volume receipts, broker quotes or profitability. Exact-head CI must be checked before treating this regression as verified.
+
+
+## First completed-hour volume snapshot regression (19 November 2026)
+
+`frontend/tests/hourly-fvg-first-completed-volume-mutation.test.ts` checks that timestamp-only inspection of an unrevealed hourly bar cannot alter the first already-completed bar's numeric volume without a fail-closed snapshot-integrity rejection. The future OHLC, volume and coverage getters must remain unread. This is synthetic in-memory mutation protection; it does not verify a volume provider, classify exchange versus tick volume, or demonstrate any trading edge. Exact-head CI must be checked independently.
