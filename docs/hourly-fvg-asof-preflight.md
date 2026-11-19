@@ -191,3 +191,8 @@ A focused synthetic regression in `frontend/tests/hourly-fvg-completed-close-mut
 ## 19 November 2026 — completed-close mutation CI repair
 
 The synthetic completed-BID-close mutation regression now distinguishes timestamp-only pending-candle preflight from completed-field snapshot revalidation. The scanner may inspect **both** pending timestamps before it detects an earlier completed candle's in-place close rewrite, but must reject the mutated completed snapshot and must **not** read pending OHLC, volume or observed-minute fields. Previous test expected the second pending timestamp to remain unread; exact-head frontend CI showed that assertion was incompatible with the existing timestamp-only preflight ordering (1,475/1,476 tests passed). This correction does not authenticate real data or establish strategy profitability.
+
+
+## Completed hourly volume mutation regression (19 November 2026)
+
+`frontend/tests/hourly-fvg-completed-volume-mutation.test.ts` supplies a future timestamp getter that changes the second completed hourly candle's volume from 10 to 11 after the as-of snapshot. The causal scanner must reject the changed completed evidence and must not read future OHLC, volume or observed-minute fields. This synthetic check prevents retroactive in-memory volume changes from being silently accepted; it does **not** verify volume source identity, authentic volume receipts, broker quotes or profitability. Exact-head CI must be checked before treating this regression as verified.
