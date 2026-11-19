@@ -234,3 +234,8 @@ A synthetic regression in `frontend/tests/hourly-fvg-second-completed-open-mutat
 
 
 The synthetic `hourly-fvg-first-completed-open-mutation.test.ts` regression checks that reading only an unrevealed future candle's timestamp cannot retroactively change the **first completed hourly BID open** without a completed-prefix snapshot-integrity rejection. The future candle's OHLC, volume and minute-coverage getters must not execute. This complements the second-completed-open case and is a software causal-integrity check only; it is not authenticated price, volume, broker execution or profitability evidence.
+
+
+## First completed-hour close mutation regression (19 November 2026)
+
+`frontend/tests/hourly-fvg-first-completed-close-mutation.test.ts` checks that a future hourly timestamp getter cannot retroactively rewrite the **first completed BID candle's close** from 100 to 100.5 while retaining valid OHLC. The as-of scanner must fail closed on completed-prefix snapshot integrity; future OHLC, volume and minute-coverage getters must remain unread. This complements the second-completed-close regression and establishes only synthetic causal input integrity, not authentic market prices, source-classified volume, broker BID/ASK execution, or trading profitability. Verify exact-head CI before claiming the regression passes.
