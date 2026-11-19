@@ -184,3 +184,5 @@ A synthetic regression additionally checks the **second completed hour's open pr
 ## Completed timestamp mutation regression (19 November 2026)
 
 `frontend/tests/hourly-fvg-completed-time-mutation.test.ts` checks that a future 1H timestamp accessor cannot rewrite a previously completed candle's UTC timestamp after the causal snapshot is established. The scan must reject the mutation without reading any unrevealed OHLC, volume or coverage getter. This is synthetic in-memory chronology integrity, not licensed market data, authentic source-classified volume, two-sided broker execution or profitability evidence.
+
+A focused synthetic regression in `frontend/tests/hourly-fvg-completed-close-mutation.test.ts` rejects a pending timestamp getter that retroactively changes the second completed BID candle's `close` while leaving its OHLC otherwise valid. The scanner must reject the completed snapshot before reading later future timestamps or any unrevealed market fields. This guards causal input integrity only; it does not verify broker quotes, volume receipts, or profitability.
