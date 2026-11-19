@@ -214,3 +214,8 @@ The synthetic completed-BID-close mutation regression now distinguishes timestam
 
 
 A synthetic regression in `frontend/tests/hourly-fvg-second-completed-high-mutation.test.ts` requires the causal as-of scanner to reject a future timestamp accessor that changes the **second completed hourly BID candle's high** after the completed-prefix snapshot. Future OHLC, volume and coverage getters remain unread. This guards FVG geometry against retroactive mutation; it does not validate authentic market data, broker fills or strategy profitability. Exact-head CI must be checked separately.
+
+
+## Second completed-hour low geometry mutation (19 November 2026)
+
+`frontend/tests/hourly-fvg-second-completed-low-mutation.test.ts` checks that a future hourly timestamp accessor cannot change the second completed BID candle's `low` from 99 to 98.5 while retaining valid OHLC. The causal as-of scanner must reject the revised completed-bar snapshot, without reading unrevealed OHLC, volume or minute coverage. This complements the second completed-hour high regression and protects only in-memory no-lookahead integrity. It does not authenticate volume provenance, broker BID/ASK execution, licensed historical data or profitability. Exact-head CI must be checked independently.
