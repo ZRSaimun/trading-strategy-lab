@@ -174,3 +174,6 @@ A synthetic positive-control regression also attaches a hostile, non-enumerable 
 ## Completed coverage mutation guard (19 November 2026)
 
 A synthetic regression in `frontend/tests/hourly-fvg-second-pending-failure.test.ts` supplies a future timestamp accessor that changes the first *completed* 1H candle's `observed_minutes` from 60 to 0. The causal scanner must reject the altered completed-bar snapshot rather than silently recalculate coverage using a value introduced after the as-of cutoff. Only the future timestamp may be read; future OHLC, volume and minute-coverage accessors must stay unread. This tests in-memory no-lookahead integrity, not the authenticity of volume, broker BID/ASK quotes, licensed history or trading performance. CI must be verified against the exact updated PR head.
+
+
+A companion synthetic regression protects the **second** completed 1H candle's `observed_minutes` from modification by a future candle timestamp getter. The scan must reject the changed completed snapshot while reading no unrevealed OHLC, volume or coverage getters. This closes the later-row coverage counterpart to the first-row test; it does not establish licensed data provenance, genuine volume, broker execution or profitable results. Exact-head CI must be checked independently.
