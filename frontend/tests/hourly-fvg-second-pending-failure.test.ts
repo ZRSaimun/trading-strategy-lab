@@ -600,3 +600,29 @@ test('inclusive 2100 UTC horizon remains a valid unrevealed timestamp without fu
  assert.equal(timestampReads,1,'boundary timestamp checked once for ordering');
  assert.equal(marketReads,0,'unrevealed market and coverage fields remain unread');
 });
+
+test('inclusive horizon followed by out-of-range pending hour fails without future evidence reads',()=>{
+ const H=3600, horizon=Date.UTC(2100,0,1)/1000;
+ const source:FvgSource={datasetId:'a'.repeat(64),archiveSha256:'b'.repeat(64),
+  instrument:'SYNTHETIC',provider:'fixture',priceSide:'bid',
+  volumeType:'unverified',volumeVerified:false};
+ const completed=(time:number):Bar=>({time,open:100,high:101,low:99,
+  close:100,volume:10,observed_minutes:60});
+ const reads=[0,0,0];
+ let marketReads=0;
+ const pending=(index:number)=>Object.defineProperties({},{
+  time:{enumerable:true,get:()=>{reads[index]++;
+   return index===0?horizon:index===1?horizon+H:horizon+2*H;}},
+  ...Object.fromEntries(['open','high','low','close','volume','observed_minutes'].map(
+   field=>[field,{enumerable:true,get:()=>{
+    marketReads++;throw Error('unrevealed '+field+' accessed');
+   }}]
+  )),
+ }) as Bar;
+ assert.throws(()=>studyHourlyFvgMidpointAsOf(
+  [completed(0),completed(H),...reads.map((_,i)=>pending(i))],source,2*H),
+  /Invalid or unordered hourly as-of input timestamp/);
+ assert.deepEqual(reads,[1,1,0],
+  'first valid horizon timestamp cannot authorize a later out-of-range hour');
+ assert.equal(marketReads,0,'no pending OHLC, volume or coverage may be inspected');
+});
