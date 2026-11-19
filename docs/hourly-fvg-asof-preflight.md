@@ -201,3 +201,8 @@ The synthetic completed-BID-close mutation regression now distinguishes timestam
 ## First completed-hour volume snapshot regression (19 November 2026)
 
 `frontend/tests/hourly-fvg-first-completed-volume-mutation.test.ts` checks that timestamp-only inspection of an unrevealed hourly bar cannot alter the first already-completed bar's numeric volume without a fail-closed snapshot-integrity rejection. The future OHLC, volume and coverage getters must remain unread. This is synthetic in-memory mutation protection; it does not verify a volume provider, classify exchange versus tick volume, or demonstrate any trading edge. Exact-head CI must be checked independently.
+
+
+## First completed-hour low geometry mutation (19 November 2026)
+
+`frontend/tests/hourly-fvg-first-completed-low-mutation.test.ts` checks that an unrevealed future hourly timestamp getter cannot revise the first completed BID candle's `low` from 99 to 98.5 (still valid OHLC) without an as-of snapshot-integrity rejection. The timestamp-only chronology preflight is permitted, but no future OHLC, volume or coverage getter may run. This closes a first-row FVG-geometry mutation regression gap; it does not authenticate the underlying BID source, volume, broker fills or trading profitability. Verify CI against the exact updated PR head.
