@@ -224,3 +224,8 @@ A synthetic regression in `frontend/tests/hourly-fvg-second-completed-high-mutat
 ## Completed minute-coverage integrity during future timestamp preflight (19 November 2026)
 
 `frontend/tests/hourly-fvg-second-completed-coverage-mutation.test.ts` supplies a synthetic future candle whose timestamp getter changes the second completed hourly BID candle's `observed_minutes` from 60 to 59. The as-of scanner must reject the altered completed snapshot, while reading no unrevealed future OHLC, volume, or minute-coverage fields. This tests a local causal integrity boundary only. It does not prove real minute coverage, source identity, authentic volume, broker costs, strategy edge, or profitability; exact-head CI must be checked separately.
+
+
+## First-completed-hour coverage mutation regression (19 November 2026)
+
+`frontend/tests/hourly-fvg-first-completed-coverage-mutation.test.ts` supplies two completed hourly BID candles and an unrevealed future timestamp accessor that mutates the **first** completed candle's observed-minute coverage from 60 to 59. The causal scanner must reject the completed-prefix snapshot change, while never reading future OHLC, volume or coverage. This complements the second-completed-hour coverage regression and verifies software snapshot integrity only. It is not proof of authentic source volume, licensed market history, broker quotes, costs or profitability. Exact-head CI must be checked independently.
