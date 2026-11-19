@@ -179,3 +179,8 @@ A synthetic regression in `frontend/tests/hourly-fvg-second-pending-failure.test
 A companion synthetic regression protects the **second** completed 1H candle's `observed_minutes` from modification by a future candle timestamp getter. The scan must reject the changed completed snapshot while reading no unrevealed OHLC, volume or coverage getters. This closes the later-row coverage counterpart to the first-row test; it does not establish licensed data provenance, genuine volume, broker execution or profitable results. Exact-head CI must be checked independently.
 
 A synthetic regression additionally checks the **second completed hour's open price** against mutation by a future candle's timestamp getter. The scanner must reject a changed completed-bar snapshot while never reading unrevealed OHLC, volume or minute coverage. This is an in-memory causal-integrity check, not verified source data, broker quotes, or evidence of profitable trading. Exact-head CI must be checked independently.
+
+
+## Completed timestamp mutation regression (19 November 2026)
+
+`frontend/tests/hourly-fvg-completed-time-mutation.test.ts` checks that a future 1H timestamp accessor cannot rewrite a previously completed candle's UTC timestamp after the causal snapshot is established. The scan must reject the mutation without reading any unrevealed OHLC, volume or coverage getter. This is synthetic in-memory chronology integrity, not licensed market data, authentic source-classified volume, two-sided broker execution or profitability evidence.
