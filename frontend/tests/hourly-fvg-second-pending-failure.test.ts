@@ -687,3 +687,32 @@ test('unrevealed ASK-side metadata getter is never invoked by causal hourly scan
  assert.equal(unrevealedReads,0,
   'future ASK metadata and OHLC/volume/coverage cannot enter completed evidence');
 });
+
+
+test('pending timestamp cannot revise completed observed-minute coverage after cutoff',()=>{
+ const H=3600;
+ const source:FvgSource={datasetId:'a'.repeat(64),archiveSha256:'b'.repeat(64),
+  instrument:'SYNTHETIC',provider:'fixture',priceSide:'bid',
+  volumeType:'unverified',volumeVerified:false};
+ const first:Bar={time:0,open:100,high:101,low:99,close:100,volume:10,observed_minutes:60};
+ const second:Bar={time:H,open:100,high:101,low:99,close:100,volume:10,observed_minutes:60};
+ let timestampReads=0,unrevealedReads=0;
+ const pending=Object.defineProperties({},{
+  time:{enumerable:true,get:()=>{
+   timestampReads++;
+   first.observed_minutes=0;
+   return 2*H;
+  }},
+  ...Object.fromEntries(['open','high','low','close','volume','observed_minutes'].map(
+   field=>[field,{enumerable:true,get:()=>{
+    unrevealedReads++;throw Error('unrevealed '+field+' read');
+   }}]
+  )),
+ }) as Bar;
+ assert.throws(
+  ()=>studyHourlyFvgMidpointAsOf([first,second,pending],source,2*H),
+  /snapshot|mutat|changed|integrity/i,
+  'future timestamp side effects must not silently alter completed coverage');
+ assert.equal(timestampReads,1,'future timestamp is read only for chronology');
+ assert.equal(unrevealedReads,0,'future market and coverage getters remain unread');
+});
