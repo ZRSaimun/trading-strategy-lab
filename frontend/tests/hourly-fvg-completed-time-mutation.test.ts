@@ -31,8 +31,8 @@ test('future timestamp cannot rewrite a completed hourly timestamp',()=>{
  }) as Bar;
  assert.throws(
   ()=>studyHourlyFvgMidpointAsOf([first,second,pending],source,2*H),
-  /snapshot|mutat|changed|integrity|unordered/i,
-  'completed timestamps must not be silently revised by future getters',
+  /Hourly research completed candle field changed during snapshot/,
+  'a completed time rewrite must fail specifically at the frozen-field integrity guard',
  );
  assert.equal(pendingTimeReads,1);
  assert.equal(futureMarketReads,0);
