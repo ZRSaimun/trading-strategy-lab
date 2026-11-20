@@ -255,3 +255,6 @@ A synthetic third-completed-hour close mutation regression (`frontend/tests/hour
 
 
 The third-completed-open mutation regression (`frontend/tests/hourly-fvg-third-completed-open-mutation.test.ts`) asserts that inspecting only a future candle timestamp cannot silently revise the already completed third hourly BID opening price. The completed-prefix snapshot must reject the revision while leaving all future market-value and coverage getters unread. This synthetic fixture does not establish source authenticity, real BID/ASK costs, or trading profitability.
+
+
+The synthetic `frontend/tests/hourly-fvg-third-completed-high-mutation.test.ts` regression covers a future timestamp getter retroactively raising the third completed hourly BID candle's high (the formation candle's geometry). The completed-prefix snapshot must fail closed before any future OHLC, volume or coverage getter is read. This is an in-memory causal-integrity test only; it does not verify source identity, executable quotes, real volume or profitability.
