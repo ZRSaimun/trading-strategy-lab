@@ -267,3 +267,6 @@ A synthetic second-completed-hour **BID volume** mutation regression (`frontend/
 
 
 A synthetic regression in `frontend/tests/hourly-fvg-future-timestamp-invalidates-completed-volume.test.ts` checks that an unrevealed future candle's timestamp getter cannot replace the second completed BID hourly candle's finite volume with `NaN` after the completed-prefix snapshot. The scan must reject the changed snapshot without inspecting future OHLC, volume or coverage. This is defensive causal integrity testing only: neither the original volume nor the source identity is independently authenticated, and no execution or profitability claim follows.
+
+
+A synthetic unknown-volume promotion regression (`frontend/tests/hourly-fvg-unknown-volume-promotion-mutation.test.ts`) requires the causal 1H FVG scanner to reject a future timestamp getter that changes the second completed BID hourly candle's volume from `null` (unknown) to numeric `10` after its completed-prefix snapshot. Future OHLC, volume and coverage getters must remain unread. This prevents missing volume evidence from being silently promoted inside one scan; it does not verify a real volume source or support any profitability claim.
