@@ -258,3 +258,6 @@ The third-completed-open mutation regression (`frontend/tests/hourly-fvg-third-c
 
 
 The synthetic `frontend/tests/hourly-fvg-third-completed-high-mutation.test.ts` regression covers a future timestamp getter retroactively raising the third completed hourly BID candle's high (the formation candle's geometry). The completed-prefix snapshot must fail closed before any future OHLC, volume or coverage getter is read. This is an in-memory causal-integrity test only; it does not verify source identity, executable quotes, real volume or profitability.
+
+
+A synthetic third-completed-hour **BID low** mutation regression (`frontend/tests/hourly-fvg-third-completed-low-mutation.test.ts`) ensures an unrevealed future timestamp getter cannot retroactively lower the completed candle's low without snapshot-integrity rejection. Future market fields remain unread. This is causal input integrity, not proof of authentic broker data, execution, or profitability.
