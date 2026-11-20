@@ -252,3 +252,6 @@ A synthetic third-completed-bar minute-coverage mutation regression (`frontend/t
 
 
 A synthetic third-completed-hour close mutation regression (`frontend/tests/hourly-fvg-third-completed-close-mutation.test.ts`) checks that a future candle's timestamp getter cannot revise the third completed BID hourly close from 100 to 100.5 without snapshot-integrity rejection. Future OHLC, volume and minute-coverage accessors must remain unread. This is a causal software invariant, not authentic market-data or profitability evidence.
+
+
+The third-completed-open mutation regression (`frontend/tests/hourly-fvg-third-completed-open-mutation.test.ts`) asserts that inspecting only a future candle timestamp cannot silently revise the already completed third hourly BID opening price. The completed-prefix snapshot must reject the revision while leaving all future market-value and coverage getters unread. This synthetic fixture does not establish source authenticity, real BID/ASK costs, or trading profitability.
