@@ -13,7 +13,8 @@ test('future timestamp cannot promote unknown completed minute coverage to full 
  const bars:Bar[]=[0,H,2*H].map(time=>({
   time,open:100,high:101,low:99,close:100,volume:10,observed_minutes:60,
  }));
- (bars[1] as Bar & {observed_minutes:number|null}).observed_minutes=null;
+ // Model unknown archive coverage at runtime without assigning null to Bar's numeric field.
+ Object.defineProperty(bars[1], 'observed_minutes', {value:null,writable:true,configurable:true});
  let timestampReads=0,unrevealedMarketReads=0;
  const future=Object.defineProperties({},{
   time:{enumerable:true,get:()=>{timestampReads++;bars[1].observed_minutes=60;return 3*H;}},
