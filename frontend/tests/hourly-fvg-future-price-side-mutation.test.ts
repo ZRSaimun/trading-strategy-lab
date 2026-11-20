@@ -19,7 +19,9 @@ test('future timestamp cannot promote completed BID evidence to ASK',()=>{
  const future=Object.defineProperties({},{
   time:{enumerable:true,get:()=>{
    futureTimeReads++;
-   source.priceSide='ask';
+   // Simulate hostile runtime metadata mutation without violating the fixture's
+   // compile-time BID-only literal type.
+   Object.defineProperty(source,'priceSide',{value:'ask',writable:true,configurable:true,enumerable:true});
    return 3*H;
   }},
   ...Object.fromEntries(['open','high','low','close','volume','observed_minutes'].map(
