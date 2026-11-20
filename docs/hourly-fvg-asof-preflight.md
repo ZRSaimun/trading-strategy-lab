@@ -264,3 +264,6 @@ A synthetic third-completed-hour **BID low** mutation regression (`frontend/test
 
 
 A synthetic second-completed-hour **BID volume** mutation regression (`frontend/tests/hourly-fvg-second-completed-volume-mutation.test.ts`) asserts that an unrevealed future candle timestamp accessor cannot rewrite a completed hourly volume value (10 to 100) after snapshot. The causal scan must reject the mutation without accessing future OHLC, volume or minute coverage. This protects internal consistency only; the volume remains unverified and no market edge or broker execution is established.
+
+
+A synthetic regression in `frontend/tests/hourly-fvg-future-timestamp-invalidates-completed-volume.test.ts` checks that an unrevealed future candle's timestamp getter cannot replace the second completed BID hourly candle's finite volume with `NaN` after the completed-prefix snapshot. The scan must reject the changed snapshot without inspecting future OHLC, volume or coverage. This is defensive causal integrity testing only: neither the original volume nor the source identity is independently authenticated, and no execution or profitability claim follows.
