@@ -1,0 +1,25 @@
+import {test} from 'node:test';
+import assert from 'node:assert/strict';
+import {studyHourlyFvgMidpointAsOf} from '../lib/hourly-fvg-midpoint-study.ts';
+import type {FvgSource} from '../lib/hourly-fvg-midpoint-study.ts';
+import type {Bar} from '../lib/research.ts';
+
+// Synthetic boundary control: a valid cutoff must proceed to archive
+// validation, not be mislabeled as an invalid timestamp. No prices are used.
+test('valid UTC as-of boundaries reach archive validation',()=>{
+ const source={} as FvgSource;
+ let archiveReads=0;
+ const archive=new Proxy([] as Bar[],{
+  get(_target,key){
+   if(key==='length') {archiveReads++;throw Error('archive validation reached');}
+   return Reflect.get(_target,key);
+  },
+ });
+ // UTC hourly closes remain valid across NY DST, the 2028 UTC leap day and the 2038 signed-32-bit Unix rollover and the inclusive 2100 horizon; no local-session assumption.
+ const validCutoffs=[3600,Date.UTC(2026,2,8,6)/1000,Date.UTC(2026,2,8,7)/1000,Date.UTC(2026,2,8,8)/1000,Date.UTC(2026,10,1,5)/1000,Date.UTC(2026,10,1,6)/1000,Date.UTC(2026,10,1,7)/1000,Date.UTC(2028,1,28,23)/1000,Date.UTC(2028,1,29,0)/1000,Date.UTC(2028,1,29,23)/1000,Date.UTC(2028,2,1,0)/1000,Date.UTC(2038,0,19,3)/1000,Date.UTC(2038,0,19,4)/1000,Date.UTC(2099,11,31,23)/1000,Date.UTC(2100,0,1)/1000];
+ for(const cutoff of validCutoffs){
+  assert.throws(()=>studyHourlyFvgMidpointAsOf(archive,source,cutoff),
+   /archive validation reached/);
+ }
+ assert.equal(archiveReads,validCutoffs.length);
+});

@@ -69,7 +69,11 @@ def test_postgres_reservation_race_kill_and_atomic_audit():
         finally:
             event.remove(engine, "after_cursor_execute", synchronize_reads)
 
+        # A losing READ COMMITTED transaction can see the winner's newer
+        # audit history after reading the older state envelope. It must
+        # return a stale-revision denial, not raise an integrity exception.
         assert sorted(results) == [False, True]
+        # The losing writer must not leave an extra state/audit revision.
         snapshot = PaperRiskReservationStore(factory).load(ACCOUNT)
         assert snapshot["revision"] == 2
         assert snapshot["reserved_cash"] == "60"

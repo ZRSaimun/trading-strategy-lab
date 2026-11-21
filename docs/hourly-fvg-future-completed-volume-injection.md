@@ -1,0 +1,5 @@
+# Future accessor completed-volume injection regression
+
+The synthetic `hourly-fvg-future-completed-volume-injection.test.ts` fixture exercises the existing causal 1H FVG as-of scanner. A first unrevealed future candle exposes only its timestamp but attempts to replace the previous completed hour's explicitly unknown (`null`) volume with a numeric `500`. The scanner must reject the completed-candle snapshot mutation immediately, before inspecting a second future timestamp or any future OHLC, volume or minute-coverage fields. The test also asserts the source declaration remains `volumeVerified: false`.
+
+This is an input-integrity and lookahead regression, not an authenticated source receipt or evidence of executable volume. A numeric value injected by a future accessor cannot be promoted to a prior-20 median observation. All values are synthetic; no broker quotes, win rates, fills or profitability are inferred. PR #157 remains draft, paper-only and unmerged. CI must be checked against the exact new head.
