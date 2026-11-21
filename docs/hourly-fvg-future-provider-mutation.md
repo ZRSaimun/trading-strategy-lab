@@ -1,0 +1,5 @@
+# Hourly FVG: future-driven provider identity mutation
+
+The causal 1H FVG research snapshot must preserve the exact declared provider identity across all inspected completed and future timestamps. `frontend/tests/hourly-fvg-future-provider-mutation.test.ts` uses synthetic candles and a future **timestamp-only** accessor that tries to replace `fixture-provider` with `another-provider`. The scanner must reject the mutation immediately, before inspecting another future timestamp or any future OHLC, volume or coverage field. The test does not authenticate the source or certify either provider.
+
+This guards one source-provenance integrity boundary, not an executable broker quote, observed volume receipt, or market-data entitlement. The scanner remains BID-only and paper/research-only. Independent broker BID/ASK, source-classified volume, calendar receipts and licensed held-out history are still required for economic evaluation. No win rate or live profitability follows from this synthetic test.
