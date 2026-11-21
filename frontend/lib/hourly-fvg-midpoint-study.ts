@@ -374,7 +374,7 @@ function assertCompletedFieldsUnchanged(row:Bar,initial:readonly PropertyDescrip
    before.enumerable!==after.enumerable||data!==('value' in after)||
    (data?!Object.is(before.value,after.value)||before.writable!==after.writable:
     before.get!==after.get||before.set!==after.set))
-   throw Error('Hourly research completed candle field changed during snapshot');
+   throw Error(field==='time' ? 'FVG as-of timestamp field changed during declaration snapshot' : 'Hourly research completed candle field changed during snapshot');
  });
 }
 // Detect in-place rewrites of previously declared source, setting and cost
