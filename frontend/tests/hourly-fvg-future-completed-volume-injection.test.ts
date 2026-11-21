@@ -34,7 +34,7 @@ test('first future timestamp injecting completed volume fails before second futu
  }) as Bar;
  assert.throws(
   ()=>studyHourlyFvgMidpointAsOf([first,second,futureOne,futureTwo],source,2*H),
-  /Hourly as-of completed candle .*changed during snapshot/,
+  /Hourly research completed candle field changed during snapshot/,
  );
  assert.equal(firstFutureReads,1);
  assert.equal(secondFutureReads,0);
