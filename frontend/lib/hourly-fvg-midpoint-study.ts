@@ -2019,6 +2019,13 @@ export function studyHourlyFvgMidpointAsOf(
   // an eligible historical prefix at the first misplaced future candle.
   // Never inspect OHLC, volume or coverage of a future candle.
   const time=bar?.time;
+  // Fail at the first future timestamp that rewrites completed source evidence;
+  // do not inspect any later future timestamps after provenance is invalid.
+  if(!SOURCE_FIELDS.every(field=>hasOwnField(source,field))||
+   Reflect.ownKeys(source).some(key=>!SOURCE_FIELDS.some(field=>field===key)))
+   throw Error('FVG as-of source declaration schema changed during timestamp scan');
+  assertFrozenFieldDescriptors(source,SOURCE_FIELDS,
+   asOfSourceDescriptors,'source declaration');
   if(!Number.isSafeInteger(time)||time<0||Object.is(time,-0)||time%HOUR!==0||
    time>Date.UTC(2100,0,1)/1000||!Number.isSafeInteger(time+HOUR)||
    (previousTime!==null&&time<=previousTime))
