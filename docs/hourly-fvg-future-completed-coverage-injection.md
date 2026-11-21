@@ -1,0 +1,5 @@
+# Causal 1H FVG: future completed-hour coverage injection
+
+A synthetic regression (`frontend/tests/hourly-fvg-future-completed-coverage-injection.test.ts`) protects the as-of scanner from a future timestamp accessor retroactively changing an already completed hour's `observed_minutes` from 59 to 60. The first unrevealed timestamp may be inspected to classify the row as future, but the completed-prefix snapshot must be revalidated immediately. A mutation must raise the existing completed-candle integrity error before the second future timestamp is read. Future OHLC, volume and coverage getters must never execute.
+
+This test is deliberately distinct from volume injection: missing minute coverage cannot be manufactured into a complete hour by an unrevealed row. The source remains unverified, and no synthetic test establishes licensed price history, authenticated volume, executable broker quotes, economic-event provenance, backtest returns or profitability. The research remains paper-only and cannot place orders. Do not merge or deploy without separate approval.
