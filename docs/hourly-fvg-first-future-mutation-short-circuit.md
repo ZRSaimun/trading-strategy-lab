@@ -1,0 +1,5 @@
+# First future-row mutation: fail-fast causal boundary
+
+The synthetic regression `frontend/tests/hourly-fvg-first-future-mutation-short-circuit.test.ts` checks that the 1H FVG as-of study stops at the **first** unrevealed timestamp if that timestamp accessor retroactively changes the completed source provider declaration. A second unrevealed timestamp accessor is deliberately configured to throw if accessed. The expected outcome is the specific source-snapshot integrity error, exactly one first-future timestamp read, zero second-future timestamp reads, and zero future OHLC, volume or minute-coverage reads.
+
+This is a regression for short-circuit ordering, not a source-authentication receipt. The synthetic provider and candles are invented software fixtures, not historical market prices. Unverified volume remains unverified. No result establishes a fill, tradable price, strategy edge or profitability. The experiment remains paper-only and does not permit broker orders, deployment or use of private datasets in public GitHub.
