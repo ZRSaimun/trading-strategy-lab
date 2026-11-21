@@ -2026,6 +2026,14 @@ export function studyHourlyFvgMidpointAsOf(
    throw Error('FVG as-of source declaration schema changed during timestamp scan');
   assertFrozenFieldDescriptors(source,SOURCE_FIELDS,
    asOfSourceDescriptors,'source declaration');
+  // A future timestamp getter must not rewrite a previously completed bar
+  // and then permit additional future timestamp reads before rejection.
+  for(const [completedIndex,completedRow] of completedRows.entries()){
+   if(!CANDLE_FIELDS.every(field=>hasOwnField(completedRow,field))||
+    Reflect.ownKeys(completedRow).some(key=>!CANDLE_FIELDS.some(field=>field===key)))
+    throw Error('Hourly as-of completed candle schema changed during snapshot');
+   assertCompletedFieldsUnchanged(completedRow,completedFields[completedIndex]);
+  }
   if(!Number.isSafeInteger(time)||time<0||Object.is(time,-0)||time%HOUR!==0||
    time>Date.UTC(2100,0,1)/1000||!Number.isSafeInteger(time+HOUR)||
    (previousTime!==null&&time<=previousTime))
