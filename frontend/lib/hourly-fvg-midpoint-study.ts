@@ -2026,6 +2026,22 @@ export function studyHourlyFvgMidpointAsOf(
    throw Error('FVG as-of source declaration schema changed during timestamp scan');
   assertFrozenFieldDescriptors(source,SOURCE_FIELDS,
    asOfSourceDescriptors,'source declaration');
+  // Fail fast on retroactive cost/config edits: a later future timestamp
+  // must not run after an earlier accessor invalidated study settings.
+  if(asOfConfigKeys.some(key=>!hasOwnField(config,key))||
+   Reflect.ownKeys(config).some(key=>!asOfConfigKeys.includes(key)))
+   throw Error('FVG as-of study setting schema changed during timestamp scan');
+  assertFrozenFieldDescriptors(config,asOfConfigKeys,
+   asOfConfigDescriptors,'study setting');
+  if(asOfCosts){
+   if(asOfCosts.length!==asOfCostCount||
+    Reflect.ownKeys(asOfCosts).some(key=>key!=='length'&&
+     !asOfCostKeys.includes(String(key)))||
+    asOfCostKeys.some(key=>!hasOwnField(asOfCosts,key)))
+    throw Error('FVG as-of cost scenario schema changed during timestamp scan');
+   assertFrozenFieldDescriptors(asOfCosts,asOfCostKeys,
+    asOfCostDescriptors,'cost scenario');
+  }
   // A future timestamp getter must not rewrite a previously completed bar
   // and then permit additional future timestamp reads before rejection.
   for(const [completedIndex,completedRow] of completedRows.entries()){
