@@ -29,7 +29,7 @@ test('future timestamp cannot rewrite declared source provider before another fu
  }) as Bar;
  assert.throws(
   ()=>studyHourlyFvgMidpointAsOf([completed,second,futureOne,futureTwo],source,2*H),
-  /FVG source field changed during declaration snapshot/,
+  /FVG source declaration field changed during declaration snapshot/,
  );
  assert.equal(source.provider,'another-provider');
  assert.equal(firstFutureReads,1);
