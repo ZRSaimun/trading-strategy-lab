@@ -7,3 +7,7 @@ A valid-looking hash is not proof of the underlying archive's authenticity. This
 ## Second-future boundary regression (22 November 2026)
 
 A second synthetic case changes the archive SHA-256 while reading the **second** unrevealed timestamp. It requires exactly two future timestamp reads, no third timestamp read, and no future OHLC/volume/coverage access. The mutation is rejected even though the replacement is a syntactically valid SHA-256-shaped string. This is an adversarial software-integrity check, not independent source verification or trading-performance evidence.
+
+## Third-future boundary regression (22 November 2026)
+
+The third unrevealed timestamp getter now mutates the archive receipt while a fourth future timestamp remains unread. The causal study must fail closed after exactly three timestamp reads, without reading the fourth timestamp or any unrevealed OHLC, volume or coverage payload. This checks receipt consistency at another scan boundary; synthetic assertions do not authenticate an archive or demonstrate trading performance.
