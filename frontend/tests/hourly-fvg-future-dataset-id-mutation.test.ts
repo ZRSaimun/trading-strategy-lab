@@ -48,3 +48,38 @@ test('unrevealed timestamp cannot replace completed-prefix dataset identity', ()
   assert.equal(secondReads, 0);
   assert.equal(futureFields, 0);
 });
+
+
+test('unrevealed timestamps leave a stable completed-prefix dataset identity valid', () => {
+  const H = 3600;
+  const source: FvgSource = {
+    datasetId: 'a'.repeat(64), archiveSha256: 'b'.repeat(64),
+    instrument: 'SYNTHETIC_GOLD', provider: 'fixture-provider',
+    priceSide: 'bid', volumeType: 'unverified', volumeVerified: false,
+  };
+  const completed: Bar[] = [0, H].map(time => ({
+    time, open: 100, high: 101, low: 99, close: 100,
+    volume: null, observed_minutes: 60,
+  }));
+  let futureTimeReads = 0;
+  let futureMarketReads = 0;
+  const future = Object.defineProperties({}, {
+    time: {enumerable: true, get: () => {
+      futureTimeReads++;
+      return 3 * H;
+    }},
+    ...Object.fromEntries(
+      ['open', 'high', 'low', 'close', 'volume', 'observed_minutes'].map(field => [
+        field, {enumerable: true, get: () => {
+          futureMarketReads++;
+          throw Error('unrevealed ' + field + ' accessed');
+        }},
+      ]),
+    ),
+  }) as Bar;
+  const result = studyHourlyFvgMidpointAsOf([...completed, future], source, 2 * H);
+  assert.equal(result.source.datasetId, 'a'.repeat(64));
+  assert.equal(result.coverage.observedBars, 2);
+  assert.equal(futureTimeReads, 1);
+  assert.equal(futureMarketReads, 0);
+});
