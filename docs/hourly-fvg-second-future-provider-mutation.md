@@ -7,3 +7,7 @@ This is a deterministic no-lookahead/source-declaration integrity regression onl
 ## Stable-source positive control
 
 A paired synthetic control keeps the declared provider unchanged while three future timestamp getters are inspected. The as-of study must accept the completed prefix, inspect each future timestamp exactly once, never read future OHLC/volume/coverage accessors, and retain exactly two completed bars. This distinguishes a real provider-declaration mutation from harmless future timestamp inspection. These assertions are source-integrity tests only, not source authentication or trading-outcome evidence.
+
+## First-unrevealed-timestamp boundary regression (22 November 2026)
+
+The companion synthetic regression now also mutates the declared provider during the **first** future timestamp getter. The as-of scanner must reject the mutation immediately: exactly one future timestamp getter is read, no later timestamp is inspected, and no unrevealed OHLC, volume or minute-coverage getter is invoked. Together with the second-future mutation test and the stable-provider control, this checks both the earliest future boundary and later future iteration. These tests establish only software causal/source-declaration integrity; they do not authenticate the provider, exchange volume, broker BID/ASK quotes, market calendars or trading returns. Keep the research paper-only and the PR draft until exact-head CI is verified.
