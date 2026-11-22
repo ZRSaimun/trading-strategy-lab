@@ -11,3 +11,7 @@ A second synthetic case changes the archive SHA-256 while reading the **second**
 ## Third-future boundary regression (22 November 2026)
 
 The third unrevealed timestamp getter now mutates the archive receipt while a fourth future timestamp remains unread. The causal study must fail closed after exactly three timestamp reads, without reading the fourth timestamp or any unrevealed OHLC, volume or coverage payload. This checks receipt consistency at another scan boundary; synthetic assertions do not authenticate an archive or demonstrate trading performance.
+
+## Stable-receipt positive control (22 November 2026)
+
+A matching synthetic control supplies four future timestamp getters with a constant archive SHA-256 declaration. The causal as-of scan must accept the stable source identity, read each future timestamp exactly once and never inspect unrevealed OHLC, volume or coverage. This distinguishes mutation rejection from indiscriminate rejection of future timestamps. It does not authenticate the archive or establish a profitable trading edge.
