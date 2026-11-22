@@ -194,3 +194,42 @@ test('a future timestamp getter failure never reads unrevealed market payloads',
   assert.equal(marketReads, 0);
   assert.equal(source.datasetId, 'a'.repeat(64));
 });
+
+test('second future timestamp getter failure stops before a third row or market fields', () => {
+  const H = 3600;
+  const source: FvgSource = {
+    datasetId: 'a'.repeat(64), archiveSha256: 'b'.repeat(64),
+    instrument: 'SYNTHETIC_GOLD', provider: 'fixture-provider',
+    priceSide: 'bid', volumeType: 'unverified', volumeVerified: false,
+  };
+  const completed: Bar[] = [0, H].map(time => ({
+    time, open: 100, high: 101, low: 99, close: 100,
+    volume: null, observed_minutes: 60,
+  }));
+  const timestampReads = [0, 0, 0];
+  let futureMarketReads = 0;
+  const future = [3 * H, 4 * H, 5 * H].map((time, index) =>
+    Object.defineProperties({}, {
+      time: {enumerable: true, get: () => {
+        timestampReads[index]++;
+        if (index === 1) throw Error('synthetic second future timestamp failure');
+        return time;
+      }},
+      ...Object.fromEntries(
+        ['open', 'high', 'low', 'close', 'volume', 'observed_minutes'].map(field => [
+          field, {enumerable: true, get: () => {
+            futureMarketReads++;
+            throw Error('unrevealed ' + field + ' accessed');
+          }},
+        ]),
+      ),
+    }) as Bar,
+  );
+  assert.throws(
+    () => studyHourlyFvgMidpointAsOf([...completed, ...future], source, 2 * H),
+    /synthetic second future timestamp failure/,
+  );
+  assert.deepEqual(timestampReads, [1, 1, 0]);
+  assert.equal(futureMarketReads, 0);
+  assert.equal(source.datasetId, 'a'.repeat(64));
+});
