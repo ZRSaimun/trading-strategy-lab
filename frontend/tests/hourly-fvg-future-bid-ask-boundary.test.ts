@@ -21,7 +21,7 @@ test('future timestamp must not switch BID to ASK or reveal future payload', () 
     Object.defineProperties({}, {
       time: {enumerable: true, get: () => {
         reads[index]++;
-        if (index === 0) source.priceSide = 'ask';
+        if (index === 0) Object.assign(source, {priceSide: 'ask'});
         return time;
       }},
       ...Object.fromEntries(['open', 'high', 'low', 'close', 'volume', 'observed_minutes'].map(field => [
