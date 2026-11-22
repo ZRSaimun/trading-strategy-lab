@@ -149,3 +149,48 @@ test('second unrevealed timestamp cannot mutate dataset identity after a stable 
   assert.deepEqual(reads, [1, 1, 0]);
   assert.equal(marketReads, 0);
 });
+
+
+test('a future timestamp getter failure never reads unrevealed market payloads', () => {
+  const H = 3600;
+  const source: FvgSource = {
+    datasetId: 'a'.repeat(64), archiveSha256: 'b'.repeat(64),
+    instrument: 'SYNTHETIC_GOLD', provider: 'fixture-provider',
+    priceSide: 'bid', volumeType: 'unverified', volumeVerified: false,
+  };
+  const completed: Bar[] = [0, H].map(time => ({
+    time, open: 100, high: 101, low: 99, close: 100,
+    volume: null, observed_minutes: 60,
+  }));
+  let timestampReads = 0, marketReads = 0, laterTimestampReads = 0;
+  const forbidden = Object.fromEntries(
+    ['open', 'high', 'low', 'close', 'volume', 'observed_minutes'].map(field => [
+      field, {enumerable: true, get: () => {
+        marketReads++;
+        throw Error('future market field accessed: ' + field);
+      }},
+    ]),
+  );
+  const failing = Object.defineProperties({}, {
+    time: {enumerable: true, get: () => {
+      timestampReads++;
+      throw Error('synthetic future timestamp read failure');
+    }},
+    ...forbidden,
+  }) as Bar;
+  const later = Object.defineProperties({}, {
+    time: {enumerable: true, get: () => {
+      laterTimestampReads++;
+      return 4 * H;
+    }},
+    ...forbidden,
+  }) as Bar;
+  assert.throws(
+    () => studyHourlyFvgMidpointAsOf([...completed, failing, later], source, 2 * H),
+    /synthetic future timestamp read failure/,
+  );
+  assert.equal(timestampReads, 1);
+  assert.equal(laterTimestampReads, 0);
+  assert.equal(marketReads, 0);
+  assert.equal(source.datasetId, 'a'.repeat(64));
+});
