@@ -19,3 +19,7 @@ A further synthetic control mutates `source.provider` only while reading the **t
 ## Erased-provider fail-closed regression (22 November 2026)
 
 A synthetic future timestamp getter now clears the declared provider to an empty string. The as-of scanner must reject the changed source declaration immediately, before inspecting another future timestamp or reading any future OHLC, volume, or coverage payload. This checks a missing-identity transition separately from relabeling one nonempty provider as another. It is not a provider-authenticity check and must not be interpreted as market evidence or strategy profitability.
+
+## Runtime-null provider transition (22 November 2026)
+
+A synthetic timestamp getter now replaces the previously valid provider identity with runtime `null`, bypassing TypeScript's static string type. The as-of scanner must fail closed after the first unrevealed timestamp, without touching later timestamps or future OHLC, volume, or coverage. This checks declaration stability, not independent provider authenticity or market profitability.
