@@ -83,3 +83,34 @@ test('unrevealed timestamps leave a stable completed-prefix dataset identity val
   assert.equal(futureTimeReads, 1);
   assert.equal(futureMarketReads, 0);
 });
+
+// Multiple unrevealed timestamps may be inspected for chronology, but their
+// market payloads must remain inaccessible and must not alter source identity.
+test('two stable future timestamps preserve source and hide both market payloads', () => {
+  const H = 3600;
+  const source: FvgSource = {
+    datasetId: 'a'.repeat(64), archiveSha256: 'b'.repeat(64),
+    instrument: 'SYNTHETIC_GOLD', provider: 'fixture-provider',
+    priceSide: 'bid', volumeType: 'unverified', volumeVerified: false,
+  };
+  const completed: Bar[] = [0, H].map(time => ({
+    time, open: 100, high: 101, low: 99, close: 100,
+    volume: null, observed_minutes: 60,
+  }));
+  const reads = [0, 0];
+  let marketReads = 0;
+  const future = [3 * H, 4 * H].map((time, index) => Object.defineProperties({}, {
+    time: {enumerable: true, get: () => { reads[index]++; return time; }},
+    ...Object.fromEntries(['open', 'high', 'low', 'close', 'volume', 'observed_minutes'].map(field => [
+      field, {enumerable: true, get: () => {
+        marketReads++;
+        throw Error('unrevealed ' + field + ' accessed');
+      }},
+    ])),
+  }) as Bar);
+  const result = studyHourlyFvgMidpointAsOf([...completed, ...future], source, 2 * H);
+  assert.equal(result.source.datasetId, 'a'.repeat(64));
+  assert.equal(result.coverage.observedBars, 2);
+  assert.deepEqual(reads, [1, 1]);
+  assert.equal(marketReads, 0);
+});
