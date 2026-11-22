@@ -15,3 +15,7 @@ The companion synthetic regression now also mutates the declared provider during
 ## Last-unrevealed-timestamp boundary regression (22 November 2026)
 
 A further synthetic control mutates `source.provider` only while reading the **third and final** unrevealed future timestamp. All three future timestamps must be read exactly once (`[1, 1, 1]`), the changed declaration must be rejected, and no unrevealed OHLC, volume or minute-coverage accessor may run. This closes the final-iteration boundary of the existing first/second-future checks without claiming any independent provider authentication or market performance. CI must be verified against the exact updated PR head.
+
+## Erased-provider fail-closed regression (22 November 2026)
+
+A synthetic future timestamp getter now clears the declared provider to an empty string. The as-of scanner must reject the changed source declaration immediately, before inspecting another future timestamp or reading any future OHLC, volume, or coverage payload. This checks a missing-identity transition separately from relabeling one nonempty provider as another. It is not a provider-authenticity check and must not be interpreted as market evidence or strategy profitability.
