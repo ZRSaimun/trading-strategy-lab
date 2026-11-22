@@ -11,3 +11,7 @@ A paired synthetic control keeps the declared provider unchanged while three fut
 ## First-unrevealed-timestamp boundary regression (22 November 2026)
 
 The companion synthetic regression now also mutates the declared provider during the **first** future timestamp getter. The as-of scanner must reject the mutation immediately: exactly one future timestamp getter is read, no later timestamp is inspected, and no unrevealed OHLC, volume or minute-coverage getter is invoked. Together with the second-future mutation test and the stable-provider control, this checks both the earliest future boundary and later future iteration. These tests establish only software causal/source-declaration integrity; they do not authenticate the provider, exchange volume, broker BID/ASK quotes, market calendars or trading returns. Keep the research paper-only and the PR draft until exact-head CI is verified.
+
+## Last-unrevealed-timestamp boundary regression (22 November 2026)
+
+A further synthetic control mutates `source.provider` only while reading the **third and final** unrevealed future timestamp. All three future timestamps must be read exactly once (`[1, 1, 1]`), the changed declaration must be rejected, and no unrevealed OHLC, volume or minute-coverage accessor may run. This closes the final-iteration boundary of the existing first/second-future checks without claiming any independent provider authentication or market performance. CI must be verified against the exact updated PR head.
