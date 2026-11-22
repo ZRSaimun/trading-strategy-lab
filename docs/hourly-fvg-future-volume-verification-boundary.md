@@ -1,0 +1,5 @@
+# Hourly FVG future volume-verification boundary
+
+The synthetic regression `frontend/tests/hourly-fvg-future-volume-verification-boundary.test.ts` begins with a source declaring tick volume as **unverified**. A getter for the first unrevealed future timestamp changes `volumeVerified` to `true`. The causal as-of study must reject this source declaration mutation immediately, without reading the next future timestamp or any future OHLC, volume or observed-minute coverage.
+
+This guards against retroactively promoting an unverified completed-prefix volume source to verified status during a future-only scan. The test uses artificial prices and deliberately adversarial JavaScript getters. Passing it does **not** authenticate a volume provider, prove the prior-20 volume threshold, establish actual broker BID/ASK execution prices or show profitability. Source-classified receipts, authorized market data, costs and untouched held-out evaluation remain required. Keep paper-only; do not merge or deploy without separate approval.
