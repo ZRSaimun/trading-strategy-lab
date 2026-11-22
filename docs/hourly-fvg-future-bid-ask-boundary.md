@@ -7,3 +7,7 @@ This is a source-identity and no-lookahead contract, not evidence that the decla
 ## Second future timestamp mutation regression (22 November 2026)
 
 A synthetic three-future-bar control now mutates the source declaration from BID to ASK on the **second** future timestamp getter. The as-of scanner must reject the declaration change after exactly two timestamp reads, without inspecting the third future timestamp or any unrevealed OHLC, volume, or coverage field. This complements the first-timestamp rejection and stable-BID controls. It tests source-identity and no-lookahead behavior only; it does not authenticate broker quotes or establish strategy performance.
+
+## Third future timestamp mutation regression (22 November 2026)
+
+A four-future-bar synthetic fixture changes the source price side from BID to ASK on the **third** unrevealed timestamp getter. The causal scanner must reject the declaration change after exactly three timestamp reads; the fourth future timestamp and every unrevealed OHLC, volume and coverage getter must remain unread. This tests short-circuit ordering at a later boundary, not broker quote provenance, realistic costs, strategy edge or profitability. Keep draft, paper-only and undeployed.
