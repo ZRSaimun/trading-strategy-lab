@@ -233,3 +233,45 @@ test('second future timestamp getter failure stops before a third row or market 
   assert.equal(futureMarketReads, 0);
   assert.equal(source.datasetId, 'a'.repeat(64));
 });
+
+
+test('second future timestamp cannot promote unverified volume to verified exchange evidence', () => {
+  const H = 3600;
+  const source: FvgSource = {
+    datasetId: 'a'.repeat(64), archiveSha256: 'b'.repeat(64),
+    instrument: 'SYNTHETIC_GOLD', provider: 'fixture-provider',
+    priceSide: 'bid', volumeType: 'unverified', volumeVerified: false,
+  };
+  const completed: Bar[] = [0, H].map(time => ({
+    time, open: 100, high: 101, low: 99, close: 100,
+    volume: null, observed_minutes: 60,
+  }));
+  const timestampReads = [0, 0, 0];
+  let marketReads = 0;
+  const future = [3 * H, 4 * H, 5 * H].map((time, index) =>
+    Object.defineProperties({}, {
+      time: {enumerable: true, get: () => {
+        timestampReads[index]++;
+        if (index === 1) {
+          source.volumeType = 'exchange';
+          source.volumeVerified = true;
+        }
+        return time;
+      }},
+      ...Object.fromEntries(
+        ['open', 'high', 'low', 'close', 'volume', 'observed_minutes'].map(field => [
+          field, {enumerable: true, get: () => {
+            marketReads++;
+            throw Error('unrevealed ' + field + ' accessed');
+          }},
+        ]),
+      ),
+    }) as Bar,
+  );
+  assert.throws(
+    () => studyHourlyFvgMidpointAsOf([...completed, ...future], source, 2 * H),
+    /FVG source declaration field changed during declaration snapshot/,
+  );
+  assert.deepEqual(timestampReads, [1, 1, 0]);
+  assert.equal(marketReads, 0);
+});
