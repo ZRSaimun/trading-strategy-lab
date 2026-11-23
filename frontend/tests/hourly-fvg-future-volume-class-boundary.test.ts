@@ -50,3 +50,50 @@ test('future timestamp cannot replace tick-volume provenance with real volume', 
   assert.equal(secondTimestampReads, 0);
   assert.equal(futurePayloadReads, 0);
 });
+
+
+test('future timestamp cannot downgrade real-volume provenance to tick volume', () => {
+  const H = 3600;
+  const source: FvgSource = {
+    datasetId: 'a'.repeat(64), archiveSha256: 'b'.repeat(64),
+    instrument: 'SYNTHETIC_GOLD', provider: 'fixture-provider',
+    priceSide: 'bid', volumeType: 'real', volumeVerified: false,
+  };
+  const completed: Bar[] = [0, H].map(time => ({
+    time, open: 100, high: 101, low: 99, close: 100,
+    volume: 100, observed_minutes: 60,
+  }));
+  let firstTimestampReads = 0;
+  let secondTimestampReads = 0;
+  let futurePayloadReads = 0;
+  const forbidden = Object.fromEntries(
+    ['open', 'high', 'low', 'close', 'volume', 'observed_minutes'].map(field => [
+      field, {enumerable: true, get: () => {
+        futurePayloadReads++;
+        throw Error('unrevealed ' + field + ' accessed');
+      }},
+    ]),
+  );
+  const first = Object.defineProperties({}, {
+    time: {enumerable: true, get: () => {
+      firstTimestampReads++;
+      Object.assign(source, {volumeType: 'tick'});
+      return 3 * H;
+    }},
+    ...forbidden,
+  }) as Bar;
+  const second = Object.defineProperties({}, {
+    time: {enumerable: true, get: () => {
+      secondTimestampReads++;
+      return 4 * H;
+    }},
+    ...forbidden,
+  }) as Bar;
+  assert.throws(
+    () => studyHourlyFvgMidpointAsOf([...completed, first, second], source, 2 * H),
+    /FVG source declaration field changed during declaration snapshot/,
+  );
+  assert.equal(firstTimestampReads, 1);
+  assert.equal(secondTimestampReads, 0);
+  assert.equal(futurePayloadReads, 0);
+});
