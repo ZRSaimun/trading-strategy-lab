@@ -19,3 +19,7 @@ A fourth synthetic regression starts with `volumeVerified: false` and promotes i
 ## Third future timestamp promotion boundary (23 November 2026)
 
 The fifth synthetic regression delays the unverified-to-verified declaration mutation until the **third** unrevealed timestamp. The scanner must read exactly three future timestamps, never inspect the fourth, and never access any future OHLC, volume or observed-minute coverage payload. This specifically protects delayed source-declaration changes during timestamp-only as-of scans; it does not independently authenticate a provider or imply a profitable trading edge. Exact-head CI must be checked after this change.
+
+## Stable-declaration positive control (23 November 2026)
+
+A companion synthetic regression supplies three unrevealed hourly timestamps with a stable `volumeVerified: false` declaration. The causal as-of scan must complete without throwing, inspect each future timestamp once, and never access any future OHLC, volume, or coverage. This guards against an overbroad rejection rule: unknown source verification must remain unknown, not become a fabricated PASS or an automatic scanner error. It is not a source-authenticity receipt, nor evidence of strategy returns.
