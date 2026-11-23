@@ -185,3 +185,36 @@ test('third future timestamp cannot promote unverified volume or read later futu
   assert.deepEqual(timestampReads, [1, 1, 1, 0]);
   assert.equal(futurePayloadReads, 0);
 });
+
+test('stable unverified volume declaration permits timestamp-only future scan', () => {
+  const H = 3600;
+  const source: FvgSource = {
+    datasetId: 'a'.repeat(64), archiveSha256: 'b'.repeat(64),
+    instrument: 'SYNTHETIC_GOLD', provider: 'fixture-provider',
+    priceSide: 'bid', volumeType: 'tick', volumeVerified: false,
+  };
+  const completed: Bar[] = [0, H].map(time => ({
+    time, open: 100, high: 101, low: 99, close: 100,
+    volume: 100, observed_minutes: 60,
+  }));
+  const timestampReads = [0, 0, 0];
+  let futurePayloadReads = 0;
+  const future = [3 * H, 4 * H, 5 * H].map((time, index) =>
+    Object.defineProperties({}, {
+      time: {enumerable: true, get: () => {
+        timestampReads[index]++;
+        return time;
+      }},
+      ...Object.fromEntries(['open', 'high', 'low', 'close', 'volume', 'observed_minutes'].map(field => [
+        field, {enumerable: true, get: () => {
+          futurePayloadReads++;
+          throw Error('unrevealed ' + field + ' accessed');
+        }},
+      ])),
+    }) as Bar,
+  );
+  const result = studyHourlyFvgMidpointAsOf([...completed, ...future], source, 2 * H);
+  assert.equal(result.source.volumeVerified, false);
+  assert.deepEqual(timestampReads, [1, 1, 1]);
+  assert.equal(futurePayloadReads, 0);
+});
