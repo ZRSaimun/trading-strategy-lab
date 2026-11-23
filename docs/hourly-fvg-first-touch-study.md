@@ -470,3 +470,8 @@ The synthetic causal 1H FVG regression in `frontend/tests/hourly-fvg-future-volu
 ## 23 November 2026 — third future timestamp dataset identity boundary
 
 Synthetic causal 1H FVG regression checks that a dataset identity change triggered by the third unrevealed future timestamp is rejected immediately: only the first three timestamps may be read once, the fourth must not be read, and no future OHLC, volume or minute coverage may be accessed. This is a software no-lookahead/provenance guard, not evidence that a source is authentic, a quote is executable, or a strategy is profitable. Verify the exact-head CI before claiming this regression passes.
+
+
+## 23 November 2026 — future-triggered provider identity substitution
+
+The synthetic regression `frontend/tests/hourly-fvg-future-provider-identity-boundary.test.ts` requires the causal as-of 1H FVG study to reject a change of the declared BID provider caused by the first unrevealed hourly timestamp getter. It must stop before the second timestamp and must not read future OHLC, volume, or coverage fields. This guards source-identity consistency only: neither provider label is an independently verified receipt, and the fixture does not prove broker execution or profitability. Exact-head CI is not presumed successful.
