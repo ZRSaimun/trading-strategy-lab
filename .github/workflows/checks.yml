@@ -30,6 +30,9 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
       - run: npm ci
+      # Surface causal FVG regression failures as a distinct named step before the full suite.
+      - name: Causal hourly FVG provenance regressions
+        run: node --experimental-strip-types --test tests/hourly-fvg-*.test.ts
       - run: npm test
       - run: npm run build
       - run: npm audit --omit=dev --audit-level=high
