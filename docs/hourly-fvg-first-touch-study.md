@@ -466,3 +466,7 @@ Synthetic regression `hourly-fvg-future-volume-class-boundary.test.ts` rejects a
 ### Future-triggered archive identity substitution (23 November 2026)
 
 The synthetic causal 1H FVG regression in `frontend/tests/hourly-fvg-future-volume-class-boundary.test.ts` changes `archiveSha256` through the first unrevealed hourly timestamp getter. The scanner must reject the source declaration change immediately, read that timestamp exactly once, avoid the second future timestamp, and never access unrevealed OHLC, volume or coverage. A hash-shaped fixture is not an authenticated archive receipt; this test does not verify market data, broker execution or profitability. Exact-head CI remains to be checked; draft/paper-only, no merge or deployment.
+
+## 23 November 2026 — third future timestamp dataset identity boundary
+
+Synthetic causal 1H FVG regression checks that a dataset identity change triggered by the third unrevealed future timestamp is rejected immediately: only the first three timestamps may be read once, the fourth must not be read, and no future OHLC, volume or minute coverage may be accessed. This is a software no-lookahead/provenance guard, not evidence that a source is authentic, a quote is executable, or a strategy is profitable. Verify the exact-head CI before claiming this regression passes.
