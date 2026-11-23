@@ -5,7 +5,7 @@ import type {FvgSource} from '../lib/hourly-fvg-midpoint-study.ts';
 import type {Bar} from '../lib/research.ts';
 
 // A future-only timestamp getter must not rewrite the completed-prefix volume class.
-test('future timestamp cannot replace tick-volume provenance with real volume', () => {
+test('future timestamp cannot replace tick-volume provenance with exchange volume', () => {
   const H = 3600;
   const source: FvgSource = {
     datasetId: 'a'.repeat(64), archiveSha256: 'b'.repeat(64),
@@ -30,7 +30,7 @@ test('future timestamp cannot replace tick-volume provenance with real volume', 
   const first = Object.defineProperties({}, {
     time: {enumerable: true, get: () => {
       firstTimestampReads++;
-      Object.assign(source, {volumeType: 'real'});
+      Object.assign(source, {volumeType: 'exchange'});
       return 3 * H;
     }},
     ...forbidden,
@@ -52,12 +52,12 @@ test('future timestamp cannot replace tick-volume provenance with real volume', 
 });
 
 
-test('future timestamp cannot downgrade real-volume provenance to tick volume', () => {
+test('future timestamp cannot downgrade exchange-volume provenance to tick volume', () => {
   const H = 3600;
   const source: FvgSource = {
     datasetId: 'a'.repeat(64), archiveSha256: 'b'.repeat(64),
     instrument: 'SYNTHETIC_GOLD', provider: 'fixture-provider',
-    priceSide: 'bid', volumeType: 'real', volumeVerified: false,
+    priceSide: 'bid', volumeType: 'exchange', volumeVerified: false,
   };
   const completed: Bar[] = [0, H].map(time => ({
     time, open: 100, high: 101, low: 99, close: 100,
