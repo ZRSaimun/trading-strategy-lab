@@ -9,3 +9,7 @@ The complementary synthetic regression also rejects a `exchange` → `tick` sour
 CI repair (23 November 2026): the prior test incorrectly used `real`, which is not a supported `FvgSource.volumeType` value (`exchange | tick | none | unverified`). The fixture now uses `exchange` for the purported source class and tests both directions against `tick`. This fixes a TypeScript build failure and a false test failure caused by preflight rejecting the invalid fixture before the future timestamp could be read. A successful CI run is required before considering this repair verified.
 
 Positive control (23 November 2026): a stable `exchange` source declaration with `volumeVerified: false` must permit the causal as-of scanner to read exactly three future timestamps, without reading any future price, volume, or minute-coverage field. This tests against over-rejection from the mutation guard; the synthetic exchange label is not independently verified volume evidence. CI verification is pending for this change.
+
+## Second future timestamp downgrade regression
+
+The synthetic `exchange` → `tick` mutation on the second unrevealed hourly timestamp must fail closed after exactly two timestamp reads. The third timestamp and every future OHLC, volume, and coverage accessor remain unread. This tests declaration consistency and causal isolation only; it does not verify real exchange-volume provenance or strategy profitability.
