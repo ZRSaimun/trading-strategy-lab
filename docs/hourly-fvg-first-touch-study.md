@@ -456,3 +456,8 @@ The synthetic bullish first-midpoint-touch fixture now omits two consecutive eli
 
 
 **23 November 2026 — delayed future volume-class mutation boundary.** Synthetic regression checks that a `tick` to `exchange` source-declaration mutation triggered by the *second* unrevealed hourly timestamp fails immediately: the first and second timestamps are read once, the third is never read, and no future OHLC, volume or coverage getter executes. This validates a narrow causal provenance-integrity invariant, not independent authentication of exchange volume, executable broker quotes, or profitability. Exact-head CI must be verified separately; remain draft and paper-only.
+
+
+### Third future timestamp volume-class mutation regression (23 November 2026)
+
+Synthetic regression `hourly-fvg-future-volume-class-boundary.test.ts` rejects a `tick` to `exchange` source declaration mutation on the third unrevealed hourly timestamp. Exactly three timestamp getters may run; the fourth and all unrevealed OHLC/volume/coverage getters must remain untouched. This tests causal source-declaration integrity only. It does not authenticate exchange volume, broker BID/ASK prices, actual execution, or trading profitability.
