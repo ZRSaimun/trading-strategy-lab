@@ -20,6 +20,16 @@ class WorkflowTriggerRegression(unittest.TestCase):
         self.assertIn("node --experimental-strip-types --test tests/hourly-fvg-*.test.ts", source)
         self.assertLess(source.index("name: Causal hourly FVG provenance regressions"), source.index("- run: npm test"))
 
+    def test_contract_guard_runs_before_dependency_installation(self):
+        """CI must execute this guard, not merely carry an unexecuted test file."""
+        source = WORKFLOW.read_text(encoding="utf-8")
+        backend = source.split("  backend:\n", 1)[1].split("\n  frontend:\n", 1)[0]
+        guard = "- run: python scripts/test_ci_trigger_contract.py"
+        install = "- run: pip install -r backend/requirements-dev.txt"
+        self.assertEqual(backend.count(guard), 1)
+        self.assertLess(backend.index(guard), backend.index(install))
+        self.assertLess(backend.index(guard), backend.index("- run: cd backend && PYTHONPATH=. pytest -q"))
+
     def test_full_acceptance_jobs_are_not_replaced_by_focused_regressions(self):
         source = WORKFLOW.read_text(encoding="utf-8")
         for job in (
