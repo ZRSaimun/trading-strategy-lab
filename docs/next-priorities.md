@@ -32,3 +32,8 @@ The `foundation-checks` frontend job now runs `node --experimental-strip-types -
 
 
 The feature-branch `foundation-checks` workflow also declares `workflow_dispatch` for an explicit manual run without altering Render or executing trades. `scripts/test_ci_trigger_contract.py` checks that push/PR triggers and the dedicated causal FVG regression step remain configured. This only verifies workflow text; a green GitHub Actions run at the exact head SHA is still required. No manual run has been started, and an empty PR-event workflow query cannot establish that GitHub Actions is enabled or disabled.
+
+
+## CI acceptance boundary (23 November 2026)
+
+The dedicated causal 1H FVG step is additive, not a substitute for the six existing foundation-checks jobs. `scripts/test_ci_trigger_contract.py` now asserts retention of all six job headers and the full frontend test/build/audit and backend test commands. These are static workflow-contract assertions, not proof the jobs executed. The `workflow_dispatch` entry exists on draft PR #157 only; GitHub manual dispatch generally requires the workflow file on the repository default branch, so do not claim the draft-only trigger can be run manually before it is present on `main`. Exact-head PR workflow and combined status queries returned no results at inspection; CI remains unverified. Do not merge or deploy without separate approval.
