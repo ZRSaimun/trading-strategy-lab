@@ -31,7 +31,7 @@ def fixtures():
         account_id="paper-account-1", currency="GBP",
         equity_cash="10000", daily_realized_pnl_cash="-20",
         daily_unrealized_pnl_cash="-10", max_daily_loss_cash="500",
-        max_position_loss_cash="100", max_gross_leverage="2",
+        max_position_loss_cash="100", max_gross_leverage="1",
         max_margin_fraction="0.9", max_symbol_notional_cash="5000",
         max_open_or_pending_orders=10, max_orders_per_symbol=3,
         max_quote_age_ms=3000, max_transport_lag_ms=1000,
@@ -51,7 +51,7 @@ def fixtures():
         existing_reserved_risk_cash="2.22",
         daily_realized_pnl_cash="-20", daily_unrealized_pnl_cash="-10",
         max_position_loss_cash="100", max_daily_loss_cash="500",
-        max_gross_leverage="2", margin_rate_percent="100",
+        max_gross_leverage="1", margin_rate_percent="100",
         quote_bid="100", quote_ask="100.02", max_spread_bps="20",
         quote_observed_at_ms=NOW - 200,
         quote_received_at_ms=NOW - 100,
@@ -211,3 +211,17 @@ def test_boolean_clock_and_malformed_decimal_rejected():
     o["quantity"] = 2.0
     with pytest.raises(ValueError):
         run(o, s, p)
+
+
+def test_cash_account_leverage_above_one_blocks_cross_guard_review():
+    # A >1x policy may be internally funded on this one trade but is not a
+    # valid unleveraged Invest-account declaration for the offline reviewer.
+    order, snapshot, policy = fixtures()
+    order["max_gross_leverage"] = "2"
+    snapshot["max_gross_leverage"] = "2"
+    result = run(order, snapshot, policy)
+    assert "review.cash_account_unleveraged_policy" in result["failed_checks"]
+    assert "crosscheck.both_guards_structurally_pass" in result["failed_checks"]
+    assert result["structural_checks_pass"] is False
+    assert result["may_execute_paper_order"] is False
+    assert result["may_execute_real_order"] is False

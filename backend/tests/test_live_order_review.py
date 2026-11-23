@@ -99,9 +99,102 @@ def test_canonical_decimal_equivalence_and_expiry():
     assert compare_review(p, intent(), now_ms=NOW-1)['requires_new_human_review']
 
 
+
+@pytest.mark.parametrize('field,forged', [
+    ('assumption_checks_pass', False),
+    ('failed_checks', ['quote_fresh']),
+    ('stressed_loss_cash', '0'),
+    ('quote_authenticated', True),
+    ('may_execute_real_order', True),
+    ('may_execute_paper_order', True),
+    ('warnings', []),
+    ('checks', {'quote_fresh': False}),
+    ('schema', 'live-order-review-v2'),
+])
+def test_modified_review_output_requires_fresh_human_review(field, forged):
+    original = packet()
+    altered = deepcopy(original)
+    altered[field] = forged
+    assert altered['review_sha256'] == original['review_sha256']
+    assert compare_review(original, intent(), now_ms=NOW+1)['review_matches_exact_intent']
+    result = compare_review(altered, intent(), now_ms=NOW+1)
+    assert result['review_matches_exact_intent'] is False
+    assert result['requires_new_human_review'] is True
+    assert result['may_execute_paper_order'] is False
+    assert result['may_execute_real_order'] is False
+
+
+def test_missing_or_extra_review_field_requires_fresh_human_review():
+    original = packet()
+    missing = deepcopy(original)
+    del missing['quote_authenticated']
+    extra = deepcopy(original)
+    extra['owner_note'] = 'not part of the reviewed packet'
+    for altered in (missing, extra):
+        result = compare_review(altered, intent(), now_ms=NOW+1)
+        assert not result['review_matches_exact_intent']
+        assert result['requires_new_human_review']
+    assert compare_review(original, intent(), now_ms=NOW+1)['review_matches_exact_intent']
+
+
+def test_equivalent_decimal_formatting_preserves_full_packet_consistency():
+    # Same economic intent may render computed cash amounts with trailing zeros.
+    original = build_review_packet(intent(quantity='2.0'), now_ms=NOW)
+    assert compare_review(original, intent(quantity='2'), now_ms=NOW+1)['review_matches_exact_intent']
+    assert compare_review(packet(), intent(quantity='2.0'), now_ms=NOW+1)['review_matches_exact_intent']
+    modified = deepcopy(original)
+    modified['stressed_loss_cash'] = '0'
+    assert compare_review(modified, intent(quantity='2'), now_ms=NOW+1)['requires_new_human_review']
+
+
+def test_nested_flag_type_substitution_does_not_match_review():
+    altered = packet()
+    altered['checks']['quote_fresh'] = 1  # 1 == True in Python, but not JSON.
+    assert not compare_review(altered, intent(), now_ms=NOW+1)['review_matches_exact_intent']
+    assert compare_review(altered, intent(), now_ms=NOW+1)['requires_new_human_review']
+
+
+@pytest.mark.parametrize('field', ['warnings', 'failed_checks'])
+def test_json_equivalent_tuple_does_not_match_typed_review_packet(field):
+    # json.dumps(tuple) and json.dumps(list) are identical, but a review
+    # packet is a typed JSON-compatible object, not an arbitrary Python value.
+    original = packet()
+    altered = deepcopy(original)
+    altered[field] = tuple(altered[field])
+    result = compare_review(altered, intent(), now_ms=NOW+1)
+    assert not result['review_matches_exact_intent']
+    assert result['requires_new_human_review']
+    assert result['may_execute_paper_order'] is False
+    assert result['may_execute_real_order'] is False
+    assert compare_review(original, intent(), now_ms=NOW+1)['review_matches_exact_intent']
+
+
+def test_deeply_nested_untrusted_check_fails_closed_without_recursion():
+    # The old JSON round-trip comparison could raise RecursionError instead
+    # of returning a conservative re-review decision for a malformed packet.
+    altered = packet()
+    nested = []
+    for _ in range(1200):
+        nested = [nested]
+    altered['checks']['quote_fresh'] = nested
+    result = compare_review(altered, intent(), now_ms=NOW+1)
+    assert not result['review_matches_exact_intent']
+    assert result['requires_new_human_review']
+    assert result['may_execute_paper_order'] is False
+    assert result['may_execute_real_order'] is False
+
+
+def test_typed_review_packet_preserves_decimal_equivalence_and_flag_checks():
+    original = packet(quantity='2.0')
+    assert compare_review(original, intent(quantity='2'), now_ms=NOW+1)['review_matches_exact_intent']
+    altered = deepcopy(original)
+    altered['checks']['quote_fresh'] = 1
+    assert compare_review(altered, intent(quantity='2'), now_ms=NOW+1)['requires_new_human_review']
+
+
 def test_review_policy_change_invalidates_digest():
     p = packet()
-    assert not compare_review(p, intent(), now_ms=NOW+1, max_quote_age_ms=5000)['review_matches_exact_intent']
+    assert not compare_review(p, intent(), now_ms=NOW+1, max_quote_age_ms=2500)['review_matches_exact_intent']
 
 
 def test_invalid_clock_and_fingerprint_rejected():
@@ -127,6 +220,31 @@ def test_unrealized_gains_do_not_expand_daily_loss_budget():
     assert a['projected_daily_pnl_cash'] == b['projected_daily_pnl_cash']
 
 
+def test_realized_gains_cannot_replenish_daily_risk_budget():
+    # Reserved risk plus new stressed loss exceeds the declared 50 cash cap.
+    # A windfall recorded earlier in the day must not make this pass.
+    kwargs = dict(existing_reserved_risk_cash='47', daily_unrealized_pnl_cash='0')
+    baseline = packet(daily_realized_pnl_cash='0', **kwargs)
+    windfall = packet(daily_realized_pnl_cash='1000', **kwargs)
+    assert baseline['projected_daily_pnl_cash'] == '-51.54'
+    assert windfall['projected_daily_pnl_cash'] == baseline['projected_daily_pnl_cash']
+    assert 'projected_daily_loss_below_cap' in windfall['failed_checks']
+    assert not windfall['assumption_checks_pass']
+    assert compare_review(windfall, intent(daily_realized_pnl_cash='1000', **kwargs),
+                          now_ms=NOW+1)['requires_new_human_review']
+    assert windfall['may_execute_real_order'] is False
+    assert windfall['may_execute_paper_order'] is False
+
+
+def test_realized_losses_still_reduce_daily_risk_capacity():
+    kwargs = dict(existing_reserved_risk_cash='47', daily_unrealized_pnl_cash='0')
+    no_realized_loss = packet(daily_realized_pnl_cash='0', **kwargs)
+    realized_loss = packet(daily_realized_pnl_cash='-10', **kwargs)
+    assert no_realized_loss['projected_daily_pnl_cash'] == '-51.54'
+    assert realized_loss['projected_daily_pnl_cash'] == '-61.54'
+    assert 'projected_daily_loss_below_cap' in realized_loss['failed_checks']
+
+
 def test_pure_repeatability():
     x = intent()
     original = deepcopy(x)
@@ -134,9 +252,61 @@ def test_pure_repeatability():
     assert x == original
 
 
+@pytest.mark.parametrize('change,check', [
+    ({'max_position_loss_cash': '51'}, 'declared_position_budget_at_most_5pct_equity'),
+    ({'max_daily_loss_cash': '101'}, 'declared_daily_budget_at_most_10pct_equity'),
+    ({'max_gross_leverage': '5.00000001'}, 'declared_leverage_policy_at_most_5x'),
+    ({'max_spread_bps': '100.00000001'}, 'declared_spread_policy_at_most_100bps'),
+])
+def test_untrusted_risk_policy_cannot_relax_conservative_review_ceiling(change, check):
+    result = packet(**change)
+    assert check in result['failed_checks']
+    assert result['assumption_checks_pass'] is False
+    assert result['may_execute_real_order'] is False
+    assert result['may_execute_paper_order'] is False
+
+
+@pytest.mark.parametrize('policy', [
+    {'max_quote_age_ms': 3001},
+    {'max_transport_lag_ms': 1001},
+    {'max_quote_age_ms': 60000},
+    {'max_transport_lag_ms': 60000},
+])
+def test_quote_timing_policy_cannot_be_relaxed(policy):
+    with pytest.raises(ValueError, match='Invalid timing policy'):
+        build_review_packet(intent(), now_ms=NOW, **policy)
+    with pytest.raises(ValueError, match='Invalid timing policy'):
+        compare_review(packet(), intent(), now_ms=NOW+1, **policy)
+
+
+def test_generic_conservative_ceilings_do_not_override_cash_leverage_policy():
+    result = packet(max_position_loss_cash='50', max_daily_loss_cash='100',
+                    max_gross_leverage='5', max_spread_bps='100')
+    for check in ('declared_position_budget_at_most_5pct_equity',
+                  'declared_daily_budget_at_most_10pct_equity',
+                  'declared_leverage_policy_at_most_5x',
+                  'declared_spread_policy_at_most_100bps'):
+        assert result['checks'][check] is True
+    assert result['checks']['cash_account_unleveraged_policy'] is False
+    assert result['assumption_checks_pass'] is False
+    assert result['may_execute_real_order'] is False
+    assert result['may_execute_paper_order'] is False
+
+
+def test_new_policy_checks_preserve_existing_position_loss_calculation():
+    baseline = packet()
+    assert baseline['stressed_loss_cash'] == '4.54'
+    assert baseline['checks']['declared_position_budget_at_most_5pct_equity']
+    assert baseline['checks']['declared_daily_budget_at_most_10pct_equity']
+    assert baseline['checks']['declared_leverage_policy_at_most_5x']
+    assert baseline['checks']['cash_account_unleveraged_policy']
+    assert baseline['checks']['declared_spread_policy_at_most_100bps']
+
+
+# Regression cases carried forward from PR #79; preserve both safety layers.
 @pytest.mark.parametrize('bid,ask', [
-    ('99', '99.02'),       # Exact BUY stop touch
-    ('98.5', '98.52'),     # Already through the BUY stop
+    ('99', '99.02'),
+    ('98.5', '98.52'),
 ])
 def test_current_executable_bid_breaches_buy_stop(bid, ask):
     p = packet(quote_bid=bid, quote_ask=ask)
@@ -174,3 +344,291 @@ def test_stressed_leverage_can_fail_even_when_current_leverage_passes():
     assert p['checks']['portfolio_leverage_within_cap']
     assert not p['checks']['stressed_portfolio_leverage_within_cap']
     assert not p['may_execute_real_order']
+
+
+def test_conservative_ceilings_and_stop_breach_are_both_enforced():
+    p = packet(quote_bid='90', quote_ask='90.02', max_position_loss_cash='51',
+               max_daily_loss_cash='101', max_gross_leverage='5.00000001',
+               max_spread_bps='100.00000001')
+    for check in ('protective_stop_not_breached',
+                  'declared_position_budget_at_most_5pct_equity',
+                  'declared_daily_budget_at_most_10pct_equity',
+                  'declared_leverage_policy_at_most_5x',
+                  'declared_spread_policy_at_most_100bps'):
+        assert check in p['failed_checks']
+    assert p['may_execute_real_order'] is False
+
+
+@pytest.mark.parametrize('broker', ['Trading212-Invest', 'Trading212-StocksISA'])
+def test_cash_account_funding_includes_declared_costs(broker):
+    # The purchase itself fits, but the declared round-trip costs do not.
+    order = intent(broker=broker, existing_gross_notional_cash='799.56',
+                   max_gross_leverage='2')
+    result = build_review_packet(order, now_ms=NOW)
+    assert result['combined_notional_cash'] == '999.60'
+    assert result['checks']['portfolio_leverage_within_cap']
+    assert result['checks']['stressed_portfolio_leverage_within_cap']
+    assert 'cash_account_fully_funded' in result['failed_checks']
+    assert 'cash_account_unleveraged_policy' in result['failed_checks']
+    assert not result['assumption_checks_pass']
+    assert compare_review(result, order, now_ms=NOW+1)['requires_new_human_review']
+    assert result['may_execute_paper_order'] is False
+    assert result['may_execute_real_order'] is False
+
+
+@pytest.mark.parametrize('gross,cost,expected', [
+    ('799.46', '0.5', True),   # 999.50 + 0.50 = exactly 1,000
+    ('799.47', '0.5', False),  # 999.51 + 0.50 = 1,000.01
+    ('799.56', '0', True),     # zero declared costs need no extra buffer
+])
+def test_cash_account_funding_fee_boundary_is_exact_decimal(gross, cost, expected):
+    result = packet(existing_gross_notional_cash=gross,
+                    estimated_total_cost_cash=cost, max_gross_leverage='2')
+    assert result['checks']['cash_account_fully_funded'] is expected
+    assert ('cash_account_fully_funded' in result['failed_checks']) is not expected
+    assert result['may_execute_real_order'] is False
+
+
+@pytest.mark.parametrize('broker', ['Trading212-Invest', 'Trading212-StocksISA'])
+@pytest.mark.parametrize('rate', ['0.00000001', '50', '99.99999999'])
+def test_cash_account_rejects_discounted_declared_margin(broker, rate):
+    # The gross purchase can be funded while a discounted margin declaration
+    # misleadingly makes stressed equity coverage appear less demanding.
+    order = intent(broker=broker, margin_rate_percent=rate)
+    result = build_review_packet(order, now_ms=NOW)
+    assert result['checks']['cash_account_fully_funded'] is True
+    assert result['checks']['cash_account_full_margin_policy'] is False
+    assert 'cash_account_full_margin_policy' in result['failed_checks']
+    assert result['assumption_checks_pass'] is False
+    assert compare_review(result, order, now_ms=NOW+1)['requires_new_human_review']
+    assert result['may_execute_paper_order'] is False
+    assert result['may_execute_real_order'] is False
+
+
+@pytest.mark.parametrize('broker', ['Trading212-Invest', 'Trading212-StocksISA'])
+def test_cash_account_full_margin_boundary_preserves_nonexecution(broker):
+    result = packet(broker=broker, margin_rate_percent='100.00000000')
+    assert result['checks']['cash_account_full_margin_policy'] is True
+    assert result['assumption_checks_pass'] is True
+    assert result['may_execute_paper_order'] is False
+    assert result['may_execute_real_order'] is False
+
+
+@pytest.mark.parametrize('entry,allowed', [
+    ('100.02', True),          # quoted ASK, no extra entry slippage
+    ('101.0202', True),        # exactly 100 bps beyond ASK
+    ('101.02020001', False),   # one 8-decimal increment beyond the cap
+    ('102', False),            # 198 bps beyond ASK; other risk checks can pass
+])
+def test_buy_declared_entry_deviation_has_exact_100bps_ceiling(entry, allowed):
+    result = packet(entry_price=entry)
+    assert result['checks']['entry_not_better_than_quote'] is True
+    assert result['checks']['declared_entry_deviation_at_most_100bps'] is allowed
+    assert ('declared_entry_deviation_at_most_100bps' in result['failed_checks']) is not allowed
+    if not allowed:
+        assert result['assumption_checks_pass'] is False
+        assert compare_review(result, intent(entry_price=entry), now_ms=NOW+1)['requires_new_human_review']
+    assert result['may_execute_real_order'] is False
+    assert result['may_execute_paper_order'] is False
+
+
+@pytest.mark.parametrize('entry,allowed', [
+    ('100', True),           # quoted BID, no extra entry slippage
+    ('99', True),            # exactly 100 bps below BID
+    ('98.99999999', False),  # one 8-decimal increment beyond the cap
+    ('98', False),
+])
+def test_sell_declared_entry_deviation_has_exact_100bps_ceiling(entry, allowed):
+    # CFD SELL previews remain independently blocked by the unsupported API
+    # account gate. Test the entry-deviation diagnostic, not execution.
+    order = intent(broker='Trading212-CFD', direction='SELL', entry_price=entry,
+                   stop_price='101', stressed_exit_price='102')
+    result = build_review_packet(order, now_ms=NOW)
+    assert result['checks']['entry_not_better_than_quote'] is True
+    assert result['checks']['declared_entry_deviation_at_most_100bps'] is allowed
+    assert ('declared_entry_deviation_at_most_100bps' in result['failed_checks']) is not allowed
+    assert result['may_execute_real_order'] is False
+    assert result['may_execute_paper_order'] is False
+
+@pytest.mark.parametrize('bad_packet', [None, [], (), 'review', 0])
+def test_review_comparison_rejects_non_object_packets(bad_packet):
+    # Malformed external review input must fail with a controlled validation
+    # error, not an AttributeError from trying to call packet.get().
+    with pytest.raises(ValueError, match='plain object'):
+        compare_review(bad_packet, intent(), now_ms=NOW + 1)
+
+
+def test_review_comparison_rejects_dict_subclass_before_get():
+    class SpoofedPacket(dict):
+        def get(self, *_args, **_kwargs):
+            raise AssertionError('untrusted overridden get must not run')
+
+    with pytest.raises(ValueError, match='plain object'):
+        compare_review(SpoofedPacket(packet()), intent(), now_ms=NOW + 1)
+
+    # A legitimate plain dict still compares and never authorizes execution.
+    result = compare_review(packet(), intent(), now_ms=NOW + 1)
+    assert result['review_matches_exact_intent'] is True
+    assert result['may_execute_paper_order'] is False
+    assert result['may_execute_real_order'] is False
+
+
+@pytest.mark.parametrize('bad_order', [None, [], (), 'order', 1])
+def test_review_builder_rejects_non_plain_order_objects(bad_order):
+    with pytest.raises(ValueError, match='plain object'):
+        build_review_packet(bad_order, now_ms=NOW)
+
+
+def test_review_builder_rejects_mapping_subclass_without_accessing_it():
+    class SpoofedOrder(dict):
+        def __iter__(self):
+            raise AssertionError('untrusted order iterator must not run')
+
+        def __getitem__(self, _key):
+            raise AssertionError('untrusted order accessor must not run')
+
+    malicious = SpoofedOrder(intent())
+    with pytest.raises(ValueError, match='plain object'):
+        build_review_packet(malicious, now_ms=NOW)
+    with pytest.raises(ValueError, match='plain object'):
+        compare_review(packet(), malicious, now_ms=NOW + 1)
+
+
+@pytest.mark.parametrize('field,value', [
+    ('quantity', '2'),
+    ('quote_id', 'q-12345678'),
+])
+def test_review_builder_rejects_untrusted_string_subclasses(field, value):
+    class SpoofedText(str):
+        pass
+
+    with pytest.raises(ValueError, match='expected bounded plain decimal string|invalid identifier'):
+        packet(**{field: SpoofedText(value)})
+
+    # Ordinary JSON-decoded strings are still valid and never authorize orders.
+    valid = packet(**{field: value})
+    assert valid['assumption_checks_pass'] is True
+    assert valid['may_execute_paper_order'] is False
+    assert valid['may_execute_real_order'] is False
+
+
+def test_review_comparison_rejects_fingerprint_subclass_before_methods():
+    # A plain dict can contain a non-JSON str subclass whose len/iterator
+    # executes arbitrary code. The fingerprint is untrusted packet input.
+    class HostileDigest(str):
+        def __len__(self):
+            raise AssertionError('untrusted digest length must not run')
+
+        def __iter__(self):
+            raise AssertionError('untrusted digest iterator must not run')
+
+    review = packet()
+    review['review_sha256'] = HostileDigest(review['review_sha256'])
+    with pytest.raises(ValueError, match='Invalid review fingerprint'):
+        compare_review(review, intent(), now_ms=NOW + 1)
+
+    # Ordinary decoded JSON text remains valid and never grants execution.
+    original = packet()
+    result = compare_review(original, intent(), now_ms=NOW + 1)
+    assert result['review_matches_exact_intent'] is True
+    assert result['may_execute_paper_order'] is False
+    assert result['may_execute_real_order'] is False
+
+
+@pytest.mark.parametrize('broker', ['Trading212-Invest', 'Trading212-StocksISA'])
+@pytest.mark.parametrize('leverage', ['1.00000001', '2', '5'])
+def test_cash_account_rejects_leveraged_declared_policy(broker, leverage):
+    # Funding the proposed BUY does not make a >1x cash-account policy valid.
+    order = intent(broker=broker, max_gross_leverage=leverage)
+    review = build_review_packet(order, now_ms=NOW)
+    assert review['checks']['cash_account_fully_funded'] is True
+    assert review['checks']['declared_leverage_policy_at_most_5x'] is True
+    assert review['checks']['cash_account_unleveraged_policy'] is False
+    assert 'cash_account_unleveraged_policy' in review['failed_checks']
+    assert compare_review(review, order, now_ms=NOW+1)['requires_new_human_review']
+    assert review['may_execute_paper_order'] is False
+    assert review['may_execute_real_order'] is False
+
+
+@pytest.mark.parametrize('broker', ['Trading212-Invest', 'Trading212-StocksISA'])
+@pytest.mark.parametrize('leverage', ['0.5', '1', '1.00000000'])
+def test_cash_account_unleveraged_policy_accepts_declared_boundary(broker, leverage):
+    review = packet(broker=broker, max_gross_leverage=leverage)
+    assert review['checks']['cash_account_unleveraged_policy'] is True
+    assert review['assumption_checks_pass'] is True
+    assert review['may_execute_paper_order'] is False
+    assert review['may_execute_real_order'] is False
+
+
+def test_re_review_uses_one_intent_snapshot_for_digest_and_quote_age(monkeypatch):
+    # A caller-owned dictionary can change while the deterministic packet is
+    # rebuilt. Re-review must not mix the validated intent's fingerprint with
+    # later quote timestamps, or raise KeyError on a removed field.
+    import app.live_order_review as review_module
+
+    original = packet()
+    revised = intent()
+    actual_builder = review_module.build_review_packet
+
+    def mutate_caller_after_rebuild(order, **kwargs):
+        recomputed = actual_builder(order, **kwargs)
+        revised['quote_observed_at_ms'] = NOW - 10000
+        del revised['quote_received_at_ms']
+        return recomputed
+
+    monkeypatch.setattr(review_module, 'build_review_packet', mutate_caller_after_rebuild)
+    result = compare_review(original, revised, now_ms=NOW + 1)
+    assert result['review_matches_exact_intent'] is True
+    assert result['quote_still_fresh'] is True
+    assert result['requires_new_human_review'] is False
+    assert result['may_execute_real_order'] is False
+    assert result['may_execute_paper_order'] is False
+    assert 'quote_received_at_ms' not in revised
+
+
+class _RehashTrapKey(str):
+    """Valid-looking dict key that must never be re-hashed by the reviewer."""
+
+    def __new__(cls, value):
+        key = super().__new__(cls, value)
+        key.hash_calls = 0
+        return key
+
+    def __hash__(self):
+        self.hash_calls += 1
+        if self.hash_calls > 1:
+            raise AssertionError('Untrusted mapping key was re-hashed')
+        return super().__hash__()
+
+
+def test_review_rejects_order_key_subclass_before_rehash():
+    order = intent()
+    original = order.pop('broker')
+    hostile_key = _RehashTrapKey('broker')
+    order[hostile_key] = original
+    assert hostile_key.hash_calls == 1
+
+    with pytest.raises(ValueError, match='keys must be plain strings'):
+        build_review_packet(order, now_ms=NOW)
+    with pytest.raises(ValueError, match='keys must be plain strings'):
+        compare_review(packet(), order, now_ms=NOW)
+    assert hostile_key.hash_calls == 1
+
+
+@pytest.mark.parametrize('nested_checks', [False, True])
+def test_review_rejects_packet_key_subclass_before_rehash(nested_checks):
+    original = packet()
+    modified = deepcopy(original)
+    target = modified['checks'] if nested_checks else modified
+    field = next(iter(target)) if nested_checks else 'warnings'
+    value = target.pop(field)
+    hostile_key = _RehashTrapKey(field)
+    target[hostile_key] = value
+    assert hostile_key.hash_calls == 1
+
+    result = compare_review(modified, intent(), now_ms=NOW)
+    assert result['review_matches_exact_intent'] is False
+    assert result['requires_new_human_review'] is True
+    assert result['may_execute_paper_order'] is False
+    assert result['may_execute_real_order'] is False
+    assert hostile_key.hash_calls == 1

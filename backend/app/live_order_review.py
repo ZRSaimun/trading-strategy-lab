@@ -28,7 +28,7 @@ MAX_TIME = 8_640_000_000_000_000
 def _money(value, field):
     # String-only: no lossy float conversion, booleans, exponent notation,
     # hidden whitespace, NaN/Infinity, or unbounded precision/scale.
-    if not isinstance(value, str) or not re.fullmatch(r'-?(?:0|[1-9][0-9]{0,14})(?:\.[0-9]{1,8})?', value):
+    if type(value) is not str or not re.fullmatch(r'-?(?:0|[1-9][0-9]{0,14})(?:\.[0-9]{1,8})?', value):
         raise ValueError(f'{field}: expected bounded plain decimal string')
     try:
         result = Decimal(value)
@@ -40,13 +40,21 @@ def _money(value, field):
 
 
 def _identity(value, field):
-    if not isinstance(value, str) or not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._:/+-]{0,79}', value):
+    if type(value) is not str or not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._:/+-]{0,79}', value):
         raise ValueError(f'{field}: invalid identifier')
     return value
 
 
 def _normalize(order):
-    if not isinstance(order, dict) or set(order) != EXPECTED_FIELDS:
+    # Refuse mapping subclasses before iteration or field access: untrusted
+    # overrides of __iter__/__getitem__ must not execute during a review.
+    if type(order) is not dict:
+        raise ValueError('Review input must be a plain object')
+    # Reject non-JSON key objects before set() re-hashes untrusted keys.
+    # A str subclass may override __hash__/__eq__ despite a plain dict.
+    if any(type(key) is not str for key in order):
+        raise ValueError('Review input keys must be plain strings')
+    if set(order) != EXPECTED_FIELDS:
         raise ValueError('Review input must contain exactly the required fields')
     normalized = {field: _identity(order[field], field) for field in TEXT_FIELDS}
     normalized.update({field: _money(order[field], field) for field in MONEY_FIELDS})
@@ -86,7 +94,7 @@ def build_review_packet(order, *, now_ms, max_quote_age_ms=3000,
         raise ValueError('Invalid trusted server clock')
     if any(type(v) is not int for v in (max_quote_age_ms, max_transport_lag_ms, ttl_ms)):
         raise ValueError('Timing limits must be integers')
-    if not 100 <= max_quote_age_ms <= 60000 or not 0 <= max_transport_lag_ms <= 60000 or not 1000 <= ttl_ms <= 60000:
+    if not 100 <= max_quote_age_ms <= 3000 or not 0 <= max_transport_lag_ms <= 1000 or not 1000 <= ttl_ms <= 60000:
         raise ValueError('Invalid timing policy')
     if now_ms + ttl_ms > MAX_TIME:
         raise ValueError('Review expiry overflow')
@@ -104,8 +112,15 @@ def build_review_packet(order, *, now_ms, max_quote_age_ms=3000,
                                                else o['stressed_exit_price'] > o['stop_price'])
     checks['entry_not_better_than_quote'] = (o['entry_price'] >= o['quote_ask'] if o['direction'] == 'BUY'
                                              else o['entry_price'] <= o['quote_bid'])
-    # The current executable side can already have crossed the protective stop.
-    # A stop touch is a reconciliation HOLD, never evidence of a guaranteed fill.
+    # A declared entry far beyond the quoted executable side must not look
+    # acceptable solely because the owner also declares a large equity budget.
+    # One percent is a conservative OFFLINE sanity ceiling, not a broker fill
+    # tolerance or evidence that the quote is genuine.
+    checks['declared_entry_deviation_at_most_100bps'] = (
+        o['quote_ask'] <= o['entry_price'] <= o['quote_ask'] * Decimal('1.01')
+        if o['direction'] == 'BUY'
+        else o['quote_bid'] * Decimal('0.99') <= o['entry_price'] <= o['quote_bid'])
+    # A touched protective stop is a reconciliation hold, not a fill guarantee.
     checks['protective_stop_not_breached'] = (
         o['quote_bid'] > o['stop_price'] if o['direction'] == 'BUY'
         else o['quote_ask'] < o['stop_price'])
@@ -115,8 +130,7 @@ def build_review_packet(order, *, now_ms, max_quote_age_ms=3000,
         checks['spread_within_cap'] = checks['uncrossed_quote'] and spread <= o['max_spread_bps']
         notional = o['entry_price'] * o['quantity'] * o['point_value_cash']
         margin = notional * o['margin_rate_percent'] / 100
-        # Stress at the WORSE of the declared adverse exit and the currently
-        # observed executable side; a gapped market must not shrink risk.
+        # Price downside at the worse of declared stress and executable quote.
         adverse_exit = (min(o['stressed_exit_price'], o['quote_bid'])
                         if o['direction'] == 'BUY'
                         else max(o['stressed_exit_price'], o['quote_ask']))
@@ -124,9 +138,27 @@ def build_review_packet(order, *, now_ms, max_quote_age_ms=3000,
                 * o['point_value_cash'] + o['estimated_total_cost_cash'])
         combined_notional = o['existing_gross_notional_cash'] + notional
         combined_margin = o['existing_reserved_margin_cash'] + margin
-        effective_daily = (o['daily_realized_pnl_cash']
+        # Do not let declared same-day profits replenish a hard daily risk
+        # budget: only realized/unrealized losses reduce remaining capacity.
+        effective_daily = (min(o['daily_realized_pnl_cash'], Decimal(0))
                            + min(o['daily_unrealized_pnl_cash'], Decimal(0))
                            - o['existing_reserved_risk_cash'] - loss)
+        # Conservative non-relaxable bounds for this offline review surface.
+        # These are NOT a broker risk policy, nor guarantees against gap losses.
+        checks['declared_position_budget_at_most_5pct_equity'] = (
+            o['max_position_loss_cash'] * 100 <= o['account_equity_cash'] * 5)
+        checks['declared_daily_budget_at_most_10pct_equity'] = (
+            o['max_daily_loss_cash'] * 100 <= o['account_equity_cash'] * 10)
+        checks['declared_leverage_policy_at_most_5x'] = (
+            o['max_gross_leverage'] <= Decimal('5'))
+        # A cash-account preview must not describe a leveraged policy even
+        # when a separate full-funding check currently limits gross exposure.
+        # CFD remains blocked by its independent official-API account gate.
+        checks['cash_account_unleveraged_policy'] = (
+            o['broker'] == 'Trading212-CFD'
+            or o['max_gross_leverage'] <= Decimal('1'))
+        checks['declared_spread_policy_at_most_100bps'] = (
+            o['max_spread_bps'] <= Decimal('100'))
         checks['per_position_loss_cap'] = loss > 0 and loss <= o['max_position_loss_cash']
         checks['position_cap_within_daily_cap_and_equity'] = (o['max_position_loss_cash'] <= o['max_daily_loss_cash']
                                                                and o['max_position_loss_cash'] <= o['account_equity_cash'])
@@ -139,8 +171,17 @@ def build_review_packet(order, *, now_ms, max_quote_age_ms=3000,
             stressed_equity > 0 and combined_margin <= stressed_equity)
         checks['stressed_portfolio_leverage_within_cap'] = (
             stressed_equity > 0 and combined_notional <= stressed_equity * o['max_gross_leverage'])
+        # A cash account must cover declared round-trip costs as well as gross
+        # purchase exposure; leverage/margin checks alone do not reserve fees.
         checks['cash_account_fully_funded'] = (o['broker'] == 'Trading212-CFD'
-                                                 or combined_notional <= o['account_equity_cash'])
+                                                 or combined_notional + o['estimated_total_cost_cash']
+                                                 <= o['account_equity_cash'])
+        # Invest and Stocks ISA are unleveraged cash accounts. A lower
+        # owner-declared margin rate understates the stressed cash requirement
+        # even when the separate purchase-funding check happens to pass.
+        checks['cash_account_full_margin_policy'] = (
+            o['broker'] == 'Trading212-CFD'
+            or o['margin_rate_percent'] == Decimal('100'))
     canonical = _canonical_order(o)
     digest_input = {'schema': 'live-order-review-v1', 'order': canonical,
                     'issued_at_ms': now_ms, 'expires_at_ms': now_ms + ttl_ms,
@@ -168,11 +209,57 @@ def build_review_packet(order, *, now_ms, max_quote_age_ms=3000,
             ]}
 
 
+
+def _same_review_payload(received, expected):
+    """Compare the typed packet schema, not JSON-coerced representations.
+
+    JSON encoding would silently equate tuples with arrays, and can recurse
+    indefinitely on malformed nested values. The review packet has a fixed
+    shallow schema: check flags are booleans and diagnostic lists are strings.
+    Calculated cash amounts alone permit equivalent decimal renderings.
+    """
+    amount_keys = ('stressed_loss_cash', 'combined_notional_cash',
+                   'combined_margin_cash', 'projected_daily_pnl_cash')
+    if type(received) is not dict or any(type(key) is not str for key in received):
+        return False
+    if set(received) != set(expected):
+        return False
+    for key, wanted in expected.items():
+        value = received[key]
+        if key in amount_keys:
+            if (type(value) is not str or len(value) > 160
+                    or not re.fullmatch(r'-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?', value)
+                    or Decimal(value) != Decimal(wanted)):
+                return False
+        elif key == 'checks':
+            if type(value) is not dict or any(type(name) is not str for name in value):
+                return False
+            if set(value) != set(wanted):
+                return False
+            if any(type(value[name]) is not bool or value[name] is not flag
+                   for name, flag in wanted.items()):
+                return False
+        elif key in ('failed_checks', 'warnings'):
+            if (type(value) is not list or len(value) != len(wanted)
+                    or any(type(item) is not str or item != expected_item
+                           for item, expected_item in zip(value, wanted))):
+                return False
+        elif type(value) is not type(wanted) or value != wanted:
+            return False
+    return True
+
 def compare_review(packet, revised_order, *, now_ms, max_quote_age_ms=3000,
                    max_transport_lag_ms=1000):
     """Detect expired/changed reviews, never grant execution on a match."""
-    digest = packet.get('review_sha256') if isinstance(packet, dict) else None
-    if not isinstance(digest, str) or len(digest) != 64 or set(digest) - set('0123456789abcdef'):
+    # Reject malformed packet containers before calling methods on untrusted
+    # objects. A dict subclass can override .get; only a plain JSON object
+    # belongs to this fixed review schema.
+    if type(packet) is not dict:
+        raise ValueError('Review packet must be a plain object')
+    digest = packet.get('review_sha256')
+    # Reject string subclasses before len()/iteration; an untrusted subclass may
+    # override these operations even when it displays a valid hex digest.
+    if type(digest) is not str or len(digest) != 64 or set(digest) - set('0123456789abcdef'):
         raise ValueError('Invalid review fingerprint')
     issued = packet.get('issued_at_ms')
     expires = packet.get('expires_at_ms')
@@ -180,15 +267,26 @@ def compare_review(packet, revised_order, *, now_ms, max_quote_age_ms=3000,
         raise ValueError('Invalid review timing')
     if type(now_ms) is not int or not 0 <= now_ms <= MAX_TIME:
         raise ValueError('Invalid server clock')
-    current = build_review_packet(revised_order, now_ms=issued,
+    # Normalize and recheck a single plain-object snapshot. The original
+    # caller-owned dict may be modified while the review is recomputed; do
+    # not mix a digest from one state with quote freshness from another.
+    # All accepted values are immutable exact str/int after validation.
+    if type(revised_order) is not dict:
+        raise ValueError('Review input must be a plain object')
+    order_snapshot = revised_order.copy()
+    current = build_review_packet(order_snapshot, now_ms=issued,
                                   ttl_ms=expires-issued,
                                   max_quote_age_ms=max_quote_age_ms,
                                   max_transport_lag_ms=max_transport_lag_ms)
-    matches = current['review_sha256'] == digest
+    # A matching input fingerprint alone does not protect the unsigned packet's
+    # displayed checks, risk amounts or execution flags from local modification.
+    # Compare the entire deterministic packet against a fresh recomputation.
+    # This is consistency validation, NOT broker authenticity or a signature.
+    matches = current['review_sha256'] == digest and _same_review_payload(packet, current)
     # An unchanged order can still have a quote that became stale after the
     # packet was issued. Re-evaluate the timestamp gate against CURRENT time.
-    observed = revised_order['quote_observed_at_ms']
-    received = revised_order['quote_received_at_ms']
+    observed = order_snapshot['quote_observed_at_ms']
+    received = order_snapshot['quote_received_at_ms']
     quote_fresh_now = (observed <= received <= now_ms
                        and now_ms - observed <= max_quote_age_ms
                        and received - observed <= max_transport_lag_ms)
