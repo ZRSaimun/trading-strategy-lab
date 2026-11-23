@@ -25,3 +25,7 @@ Complete formal CRT/ICT definitions, higher-timeframe alignment, opposing-level 
 ## Benefit today
 
 With authorized imported history, the user can practice replay without future candles, inspect defined patterns, compare deterministic strategy approximations after illustrative costs, retain simulated trade notes and export/restore the workspace. This can support a repeatable learning process, but it does not establish improved outcomes. Without imported data, most research functions remain empty; the external charts alone do not deliver the master project's main benefit. There is no guarantee of returns, verified strategy edge, executable price feed, real-money execution or completed live AI assistant.
+
+## Hourly FVG regression CI visibility
+
+The `foundation-checks` frontend job now runs `node --experimental-strip-types --test tests/hourly-fvg-*.test.ts` as a dedicated named step before the complete `npm test` suite. This uses the same synthetic regression fixtures already tracked in the feature branch and does not establish source authenticity or profitability. The workflow also runs on push and pull_request; a lookup limited to PR-event runs is insufficient to conclude that no push-triggered checks exist. Review the GitHub Actions page and exact commit checks before declaring the draft PR verified. Keep the PR draft while its broad diff and mergeability remain unresolved.
