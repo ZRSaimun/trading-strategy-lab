@@ -97,3 +97,30 @@ test('future timestamp cannot downgrade exchange-volume provenance to tick volum
   assert.equal(secondTimestampReads, 0);
   assert.equal(futurePayloadReads, 0);
 });
+
+
+test('stable exchange-volume class permits timestamp-only future scanning', () => {
+  const H = 3600;
+  const source: FvgSource = {
+    datasetId: 'a'.repeat(64), archiveSha256: 'b'.repeat(64),
+    instrument: 'SYNTHETIC_GOLD', provider: 'fixture-provider',
+    priceSide: 'bid', volumeType: 'exchange', volumeVerified: false,
+  };
+  const completed: Bar[] = [0, H].map(time => ({
+    time, open: 100, high: 101, low: 99, close: 100,
+    volume: 100, observed_minutes: 60,
+  }));
+  const reads = [0, 0, 0];
+  let payloadReads = 0;
+  const future = [3, 4, 5].map((hour, i) => Object.defineProperties({}, {
+    time: {enumerable: true, get: () => { reads[i]++; return hour * H; }},
+    ...Object.fromEntries(['open', 'high', 'low', 'close', 'volume', 'observed_minutes']
+      .map(field => [field, {enumerable: true, get: () => {
+        payloadReads++;
+        throw Error('unrevealed ' + field + ' accessed');
+      }}])),
+  }) as Bar);
+  assert.doesNotThrow(() => studyHourlyFvgMidpointAsOf([...completed, ...future], source, 2 * H));
+  assert.deepEqual(reads, [1, 1, 1]);
+  assert.equal(payloadReads, 0);
+});
