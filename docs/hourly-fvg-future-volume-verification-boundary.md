@@ -7,3 +7,7 @@ This guards against retroactively promoting an unverified completed-prefix volum
 ## Reverse transition regression (23 November 2026)
 
 A second synthetic test starts with `volumeVerified: true` and changes it to `false` from the first unrevealed future timestamp getter. The causal as-of scan must fail immediately, read only that first future timestamp once, and never access the next timestamp or future candle payload. Both directions of a source-verification identity transition are prohibited after the completed-prefix declaration snapshot. This is a source-integrity invariant, not independent proof that the initial `true` declaration was authentic. Real licensed source receipts and two-sided broker quotes remain missing.
+
+## Delayed revocation boundary
+
+A third synthetic regression lets the first unrevealed timestamp retain the original verified-volume declaration, then revokes `volumeVerified` while reading the second future timestamp. The as-of scanner must reject at that second timestamp, must not read a third future timestamp, and must never access unrevealed price, volume or coverage payloads. This tests delayed metadata mutation rather than genuine provider verification. A source declaration is not an authenticated market-data receipt, and passing this regression establishes neither a valid volume filter nor a trading edge.
