@@ -1,0 +1,5 @@
+# Causal 1H FVG dataset identity boundary
+
+On 23 November 2026, `frontend/tests/hourly-fvg-future-dataset-identity-boundary.test.ts` added a synthetic regression for a first unrevealed future hourly timestamp accessor that changes the declared `datasetId` while the as-of scanner is validating future timestamps. The scanner must reject the changed source declaration immediately, read that timestamp exactly once, skip the next future timestamp, and never inspect future OHLC, volume or observed-minute coverage. This complements the separate archive SHA-256 mutation test on draft PR #157.
+
+This test only checks source-declaration consistency and no-lookahead accessor ordering. A caller-supplied dataset ID or SHA-256 is not independent proof of licensed provenance, real source-classified volume, executable broker BID/ASK quotes, or trading performance. Keep the PR draft and paper-only; confirm exact-head CI before treating the regression as verified. No live orders or deployment are authorized.
