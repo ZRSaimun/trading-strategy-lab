@@ -37,3 +37,8 @@ The feature-branch `foundation-checks` workflow also declares `workflow_dispatch
 ## CI acceptance boundary (23 November 2026)
 
 The dedicated causal 1H FVG step is additive, not a substitute for the six existing foundation-checks jobs. `scripts/test_ci_trigger_contract.py` now asserts retention of all six job headers and the full frontend test/build/audit and backend test commands. These are static workflow-contract assertions, not proof the jobs executed. The `workflow_dispatch` entry exists on draft PR #157 only; GitHub manual dispatch generally requires the workflow file on the repository default branch, so do not claim the draft-only trigger can be run manually before it is present on `main`. Exact-head PR workflow and combined status queries returned no results at inspection; CI remains unverified. Do not merge or deploy without separate approval.
+
+
+## CI self-check execution regression (23 November 2026)
+
+The CI contract test now also asserts that `foundation-checks` invokes `scripts/test_ci_trigger_contract.py` exactly once in its backend job, before dependency installation and backend pytest. This prevents a future edit from silently leaving the workflow guard present in the repository but unexecuted. It is a static synthetic workflow regression, not evidence of a successful GitHub Actions run, trading edge, authenticated source volume or broker quote validation. PR #157 remains draft; obtain exact-head CI evidence and resolve its oversized diff and mergeability before review.
