@@ -461,3 +461,8 @@ The synthetic bullish first-midpoint-touch fixture now omits two consecutive eli
 ### Third future timestamp volume-class mutation regression (23 November 2026)
 
 Synthetic regression `hourly-fvg-future-volume-class-boundary.test.ts` rejects a `tick` to `exchange` source declaration mutation on the third unrevealed hourly timestamp. Exactly three timestamp getters may run; the fourth and all unrevealed OHLC/volume/coverage getters must remain untouched. This tests causal source-declaration integrity only. It does not authenticate exchange volume, broker BID/ASK prices, actual execution, or trading profitability.
+
+
+### Future-triggered archive identity substitution (23 November 2026)
+
+The synthetic causal 1H FVG regression in `frontend/tests/hourly-fvg-future-volume-class-boundary.test.ts` changes `archiveSha256` through the first unrevealed hourly timestamp getter. The scanner must reject the source declaration change immediately, read that timestamp exactly once, avoid the second future timestamp, and never access unrevealed OHLC, volume or coverage. A hash-shaped fixture is not an authenticated archive receipt; this test does not verify market data, broker execution or profitability. Exact-head CI remains to be checked; draft/paper-only, no merge or deployment.
