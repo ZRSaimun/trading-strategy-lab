@@ -665,6 +665,15 @@ class PaperRiskReservationStore:
             # The audit and state must agree inside this same transaction
             # before any policy or reservation mutation is attempted.
             if not _audit_head_matches(db, key, raw, state, reserved):
+                # Under PostgreSQL READ COMMITTED a competing CAS may commit
+                # after our state SELECT but before the audit-history SELECT.
+                # Re-read the state: a changed envelope means our revision is
+                # stale, not evidence that the winning commit was corrupt.
+                # Never proceed with a write or excuse a mismatch if the
+                # envelope is unchanged (including actual audit tampering).
+                if _read_bounded_state(db, key) != raw:
+                    db.rollback()
+                    return False
                 raise ValueError("Paper risk audit head is missing or inconsistent; halt orders")
             # The conditional SQL UPDATE below still protects against races.
             updated = change(state)
