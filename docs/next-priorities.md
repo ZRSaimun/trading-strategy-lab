@@ -29,3 +29,6 @@ With authorized imported history, the user can practice replay without future ca
 ## Hourly FVG regression CI visibility
 
 The `foundation-checks` frontend job now runs `node --experimental-strip-types --test tests/hourly-fvg-*.test.ts` as a dedicated named step before the complete `npm test` suite. This uses the same synthetic regression fixtures already tracked in the feature branch and does not establish source authenticity or profitability. The workflow also runs on push and pull_request; a lookup limited to PR-event runs is insufficient to conclude that no push-triggered checks exist. Review the GitHub Actions page and exact commit checks before declaring the draft PR verified. Keep the PR draft while its broad diff and mergeability remain unresolved.
+
+
+The feature-branch `foundation-checks` workflow also declares `workflow_dispatch` for an explicit manual run without altering Render or executing trades. `scripts/test_ci_trigger_contract.py` checks that push/PR triggers and the dedicated causal FVG regression step remain configured. This only verifies workflow text; a green GitHub Actions run at the exact head SHA is still required. No manual run has been started, and an empty PR-event workflow query cannot establish that GitHub Actions is enabled or disabled.
