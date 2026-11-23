@@ -453,3 +453,6 @@ Synthetic test `frontend/tests/hourly-fvg-bearish-close-boundary.test.ts` checks
 ## Two-hour bullish first-touch gap regression (7 November 2026)
 
 The synthetic bullish first-midpoint-touch fixture now omits two consecutive eligible closed hourly candles before a later completed wick intersects the midpoint. The causal study must report `INCOMPLETE_WINDOW`, `MISSING_HOUR`, exactly two missing slots, and insufficient midpoint and verified-volume evidence; it cannot promote the later wick to an observed *first* touch or live eligibility. This complements the bearish two-gap case. These fixture-only assertions do not authenticate BID/ASK quotes or volume and do not establish performance or profitability.
+
+
+**23 November 2026 — delayed future volume-class mutation boundary.** Synthetic regression checks that a `tick` to `exchange` source-declaration mutation triggered by the *second* unrevealed hourly timestamp fails immediately: the first and second timestamps are read once, the third is never read, and no future OHLC, volume or coverage getter executes. This validates a narrow causal provenance-integrity invariant, not independent authentication of exchange volume, executable broker quotes, or profitability. Exact-head CI must be verified separately; remain draft and paper-only.
