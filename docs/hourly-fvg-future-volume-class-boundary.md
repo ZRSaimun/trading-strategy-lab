@@ -13,3 +13,7 @@ Positive control (23 November 2026): a stable `exchange` source declaration with
 ## Second future timestamp downgrade regression
 
 The synthetic `exchange` → `tick` mutation on the second unrevealed hourly timestamp must fail closed after exactly two timestamp reads. The third timestamp and every future OHLC, volume, and coverage accessor remain unread. This tests declaration consistency and causal isolation only; it does not verify real exchange-volume provenance or strategy profitability.
+
+## Third future timestamp downgrade regression (23 November 2026)
+
+Synthetic as-of regression now rejects an `exchange` → `tick` source-volume classification mutation triggered by the third unrevealed future hourly timestamp. It requires exactly three timestamp reads, no fourth timestamp read, and zero future OHLC, volume or coverage reads. This is a causal provenance-consistency test only: `exchange` is a fixture label, not authenticated volume evidence. CI must pass on the exact new head before claiming verification; no profitability inference is permitted.
