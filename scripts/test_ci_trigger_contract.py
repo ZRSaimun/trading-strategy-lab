@@ -26,7 +26,7 @@ class WorkflowTriggerRegression(unittest.TestCase):
             "backend", "frontend", "docker-smoke", "free-cloud-smoke",
             "postgres-risk-acceptance", "postgres-reservations-acceptance",
         ):
-            self.assertIn(f"  {job}:\\n", source)
+            self.assertIn(f"  {job}:\n", source)
         self.assertIn("      - run: npm test", source)
         self.assertIn("      - run: npm run build", source)
         self.assertIn("      - run: npm audit --omit=dev --audit-level=high", source)
