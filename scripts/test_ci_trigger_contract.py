@@ -20,6 +20,18 @@ class WorkflowTriggerRegression(unittest.TestCase):
         self.assertIn("node --experimental-strip-types --test tests/hourly-fvg-*.test.ts", source)
         self.assertLess(source.index("name: Causal hourly FVG provenance regressions"), source.index("- run: npm test"))
 
+    def test_full_acceptance_jobs_are_not_replaced_by_focused_regressions(self):
+        source = WORKFLOW.read_text(encoding="utf-8")
+        for job in (
+            "backend", "frontend", "docker-smoke", "free-cloud-smoke",
+            "postgres-risk-acceptance", "postgres-reservations-acceptance",
+        ):
+            self.assertIn(f"  {job}:\\n", source)
+        self.assertIn("      - run: npm test", source)
+        self.assertIn("      - run: npm run build", source)
+        self.assertIn("      - run: npm audit --omit=dev --audit-level=high", source)
+        self.assertIn("      - run: cd backend && PYTHONPATH=. pytest -q", source)
+
 
 if __name__ == "__main__":
     unittest.main()
